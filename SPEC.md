@@ -20,10 +20,12 @@ SPEC.md                  本规范
 Cargo.toml, Cargo.lock   Rust workspace 根，成员是 crates/*
 crates/<crate>/          每个 crate 一个目录，目录名就是 crate 名
 target/                  构建输出，不提交
-android/                 Android 应用
-ios/                     iOS 应用（后续）
+android/                 Android 应用（Gradle 工程）
+ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
 docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
+
+- 构建生成物一律不提交：`target/`、`android/app/build/`、`ios/build/`、`ios/Generated/`（UniFFI 生成的 Swift 绑定），以及 XcodeGen 生成的 `ios/Kite.xcodeproj`。
 
 - Rust 代码只放在 `crates/` 下，不得再使用 `core/` 目录。
 - crate 名用 `kite-` 前缀加小写、短横线分隔。唯一的例外是工具 crate `uniffi-bindgen`。
@@ -36,7 +38,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
 原生应用（Kotlin / Swift）
         │  UniFFI · 媒体通道
-边界层   kite-ffi        唯一的 cdylib
+边界层   kite-ffi        唯一对外的库：Android 用 cdylib，iOS 用 staticlib
         │
 应用层   kite-app
         │
@@ -55,7 +57,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的消息模型；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | M2 新建 |
 | `kite-stream` | 领域 | Sunshine 配对和管理；通过 moonlight-common-c 建立 Moonlight 会话；把视频帧交给 `MediaSink`，接收串流输入 | M3 新建 |
 | `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | M1 已有一次性检查 |
-| `kite-ffi` | 边界 | UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | M1 已有 |
+| `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | M1 已有 |
 | `uniffi-bindgen` | 工具 | 从编译好的库生成 Kotlin / Swift 绑定 | M1 已有 |
 
 ### 3.3 依赖规则
@@ -148,20 +150,47 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 - 同一路串流的所有输入事件必须走同一条通道，保证顺序。高频的指针移动可以在原生侧先合并再发送。
 - 帧回调里不得分配大对象，也不得加锁等待界面线程。
 
-## 5. 原生层约定（Android）
+## 5. 原生层约定
+
+### 5.1 两个平台共同的规则
+
+- **ViewModel 只做三件事**：把 Rust 推来的快照转成界面状态；把用户操作转成 Rust 命令；选择文案。不得在 ViewModel 里实现网络、协议或业务规则。
+- 不得修改 Rust 推来的快照对象。
+- UniFFI 生成的绑定不得手写或手改。
+- 文案只写在平台的字符串资源里，代码里用语义化的 key。
+
+### 5.2 Android
 
 - **包结构**：
-  - `io.github.wenshiqi0.kite.core`：生成的绑定，不得手写或手改。
+  - `io.github.wenshiqi0.kite.core`：生成的绑定。
   - `io.github.wenshiqi0.kite.ui`：Compose 界面和 ViewModel。
   - `io.github.wenshiqi0.kite.data`：平台存储的适配，例如 `SecretStore` 的实现。
   - `io.github.wenshiqi0.kite.media`：解码和显示（M3）。
-- **ViewModel 只做三件事**：把 Rust 推来的快照转成 Compose 状态；把用户操作转成 Rust 命令；选择文案。不得在 ViewModel 里实现网络、协议或业务规则。
-- **文案**只写在 `strings.xml` 里。
-- 不得修改 Rust 推来的快照对象。
+- **文案**写在 `strings.xml` 里。
+- **敏感数据**用 Android Keystore 中的密钥加密后保存。
+
+### 5.3 iOS
+
+- **工程**：用 XcodeGen 维护 `ios/project.yml`，不得手改生成的 `.xcodeproj`。最低支持 iOS 17，一个通用 App 同时覆盖 iPhone 和 iPad。
+- **Rust 接入**：Xcode 的编译前脚本 `ios/scripts/build-rust.sh` 为当前平台编译 `kite-ffi` 静态库，并把 Swift 绑定生成到 `ios/Generated/`。
+- **目录结构**：
+  - `ios/Kite/App`：入口。
+  - `ios/Kite/UI`：SwiftUI 视图和 ViewModel（`@Observable`）。
+  - `ios/Kite/Data`：平台存储的适配，例如 Keychain。
+  - `ios/Kite/Resources`：`Localizable.xcstrings` 和资源目录。
+- **文案**写在 `Localizable.xcstrings` 里。
+- **敏感数据**存进 Keychain：只在本机可用（`ThisDeviceOnly`），不同步到 iCloud。
+- **ViewModel 更新界面**：只能在主线程（`@MainActor`）上修改界面状态。
+
+### 5.4 iPhone 与 iPad
+
+- **布局必须由尺寸类别（size class）和可用宽度决定，不得由设备型号决定。** iPad 在分屏、侧拉或者台前调度的小窗口里是紧凑宽度，这时必须使用和 iPhone 一样的布局。
+- 设备型号只能用来判断能力，例如是否支持多窗口。硬件键盘和指针在 iPhone 上也可能连接，所以按"是否连接"判断，不按设备型号判断。
+- 同一功能在紧凑宽度和常规宽度下的差异，写在对应功能的 RFC 里。总体原则见 [RFC 0002](docs/rfcs/0002-ios.md)。
 
 ## 6. M1 的现状与差距
 
-M1 只打通了最小链路，下面几处还没有按本规范实现，M2 时迁移：
+M1 只打通了最小链路，下面几处还没有按本规范实现，M2 时迁移。Android 和 iOS 的情况相同：iOS 把主机表单和已信任的主机密钥存在 UserDefaults 里（`HostStore`），私钥存在 Keychain 里，再作为参数传给 Rust。
 
 | 现状 | 规范要求 | 迁移时机 |
 |---|---|---|

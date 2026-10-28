@@ -1,0 +1,366 @@
+{
+  "sourceLanguage": "zh-Hans",
+  "strings": {
+    "app_name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kite"
+          }
+        }
+      }
+    },
+    "cancel": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "check_capability": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 桥接"
+          }
+        }
+      }
+    },
+    "check_herdr": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接并检查 herdr"
+          }
+        }
+      }
+    },
+    "check_host_key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机密钥指纹"
+          }
+        }
+      }
+    },
+    "check_passed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr 可用"
+          }
+        }
+      }
+    },
+    "check_path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr 路径"
+          }
+        }
+      }
+    },
+    "check_running": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        }
+      }
+    },
+    "check_version": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本"
+          }
+        }
+      }
+    },
+    "device_key_copied": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        }
+      }
+    },
+    "device_key_copy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制公钥"
+          }
+        }
+      }
+    },
+    "device_key_error": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取本机密钥失败：%@"
+          }
+        }
+      }
+    },
+    "device_key_generating": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在生成本机密钥…"
+          }
+        }
+      }
+    },
+    "device_key_hint": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把这行公钥加到主机上对应用户的 ~/.ssh/authorized_keys。"
+          }
+        }
+      }
+    },
+    "device_key_title": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机密钥"
+          }
+        }
+      }
+    },
+    "error_auth_rejected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机拒绝了本机密钥。把上面的公钥加到 %@ 的 ~/.ssh/authorized_keys 后重试。"
+          }
+        }
+      }
+    },
+    "error_connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接失败：%@"
+          }
+        }
+      }
+    },
+    "error_herdr_not_found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机上没找到 herdr。确认已经安装，或者在「herdr 路径」里填完整路径。"
+          }
+        }
+      }
+    },
+    "error_herdr_unsupported": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的 herdr 版本太旧，不支持 API 桥接，请在主机上升级 herdr。"
+          }
+        }
+      }
+    },
+    "error_host_key_changed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机密钥和之前信任的不一致（之前 %1$@，现在 %2$@）。可能是主机重装过，也可能有人在中间拦截。确认安全后再忘记旧密钥。"
+          }
+        }
+      }
+    },
+    "error_host_required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请填写主机地址。"
+          }
+        }
+      }
+    },
+    "error_invalid_key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密钥无效：%@"
+          }
+        }
+      }
+    },
+    "error_port_invalid": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口要在 1 到 65535 之间。"
+          }
+        }
+      }
+    },
+    "error_probe": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查 herdr 时出错：%@"
+          }
+        }
+      }
+    },
+    "error_username_required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请填写用户名。"
+          }
+        }
+      }
+    },
+    "forget_host_key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘记旧的主机密钥"
+          }
+        }
+      }
+    },
+    "host_address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址"
+          }
+        }
+      }
+    },
+    "host_herdr_path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr 路径（可选，留空则自动查找）"
+          }
+        }
+      }
+    },
+    "host_key_body": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的主机密钥指纹：\n%2$@\n\n在主机上运行 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub，核对指纹一致后再信任。"
+          }
+        }
+      }
+    },
+    "host_key_title": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一次连接这台主机"
+          }
+        }
+      }
+    },
+    "host_key_trust": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信任并连接"
+          }
+        }
+      }
+    },
+    "host_port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
+        }
+      }
+    },
+    "host_title": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机"
+          }
+        }
+      }
+    },
+    "host_username": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名"
+          }
+        }
+      }
+    },
+    "result_placeholder_body": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填好主机信息后点「连接并检查 herdr」，结果会显示在这里。"
+          }
+        }
+      }
+    },
+    "result_placeholder_title": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有检查"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

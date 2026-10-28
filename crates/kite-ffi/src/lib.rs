@@ -120,7 +120,8 @@ impl From<kite_app::KeyPair> for SshKeyPair {
     }
 }
 
-/// Routes Rust logs to logcat on Android. Safe to call more than once.
+/// Routes Rust logs to logcat on Android and to stderr (the Xcode console) on
+/// iOS. Safe to call more than once.
 #[uniffi::export]
 pub fn init_logging() {
     #[cfg(target_os = "android")]
@@ -129,6 +130,36 @@ pub fn init_logging() {
             .with_max_level(log::LevelFilter::Info)
             .with_tag("kite"),
     );
+    #[cfg(target_os = "ios")]
+    if log::set_logger(&ios::STDERR_LOGGER).is_ok() {
+        log::set_max_level(log::LevelFilter::Info);
+    }
+}
+
+#[cfg(target_os = "ios")]
+mod ios {
+    pub static STDERR_LOGGER: StderrLogger = StderrLogger;
+
+    pub struct StderrLogger;
+
+    impl log::Log for StderrLogger {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Info
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                eprintln!(
+                    "[kite] {} {}: {}",
+                    record.level(),
+                    record.target(),
+                    record.args()
+                );
+            }
+        }
+
+        fn flush(&self) {}
+    }
 }
 
 /// Generates this device's ed25519 key pair.

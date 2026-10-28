@@ -11,6 +11,14 @@
 *.apk
 *.aab
 
+# iOS / Xcode
+/ios/build/
+/ios/Generated/
+/ios/Kite.xcodeproj/
+/ios/Kite/Info.plist
+xcuserdata/
+DerivedData/
+
 # IDEs
 .idea/
 *.iml
