@@ -1,0 +1,19 @@
+[package]
+name = "kite-ffi"
+description = "kite's boundary to the native apps: UniFFI exports for Kotlin and Swift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "kite_ffi"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+kite-app.workspace = true
+uniffi = { workspace = true, features = ["tokio"] }
+thiserror.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"

@@ -1,0 +1,20 @@
+# Rust
+/target/
+
+# Android / Gradle
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.kotlin/
+/android/app/src/main/jniLibs/
+*.apk
+*.aab
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store

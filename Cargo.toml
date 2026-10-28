@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+repository = "https://github.com/wenshiqi0/kite"
+
+[workspace.dependencies]
+kite-ssh = { path = "crates/kite-ssh" }
+kite-herdr = { path = "crates/kite-herdr" }
+kite-app = { path = "crates/kite-app" }
+
+# ring instead of the default aws-lc-rs: it cross-compiles for Android with only the NDK.
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+rand = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "io-util"] }
+thiserror = "2"
+log = "0.4"
+uniffi = "0.32"
+tempfile = "3"
+
+[profile.release]
+# Keep panics unwinding so UniFFI can turn them into Kotlin exceptions.
+panic = "unwind"

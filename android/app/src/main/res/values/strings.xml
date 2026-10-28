@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">kite</string>
+    <string name="cancel">取消</string>
+
+    <string name="device_key_title">本机密钥</string>
+    <string name="device_key_generating">正在生成本机密钥…</string>
+    <string name="device_key_error">读取本机密钥失败：%1$s</string>
+    <string name="device_key_hint">把这行公钥加到主机上对应用户的 ~/.ssh/authorized_keys。</string>
+    <string name="device_key_copy">复制公钥</string>
+
+    <string name="host_title">主机</string>
+    <string name="host_address">地址</string>
+    <string name="host_port">端口</string>
+    <string name="host_username">用户名</string>
+    <string name="host_herdr_path">herdr 路径（可选）</string>
+    <string name="host_herdr_path_placeholder">留空则自动查找</string>
+    <string name="check_herdr">连接并检查 herdr</string>
+    <string name="check_running">正在连接…</string>
+
+    <string name="check_passed">herdr 可用</string>
+    <string name="check_capability">API 桥接</string>
+    <string name="check_path">herdr 路径</string>
+    <string name="check_version">版本</string>
+    <string name="check_host_key">主机密钥指纹</string>
+
+    <string name="host_key_title">第一次连接这台主机</string>
+    <string name="host_key_body">%1$s 的主机密钥指纹：</string>
+    <string name="host_key_hint">在主机上运行 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub，核对指纹一致后再信任。</string>
+    <string name="host_key_trust">信任并连接</string>
+    <string name="forget_host_key">忘记旧的主机密钥</string>
+
+    <string name="error_host_required">请填写主机地址。</string>
+    <string name="error_username_required">请填写用户名。</string>
+    <string name="error_port_invalid">端口要在 1 到 65535 之间。</string>
+    <string name="error_host_key_changed">主机密钥和之前信任的不一致（之前 %1$s，现在 %2$s）。可能是主机重装过，也可能有人在中间拦截。确认安全后再忘记旧密钥。</string>
+    <string name="error_auth_rejected">主机拒绝了本机密钥。把上面的公钥加到 %1$s 的 ~/.ssh/authorized_keys 后重试。</string>
+    <string name="error_herdr_not_found">主机上没找到 herdr。确认已经安装，或者在「herdr 路径」里填完整路径。</string>
+    <string name="error_herdr_unsupported">%1$s 的 herdr 版本太旧，不支持 API 桥接，请在主机上升级 herdr。</string>
+    <string name="error_connection">连接失败：%1$s</string>
+    <string name="error_invalid_key">密钥无效：%1$s</string>
+    <string name="error_probe">检查 herdr 时出错：%1$s</string>
+</resources>
