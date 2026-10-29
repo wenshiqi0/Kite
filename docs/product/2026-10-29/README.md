@@ -17,4 +17,4 @@ These are the three original product mockups supplied by the user on 2026-10-29.
 - Preserve source desktop resolution with proportional phone fitting, allowing modest downsampling for interaction performance.
 - Preserve the user's existing device key, saved hosts, trust records and pairing identity when upgrading.
 
-The layout and protocol implementation is tracked separately from this archive. Archiving the images does not claim that the product UI has already been implemented.
+Android Alpha 2 implements these flows. See the [acceptance record and actual captures](acceptance.md), and [RFC 0004](../../rfcs/0004-chat-desktop-workspace.md) for the implementation boundary.

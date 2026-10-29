@@ -56,6 +56,10 @@ pub struct FrameInfo {
 
 #[derive(Clone, Debug)]
 pub enum Input {
+    Relative {
+        x: i16,
+        y: i16,
+    },
     Position {
         x: i16,
         y: i16,

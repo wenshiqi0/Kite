@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewConfiguration
@@ -15,6 +16,12 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     val target: Long get() = renderer?.id ?: 0L
     var takeover: Boolean = false
         set(value) { field = value; if (!value && target != 0L) NativeMedia.releaseInput(target) }
+    var trackpad = false
+    var referenceWidth = 1920
+    var watchGesture: (Float, Float, Float) -> Unit = { _, _, _ -> }
+    private val scaleGesture = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean { watchGesture(detector.scaleFactor, 0f, 0f); return true }
+    })
     private var downX = 0f
     private var downY = 0f
     private var dragging = false
@@ -34,16 +41,26 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         renderer?.let { gone(it.id); it.release() }
         renderer = null
     }
-    private fun position(x: Float, y: Float) { NativeMedia.mousePosition(target, x.toInt(), y.toInt(), width, height) }
+    private fun position(x: Float, y: Float, force: Boolean = false) { if (!trackpad || force) NativeMedia.mousePosition(target, x.toInt(), y.toInt(), width, height) }
     private fun click(button: Int) { NativeMedia.mouseButton(target, button, true); NativeMedia.mouseButton(target, button, false) }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!takeover || target == 0L) return true
+        if (!takeover || target == 0L) {
+            scaleGesture.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y }
+                MotionEvent.ACTION_MOVE -> if (!scaleGesture.isInProgress) {
+                    watchGesture(1f, event.x - lastX, event.y - lastY); lastX = event.x; lastY = event.y
+                }
+            }
+            return true
+        }
         requestFocus()
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) { mouse(event); return true }
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 multi = false; dragging = false; scrolled = false; downX = event.x; downY = event.y
+                lastX = event.x; lastY = event.y
                 position(event.x, event.y); postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -62,15 +79,22 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
                 }
                 lastX = x; lastY = y
             } else if (!multi) {
+                if (trackpad) {
+                    val factor = referenceWidth.toFloat() / width.coerceAtLeast(1)
+                    NativeMedia.mouseMove(target, ((event.x - lastX) * factor).toInt(), ((event.y - lastY) * factor).toInt())
+                    if (abs(event.x - downX) + abs(event.y - downY) > slop) { scrolled = true; removeCallbacks(longPress) }
+                    lastX = event.x; lastY = event.y
+                } else {
                 if (!dragging && abs(event.x - downX) + abs(event.y - downY) > slop) {
                     removeCallbacks(longPress); NativeMedia.mouseButton(target, 1, true); dragging = true
                 }
                 position(event.x, event.y)
+                }
             }
             MotionEvent.ACTION_POINTER_UP -> if (multi && !scrolled) { click(3); scrolled = true }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPress)
-                if (dragging) NativeMedia.mouseButton(target, 1, false) else if (!multi) { position(event.x, event.y); click(1) }
+                if (dragging) NativeMedia.mouseButton(target, 1, false) else if (!multi && !scrolled) { position(event.x, event.y); click(1) }
                 dragging = false; performClick()
             }
             MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPress); NativeMedia.releaseInput(target); dragging = false }
@@ -79,14 +103,14 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     }
 
     private fun mouse(event: MotionEvent) {
-        position(event.x, event.y)
+        position(event.x, event.y, true)
         val next = event.buttonState
         for ((mask, button) in listOf(MotionEvent.BUTTON_PRIMARY to 1, MotionEvent.BUTTON_SECONDARY to 3, MotionEvent.BUTTON_TERTIARY to 2)) {
             if ((next xor buttons) and mask != 0) NativeMedia.mouseButton(target, button, next and mask != 0)
         }
         buttons = next
     }
-    override fun onHoverEvent(event: MotionEvent): Boolean { if (takeover && target != 0L) { position(event.x, event.y); return true }; return super.onHoverEvent(event) }
+    override fun onHoverEvent(event: MotionEvent): Boolean { if (takeover && target != 0L) { position(event.x, event.y, true); return true }; return super.onHoverEvent(event) }
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if (takeover && target != 0L && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             mouse(event)

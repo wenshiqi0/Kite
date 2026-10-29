@@ -9,6 +9,9 @@ use kite_ssh::Session;
 
 pub mod core;
 pub use core::*;
+pub use kite_agent::{
+    Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,
+};
 pub use kite_store::Host as SavedHost;
 pub use kite_stream::{
     FRAME_CONFIG, FRAME_KEY, FrameInfo, Input, InputSender, MediaSink, StreamConfig, VideoFormat,
@@ -49,6 +52,8 @@ pub enum AppError {
     Api(#[from] kite_herdr::api::ApiError),
     #[error(transparent)]
     Stream(#[from] kite_stream::StreamError),
+    #[error(transparent)]
+    AgentProcess(#[from] kite_agent::process::Error),
     #[error("{0}")]
     State(String),
 }

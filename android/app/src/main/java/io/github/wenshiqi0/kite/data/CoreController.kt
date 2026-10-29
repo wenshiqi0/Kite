@@ -11,6 +11,7 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.ConnectionStatus
 import io.github.wenshiqi0.kite.core.CoreObserver
 import io.github.wenshiqi0.kite.core.CoreSnapshot
+import io.github.wenshiqi0.kite.core.DesktopStatus
 import io.github.wenshiqi0.kite.core.KiteCore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,7 @@ class CoreController(private val context: Context) {
     fun foregroundReady(instance: ConnectionService) {
         service = instance
         if (!foregroundWanted) instance.stopSelf()
+        else instance.setVideoActive(current.value?.desktop?.status == DesktopStatus.STREAMING)
     }
 
     fun foregroundStopped(instance: ConnectionService) {
@@ -89,6 +91,7 @@ class CoreController(private val context: Context) {
     }
 
     private fun refreshForeground(snapshot: CoreSnapshot) {
+        service?.setVideoActive(snapshot.desktop.status == DesktopStatus.STREAMING || snapshot.desktop.status == DesktopStatus.STARTING)
         if (snapshot.connection == ConnectionStatus.CONNECTING || snapshot.connection == ConnectionStatus.CONNECTED) {
             ensureForeground()
         } else {

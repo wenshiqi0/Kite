@@ -39,7 +39,10 @@ def release_info(repo, tag):
     result = subprocess.run(["gh", "api", f"repos/{repo}/releases/tags/{tag}"],
                             cwd=ROOT, text=True, capture_output=True)
     if result.returncode and "404" in result.stderr:
-        return None
+        # GitHub's tag endpoint excludes draft releases. Owners can recover the
+        # draft through the paginated release list after a partial publication.
+        pages = json.loads(run("gh", "api", "--paginate", "--slurp", f"repos/{repo}/releases?per_page=100"))
+        return next((release for page in pages for release in page if release["tag_name"] == tag), None)
     require(result.returncode == 0, result.stderr.strip())
     return json.loads(result.stdout)
 

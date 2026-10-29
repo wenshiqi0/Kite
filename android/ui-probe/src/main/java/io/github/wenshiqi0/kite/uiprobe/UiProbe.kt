@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Instrumentation
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 
 /** Runs in its own test-only package so it does not restart the streaming app. */
@@ -16,7 +17,10 @@ class UiProbe : Instrumentation() {
             val info = uiAutomation.serviceInfo
             info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             uiAutomation.serviceInfo = info
-            val root = checkNotNull(uiAutomation.rootInActiveWindow) { "no active root" }
+            val deadline = SystemClock.uptimeMillis() + 3000
+            var candidate = uiAutomation.rootInActiveWindow
+            while (candidate == null && SystemClock.uptimeMillis() < deadline) { SystemClock.sleep(50); candidate = uiAutomation.rootInActiveWindow }
+            val root = checkNotNull(candidate) { "no active root" }
             check(root.packageName?.toString() == "io.github.wenshiqi0.kite") { "wrong root package: ${root.packageName}" }
             val nodes = mutableListOf<AccessibilityNodeInfo>()
             fun visit(node: AccessibilityNodeInfo) {

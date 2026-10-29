@@ -70,6 +70,8 @@ pub enum StoreError {
     ConflictingTrust(String),
     #[error("invalid legacy address {0}")]
     InvalidAddress(String),
+    #[error("invalid public document name")]
+    InvalidDocument,
 }
 
 pub struct Store {
@@ -94,6 +96,43 @@ impl Store {
 
     pub fn data(&self) -> &Data {
         &self.data
+    }
+
+    fn document_path(&self, name: &str) -> Result<PathBuf, StoreError> {
+        if name.is_empty()
+            || name.len() > 64
+            || !name.bytes().all(|c| c.is_ascii_lowercase() || c == b'-')
+        {
+            return Err(StoreError::InvalidDocument);
+        }
+        Ok(self
+            .path
+            .parent()
+            .expect("store parent")
+            .join(format!("{name}.json")))
+    }
+
+    pub fn read_document<T: serde::de::DeserializeOwned>(
+        &self,
+        name: &str,
+    ) -> Result<Option<T>, StoreError> {
+        match fs::read(self.document_path(name)?) {
+            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn write_document<T: Serialize>(&self, name: &str, value: &T) -> Result<(), StoreError> {
+        let path = self.document_path(name)?;
+        let directory = path.parent().expect("document parent");
+        let mut file = tempfile::NamedTempFile::new_in(directory)?;
+        serde_json::to_writer(&mut file, value)?;
+        file.flush()?;
+        file.as_file().sync_all()?;
+        file.persist(&path).map_err(|e| e.error)?;
+        File::open(directory)?.sync_all()?;
+        Ok(())
     }
 
     /// Commit a complete replacement before exposing it to readers.
@@ -220,6 +259,35 @@ mod tests {
         assert_eq!(
             fs::read(dir.path().join("hosts.json")).unwrap(),
             b"{corrupt"
+        );
+    }
+
+    #[test]
+    fn public_documents_preserve_hosts_and_reject_path_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        store.import_legacy("m1", Some(host()), &[]).unwrap();
+        let hosts = fs::read(dir.path().join("hosts.json")).unwrap();
+        store
+            .write_document("paused-processes", &BTreeMap::from([("agent", 123u64)]))
+            .unwrap();
+        let restored: BTreeMap<String, u64> =
+            store.read_document("paused-processes").unwrap().unwrap();
+        assert_eq!(restored["agent"], 123);
+        assert_eq!(fs::read(dir.path().join("hosts.json")).unwrap(), hosts);
+        assert!(matches!(
+            store.read_document::<Data>("../hosts"),
+            Err(StoreError::InvalidDocument)
+        ));
+        fs::write(dir.path().join("paused-processes.json"), b"bad").unwrap();
+        assert!(
+            store
+                .read_document::<BTreeMap<String, u64>>("paused-processes")
+                .is_err()
+        );
+        assert_eq!(
+            fs::read(dir.path().join("paused-processes.json")).unwrap(),
+            b"bad"
         );
     }
 }

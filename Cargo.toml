@@ -11,6 +11,7 @@ repository = "https://github.com/wenshiqi0/kite"
 [workspace.dependencies]
 kite-ssh = { path = "crates/kite-ssh" }
 kite-herdr = { path = "crates/kite-herdr" }
+kite-agent = { path = "crates/kite-agent" }
 kite-app = { path = "crates/kite-app" }
 kite-store = { path = "crates/kite-store" }
 kite-stream = { path = "crates/kite-stream" }

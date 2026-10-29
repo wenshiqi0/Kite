@@ -1,0 +1,159 @@
+{
+  "device": "emulator-5558",
+  "android_api": 36,
+  "abi": "arm64-v8a",
+  "host": "Linux X11, herdr 0.9.5, Sunshine v2026.914.233613, LAN",
+  "tests": [
+    {
+      "name": "real_herdr_fixture_structured_conversation",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Claude-compatible controlled transcript is read through actual herdr session metadata; no model or sample commands run."
+    },
+    {
+      "name": "live_floating_desktop",
+      "status": "PASS",
+      "evidence": [
+        "chat-floating.png"
+      ],
+      "detail": "Real Sunshine video is presented in the chat floating window."
+    },
+    {
+      "name": "floating_drag_changes_position",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Floating header drag moved the same video plane."
+    },
+    {
+      "name": "watch_touches_do_not_reach_host",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Touch inside a watch-only floating Surface did not increment host input counters."
+    },
+    {
+      "name": "dock_and_restore",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Desktop docks to edge and restores."
+    },
+    {
+      "name": "portrait_split_preserves_chat",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Split view keeps desktop above conversation and fixed composer."
+    },
+    {
+      "name": "split_rotation_enters_fullscreen_watch",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Landscape expands split view, with input still opt-in. Android first-use immersive tutorial was dismissed."
+    },
+    {
+      "name": "takeover_input_without_agent_pause",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Host received click and agent heartbeat continued during takeover."
+    },
+    {
+      "name": "approval_allow_reaches_selected_pane",
+      "status": "PASS",
+      "evidence": [
+        "approval-docked.png"
+      ],
+      "detail": "Native approval selected actual Yes once through herdr; fixture records only, no command executes."
+    },
+    {
+      "name": "approval_reject_reaches_selected_pane",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Native reject moved to actual No and pressed Enter once."
+    },
+    {
+      "name": "explicit_agent_pause_keeps_desktop_live",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Explicit pause stops verified agent and terminal wrapper, preserves terminal foreground and desktop frames continue."
+    },
+    {
+      "name": "pause_record_survives_restart_and_resumes",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Restart recovers saved process identity; explicit resume restarts agent and wrapper in original foreground."
+    },
+    {
+      "name": "utf8_chat_reaches_actual_herdr_prompt",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Chinese composer text reaches foreground controlled agent through actual herdr prompt and transcript echo returns."
+    },
+    {
+      "name": "utf8_remote_keyboard_text",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Keyboard dialog sends composed Chinese UTF-8 text to focused GTK entry through Sunshine."
+    },
+    {
+      "name": "trackpad_motion_does_not_drag_click",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Relative one-finger trackpad motion does not generate a button press."
+    },
+    {
+      "name": "split_divider_resizes_live_video",
+      "status": "PASS",
+      "evidence": [
+        "portrait-split.png"
+      ],
+      "detail": "Dragging the accessible split divider resizes the same live video target with chat below."
+    },
+    {
+      "name": "android_system_pip_video_only",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Actual Android task is pinned and service type bit 2 is mediaPlayback. Captures show real video without app chrome."
+    },
+    {
+      "name": "pip_return_preserves_decoder_and_releases_takeover",
+      "status": "PASS",
+      "evidence": [
+        "system-pip.png",
+        "pip-return-watch.png"
+      ],
+      "detail": "Same app PID and exactly one decoder configuration across PiP. Return keeps sidebar closed and requires explicit takeover again."
+    },
+    {
+      "name": "final_build_pause_resume_recheck",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Final reconciliation-lock change exercised through actual pause and resume controls."
+    }
+  ],
+  "versionName": "0.2.0-alpha.2",
+  "fixture": "Controlled provider transcript and process; no model invocation or tool-command execution.",
+  "screenshots": [
+    {
+      "file": "chat-floating.png",
+      "sha256": "50fb8f85178abadab32645b4244b9d05cb7f2d811a84ec360ace7e4608564df5"
+    },
+    {
+      "file": "approval-docked.png",
+      "sha256": "e7f62a0494bc45d2ef2130c1f2207f0592f47c7f6674884d4298e78ab16f3c9c"
+    },
+    {
+      "file": "portrait-split.png",
+      "sha256": "695fa0dbfda50765c53c2d9f9ff363fec5ea027c935e1c42334762e6dfddbd87"
+    },
+    {
+      "file": "fullscreen-takeover.png",
+      "sha256": "1a94741910d57f8d5e14bedff69916c963b55eb7273e648edd97e08c7790f5a1"
+    },
+    {
+      "file": "system-pip.png",
+      "sha256": "5cb3595b96e457f206d2b57f0953ed8894f66b8c86ad38939a8b58057355748c"
+    },
+    {
+      "file": "pip-return-watch.png",
+      "sha256": "e9b0eff63a4c73facfb475df55756a619fb21ee4a8cc1689b60f46d37f5a21b6"
+    }
+  ]
+}

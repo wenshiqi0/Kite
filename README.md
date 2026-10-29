@@ -7,8 +7,9 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 ## What you can do
 
 - Keep a connection to your own machine over SSH.
-- Browse herdr agents, read their terminal output, and send prompts.
-- Watch the remote desktop through Sunshine, then switch from viewing to mouse and keyboard control.
+- Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
+- Keep the live desktop in a draggable window, dock it to the edge, use split view or fullscreen, and continue watching in Android picture-in-picture.
+- Switch from watching to mouse, trackpad and keyboard control. Pause or resume an agent separately when needed.
 - Fit the full desktop to your phone while preserving its source resolution, with responsiveness as the priority.
 
 ## Get started
@@ -17,7 +18,7 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 2. Prepare a Linux X11 host with SSH, herdr and Sunshine using the [host setup guide](docs/backend-setup.md).
 3. Add Kite's public key to your host, verify the host fingerprint, and connect. Open the desktop and pair with Sunshine when prompted.
 
-The Android app is in Alpha and currently uses a Chinese interface. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Audio, structured chat history and picture-in-picture are not available yet.
+The Android app is in Alpha and currently uses a Chinese interface. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Audio is not available yet. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Takeover keeps the agent running unless you pause it explicitly.
 
 ## Documentation
 

@@ -42,6 +42,16 @@ herdr
 
 Detach with `Ctrl+B`, then `Q`; the background server keeps the session running. Check it with `herdr status server`. The [upstream quick start](https://herdr.dev/docs/quick-start/) explains workspace and agent setup.
 
+For structured Claude / Codex conversation history, enable the corresponding [official herdr integration](https://herdr.dev/docs/integrations/) under the host account that runs the agent:
+
+```bash
+herdr integration status
+herdr integration install claude
+herdr integration install codex
+```
+
+Install only the integrations for agents you use, then start a new agent session inside herdr. These commands update those agents' user configuration with herdr's session hooks. Kite uses the reported session identity to read the selected Claude JSONL under `~/.claude/projects`, or Codex JSONL under `~/.codex/sessions` (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` are respected when present in the SSH environment). Without an available supported session record, Kite labels the content as terminal output. It does not infer chat speakers from a terminal screenshot.
+
 Kite searches the SSH user's normal PATH and common install locations, including `~/.local/bin/herdr`. If detection fails, enter the executable's absolute path in Kite's advanced host settings. No separate herdr TCP endpoint needs to be exposed.
 
 ## 3. Install and configure Sunshine
@@ -85,7 +95,7 @@ Use your own display, user and authority path, then restart the user service. A 
 
 ## 4. Connect Kite's device key
 
-Open Kite and copy the public key shown on its host screen. Add that line to the host user's `~/.ssh/authorized_keys`, preserving existing entries:
+Open Kite’s agent menu, choose **Host settings** (主机设置), and copy the public key. Add that line to the host user's `~/.ssh/authorized_keys`, preserving existing entries:
 
 ```text
 ssh-ed25519 AAAA... kite-device
@@ -109,11 +119,15 @@ Kite does not require an interactive PTY, but a forced command limited to one he
 
 ## 5. Pair and open the desktop
 
-After herdr connects, choose **Open remote desktop** (打开远程桌面). Sunshine's address defaults to the SSH host; advanced settings allow a separate reachable address and base port.
+After herdr connects, choose an agent in the menu. Use the **More** menu to open the remote desktop (打开远程桌面). Sunshine's address defaults to the SSH host; advanced settings allow a separate reachable address and base port.
 
 On first use, Kite shows a PIN and a unique client name. In Sunshine's management UI, choose the matching pending request and submit that PIN. Kite saves the client identity and server certificate, so reopening the desktop normally does not require pairing again.
 
-The stream starts in view-only mode. Choose **Takeover** (接管) to send touches and keyboard input. A single tap clicks; holding / dragging moves with the button down. Two-finger taps and scrolling provide right-click and wheel input. The toolbar provides shortcuts and Unicode text entry.
+The stream starts in view-only mode. Choose **Takeover** (接管) to send touches and keyboard input. A single tap clicks; holding / dragging moves with the button down. Two-finger taps and scrolling provide right-click and wheel input. The toolbar provides shortcuts, arrow keys, Unicode text entry, clipboard paste and a relative trackpad mode.
+
+The desktop initially floats above chat. Its controls switch to split view, fullscreen or an edge tab; the split divider is draggable. Leaving the app while video is playing enters Android system picture-in-picture when supported. Returning restores the same desktop session.
+
+**Takeover does not pause the agent.** The More menu provides a separate pause / resume action for verified Linux Claude / Codex foreground processes. Kite stores their process identity before pausing so a restart can offer resume. This pauses execution, not an agent protocol or a model request: upstream requests may time out while stopped. Resume the tracked process before sending more chat or approval input.
 
 ### Optional automatic PIN confirmation
 

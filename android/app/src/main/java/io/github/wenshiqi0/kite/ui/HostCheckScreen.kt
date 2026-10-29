@@ -1,7 +1,6 @@
 package io.github.wenshiqi0.kite.ui
 
 import android.content.ClipData
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,22 +18,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
-import io.github.wenshiqi0.kite.media.VideoSurface
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostCheckScreen(viewModel: HostCheckViewModel) {
+fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
     val snapshot by viewModel.engine.state.collectAsState()
     val platformError by viewModel.engine.platformError.collectAsState()
     val state = snapshot
-    BackHandler(enabled = viewModel.showDesktop) { viewModel.closeDesktop() }
-    if (state != null && viewModel.showDesktop) {
-        DesktopScreen(viewModel, state)
-    } else Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.host_settings)) }, navigationIcon = {
+        IconButton(onClick = onBack) { ProductIcon(Mark.Back) }
+    }) }) { padding ->
         Column(Modifier.padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             state?.deviceKey?.let { DeviceKeyCard(it) }
             if (state == null || !state.initialized) {
@@ -60,7 +56,6 @@ fun HostCheckScreen(viewModel: HostCheckViewModel) {
                             Button(onClick = viewModel::openDesktop, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_desktop)) }
                         }
                     }
-                    AgentsCard(viewModel, state)
                 }
                 state.failure?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
             }
@@ -120,101 +115,6 @@ private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Bool
             else Button(onClick = vm::connect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect_herdr)) }
         }
     }
-}
-
-@Composable
-private fun AgentsCard(vm: HostCheckViewModel, state: CoreSnapshot) {
-    var prompt by remember { mutableStateOf("") }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.agents_title), style = MaterialTheme.typography.titleMedium)
-            if (state.agents.isEmpty()) Text(stringResource(R.string.no_agents))
-            state.agents.forEach { agent ->
-                OutlinedButton(onClick = { vm.selectAgent(agent.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Column { Text(agent.name ?: agent.title ?: agent.agent ?: agent.id); Text(agent.status, style = MaterialTheme.typography.bodySmall) }
-                }
-            }
-            state.selectedAgent?.let { id ->
-                Text(stringResource(R.string.terminal_output), style = MaterialTheme.typography.labelLarge)
-                SelectionContainer { Text(state.agentOutput, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) }
-                OutlinedTextField(prompt, { prompt = it }, label = { Text(stringResource(R.string.agent_prompt)) }, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { val text = prompt; prompt = ""; vm.promptAgent(id, text) }, enabled = prompt.isNotBlank()) { Text(stringResource(R.string.send_agent_prompt)) }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DesktopScreen(vm: HostCheckViewModel, state: CoreSnapshot) {
-    var textEntry by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf("") }
-    var sendError by remember { mutableStateOf(false) }
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.desktop_title)) }, navigationIcon = {
-        TextButton(onClick = vm::closeDesktop) { Text(stringResource(R.string.back)) }
-    }, actions = {
-        TextButton(onClick = { vm.takeOver(!state.desktop.takeover) }, enabled = state.desktop.status == DesktopStatus.STREAMING) {
-            Text(stringResource(if (state.desktop.takeover) R.string.stop_takeover else R.string.takeover))
-        }
-    }) }) { padding ->
-        Column(Modifier.padding(padding).imePadding().fillMaxSize()) {
-            Text(stringResource(R.string.video_frame_counts, state.desktop.receivedFrames.toLong(), state.desktop.renderedFrames.toLong()), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp))
-            if (state.desktop.sourceWidth > 0u) Text(
-                stringResource(R.string.video_dimensions, state.desktop.sourceWidth.toInt(), state.desktop.sourceHeight.toInt(), state.desktop.width.toInt(), state.desktop.height.toInt(), state.desktop.fps.toInt()),
-                style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp))
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().background(Color.Black)) {
-                val ratio = state.desktop.sourceWidth.toFloat().coerceAtLeast(1f) / state.desktop.sourceHeight.toFloat().coerceAtLeast(1f)
-                val wide = maxWidth.value / maxHeight.value.coerceAtLeast(1f) > ratio
-                val videoModifier = if (wide) Modifier.fillMaxHeight().aspectRatio(ratio) else Modifier.fillMaxWidth().aspectRatio(ratio)
-                AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone) }, update = { it.takeover = state.desktop.takeover },
-                    modifier = videoModifier.align(Alignment.Center))
-                when (state.desktop.status) {
-                    DesktopStatus.PAIRING -> Card(Modifier.align(Alignment.Center).padding(24.dp)) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(stringResource(R.string.pairing_title), style = MaterialTheme.typography.titleLarge)
-                            Text(state.desktop.pairingName.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                            Text(state.desktop.pin.orEmpty(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.displayMedium)
-                            Text(stringResource(R.string.pairing_hint))
-                            Button(onClick = { state.desktop.pin?.let(vm::approve) }) { Text(stringResource(R.string.auto_confirm_pairing)) }
-                        }
-                    }
-                    DesktopStatus.STARTING, DesktopStatus.IDLE, DesktopStatus.STOPPING -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(); Text(stringResource(R.string.desktop_starting), color = Color.White)
-                    }
-                    DesktopStatus.FAILED -> Card(Modifier.align(Alignment.Center).padding(24.dp)) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(stringResource(R.string.error_desktop))
-                            state.failure?.let { FailureCard(it, null) }
-                            Button(onClick = vm::retryDesktop) { Text(stringResource(R.string.retry)) }
-                        }
-                    }
-                    DesktopStatus.STREAMING -> Unit
-                }
-            }
-            Text(stringResource(if (state.desktop.takeover) R.string.takeover_hint else R.string.watch_hint), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
-            if (state.desktop.takeover) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    TextButton(onClick = vm::rightClick) { Text(stringResource(R.string.right_click)) }
-                    TextButton(onClick = { vm.scroll(120) }) { Text(stringResource(R.string.scroll_up)) }
-                    TextButton(onClick = { vm.scroll(-120) }) { Text(stringResource(R.string.scroll_down)) }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    TextButton(onClick = { vm.shortcut(27) }) { Text(stringResource(R.string.shortcut_esc)) }
-                    TextButton(onClick = { vm.shortcut(9) }) { Text(stringResource(R.string.shortcut_tab)) }
-                    TextButton(onClick = { vm.shortcut(13) }) { Text(stringResource(R.string.shortcut_enter)) }
-                    TextButton(onClick = { vm.shortcut(67, true) }) { Text(stringResource(R.string.shortcut_ctrl_c)) }
-                    TextButton(onClick = { textEntry = !textEntry }) { Text(stringResource(R.string.keyboard)) }
-                }
-                if (textEntry) Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(text, { text = it; sendError = false }, label = { Text(stringResource(R.string.remote_text)) }, modifier = Modifier.weight(1f), isError = sendError)
-                    TextButton(onClick = { if (text.toByteArray(Charsets.UTF_8).size <= 4096 && vm.sendText(text)) text = "" else sendError = true }, enabled = text.isNotEmpty()) { Text(stringResource(R.string.send_text)) }
-                }
-            }
-        }
-    }
-    val platformError by vm.engine.platformError.collectAsState()
-    platformError?.let { AlertDialog(onDismissRequest = { vm.clearLocalError() }, title = { Text(stringResource(R.string.error_action)) }, text = { Text(it) }, confirmButton = { TextButton(onClick = { vm.clearLocalError() }) { Text(stringResource(R.string.dismiss)) } }) }
 }
 
 @Composable

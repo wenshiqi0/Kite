@@ -13,6 +13,8 @@
 3. **用户看到的文字由原生层负责。** Rust 只交出结构化数据，文案和本地化在原生层。
 4. **媒体数据不走 UniFFI。** 视频帧和高频输入走专门的媒体通道（见 4.4）。
 
+聊天工作区以 [2026-10-29 产品稿](docs/product/2026-10-29/README.md) 和 [RFC 0004](docs/rfcs/0004-chat-desktop-workspace.md) 为交互依据：接管与 agent 暂停独立；观看缩放不发送输入；布局和 PiP 由原生层处理，真实会话、审批与暂停由 Rust 处理。
+
 ## 2. 仓库布局
 
 ```
@@ -54,7 +56,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | `kite-ssh` | 基础 | SSH 连接；ed25519 密钥的生成和解析；严格的主机密钥校验；执行命令；端口转发；保活和重连 | 已有连接、密钥、校验、exec/direct-tcpip 通道及保活；重连命令由应用层编排 |
 | `kite-store` | 基础 | 本地持久化：主机列表、已信任的主机密钥、对话缓存、设置。数据目录由原生层在初始化时传入 | 已有主机、信任记录、配对公钥和原子迁移；对话缓存待做 |
 | `kite-herdr` | 领域 | 查找 herdr 并检查桥接；JSON API 客户端（agent 列表、事件订阅、发消息、读屏、发按键）；客户端协议的编解码和每个 pane 的单元格模型 | 已有查找、检查和 JSON API；二进制客户端协议待做 |
-| `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的消息模型；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | M2 新建 |
+| `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的消息模型；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | 已实现（Android Alpha 2） |
 | `kite-stream` | 领域 | Sunshine 配对和管理；通过 moonlight-common-c 建立 Moonlight 会话；把视频帧交给 `MediaSink`，接收串流输入 | Android 已接入配对、H.264 和基础输入；音频/iOS 视频待做 |
 | `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | 已有持久会话、快照、任务取消和原生 SecretStore 回调 |
 | `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | 已有 Core/observer/SecretStore 导出及 Android JNI 媒体通道 |

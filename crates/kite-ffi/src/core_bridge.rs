@@ -106,6 +106,47 @@ pub struct AgentInfo {
     pub status: String,
     pub pane_id: String,
     pub cwd: Option<String>,
+    pub can_pause: bool,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum MessageKind {
+    User,
+    Assistant,
+    Tool,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum AgentPauseStatus {
+    Running,
+    Paused,
+    Unknown,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ToolInfo {
+    pub label: String,
+    pub summary: String,
+    pub name: String,
+    pub arguments: String,
+    pub output: String,
+    pub complete: bool,
+    pub failed: bool,
+    pub computer: bool,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MessageInfo {
+    pub id: String,
+    pub kind: MessageKind,
+    pub text: String,
+    pub tool: Option<ToolInfo>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ApprovalChoice {
+    pub label: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ApprovalInfo {
+    pub id: String,
+    pub prompt: String,
+    pub choices: Vec<ApprovalChoice>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct DesktopInfo {
@@ -138,6 +179,10 @@ pub struct CoreSnapshot {
     pub agents: Vec<AgentInfo>,
     pub selected_agent: Option<String>,
     pub agent_output: String,
+    pub conversation: Vec<MessageInfo>,
+    pub conversation_available: bool,
+    pub approval: Option<ApprovalInfo>,
+    pub agent_pause: AgentPauseStatus,
     pub desktop: DesktopInfo,
     pub failure: Option<FailureInfo>,
 }
@@ -174,6 +219,13 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 .agents
                 .into_iter()
                 .map(|a| AgentInfo {
+                    can_pause: a
+                        .agent_session
+                        .as_ref()
+                        .is_some_and(|s| matches!(s.agent.as_str(), "claude" | "codex"))
+                        || a.agent
+                            .as_deref()
+                            .is_some_and(|s| matches!(s, "claude" | "codex")),
                     id: a.terminal_id,
                     name: a.name,
                     agent: a.agent,
@@ -185,6 +237,44 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 .collect(),
             selected_agent: s.selected_agent,
             agent_output: s.agent_output,
+            conversation: s
+                .conversation
+                .into_iter()
+                .map(|m| MessageInfo {
+                    id: m.id,
+                    kind: match m.role {
+                        kite_app::ChatRole::User => MessageKind::User,
+                        kite_app::ChatRole::Assistant => MessageKind::Assistant,
+                        kite_app::ChatRole::Tool => MessageKind::Tool,
+                    },
+                    text: m.text,
+                    tool: m.tool.map(|t| ToolInfo {
+                        label: t.label(),
+                        summary: t.summary(),
+                        name: t.name,
+                        arguments: t.arguments,
+                        output: t.output,
+                        complete: t.complete,
+                        failed: t.failed,
+                        computer: t.computer,
+                    }),
+                })
+                .collect(),
+            conversation_available: s.conversation_available,
+            approval: s.approval.map(|a| ApprovalInfo {
+                id: a.id,
+                prompt: a.prompt,
+                choices: a
+                    .choices
+                    .into_iter()
+                    .map(|c| ApprovalChoice { label: c.label })
+                    .collect(),
+            }),
+            agent_pause: match s.agent_pause {
+                kite_app::AgentPause::Running => AgentPauseStatus::Running,
+                kite_app::AgentPause::Paused => AgentPauseStatus::Paused,
+                kite_app::AgentPause::Unknown => AgentPauseStatus::Unknown,
+            },
             desktop: DesktopInfo {
                 status: match s.desktop.phase {
                     D::Idle => DesktopStatus::Idle,
@@ -328,6 +418,23 @@ impl KiteCore {
     pub async fn prompt_agent(&self, agent_id: String, text: String) -> Result<(), KiteError> {
         self.inner
             .prompt_agent(agent_id, text)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn respond_approval(
+        &self,
+        agent_id: String,
+        request_id: String,
+        choice: u32,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .respond_approval(agent_id, request_id, choice)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn set_agent_paused(&self, agent_id: String, paused: bool) -> Result<(), KiteError> {
+        self.inner
+            .set_agent_paused(agent_id, paused)
             .await
             .map_err(Into::into)
     }

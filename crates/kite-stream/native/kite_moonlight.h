@@ -14,6 +14,7 @@ void kite_ml_stop(void);
 void kite_ml_interrupt(void);
 const char* kite_ml_launch_query(void);
 int kite_ml_mouse_position(int16_t, int16_t, int16_t, int16_t);
+int kite_ml_mouse_move(int16_t, int16_t);
 int kite_ml_mouse_button(int, int);
 int kite_ml_scroll(int16_t, int16_t);
 int kite_ml_key(int16_t, int, uint8_t);

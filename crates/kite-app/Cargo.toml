@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 kite-ssh.workspace = true
 kite-herdr.workspace = true
+kite-agent.workspace = true
 kite-store.workspace = true
 kite-stream.workspace = true
 tokio.workspace = true

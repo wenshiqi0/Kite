@@ -26,6 +26,17 @@ pub struct Agent {
     pub pane_id: String,
     pub cwd: Option<String>,
     pub revision: u64,
+    #[serde(default)]
+    pub state_change_seq: u64,
+    pub agent_session: Option<AgentSession>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentSession {
+    pub source: String,
+    pub agent: String,
+    pub kind: String,
+    pub value: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -112,6 +123,17 @@ impl Api {
         self.request("agent.prompt", json!({"target":target,"text":text}))
             .await?;
         Ok(())
+    }
+
+    pub async fn send_keys(&self, target: &str, keys: &[String]) -> Result<(), ApiError> {
+        self.request("agent.send_keys", json!({"target":target,"keys":keys}))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn process_info(&self, pane_id: &str) -> Result<Value, ApiError> {
+        self.request("pane.process_info", json!({"pane_id":pane_id}))
+            .await
     }
 }
 

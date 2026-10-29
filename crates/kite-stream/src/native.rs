@@ -42,6 +42,7 @@ unsafe extern "C" {
     fn kite_ml_interrupt();
     fn kite_ml_launch_query() -> *const c_char;
     fn kite_ml_mouse_position(x: i16, y: i16, width: i16, height: i16) -> i32;
+    fn kite_ml_mouse_move(x: i16, y: i16) -> i32;
     fn kite_ml_mouse_button(button: i32, down: i32) -> i32;
     fn kite_ml_scroll(horizontal: i16, vertical: i16) -> i32;
     fn kite_ml_key(key: i16, down: i32, modifiers: u8) -> i32;
@@ -99,6 +100,7 @@ impl InputSender for Sender {
             return Err(StreamError::NotRunning);
         }
         let result = match input {
+            Input::Relative { x, y } => unsafe { kite_ml_mouse_move(x, y) },
             Input::Position {
                 x,
                 y,

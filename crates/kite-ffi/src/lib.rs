@@ -88,6 +88,9 @@ impl From<AppError> for KiteError {
             AppError::Api(e) => Self::HerdrApi {
                 details: e.to_string(),
             },
+            AppError::AgentProcess(e) => Self::HerdrApi {
+                details: e.to_string(),
+            },
             AppError::Stream(e) => Self::Stream {
                 details: e.to_string(),
             },

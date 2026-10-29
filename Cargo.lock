@@ -1114,9 +1114,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "kite-agent"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "kite-herdr",
+ "kite-ssh",
+ "openssl",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "kite-app"
 version = "0.1.0"
 dependencies = [
+ "kite-agent",
  "kite-herdr",
  "kite-ssh",
  "kite-store",

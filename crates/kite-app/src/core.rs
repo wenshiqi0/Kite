@@ -1,5 +1,6 @@
 //! Process-owned domain state, command execution and cancellation.
 use crate::AppError;
+use kite_agent::{Approval, Message, Role, fingerprint, history, process};
 use kite_herdr::{
     api::{Agent, Api},
     check_api_bridge,
@@ -12,6 +13,7 @@ use kite_stream::{
     native::{self, NativeSession},
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     path::PathBuf,
     sync::{
@@ -62,6 +64,12 @@ pub enum DesktopPhase {
     Streaming,
     Stopping,
     Failed,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentPause {
+    Running,
+    Paused,
+    Unknown,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailureCode {
@@ -133,6 +141,10 @@ pub struct Snapshot {
     pub agents: Vec<Agent>,
     pub selected_agent: Option<String>,
     pub agent_output: String,
+    pub conversation: Vec<Message>,
+    pub conversation_available: bool,
+    pub approval: Option<Approval>,
+    pub agent_pause: AgentPause,
     pub desktop: Desktop,
     pub failure: Option<Failure>,
 }
@@ -153,6 +165,10 @@ impl Default for Snapshot {
             agents: Vec::new(),
             selected_agent: None,
             agent_output: String::new(),
+            conversation: Vec::new(),
+            conversation_available: false,
+            approval: None,
+            agent_pause: AgentPause::Running,
             desktop: Desktop::default(),
             failure: None,
         }
@@ -181,6 +197,11 @@ struct PendingPair {
     pin: String,
     generation: u64,
 }
+struct PendingMessage {
+    key: String,
+    message: Message,
+    previous: BTreeSet<String>,
+}
 
 pub struct AppCore {
     secrets: Arc<dyn SecretStorage>,
@@ -196,6 +217,10 @@ pub struct AppCore {
     media: Mutex<Option<Arc<dyn MediaSink>>>,
     generation: AtomicU64,
     desktop_generation: AtomicU64,
+    history: Mutex<Option<history::History>>,
+    pending_messages: Mutex<Vec<PendingMessage>>,
+    paused_processes: Mutex<BTreeMap<String, process::Token>>,
+    consumed_approvals: Mutex<BTreeSet<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -237,6 +262,10 @@ impl AppCore {
             media: Mutex::new(None),
             generation: AtomicU64::new(0),
             desktop_generation: AtomicU64::new(0),
+            history: Mutex::new(None),
+            pending_messages: Mutex::new(Vec::new()),
+            paused_processes: Mutex::new(BTreeMap::new()),
+            consumed_approvals: Mutex::new(BTreeSet::new()),
         })
     }
     pub fn snapshot(&self) -> Snapshot {
@@ -291,6 +320,8 @@ impl AppCore {
             }
             let result = (|| {
                 let mut store = Store::open(&directory)?;
+                *lock(&core.paused_processes) =
+                    store.read_document("paused-processes")?.unwrap_or_default();
                 if !store.data().completed_imports.contains(&legacy.source) {
                     for (_, key) in &legacy.trusted_keys {
                         kite_ssh::fingerprint_of(key)?;
@@ -512,7 +543,20 @@ impl AppCore {
                         return;
                     }
                     if self.snapshot().agents != agents {
-                        self.update(|s| s.agents = agents);
+                        self.update(|s| {
+                            if !agents
+                                .iter()
+                                .any(|a| Some(&a.terminal_id) == s.selected_agent.as_ref())
+                            {
+                                s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
+                                s.conversation.clear();
+                                s.agent_output.clear();
+                                s.approval = None;
+                                s.conversation_available = false;
+                                s.agent_pause = AgentPause::Unknown;
+                            }
+                            s.agents = agents;
+                        });
                     }
                 }
                 Err(e) => {
@@ -521,18 +565,128 @@ impl AppCore {
                     }
                 }
             }
-            if let Some(selected) = self.snapshot().selected_agent
-                && let Ok(text) = connection.api.read_agent(&selected).await
-                && self.generation.load(Ordering::SeqCst) == generation
-            {
-                self.update(|s| {
-                    if s.selected_agent.as_deref() == Some(&selected) {
-                        s.agent_output = text;
-                    }
-                });
+            if let Some(selected) = self.snapshot().selected_agent {
+                self.refresh_agent(&connection, &selected, generation).await;
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
+    }
+
+    async fn refresh_agent(&self, c: &Connected, selected: &str, generation: u64) {
+        let Some(agent) = self
+            .snapshot()
+            .agents
+            .iter()
+            .find(|a| a.terminal_id == selected)
+            .cloned()
+        else {
+            return;
+        };
+        let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
+            return;
+        };
+        let cached = lock(&self.history).clone();
+        let history = if let Some(reference) = &agent.agent_session {
+            history::read(&c.ssh, reference, cached).await
+        } else {
+            history::History::default()
+        };
+        let provider = agent
+            .agent_session
+            .as_ref()
+            .map(|s| s.agent.as_str())
+            .or(agent.agent.as_deref())
+            .unwrap_or_default();
+        let mut approval =
+            kite_agent::terminal_choices(agent.agent_status == "blocked", provider, &text);
+        if let Some(a) = &mut approval {
+            a.id = format!("{}-{}-{}", source_key(&agent), agent.state_change_seq, a.id);
+        }
+        let base = format!("{}/{}", c.host.id, selected);
+        if approval
+            .as_ref()
+            .is_some_and(|a| lock(&self.consumed_approvals).contains(&format!("{base}/{}", a.id)))
+        {
+            approval = None;
+        }
+        // Reconciliation must not remove a recovery token during a pause/resume.
+        let (pause, observed_token) = if let Ok(_guard) = self.operations.try_lock() {
+            let token = lock(&self.paused_processes).get(&base).cloned();
+            let pause = if let Some(token) = &token {
+                match process::paused(&c.ssh, token).await {
+                    Ok(true) => AgentPause::Paused,
+                    Ok(false) | Err(process::Error::Identity) => {
+                        lock(&self.paused_processes).remove(&base);
+                        if let Err(e) = self.persist_pauses() {
+                            self.report(&e);
+                        }
+                        AgentPause::Running
+                    }
+                    Err(_) => AgentPause::Unknown,
+                }
+            } else {
+                AgentPause::Running
+            };
+            let current = lock(&self.paused_processes).get(&base).cloned();
+            (pause, current)
+        } else {
+            (
+                AgentPause::Unknown,
+                lock(&self.paused_processes).get(&base).cloned(),
+            )
+        };
+        let key = format!("{base}/{}", source_key(&agent));
+        let mut messages = history.messages.clone();
+        {
+            let mut pending = lock(&self.pending_messages);
+            let mut matched = BTreeSet::new();
+            pending.retain(|p| {
+                if p.key != key {
+                    return true;
+                }
+                if let Some(found) = messages.iter().find(|m| {
+                    m.role == Role::User
+                        && m.text == p.message.text
+                        && !p.previous.contains(&m.id)
+                        && !matched.contains(&m.id)
+                }) {
+                    matched.insert(found.id.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            messages.extend(
+                pending
+                    .iter()
+                    .filter(|p| p.key == key)
+                    .map(|p| p.message.clone()),
+            );
+        }
+        if self.generation.load(Ordering::SeqCst) != generation
+            || self.snapshot().selected_agent.as_deref() != Some(selected)
+            || self
+                .snapshot()
+                .agents
+                .iter()
+                .find(|a| a.terminal_id == selected)
+                .is_none_or(|a| source_key(a) != source_key(&agent))
+        {
+            return;
+        }
+        let available = history.available;
+        *lock(&self.history) = Some(history);
+        self.update(|s| {
+            if s.selected_agent.as_deref() == Some(selected) {
+                s.agent_output = text;
+                s.conversation = messages;
+                s.conversation_available = available;
+                s.approval = approval;
+                if lock(&self.paused_processes).get(&base) == observed_token.as_ref() {
+                    s.agent_pause = pause;
+                }
+            }
+        });
     }
 
     pub async fn trust_host(
@@ -620,17 +774,38 @@ impl AppCore {
             s.agents.clear();
             s.selected_agent = None;
             s.agent_output.clear();
+            s.conversation.clear();
+            s.conversation_available = false;
+            s.approval = None;
+            s.agent_pause = AgentPause::Running;
         });
+        *lock(&self.history) = None;
+        lock(&self.pending_messages).clear();
+        lock(&self.consumed_approvals).clear();
         Ok(())
     }
 
     pub async fn select_agent(self: &Arc<Self>, id: String) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
+            if !core.snapshot().agents.iter().any(|a| a.terminal_id == id) {
+                return Err(AppError::State("agent unavailable".into()));
+            }
             core.update(|s| {
                 s.selected_agent = Some(id);
                 s.agent_output.clear();
+                s.conversation.clear();
+                s.conversation_available = false;
+                s.approval = None;
+                s.agent_pause = AgentPause::Unknown;
             });
+            *lock(&core.history) = None;
+            if let Ok(c) = core.connection()
+                && let Some(selected) = core.snapshot().selected_agent
+            {
+                core.refresh_agent(&c, &selected, core.generation.load(Ordering::SeqCst))
+                    .await;
+            }
             Ok(())
         })
         .await
@@ -638,14 +813,196 @@ impl AppCore {
     pub async fn prompt_agent(self: &Arc<Self>, id: String, text: String) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
+            let _guard = core.operations.lock().await;
             let c = core.connection()?;
-            let result = c.api.prompt_agent(&id, &text).await.map_err(AppError::from);
+            let generation = core.generation.load(Ordering::SeqCst);
+            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+                return Err(AppError::State(
+                    "resume the tracked agent process before submitting input".into(),
+                ));
+            }
+            if text.trim().is_empty() || text.len() > 65536 {
+                return Err(AppError::State("invalid prompt length".into()));
+            }
+            let agent = core
+                .snapshot()
+                .agents
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            if core.snapshot().selected_agent.as_deref() == Some(&id)
+                && core.snapshot().agent_pause != AgentPause::Running
+            {
+                return Err(AppError::State(
+                    "resume the agent before submitting a prompt".into(),
+                ));
+            }
+            let previous: BTreeSet<String> = core
+                .snapshot()
+                .conversation
+                .iter()
+                .map(|m| m.id.clone())
+                .collect();
+            let result = c
+                .api
+                .prompt_agent(&agent.pane_id, &text)
+                .await
+                .map_err(AppError::from);
+            if core.generation.load(Ordering::SeqCst) != generation {
+                return Err(AppError::State(
+                    "host changed during prompt submission".into(),
+                ));
+            }
+            if let Err(e) = &result {
+                core.report(e);
+            }
+            if result.is_ok() {
+                let message = Message {
+                    id: format!("local-{}", new_device_id()?),
+                    role: Role::User,
+                    text,
+                    tool: None,
+                };
+                let mut pending = lock(&core.pending_messages);
+                if pending.len() >= 32 {
+                    pending.remove(0);
+                }
+                pending.push(PendingMessage {
+                    key: format!("{}/{}/{}", c.host.id, id, source_key(&agent)),
+                    message: message.clone(),
+                    previous,
+                });
+                drop(pending);
+                core.update(|s| {
+                    if s.selected_agent.as_deref() == Some(&id) {
+                        s.conversation.push(message);
+                    }
+                });
+            }
+            result
+        })
+        .await
+    }
+
+    pub async fn respond_approval(
+        self: &Arc<Self>,
+        id: String,
+        request: String,
+        choice: u32,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+                return Err(AppError::State(
+                    "resume the tracked agent process before submitting input".into(),
+                ));
+            }
+            let agent = c
+                .api
+                .agents()
+                .await?
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let text = c.api.read_agent(&agent.pane_id).await?;
+            let provider = agent
+                .agent_session
+                .as_ref()
+                .map(|s| s.agent.as_str())
+                .or(agent.agent.as_deref())
+                .unwrap_or_default();
+            let approval =
+                kite_agent::terminal_choices(agent.agent_status == "blocked", provider, &text)
+                    .ok_or_else(|| AppError::State("approval is no longer available".into()))?;
+            let keys = approval_action(&agent, &approval, &request, choice)?;
+            let token = format!("{}/{}/{}", c.host.id, id, request);
+            if !lock(&core.consumed_approvals).insert(token) {
+                return Err(AppError::State("approval was already submitted".into()));
+            }
+            core.update(|s| {
+                if s.selected_agent.as_deref() == Some(&id) {
+                    s.approval = None;
+                }
+            });
+            let result = c
+                .api
+                .send_keys(&agent.pane_id, &keys)
+                .await
+                .map_err(AppError::from);
             if let Err(e) = &result {
                 core.report(e);
             }
             result
         })
         .await
+    }
+
+    pub async fn set_agent_paused(
+        self: &Arc<Self>,
+        id: String,
+        paused: bool,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            let key = format!("{}/{}", c.host.id, id);
+            let result = async {
+                if paused {
+                    let agent = c
+                        .api
+                        .agents()
+                        .await?
+                        .into_iter()
+                        .find(|a| a.terminal_id == id)
+                        .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+                    let token = process::prepare(&c.api, &c.ssh, &agent).await?;
+                    lock(&core.paused_processes).insert(key.clone(), token.clone());
+                    core.persist_pauses()?;
+                    core.update(|s| {
+                        if s.selected_agent.as_deref() == Some(&id) {
+                            s.agent_pause = AgentPause::Unknown;
+                        }
+                    });
+                    process::signal(&c.ssh, &token, true).await?;
+                } else {
+                    let token = lock(&core.paused_processes)
+                        .get(&key)
+                        .cloned()
+                        .ok_or_else(|| AppError::State("no tracked paused process".into()))?;
+                    process::signal(&c.ssh, &token, false).await?;
+                    lock(&core.paused_processes).remove(&key);
+                    core.persist_pauses()?;
+                }
+                core.update(|s| {
+                    if s.selected_agent.as_deref() == Some(&id) {
+                        s.agent_pause = if paused {
+                            AgentPause::Paused
+                        } else {
+                            AgentPause::Running
+                        };
+                    }
+                });
+                Ok::<_, AppError>(())
+            }
+            .await;
+            if let Err(e) = &result {
+                core.report(e);
+            }
+            result
+        })
+        .await
+    }
+
+    fn persist_pauses(&self) -> Result<(), AppError> {
+        let records = lock(&self.paused_processes).clone();
+        lock(&self.store)
+            .as_ref()
+            .ok_or_else(|| AppError::State("not initialized".into()))?
+            .write_document("paused-processes", &records)?;
+        Ok(())
     }
     pub async fn clear_failure(self: &Arc<Self>) -> Result<(), AppError> {
         let core = self.clone();
@@ -892,6 +1249,14 @@ impl AppCore {
     pub async fn set_takeover(self: &Arc<Self>, enabled: bool) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
+            let _guard = core.operations.lock().await;
+            if !enabled {
+                if let Some(media) = lock(&core.media).clone() {
+                    media.set_takeover(false);
+                }
+                core.update(|s| s.desktop.takeover = false);
+                return Ok(());
+            }
             if core.snapshot().desktop.phase != DesktopPhase::Streaming {
                 return Err(AppError::State("desktop is not ready".into()));
             }
@@ -956,12 +1321,42 @@ fn describe(error: &AppError) -> Failure {
             f.code = FailureCode::HerdrUnsupported
         }
         AppError::Store(_) => f.code = FailureCode::Storage,
-        AppError::Api(_) => f.code = FailureCode::HerdrApi,
+        AppError::Api(_) | AppError::AgentProcess(_) => f.code = FailureCode::HerdrApi,
         AppError::Stream(_) => f.code = FailureCode::Stream,
         AppError::State(_) => f.code = FailureCode::InvalidConfiguration,
         _ => {}
     }
     f
+}
+
+fn source_key(agent: &Agent) -> String {
+    agent
+        .agent_session
+        .as_ref()
+        .map(history::key)
+        .unwrap_or_else(|| fingerprint(&agent.terminal_id))
+}
+
+fn approval_id(agent: &Agent, raw: &str) -> String {
+    format!("{}-{}-{}", source_key(agent), agent.state_change_seq, raw)
+}
+
+fn approval_action(
+    agent: &Agent,
+    approval: &Approval,
+    request: &str,
+    choice: u32,
+) -> Result<Vec<String>, AppError> {
+    if request != approval_id(agent, &approval.id) {
+        return Err(AppError::State(
+            "approval changed; review the current request".into(),
+        ));
+    }
+    approval
+        .choices
+        .get(choice as usize)
+        .map(|c| c.keys.clone())
+        .ok_or_else(|| AppError::State("invalid approval choice".into()))
 }
 
 #[cfg(test)]
@@ -986,6 +1381,85 @@ mod tests {
     struct NoObserver;
     impl Observer for NoObserver {
         fn changed(&self, _: Snapshot) {}
+    }
+    #[test]
+    fn approval_cannot_cross_session_state_or_question() {
+        let mut agent = Agent {
+            terminal_id: "t1".into(),
+            name: None,
+            agent: Some("claude".into()),
+            title: None,
+            agent_status: "blocked".into(),
+            workspace_id: "w1".into(),
+            tab_id: "w1:t1".into(),
+            pane_id: "w1:p1".into(),
+            cwd: None,
+            revision: 1,
+            state_change_seq: 10,
+            agent_session: Some(kite_herdr::api::AgentSession {
+                source: "herdr:claude".into(),
+                agent: "claude".into(),
+                kind: "id".into(),
+                value: "session-a".into(),
+            }),
+        };
+        let a = kite_agent::terminal_choices(true, "claude", "Proceed?\n❯ 1. Yes\n 2. No").unwrap();
+        let request = approval_id(&agent, &a.id);
+        assert_eq!(approval_action(&agent, &a, &request, 0).unwrap(), ["Enter"]);
+        assert!(approval_action(&agent, &a, &request, 9).is_err());
+        agent.state_change_seq += 1;
+        assert!(approval_action(&agent, &a, &request, 0).is_err());
+        agent.state_change_seq -= 1;
+        agent.agent_session.as_mut().unwrap().value = "session-b".into();
+        assert!(approval_action(&agent, &a, &request, 0).is_err());
+        agent.agent_session.as_mut().unwrap().value = "session-a".into();
+        let b = kite_agent::terminal_choices(
+            true,
+            "claude",
+            "Different permission. Proceed?\n❯ 1. Yes\n 2. No",
+        )
+        .unwrap();
+        assert!(approval_action(&agent, &b, &request, 0).is_err());
+    }
+
+    #[tokio::test]
+    async fn takeover_does_not_pause_agents_and_release_is_idempotent() {
+        use std::sync::atomic::AtomicBool;
+        struct Sink(AtomicBool);
+        impl MediaSink for Sink {
+            fn supports(&self, _: kite_stream::VideoFormat) -> bool {
+                true
+            }
+            fn configure(&self, _: kite_stream::VideoFormat) -> bool {
+                true
+            }
+            fn submit(&self, _: &[u8], _: kite_stream::FrameInfo) -> bool {
+                true
+            }
+            fn set_input(&self, _: Option<Arc<dyn kite_stream::InputSender>>) {}
+            fn rendered_frames(&self) -> u64 {
+                1
+            }
+            fn failure_code(&self) -> i32 {
+                0
+            }
+            fn set_takeover(&self, v: bool) {
+                self.0.store(v, Ordering::SeqCst);
+            }
+            fn stop(&self) {}
+        }
+        let (secrets, _) = fixture();
+        let core = AppCore::new(secrets, Arc::new(NoObserver));
+        core.set_takeover(false).await.unwrap();
+        let sink = Arc::new(Sink(AtomicBool::new(false)));
+        *lock(&core.media) = Some(sink.clone());
+        core.update(|s| s.desktop.phase = DesktopPhase::Streaming);
+        core.set_takeover(true).await.unwrap();
+        assert!(sink.0.load(Ordering::SeqCst));
+        assert!(lock(&core.paused_processes).is_empty());
+        core.set_takeover(false).await.unwrap();
+        core.set_takeover(false).await.unwrap();
+        assert!(!sink.0.load(Ordering::SeqCst));
     }
     fn fixture() -> (Arc<Secrets>, kite_ssh::KeyPair) {
         let key = kite_ssh::generate_ed25519("fixture").unwrap();

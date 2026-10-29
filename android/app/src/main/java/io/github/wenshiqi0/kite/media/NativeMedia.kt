@@ -12,6 +12,7 @@ object NativeMedia {
     @JvmStatic external fun decoderFailed(id: Long, generation: Long)
     @JvmStatic external fun requestIdr(id: Long)
     @JvmStatic external fun mousePosition(id: Long, x: Int, y: Int, width: Int, height: Int): Boolean
+    @JvmStatic external fun mouseMove(id: Long, x: Int, y: Int): Boolean
     @JvmStatic external fun mouseButton(id: Long, button: Int, down: Boolean): Boolean
     @JvmStatic external fun scroll(id: Long, horizontal: Int, vertical: Int): Boolean
     @JvmStatic external fun key(id: Long, key: Int, down: Boolean, modifiers: Int): Boolean

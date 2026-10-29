@@ -315,6 +315,21 @@ pub extern "system" fn Java_io_github_wenshiqi0_kite_media_NativeMedia_mousePosi
     }))
 }
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_wenshiqi0_kite_media_NativeMedia_mouseMove(
+    _env: JNIEnv,
+    _class: JClass,
+    id: jlong,
+    x: jint,
+    y: jint,
+) -> jboolean {
+    u8::from(get(id).is_some_and(|s| {
+        s.input(Input::Relative {
+            x: x.clamp(-32767, 32767) as i16,
+            y: y.clamp(-32767, 32767) as i16,
+        })
+    }))
+}
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_wenshiqi0_kite_media_NativeMedia_mouseButton(
     _env: JNIEnv,
     _class: JClass,

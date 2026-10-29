@@ -102,6 +102,7 @@ void kite_ml_stop(void) {
 void kite_ml_interrupt(void) { atomic_store(&cancelled, 1); if (atomic_load(&current)) LiInterruptConnection(); }
 const char* kite_ml_launch_query(void) { return LiGetLaunchUrlQueryParameters(); }
 int kite_ml_mouse_position(int16_t x, int16_t y, int16_t w, int16_t h) { return LiSendMousePositionEvent(x, y, w, h); }
+int kite_ml_mouse_move(int16_t x, int16_t y) { return LiSendMouseMoveEvent(x, y); }
 int kite_ml_mouse_button(int button, int down) { return LiSendMouseButtonEvent(down ? BUTTON_ACTION_PRESS : BUTTON_ACTION_RELEASE, button); }
 int kite_ml_scroll(int16_t horizontal, int16_t vertical) {
     int result = vertical ? LiSendHighResScrollEvent(vertical) : 0;
