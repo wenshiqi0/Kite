@@ -114,7 +114,7 @@
       "detail": "Disconnecting phone SSH preserves backend foreground PID, terminal ID and provider session. Reconnect restores conversation without a provider/session setup action or extra workspace."
     }
   ],
-  "versionName": "0.2.0-alpha.4",
+  "versionName": "0.2.0-alpha.5",
   "mapping": {
     "expected": [
       1100,

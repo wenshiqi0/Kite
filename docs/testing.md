@@ -42,7 +42,7 @@ Android Alpha 2 was exercised on the same API 36 ARM64 emulator and real Linux S
 
 This validates the client transport and product flows with controlled data. It does not establish real-model completion, voice-recognition quality, physical-phone latency or WAN performance. See the [product acceptance record](product/2026-10-29/acceptance.md) for the recorded result and screenshots.
 
-## Alpha 4 phone feedback regression
+## Alpha 5 phone feedback regression
 
 The phone usability fixes have dedicated source-pixel viewport tests, plus real emulator gestures injected through the independent `ui-probe` package. Runtime acceptance checks operation-mode pinch without host click / wheel events, click targeting after zoom + pan, trackpad right-click / scroll, orientation controls with system auto-rotation off, automatic default-agent preparation and same-session reconnect, connection failures, terminal keys and PiP decoder reuse. See the [phone feedback record](product/2026-10-29/phone-fixes.md).
 

@@ -146,6 +146,13 @@ val uniffiBindgen = tasks.register<UniffiBindgen>("uniffiBindgen") {
 }
 
 androidComponents {
+    // AGP 9 enables host unit tests only for the tested build type by default.
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        val tests = variant.hostTests.values.filter { test -> test.type == com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE }
+        check(tests.isNotEmpty()) { "Release unit test builder is not registered" }
+        tests.forEach { test -> test.enable = true }
+    }
+
     onVariants { variant ->
         variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoNdkBuild, CargoNdkBuild::outputDir)
         variant.sources.kotlin?.addGeneratedSourceDirectory(uniffiBindgen, UniffiBindgen::outputDir)

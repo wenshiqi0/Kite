@@ -1,4 +1,4 @@
-# Alpha 4 phone feedback fixes
+# Alpha 5 phone feedback fixes
 
 The reported phone flow had several real client gaps: the connection form closed before the asynchronous SSH / herdr handshake completed; an empty agent list left the send button disabled without preparing a backend agent; there was no explicit orientation control; and operation-mode touch had no viewport zoom path. Those have been addressed under [RFC 0005](../../rfcs/0005-mobile-operation-and-session-entry.md).
 
