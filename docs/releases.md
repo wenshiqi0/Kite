@@ -1,29 +1,65 @@
-# Android Alpha 发布
+# Android Alpha releases
 
-每次完成 APK 打包后，把对应提交、版本标签和 APK 一起推送至 GitHub Release。当前只发布 Alpha，并保持 `prerelease=true`、`latest=false`。
+The GitHub Actions workflow is [Android Release](../.github/workflows/android-release.yml).
 
-## 版本与提交
+## What runs
 
-`android/version.properties` 是 Android 版本的唯一来源。下一次发布同时递增 `versionName` 的 Alpha 序号和 `versionCode`，例如 `0.2.0-alpha.2` / `4`。提交实现、说明与版本文件后再打包；发布标签必须指向这一提交，不允许复用旧版本名替换附件。
+| Event | Build | Delivery |
+| --- | --- | --- |
+| Relevant changes on `main` | Signed Release APK, Rust checks and Android lint | Verified workflow artifact |
+| Pull request to `main` | Unsigned Release APK, Rust checks and Android lint | Unsigned PR artifact; no signing secrets |
+| Annotated `vX.Y.Z-alpha.N` tag | Signed Release APK with the tag's source commit | GitHub prerelease with APK, checksums and manifest |
+| Manual workflow dispatch | Signed Release APK | Verified workflow artifact |
 
-## 签名与环境
+Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
-Alpha 使用固定的本机签名密钥，存放在仓库外。当前密钥沿用此前 Android 测试包的签名，允许覆盖升级并保留主机、信任与设备身份；首次配置不能默默生成另一把密钥。默认位置是 `~/.config/kite/signing/android-alpha.keystore`，仅当前用户可读。
+## Version and signing identity
 
-可用 `KITE_ALPHA_KEYSTORE`、`KITE_ALPHA_KEY_ALIAS`、`KITE_ALPHA_STORE_PASSWORD`、`KITE_ALPHA_KEY_PASSWORD` 指定已有密钥。当前 Alpha 密钥使用 `androiddebugkey` 别名与本机测试签名口令；这是 GitHub Alpha 签名，不作为应用商店生产签名。口令和 keystore 不进入仓库、发布附件或日志。
+`android/version.properties` is the Android version source. Increment both the Alpha suffix and `versionCode` for each new delivery. The initial CI release is `0.2.0-alpha.1` / `3`. APK metadata must match the tag exactly.
 
-需要 Android SDK / NDK、JDK 17+、Rust Android target、cargo-ndk 和已认证的 `gh`。网络代理、`JAVA_HOME`、`ANDROID_HOME`、`CARGO_TARGET_DIR` 由本机环境提供，不写入项目的全局配置。
+Alpha uses the same signing identity as the earlier test APKs so existing installations can upgrade without replacing their device SSH key, hosts or trust records. The keystore remains outside Git. CI receives it through an encrypted Actions secret; it is never an artifact.
 
-## 发布
+Configure these repository settings before the first signed build:
 
-准备本次发布说明文件，注明行为变化、已完成验证与验收边界，然后执行：
+| Setting | Kind | Purpose |
+| --- | --- | --- |
+| `ANDROID_ALPHA_KEYSTORE_BASE64` | Required Actions secret | Base64-encoded existing keystore |
+| `ANDROID_ALPHA_CERT_SHA256` | Required Actions variable | Expected signing certificate SHA-256 |
+| `ANDROID_ALPHA_STORE_PASSWORD` | Optional Actions secret | Store password; Alpha's existing test-key default is `android` |
+| `ANDROID_ALPHA_KEY_PASSWORD` | Optional Actions secret | Key password; existing default is `android` |
+| `ANDROID_ALPHA_KEY_ALIAS` | Optional Actions secret | Existing default is `androiddebugkey` |
+
+These settings have been configured for `wenshiqi0/Kite`. Keep the signing identity stable. Alpha's existing test certificate is for GitHub distribution, not an app-store production signing identity.
+
+## Publish a version
+
+1. Update `android/version.properties`, finish validation, and commit the complete source.
+2. Write release notes describing behavior, validation and current limitations. The notes become the annotated tag body.
+3. From a clean source branch, run:
 
 ```bash
 python3 android/scripts/release-alpha.py --notes-file /absolute/path/release-notes.md
 ```
 
-该命令要求干净的源码工作树，从 `origin` 识别 GitHub 仓库，构建带固定签名的 Release APK 并运行 Android lint。随后核对 APK 内版本、非 debuggable 属性、签名和 ABI，输出 APK、`SHA256SUMS` 与 `release-manifest.json` 到忽略目录 `android/release-output/<tag>/`。
+The command pushes the source branch and annotated tag, waits for the tag workflow, and reports the published Release URL. The tagged CI build is the publication authority; local builds do not race it to upload a different APK.
 
-命令推送当前源码分支与不可变标签，创建带附件的草稿预发布，下载并核验附件，再将其发布为 Alpha。若中断，重新执行同一命令；已经上传的附件必须逐字节一致才会复用，不会覆盖已发布的版本。完成后核对返回的 Release 链接，而不以打包成功代替发布成功。
+The build verifies the APK's version, non-debuggable Release variant, ABI, signature and pinned certificate. The publish job checks the source commit and checksums, uploads a draft prerelease, downloads every asset to verify its bytes, and then publishes it. An existing tag cannot move to another commit, and existing release assets cannot be replaced with different bytes.
 
-可先运行 `--check-only` 检查版本、源码状态、远端和签名配置，不进行打包或网络写入。
+If a publish step is interrupted, rerun that failed job from GitHub Actions so it reuses the same verified build artifact. If source or artifact content changes, use a new Alpha version.
+
+## Local preflight
+
+Check source and version without network writes:
+
+```bash
+python3 android/scripts/release-alpha.py --check-only
+```
+
+Build verified local assets without creating a tag or publishing:
+
+```bash
+export KITE_ALPHA_KEYSTORE="$HOME/.config/kite/signing/android-alpha.keystore"
+python3 android/scripts/release-alpha.py --build-only
+```
+
+The local build also accepts `KITE_ALPHA_STORE_PASSWORD`, `KITE_ALPHA_KEY_PASSWORD`, `KITE_ALPHA_KEY_ALIAS` and `KITE_EXPECTED_CERTIFICATE_SHA256`. SDK, JDK and Rust requirements are in [Development](development.md). Assets go to the ignored `android/release-output/<tag>/` directory. A local artifact is not a completed user delivery until its corresponding Alpha is published.

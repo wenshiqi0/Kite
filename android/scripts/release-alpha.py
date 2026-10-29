@@ -53,17 +53,43 @@ def inspect_apk(apk, tools, version, code):
     abi_line = next(line for line in badging.splitlines() if line.startswith("native-code:"))
     abis = re.findall(r"'([^']+)'", abi_line)
     signature = run(str(tools / "apksigner"), "verify", "--print-certs", str(apk))
-    certificate = re.search(r"Signer #1 certificate SHA-256 digest: (\w+)", signature)
+    certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", signature)
     require(certificate is not None, "APK signature verification failed.")
+    expected = os.environ.get("KITE_EXPECTED_CERTIFICATE_SHA256")
+    require(not expected or certificate[1].lower() == expected.lower(), "APK signing certificate changed.")
     return abis, certificate[1]
+
+
+def launch_ci(repo, tag, head, branch, notes, existing_tag):
+    import time
+    require(branch, "Use a source branch when launching a release.")
+    require(notes.is_file(), "Provide release notes with --notes-file.")
+    if existing_tag.returncode != 0:
+        run("git", "tag", "-a", tag, "-F", str(notes))
+    run("git", "push", "--atomic", "origin", f"HEAD:refs/heads/{branch}", f"refs/tags/{tag}", capture=False)
+    print(f"Waiting for the tagged build: https://github.com/{repo}/actions", flush=True)
+    for _ in range(30):
+        runs = json.loads(run("gh", "run", "list", "--repo", repo, "--workflow", "android-release.yml",
+                              "--event", "push", "--commit", head, "--limit", "30",
+                              "--json", "databaseId,headBranch"))
+        matches = [r for r in runs if r["headBranch"] == tag]
+        if matches:
+            run("gh", "run", "watch", str(matches[0]["databaseId"]), "--repo", repo, "--exit-status", capture=False)
+            release = release_info(repo, tag)
+            require(release and release["prerelease"] and not release["draft"], "CI did not publish the Alpha.")
+            print(release["html_url"], flush=True)
+            return
+        time.sleep(2)
+    raise RuntimeError("Tag was pushed, but its workflow did not start; inspect GitHub Actions.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--notes-file", type=Path)
-    parser.add_argument("--check-only", action="store_true")
-    parser.add_argument("--build-only", action="store_true",
-                        help="prepare verified assets without creating tags or writing to GitHub")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check-only", action="store_true")
+    mode.add_argument("--build-only", action="store_true", help="build and verify assets without publishing")
+    mode.add_argument("--publish-only", action="store_true", help="publish the verified assets from the tagged CI build")
     args = parser.parse_args()
     props = dict(line.split("=", 1) for line in (ROOT / "android/version.properties").read_text().splitlines()
                  if line and not line.startswith("#"))
@@ -72,46 +98,46 @@ def main():
             "Only X.Y.Z-alpha.N versions with a positive versionCode may be published.")
     clean_tree()
     head = run("git", "rev-parse", "HEAD")
-    branch = run("git", "symbolic-ref", "--short", "HEAD")
+    ref = subprocess.run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=ROOT, text=True, capture_output=True)
+    branch = ref.stdout.strip()
     remote = run("git", "remote", "get-url", "origin")
     match = re.fullmatch(r"(?:git@github\.com:|https://github\.com/)([\w.-]+/[\w.-]+?)(?:\.git)?", remote)
     require(match is not None, "origin must identify the intended github.com repository.")
-    repo = match[1]
-    keystore = Path(os.environ.get("KITE_ALPHA_KEYSTORE", "~/.config/kite/signing/android-alpha.keystore")).expanduser()
-    require(keystore.is_file(), "Configure the existing Alpha signing keystore outside the repository.")
-    tag = "v" + version
+    repo, tag = match[1], "v" + version
     existing_tag = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"],
                                   cwd=ROOT, text=True, capture_output=True)
     require(existing_tag.returncode != 0 or existing_tag.stdout.strip() == head,
-            "This version tag already belongs to a different commit; increment the Alpha version.")
+            "This tag belongs to another commit; increment the Alpha version.")
+    if os.environ.get("GITHUB_REF_TYPE") == "tag":
+        require(os.environ.get("GITHUB_REF_NAME") == tag, "Git tag must match the APK version.")
     if args.check_only:
         print(json.dumps({"version": version, "versionCode": code, "commit": head,
-                          "branch": branch, "repository": repo, "tag": tag}, indent=2))
+                          "branch": branch or "detached", "repository": repo, "tag": tag}, indent=2))
         return
-    require(args.notes_file and args.notes_file.is_file(), "Provide --notes-file with this release's changes and validation.")
-    notes = args.notes_file.resolve()
-    sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))
-    candidates = [p for p in (sdk / "build-tools").glob("*")
-                  if (p / "aapt2").is_file() and (p / "apksigner").is_file()]
-    require(candidates, "Set ANDROID_HOME to an SDK with aapt2 and apksigner.")
-    tools = max(candidates, key=lambda p: tuple(map(int, re.findall(r"\d+", p.name))))
+    notes = (args.notes_file or ROOT / "docs/release-notes" / f"{version}.md").resolve()
+    if not args.build_only and not args.publish_only:
+        launch_ci(repo, tag, head, branch, notes, existing_tag)
+        return
     output = ROOT / "android/release-output" / tag
-    output.mkdir(parents=True, exist_ok=True)
     apk = output / f"kite-{version}-arm64-v8a.apk"
     manifest_file = output / "release-manifest.json"
-    cached = json.loads(manifest_file.read_text()) if manifest_file.exists() else None
-    if cached:
-        require(cached["sourceCommit"] == head and apk.is_file() and cached["sha256"] == digest(apk),
-                "Cached output belongs to different source or content; use a new version.")
-        print("Reusing the verified APK for this exact source commit.", flush=True)
-    else:
-        print(f"Building signed Release APK: {version}", flush=True)
+    sums = output / "SHA256SUMS"
+    assets = [apk, manifest_file, sums]
+    if args.build_only:
+        keystore = Path(os.environ.get("KITE_ALPHA_KEYSTORE", "~/.config/kite/signing/android-alpha.keystore")).expanduser()
+        require(keystore.is_file(), "Configure the existing Alpha signing keystore outside the repository.")
+        sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))
+        candidates = [p for p in (sdk / "build-tools").glob("*")
+                      if (p / "aapt2").is_file() and (p / "apksigner").is_file()]
+        require(candidates, "Set ANDROID_HOME to an SDK containing aapt2 and apksigner.")
+        tools = max(candidates, key=lambda p: tuple(map(int, re.findall(r"\d+", p.name))))
         signing = {
             "store.file": str(keystore),
             "store.password": os.environ.get("KITE_ALPHA_STORE_PASSWORD", "android"),
             "key.alias": os.environ.get("KITE_ALPHA_KEY_ALIAS", "androiddebugkey"),
             "key.password": os.environ.get("KITE_ALPHA_KEY_PASSWORD", os.environ.get("KITE_ALPHA_STORE_PASSWORD", "android")),
         }
+        print(f"Building signed Release APK: {version}", flush=True)
         command = [str(ROOT / "android/gradlew"), "-p", str(ROOT / "android"),
                    ":app:assembleRelease", ":app:lintRelease", "--no-daemon", "--console=plain"]
         command += shlex.split(os.environ.get("KITE_GRADLE_ARGS", ""))
@@ -120,26 +146,29 @@ def main():
         clean_tree()
         built = ROOT / "android/app/build/outputs/apk/release/app-release.apk"
         require(built.is_file(), "Signed release APK was not produced.")
+        output.mkdir(parents=True, exist_ok=True)
         shutil.copy2(built, apk)
-    abis, certificate = inspect_apk(apk, tools, version, code)
-    require(abis == ["arm64-v8a"], "Update the asset naming policy before publishing different ABIs.")
-    manifest = {"versionName": version, "versionCode": code, "sourceCommit": head,
-                "variant": "release", "debuggable": False, "abis": abis,
-                "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
-                "signingCertificateSha256": certificate, "androidLint": "passed"}
-    manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
-    sums = output / "SHA256SUMS"
-    sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]))
-    assets = [apk, manifest_file, sums]
-    clean_tree()
-    require(run("git", "rev-parse", "HEAD") == head, "Source commit changed during packaging.")
-    if args.build_only:
+        abis, certificate = inspect_apk(apk, tools, version, code)
+        require(abis == ["arm64-v8a"], "Update asset naming before publishing other ABIs.")
+        manifest = {"versionName": version, "versionCode": code, "sourceCommit": head,
+                    "variant": "release", "debuggable": False, "abis": abis,
+                    "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
+                    "signingCertificateSha256": certificate, "androidLint": "passed"}
+        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
+        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]))
         print(str(output), flush=True)
         return
-    if existing_tag.returncode != 0:
-        run("git", "tag", "-a", tag, "-m", f"Kite {version}")
-    print(f"Pushing source and tag to {repo}", flush=True)
-    run("git", "push", "--atomic", "origin", f"HEAD:refs/heads/{branch}", f"refs/tags/{tag}", capture=False)
+    require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF_TYPE") == "tag",
+            "Publication must use the verified tagged GitHub Actions build.")
+    require(existing_tag.returncode == 0 and notes.is_file(), "An existing source tag and release notes are required.")
+    require(all(p.is_file() for p in assets), "The verified build artifacts are incomplete.")
+    manifest = json.loads(manifest_file.read_text())
+    require(manifest["sourceCommit"] == head and manifest["versionName"] == version
+            and manifest["versionCode"] == code and manifest["sha256"] == digest(apk)
+            and manifest["variant"] == "release" and manifest["debuggable"] is False,
+            "Artifact provenance does not match this source tag.")
+    require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]),
+            "Artifact checksums do not match.")
     release = release_info(repo, tag)
     if release is None:
         run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--target", head,
@@ -149,10 +178,9 @@ def main():
     require(release and release["prerelease"], "Existing release is not an Alpha prerelease.")
     names = {a["name"] for a in release["assets"]}
     missing = [p for p in assets if p.name not in names]
-    require(release["draft"] or not missing, "Published release is incomplete; do not mutate it.")
+    require(release["draft"] or not missing, "Do not mutate an incomplete published release.")
     if missing:
         run("gh", "release", "upload", tag, *(str(p) for p in missing), "--repo", repo)
-    print("Downloading and verifying all release assets before publication.", flush=True)
     with tempfile.TemporaryDirectory(prefix="kite-alpha-verify-") as scratch:
         for asset in assets:
             run("gh", "release", "download", tag, "--repo", repo, "--pattern", asset.name, "--dir", scratch)
@@ -161,9 +189,7 @@ def main():
     if release["draft"]:
         run("gh", "release", "edit", tag, "--repo", repo, "--draft=false", "--prerelease", "--latest=false")
     published = release_info(repo, tag)
-    require(published and published["prerelease"] and not published["draft"], "Release did not become a published Alpha.")
-    (output / "publication.json").write_text(json.dumps({"url": published["html_url"], "tag": tag,
-                                                        "sourceCommit": head, "sha256": digest(apk)}, indent=2) + "\n")
+    require(published and published["prerelease"] and not published["draft"], "Alpha publication was not completed.")
     print(published["html_url"], flush=True)
 
 
@@ -171,5 +197,5 @@ if __name__ == "__main__":
     try:
         main()
     except (RuntimeError, subprocess.CalledProcessError) as error:
-        detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) and error.stderr else str(error)
+        detail = (error.stderr.strip() if error.stderr else f"Command failed with exit code {error.returncode}; inspect its output.") if isinstance(error, subprocess.CalledProcessError) else str(error)
         raise SystemExit(detail)
