@@ -16,6 +16,71 @@ import base64
 import selectors
 import struct
 import select
+from contextlib import contextmanager
+import tempfile
+import shutil
+
+
+def atomic_json(path, value):
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as file:
+        file.write(json.dumps(value, ensure_ascii=False).encode())
+        file.flush(); os.fsync(file.fileno())
+        temporary = Path(file.name)
+    temporary.chmod(0o600)
+    temporary.replace(path)
+    descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def file_lock(path):
+    import fcntl
+    with path.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def catalog_root():
+    return private_dir(Path.home() / ".local/share/kite")
+
+
+def catalog_unlocked():
+    path = catalog_root() / "sessions.json"
+    value = json.loads(path.read_text()) if path.exists() else {"version": 1, "revision": 0, "sessions": []}
+    if value.get("version") != 1:
+        raise RuntimeError("unsupported session catalog")
+    value["now_ms"] = int(time.time() * 1000)
+    return value
+
+
+def catalog_read():
+    with file_lock(catalog_root() / "sessions.lock"):
+        return catalog_unlocked()
+
+
+def catalog_write(value):
+    if len(value.get("sessions", [])) > 1024:
+        raise ValueError("session capacity exceeded")
+    with file_lock(catalog_root() / "sessions.lock"):
+        current = catalog_unlocked()
+        if current["revision"] != value["revision"]:
+            return {"conflict": True}
+        value.update(version=1, revision=current["revision"] + 1, now_ms=int(time.time() * 1000))
+        atomic_json(catalog_root() / "sessions.json", value)
+        return value
+
+
+def patch_session(identifier, fields):
+    with file_lock(catalog_root() / "sessions.lock"):
+        value = catalog_unlocked()
+        record = next(r for r in value["sessions"] if r["id"] == identifier)
+        record.update(fields)
+        value["revision"] += 1
+        atomic_json(catalog_root() / "sessions.json", value)
+        return record
 
 PROTOCOL = 1
 MAX_FILE = 25 * 1024 * 1024
@@ -94,6 +159,7 @@ def ensure(pane, binary):
             raise RuntimeError("Codex 0.164.0 or newer is required")
         process = api(binary, "pane.process_info", {"pane_id": pane})["process_info"]
         shell = process["shell_pid"]
+        cwd = Path(f"/proc/{shell}/cwd").resolve(strict=True)
         env = os.environ.copy()
         env.pop("CODEX_THREAD_ID", None)
         shell_env = Path(f"/proc/{shell}/environ").read_bytes().split(b"\0")
@@ -112,7 +178,7 @@ def ensure(pane, binary):
         log = state_dir() / (pane_key(pane) + ".log")
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
-            child = subprocess.Popen(["codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, start_new_session=True)
+            child = subprocess.Popen(["codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, cwd=cwd, start_new_session=True)
         finally:
             os.close(descriptor)
         info = {"protocol": PROTOCOL, "pane": pane, "socket": str(sock), "pid": child.pid, "start_ticks": start_ticks(child.pid)}
@@ -172,7 +238,7 @@ def upgrade(pane, binary):
     raise RuntimeError("TUI resume not confirmed; inspect pane, do not create another thread")
 
 
-def bind(pane, binary, expected=None):
+def backend_rpc(pane, method, params):
     process = subprocess.Popen([sys.executable, __file__, "proxy", "--pane", pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     buffer = bytearray()
     def rpc(identifier, method, params):
@@ -195,22 +261,161 @@ def bind(pane, binary, expected=None):
                 del buffer[:index+1]
                 if result.get("id") == identifier:
                     if "error" in result:
-                        raise RuntimeError("backend metadata unavailable")
+                        raise RuntimeError(str(result["error"].get("message", "backend metadata unavailable"))[:1024])
                     return result["result"]
         raise RuntimeError("backend metadata timed out")
     try:
         rpc(1, "initialize", {"clientInfo": {"name": "kite-host", "version": "1"}})
         process.stdin.write(b'{"method":"initialized"}\n'); process.stdin.flush()
-        threads = rpc(2, "thread/loaded/list", {})["data"]
-        if len(threads) != 1 or (expected is not None and threads[0] != expected):
-            raise RuntimeError("expected exactly one pane-owned Codex thread")
-        thread = threads[0]
-        info = read_registry(pane)
-        api(binary, "pane.report_agent_session", {"pane_id": pane, "source": "herdr:codex", "agent": "codex", "agent_session_id": thread, "resume_argv": ["python3", str(Path(__file__).resolve()), "tui", "--pane", pane, "--herdr", binary, "--thread", thread]})
-        return {"thread": thread}
+        return rpc(2, method, params)
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def bind(pane, binary, expected=None):
+    threads = backend_rpc(pane, "thread/loaded/list", {})["data"]
+    if expected is not None:
+        if expected not in threads:
+            raise RuntimeError("expected pane-owned Codex thread is not loaded")
+        thread = expected
+    elif len(threads) == 1:
+        thread = threads[0]
+    else:
+        raise RuntimeError("expected exactly one pane-owned Codex thread")
+    api(binary, "pane.report_agent_session", {"pane_id": pane, "source": "herdr:codex", "agent": "codex", "agent_session_id": thread, "resume_argv": ["python3", str(Path(__file__).resolve()), "tui", "--pane", pane, "--herdr", binary, "--thread", thread]})
+    return {"thread": thread}
+
+
+def same_reference(agent, record):
+    reference = record.get("reference")
+    return reference is not None and reference.get("agent") == record["provider"] and agent.get("agent_session") == reference
+
+
+def provider_history_exists(reference):
+    if reference["agent"] == "codex":
+        if reference["kind"] != "id" or not re.fullmatch(r"[a-f0-9-]{36}", reference["value"]):
+            raise ValueError("invalid Codex session reference")
+        root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
+        return next(root.rglob("rollout-*-" + reference["value"] + ".jsonl"), None) is not None
+    return True
+
+
+def session_open(identifier, binary):
+    """Serialize reconnect/create for one durable record, never a model turn."""
+    if not re.fullmatch(r"[a-f0-9]{32,64}", identifier):
+        raise ValueError("invalid session ID")
+    with file_lock(catalog_root() / ("session-" + identifier + ".lock")):
+        record = next(r for r in catalog_read()["sessions"] if r["id"] == identifier)
+        provider = record["provider"]
+        if provider not in ("codex", "claude") or shutil.which(provider) is None:
+            raise RuntimeError(provider + " backend is not installed or connected")
+        agents = api(binary, "agent.list", {})["agents"]
+        existing = next((a for a in agents if same_reference(a, record)), None)
+        if existing:
+            return {"agent": existing}
+        # A start whose transport result was lost is inspected, never replayed.
+        pending = next((a for a in agents if record["terminal_id"] and a["terminal_id"] == record["terminal_id"] and (a.get("launch_pending") or a.get("agent") == provider)), None)
+        if pending:
+            if provider == "codex":
+                try:
+                    bind(pending["pane_id"], binary, (record.get("reference") or {}).get("value"))
+                except (RuntimeError, OSError):
+                    pass
+            return {"agent": next((a for a in api(binary, "agent.list", {})["agents"] if a["terminal_id"] == pending["terminal_id"]), pending)}
+        old_pane = record["pane_id"]
+        owner = None
+        if provider == "codex" and old_pane:
+            candidate = None
+            if registry_path(old_pane).exists():
+                saved = json.loads(registry_path(old_pane).read_text())
+                try:
+                    candidate = read_registry(old_pane)
+                except (RuntimeError, OSError):
+                    live = False
+                    try:
+                        live = start_ticks(saved["pid"]) == saved["start_ticks"]
+                    except OSError:
+                        pass
+                    with socket.socket(socket.AF_UNIX) as probe:
+                        probe.settimeout(1)
+                        listening = probe.connect_ex(saved["socket"]) == 0
+                    if live or listening:
+                        raise RuntimeError("existing session backend is unavailable; inspect it before restoring")
+            if candidate:
+                # A timed-out/paused live owner is not absence of an owner.
+                loaded = backend_rpc(old_pane, "thread/loaded/list", {})["data"]
+                reference = record.get("reference")
+                if (reference and reference["value"] in loaded) or not loaded:
+                    owner = candidate
+        reference = record.get("reference")
+        if provider == "codex" and reference and not provider_history_exists(reference):
+            # Empty legacy sessions may not have a provider file yet. Never stop
+            # a live owner merely to recreate an empty conversation.
+            if owner and reference["value"] in backend_rpc(old_pane, "thread/loaded/list", {})["data"]:
+                raise RuntimeError("unpersisted session is still loaded; keep its original terminal or retry after it closes")
+            reference = None
+            record = patch_session(identifier, {"reference": None})
+        pane = None
+        if old_pane:
+            try:
+                process = api(binary, "pane.process_info", {"pane_id": old_pane})["process_info"]
+                if process["shell_pid"] == process["foreground_process_group_id"]:
+                    pane = old_pane
+            except RuntimeError as error:
+                if "not_found" not in str(error):
+                    raise
+        name = "kite-" + provider + "-" + identifier[:8]
+        if pane is None:
+            created = api(binary, "workspace.create", {"cwd": record.get("cwd"), "label": name, "focus": False})
+            pane = created["root_pane"]["pane_id"]
+            record = patch_session(identifier, {"workspace_id": created["workspace"]["workspace_id"], "pane_id": pane, "terminal_id": created["root_pane"]["terminal_id"], "agent_name": name})
+        else:
+            record = patch_session(identifier, {"agent_name": name})
+        if provider == "codex":
+            if owner and owner["pane"] != pane:
+                alias = dict(owner, pane=pane)
+                atomic_json(registry_path(pane), alias)
+                info = read_registry(pane)
+            else:
+                info = ensure(pane, binary)
+            # Warm read-only account/routing discovery before the TUI's shorter
+            # bootstrap deadline. This does not start a turn or change credentials.
+            try:
+                backend_rpc(pane, "account/read", {"refreshToken": False})
+            except RuntimeError:
+                pass
+            args = ["--remote", "unix://" + info["socket"], "-c", "check_for_update_on_startup=false"]
+            if reference:
+                args += ["resume", reference["value"]]
+        else:
+            args = []
+            if reference:
+                if reference["kind"] == "id":
+                    value = reference["value"]
+                elif reference["kind"] == "path":
+                    value = Path(reference["value"]).stem
+                else:
+                    raise ValueError("unsupported Claude session reference")
+                if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+                    raise ValueError("invalid Claude session ID")
+                args = ["--resume", value]
+        started = api(binary, "agent.start", {"pane_id": pane, "name": name, "kind": provider, "args": args})["agent"]
+        patch_session(identifier, {"terminal_id": started["terminal_id"], "pane_id": pane, "workspace_id": started["workspace_id"], "agent_name": name})
+        for _ in range(12):
+            if provider == "codex":
+                try:
+                    bind(pane, binary, reference["value"] if reference else None)
+                except (RuntimeError, OSError):
+                    pass
+            current = next((a for a in api(binary, "agent.list", {})["agents"] if a["terminal_id"] == started["terminal_id"]), None)
+            if current:
+                started = current
+                if current.get("agent_session"):
+                    patch_session(identifier, {"reference": current["agent_session"]})
+                    return {"agent": current}
+            time.sleep(.2)
+        return {"agent": started}
 
 
 def upload(identifier, name, size, digest):
@@ -415,7 +620,7 @@ def history_projection(file, output):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -437,6 +642,15 @@ def main():
         print(json.dumps(read_registry(args.pane)))
     elif args.action == "history":
         history_projection(args.file, sys.stdout.buffer)
+    elif args.action == "catalog-read":
+        print(json.dumps(catalog_read()))
+    elif args.action == "catalog-write":
+        payload = sys.stdin.buffer.read(1048577)
+        if len(payload) > 1048576:
+            raise ValueError("session catalog too large")
+        print(json.dumps(catalog_write(json.loads(payload))))
+    elif args.action == "session-open":
+        print(json.dumps(session_open(args.id, args.herdr)))
     elif args.action == "tui":
         info = ensure(args.pane, args.herdr)
         if not re.fullmatch(r"[a-f0-9-]{36}", args.thread or ""):

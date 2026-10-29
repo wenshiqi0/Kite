@@ -1,4 +1,5 @@
 //! Codex app-server v2 over an authenticated SSH exec channel. One host owner per pane.
+use crate::interaction::{Answer, RuntimeState};
 use kite_ssh::{ByteStream, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -20,7 +21,7 @@ use tokio::{
 const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
-const HELPER: &str = "$HOME/.local/lib/kite/backend-v1.py";
+const HELPER: &str = "$HOME/.local/lib/kite/backend-v2.py";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -38,6 +39,8 @@ pub enum Error {
     Timeout,
     #[error("invalid composer input: {0}")]
     Invalid(&'static str),
+    #[error("session catalog revision conflict")]
+    Conflict,
 }
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -59,7 +62,7 @@ s=sys.stdin.buffer.read(65537)
 assert 0<len(s)<=65536
 with tempfile.NamedTemporaryFile(dir=p,delete=False) as f:
     f.write(s);f.flush();os.fsync(f.fileno());t=pathlib.Path(f.name)
-t.chmod(0o700);t.replace(p/'backend-v1.py')
+t.chmod(0o700);t.replace(p/'backend-v2.py')
 "#;
     let output = ssh
         .exec(
@@ -160,6 +163,8 @@ pub struct Client {
     sequence: AtomicU64,
     closed: Arc<AtomicBool>,
     reader: JoinHandle<()>,
+    runtime: Arc<Mutex<RuntimeState>>,
+    subscribed: AtomicBool,
     pub thread: String,
     pub models: Vec<Model>,
     pub initial: Selection,
@@ -183,10 +188,17 @@ impl Client {
         let writer = Arc::new(AsyncMutex::new(writer));
         let replies: Replies = Arc::new(Mutex::new(BTreeMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
-        let (rx_replies, rx_closed) = (replies.clone(), closed.clone());
+        let runtime = Arc::new(Mutex::new(RuntimeState::default()));
+        let (rx_replies, rx_closed, rx_runtime, rx_thread) = (
+            replies.clone(),
+            closed.clone(),
+            runtime.clone(),
+            thread.to_owned(),
+        );
         let reader = tokio::spawn(async move {
             let mut reader = BufReader::new(reader);
             while let Ok(value) = read_json(&mut reader).await {
+                lock(&rx_runtime).ingest(&value, &rx_thread);
                 if value.get("method").is_none()
                     && let Some(id) = value["id"].as_str()
                     && let Some(reply) = lock(&rx_replies).remove(id)
@@ -199,6 +211,14 @@ impl Client {
                 }
             }
             rx_closed.store(true, Ordering::SeqCst);
+            let mut state = lock(&rx_runtime);
+            if !matches!(
+                state.phase(),
+                crate::interaction::Activity::Idle | crate::interaction::Activity::Failed
+            ) {
+                state.disconnected();
+            }
+            drop(state);
             for (_, reply) in std::mem::take(&mut *lock(&rx_replies)) {
                 let _ = reply.send(Err("backend channel closed".into()));
             }
@@ -209,6 +229,8 @@ impl Client {
             sequence: AtomicU64::new(1),
             closed,
             reader,
+            runtime,
+            subscribed: AtomicBool::new(false),
             thread: thread.into(),
             models: vec![],
             initial: Selection::default(),
@@ -216,7 +238,7 @@ impl Client {
         client
             .request(
                 "initialize",
-                json!({"clientInfo":{"name":"kite","title":"Kite","version":"0.2.0"}}),
+                json!({"clientInfo":{"name":"kite","title":"Kite","version":"0.2.0"},"capabilities":{"experimentalApi":true}}),
             )
             .await?;
         client.write(json!({"method":"initialized"})).await?;
@@ -260,7 +282,53 @@ impl Client {
                 .into(),
         };
         client.initial = selection(&client.models, &client.initial)?;
+        client.observe_thread().await?;
         Ok(client)
+    }
+    pub fn runtime(&self) -> RuntimeState {
+        lock(&self.runtime).clone()
+    }
+    pub fn is_observing(&self) -> bool {
+        self.subscribed.load(Ordering::SeqCst)
+    }
+    pub async fn observe_thread(&self) -> Result<(), Error> {
+        if self.subscribed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        match self
+            .request(
+                "thread/resume",
+                json!({"threadId":self.thread,"excludeTurns":true}),
+            )
+            .await
+        {
+            Ok(value) => {
+                if value["thread"]["id"] != self.thread {
+                    return Err(Error::Invalid("resumed thread mismatch"));
+                }
+                self.subscribed.store(true, Ordering::SeqCst);
+                if value["thread"].get("status").is_some() {
+                    lock(&self.runtime).ingest(&json!({"method":"thread/status/changed","params":{"threadId":self.thread,"status":value["thread"]["status"]}}),&self.thread);
+                }
+                Ok(())
+            }
+            Err(Error::Remote(details)) if details.contains("no rollout found for thread id") => {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+    pub async fn answer(&self, id: &str, answers: &[Answer]) -> Result<(), Error> {
+        let reply = lock(&self.runtime).question_reply(id, answers)?;
+        self.write(reply).await?;
+        lock(&self.runtime).answered(id);
+        Ok(())
+    }
+    pub async fn approve(&self, id: &str, choice: u32) -> Result<(), Error> {
+        let reply = lock(&self.runtime).approval_reply(id, choice)?;
+        self.write(reply).await?;
+        lock(&self.runtime).answered(id);
+        Ok(())
     }
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
@@ -327,7 +395,21 @@ impl Client {
                 input.push(json!({"type":"localAudio","path":a.path}));
             }
         }
-        self.request("turn/start", json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort})).await?;
+        if lock(&self.runtime).question().is_some_and(|q| q.blocking) {
+            return Err(Error::Invalid("answer the pending model question"));
+        }
+        lock(&self.runtime).begin();
+        if let Err(error)=self.request("turn/start", json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort})).await {
+            lock(&self.runtime).failed(error.to_string());return Err(error);
+        }
+        lock(&self.runtime).accepted();
+        for _ in 0..3 {
+            let _ = self.observe_thread().await;
+            if self.subscribed.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         Ok(text)
     }
 }

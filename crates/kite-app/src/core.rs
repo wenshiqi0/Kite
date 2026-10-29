@@ -31,6 +31,23 @@ use tokio::{
     sync::{Mutex as AsyncMutex, watch},
     task::JoinHandle,
 };
+mod sessions;
+use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
+use sessions::SessionBook;
+
+#[derive(Clone, Debug)]
+pub struct ConversationSession {
+    pub id: String,
+    pub provider: String,
+    pub title: String,
+    pub preview: String,
+    pub cwd: Option<String>,
+    pub archived: bool,
+    pub updated_ms: i64,
+    pub agent_id: Option<String>,
+    pub status: String,
+    pub recorded: bool,
+}
 
 pub trait SecretStorage: Send + Sync {
     fn read(&self, name: &str) -> Result<Option<Vec<u8>>, String>;
@@ -155,10 +172,14 @@ pub struct Snapshot {
     pub host_key_fingerprint: Option<String>,
     pub agents: Vec<Agent>,
     pub selected_agent: Option<String>,
+    pub sessions: Vec<ConversationSession>,
+    pub selected_session: Option<String>,
     pub agent_output: String,
     pub conversation: Vec<Message>,
     pub conversation_available: bool,
     pub approval: Option<Approval>,
+    pub question: Option<QuestionPrompt>,
+    pub response_activity: ResponseActivity,
     pub agent_pause: AgentPause,
     pub composer: Composer,
     pub desktop: Desktop,
@@ -181,10 +202,14 @@ impl Default for Snapshot {
             host_key_fingerprint: None,
             agents: Vec::new(),
             selected_agent: None,
+            sessions: Vec::new(),
+            selected_session: None,
             agent_output: String::new(),
             conversation: Vec::new(),
             conversation_available: false,
             approval: None,
+            question: None,
+            response_activity: ResponseActivity::Idle,
             agent_pause: AgentPause::Running,
             composer: Composer::default(),
             desktop: Desktop::default(),
@@ -248,6 +273,7 @@ pub struct AppCore {
     chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
     chat_failures: Mutex<BTreeSet<String>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
+    session_book: Mutex<SessionBook>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -297,6 +323,7 @@ impl AppCore {
             chat_clients: AsyncMutex::new(BTreeMap::new()),
             chat_failures: Mutex::new(BTreeSet::new()),
             uploads: Mutex::new(BTreeMap::new()),
+            session_book: Mutex::new(SessionBook::default()),
         })
     }
     pub fn snapshot(&self) -> Snapshot {
@@ -353,6 +380,7 @@ impl AppCore {
                 let mut store = Store::open(&directory)?;
                 *lock(&core.paused_processes) =
                     store.read_document("paused-processes")?.unwrap_or_default();
+                *lock(&core.session_book) = store.read_document("sessions")?.unwrap_or_default();
                 if !store.data().completed_imports.contains(&legacy.source) {
                     for (_, key) in &legacy.trusted_keys {
                         kite_ssh::fingerprint_of(key)?;
@@ -380,6 +408,7 @@ impl AppCore {
                 }
                 *lock(&core.store) = Some(store);
                 core.sync_store();
+                core.restore_session_cache();
                 core.update(|s| {
                     s.initialized = true;
                     s.key = Some(DeviceKey {
@@ -498,6 +527,10 @@ impl AppCore {
                     s.host_key_fingerprint = Some(connection.ssh.host_key_fingerprint());
                 });
                 let prepared = self.prepare_agent(&connection).await;
+                let preferred = prepared
+                    .as_ref()
+                    .ok()
+                    .and_then(|agents| self.preferred_agent(&connection.host.id, agents));
                 if self.generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
@@ -505,7 +538,7 @@ impl AppCore {
                     s.connection = ConnectionPhase::Connected;
                     if let Ok(agents) = &prepared {
                         s.agents = agents.clone();
-                        s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
+                        s.selected_agent = preferred.clone();
                         s.agent_pause = AgentPause::Running;
                         s.connection_step = if agents.first().is_some_and(|a| a.launch_pending) {
                             ConnectionStep::Agent
@@ -594,53 +627,34 @@ impl AppCore {
     }
     async fn prepare_agent(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
         let mut agents = c.api.agents().await?;
+        let repository = kite_agent::sessions::Repository::new(&c.ssh);
+        let catalog = repository.observe(&agents).await?;
+        self.install_catalog(&c.host.id, &catalog)?;
         if agents.is_empty() {
-            let home = c.ssh.exec("/bin/sh -s", b"printf '%s' \"$HOME\"\n").await?;
-            let home = std::str::from_utf8(&home.stdout)
-                .map_err(|_| AppError::State("invalid host home directory".into()))?;
-            if home.is_empty()
-                || !home.starts_with('/')
-                || home.len() > 4096
-                || home.chars().any(char::is_control)
-            {
-                return Err(AppError::State("host home directory unavailable".into()));
-            }
-            let (workspace, pane) = c.api.create_workspace("Kite", Some(home)).await?;
-            let args = composer::launch_args(&c.ssh, &pane, &c.path).await?;
-            match c.api.start_agent(&pane, "kite", "codex", &args).await {
-                Ok(agent) => {
+            let agent = if catalog.sessions.is_empty() {
+                let id = format!("{}{}", new_device_id()?, new_device_id()?);
+                let catalog = repository
+                    .create(id.clone(), "codex".into(), String::new(), None)
+                    .await?;
+                self.install_catalog(&c.host.id, &catalog)?;
+                Some(repository.resume(&id, &c.path).await?)
+            } else {
+                self.prepare_session_agent(c, &agents).await?
+            };
+            if let Some(agent) = agent {
+                if agent.launch_pending {
                     lock(&self.agent_starts).insert(
                         agent.terminal_id.clone(),
                         PendingAgentStart {
-                            pane,
-                            workspace,
+                            pane: agent.pane_id.clone(),
+                            workspace: agent.workspace_id.clone(),
                             since: Instant::now(),
                         },
                     );
+                }
+                agents = c.api.agents().await?;
+                if !agents.iter().any(|a| a.terminal_id == agent.terminal_id) {
                     agents.push(agent);
-                }
-                Err(error) => {
-                    agents = c.api.agents().await?;
-                    if !agents.iter().any(|a| a.name.as_deref() == Some("kite")) {
-                        return Err(AppError::State(format!(
-                            "Default agent start was not confirmed in {workspace} ({pane}): {error}. Verify Codex installation / sign-in or inspect this workspace."
-                        )));
-                    }
-                }
-            }
-            // Give the host's managed launch a short readiness window. No input is replayed.
-            for _ in 0..10 {
-                if !agents.iter().any(|a| {
-                    a.name.as_deref() == Some("kite")
-                        && a.launch_pending
-                        && a.agent_status != "blocked"
-                }) {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(400)).await;
-                let fresh = c.api.agents().await?;
-                if !fresh.is_empty() {
-                    agents = fresh;
                 }
             }
         }
@@ -663,16 +677,19 @@ impl AppCore {
                 s.failure = None;
             });
             match core.prepare_agent(&c).await {
-                Ok(agents) => core.update(|s| {
-                    s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
-                    s.agents = agents;
-                    s.agent_pause = AgentPause::Running;
-                    s.connection_step = if s.agents.first().is_some_and(|a| a.launch_pending) {
-                        ConnectionStep::Agent
-                    } else {
-                        ConnectionStep::Ready
-                    };
-                }),
+                Ok(agents) => {
+                    let preferred = core.preferred_agent(&c.host.id, &agents);
+                    core.update(|s| {
+                        s.selected_agent = preferred;
+                        s.agents = agents;
+                        s.agent_pause = AgentPause::Running;
+                        s.connection_step = if s.agents.first().is_some_and(|a| a.launch_pending) {
+                            ConnectionStep::Agent
+                        } else {
+                            ConnectionStep::Ready
+                        };
+                    });
+                }
                 Err(error) => {
                     core.update(|s| {
                         s.failure = Some(Failure {
@@ -752,12 +769,15 @@ impl AppCore {
                         self.update(|s| s.connection_step = ConnectionStep::Ready);
                     }
                     if self.snapshot().agents != agents {
+                        let selection_guard = self.operations.try_lock().ok();
+                        let preferred = self.preferred_agent(&connection.host.id, &agents);
                         self.update(|s| {
-                            if !agents
-                                .iter()
-                                .any(|a| Some(&a.terminal_id) == s.selected_agent.as_ref())
+                            if selection_guard.is_some()
+                                && !agents
+                                    .iter()
+                                    .any(|a| Some(&a.terminal_id) == s.selected_agent.as_ref())
                             {
-                                s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
+                                s.selected_agent = preferred;
                                 s.conversation.clear();
                                 s.agent_output.clear();
                                 s.approval = None;
@@ -774,8 +794,17 @@ impl AppCore {
                     }
                 }
             }
+            let agents = self.snapshot().agents;
+            if let Err(error) = self.sync_sessions(&connection, &agents, generation).await {
+                self.report(&error);
+            }
             if let Some(selected) = self.snapshot().selected_agent {
                 self.refresh_agent(&connection, &selected, generation).await;
+                if let Err(error) = self.record_selected_history(&connection).await {
+                    self.report(&error);
+                }
+            } else if let Err(error) = self.refresh_saved_session(&connection, generation).await {
+                self.report(&error);
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
@@ -808,6 +837,23 @@ impl AppCore {
                 .await;
         }
         self.refresh_composer(c, &agent, generation).await;
+        let client = self
+            .chat_clients
+            .lock()
+            .await
+            .get(&chat_key(c, &agent))
+            .cloned();
+        let runtime = client.as_ref().map(|c| c.runtime());
+        let question = runtime.as_ref().and_then(|r| r.question());
+        let activity = runtime.as_ref().map(|r| r.phase()).unwrap_or_else(|| {
+            if agent.agent_status == "working" {
+                ResponseActivity::Thinking
+            } else if agent.agent_status == "blocked" {
+                ResponseActivity::Waiting
+            } else {
+                ResponseActivity::Idle
+            }
+        });
         let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
             return;
         };
@@ -827,6 +873,12 @@ impl AppCore {
             kite_agent::terminal_choices(agent.agent_status == "blocked", provider, &text);
         if let Some(a) = &mut approval {
             a.id = format!("{}-{}-{}", source_key(&agent), agent.state_change_seq, a.id);
+        }
+        if let Some(rpc) = runtime.as_ref().and_then(|r| r.approval()) {
+            approval = Some(rpc);
+        }
+        if question.is_some() {
+            approval = None;
         }
         let base = format!("{}/{}", c.host.id, selected);
         if approval
@@ -857,7 +909,7 @@ impl AppCore {
             (pause, current)
         } else {
             (
-                AgentPause::Unknown,
+                self.snapshot().agent_pause,
                 lock(&self.paused_processes).get(&base).cloned(),
             )
         };
@@ -908,6 +960,8 @@ impl AppCore {
                 s.conversation = messages;
                 s.conversation_available = available;
                 s.approval = approval;
+                s.question = question;
+                s.response_activity = activity;
                 if lock(&self.paused_processes).get(&base) == observed_token.as_ref() {
                     s.agent_pause = pause;
                 }
@@ -958,6 +1012,7 @@ impl AppCore {
             return;
         };
         drop(clients);
+        let _ = client.observe_thread().await;
         let stored = lock(&self.store)
             .as_ref()
             .and_then(|s| {
@@ -1286,6 +1341,8 @@ impl AppCore {
             s.conversation.clear();
             s.conversation_available = false;
             s.approval = None;
+            s.question = None;
+            s.response_activity = ResponseActivity::Idle;
             s.agent_pause = AgentPause::Running;
         });
         *lock(&self.history) = None;
@@ -1302,44 +1359,8 @@ impl AppCore {
             }
         }
         self.update(|s| s.composer = Composer::default());
+        self.restore_session_cache();
         Ok(())
-    }
-
-    pub async fn start_agent(
-        self: &Arc<Self>,
-        provider: String,
-        cwd: String,
-    ) -> Result<(), AppError> {
-        let core = self.clone();
-        dispatch(async move {
-            let _guard = core.operations.lock().await;
-            if !matches!(provider.as_str(), "claude" | "codex") {
-                return Err(AppError::State("unsupported agent provider".into()));
-            }
-            let cwd = cwd.trim();
-            if !cwd.is_empty() && (!cwd.starts_with('/') || cwd.len() > 4096 || cwd.chars().any(char::is_control)) {
-                return Err(AppError::State("project directory must be an absolute host path".into()));
-            }
-            let c = core.connection()?;
-            let suffix = new_device_id()?;
-            let name = format!("kite-{}-{}", provider, &suffix[..8]);
-            let (workspace, pane) = c.api.create_workspace(&name, if cwd.is_empty() { None } else { Some(cwd) }).await?;
-            let args = if provider == "codex" { composer::launch_args(&c.ssh, &pane, &c.path).await? } else { Vec::new() };
-            let result = c.api.start_agent(&pane, &name, &provider, &args).await;
-            let agent = match result {
-                Ok(agent) => agent,
-                Err(e) => return Err(AppError::State(format!("Agent start was not confirmed in workspace {workspace} ({pane}): {e}. Inspect this workspace before retrying."))),
-            };
-            lock(&core.agent_starts).insert(agent.terminal_id.clone(), PendingAgentStart { pane, workspace, since: Instant::now() });
-            core.update(|s| {
-                s.failure = None;
-                s.selected_agent = Some(agent.terminal_id.clone());
-                s.agents.push(agent);
-                s.agent_output.clear(); s.conversation.clear(); s.approval = None;
-                s.conversation_available = false; s.agent_pause = AgentPause::Running;
-            });
-            Ok(())
-        }).await
     }
 
     pub async fn select_agent(self: &Arc<Self>, id: String) -> Result<(), AppError> {
@@ -1355,6 +1376,8 @@ impl AppCore {
                 s.conversation.clear();
                 s.conversation_available = false;
                 s.approval = None;
+                s.question = None;
+                s.response_activity = ResponseActivity::Idle;
                 s.agent_pause = AgentPause::Unknown;
             });
             *lock(&core.history) = None;
@@ -1414,6 +1437,19 @@ impl AppCore {
                 ));
             }
             let attachments: Vec<_> = files.iter().map(|u| u.attachment.clone()).collect();
+            if core
+                .snapshot()
+                .question
+                .as_ref()
+                .is_some_and(|q| q.blocking)
+            {
+                return Err(AppError::State("answer the pending model question".into()));
+            }
+            core.update(|s| {
+                if s.selected_agent.as_ref() == Some(&id) {
+                    s.response_activity = ResponseActivity::Sending;
+                }
+            });
             let result = if agent.agent.as_deref() == Some("codex") {
                 let client = core
                     .chat_clients
@@ -1447,6 +1483,22 @@ impl AppCore {
                     .await
                     .map_err(AppError::from)
             };
+            let activity = core
+                .chat_clients
+                .lock()
+                .await
+                .get(&key)
+                .map(|c| c.runtime().phase())
+                .unwrap_or(if result.is_ok() {
+                    ResponseActivity::Thinking
+                } else {
+                    ResponseActivity::Failed
+                });
+            core.update(|s| {
+                if s.selected_agent.as_ref() == Some(&id) {
+                    s.response_activity = activity;
+                }
+            });
             let text = composer::compose_text(&text, &attachments)?;
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Err(AppError::State(
@@ -1457,6 +1509,9 @@ impl AppCore {
                 core.report(e);
             }
             if result.is_ok() {
+                if let Err(error) = core.note_sent_prompt(&c, &agent, &text).await {
+                    core.report(&error);
+                }
                 if let Some(staged) = lock(&core.uploads).get_mut(&key) {
                     staged.retain(|u| {
                         !files
@@ -1468,6 +1523,7 @@ impl AppCore {
                 let message = Message {
                     id: format!("local-{}", new_device_id()?),
                     role: Role::User,
+                    intermediate: false,
                     text,
                     tool: None,
                 };
@@ -1546,6 +1602,23 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            if request.starts_with("rpc-") {
+                let client = core
+                    .chat_clients
+                    .lock()
+                    .await
+                    .get(&chat_key(&c, &agent))
+                    .cloned()
+                    .ok_or_else(|| AppError::State("approval connection expired".into()))?;
+                client.approve(&request, choice).await?;
+                core.update(|s| {
+                    if s.selected_agent.as_ref() == Some(&id) {
+                        s.approval = None;
+                        s.response_activity = client.runtime().phase();
+                    }
+                });
+                return Ok(());
+            }
             let text = c.api.read_agent(&agent.pane_id).await?;
             let provider = agent
                 .agent_session
@@ -1575,6 +1648,50 @@ impl AppCore {
                 core.report(e);
             }
             result
+        })
+        .await
+    }
+
+    pub async fn answer_question(
+        self: &Arc<Self>,
+        id: String,
+        request: String,
+        answers: Vec<QuestionAnswer>,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            let snapshot = core.snapshot();
+            if snapshot.selected_agent.as_ref() != Some(&id)
+                || snapshot.question.as_ref().is_none_or(|q| q.id != request)
+            {
+                return Err(AppError::State("question selection changed".into()));
+            }
+            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+                return Err(AppError::State("resume the agent before answering".into()));
+            }
+            let agent = snapshot
+                .agents
+                .iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let client = core
+                .chat_clients
+                .lock()
+                .await
+                .get(&chat_key(&c, agent))
+                .cloned()
+                .ok_or_else(|| AppError::State("question connection unavailable".into()))?;
+            client.answer(&request, &answers).await?;
+            let runtime = client.runtime();
+            core.update(|s| {
+                if s.selected_agent.as_ref() == Some(&id) {
+                    s.question = runtime.question();
+                    s.response_activity = runtime.phase();
+                }
+            });
+            Ok(())
         })
         .await
     }

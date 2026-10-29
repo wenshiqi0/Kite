@@ -16,6 +16,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 | [0005](0005-mobile-operation-and-session-entry.md) | 手机操作视口、横屏与会话入口 | 已实现（Android Alpha 5） |
 | [0006](0006-rich-composer.md) | 模型、思考强度与附件输入 | 已实现（Android Alpha 6） |
+| [0007](0007-sessions-and-interactions.md) | 会话记录、模型提问与工作过程 | 已实现（Android Alpha 7） |
 
 ## 什么时候写 RFC
 

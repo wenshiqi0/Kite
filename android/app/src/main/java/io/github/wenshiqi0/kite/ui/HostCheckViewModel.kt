@@ -21,6 +21,8 @@ import io.github.wenshiqi0.kite.data.HostForm
 import io.github.wenshiqi0.kite.data.toForm
 import io.github.wenshiqi0.kite.data.cacheAttachment
 import io.github.wenshiqi0.kite.core.UploadInfo
+import io.github.wenshiqi0.kite.core.QuestionInfo
+import io.github.wenshiqi0.kite.core.QuestionAnswerInfo
 import io.github.wenshiqi0.kite.media.NativeMedia
 import kotlinx.coroutines.launch
 
@@ -51,6 +53,11 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var panMode by mutableStateOf(false)
     var orientationRequest by mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
         private set
+    var sessionBusy by mutableStateOf(false)
+        private set
+    var answeringQuestion by mutableStateOf(false)
+        private set
+    private val questionDrafts = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateMap<String, String>>()
     var creatingAgent by mutableStateOf(false)
         private set
     private var wasConnecting = false
@@ -97,16 +104,17 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
                     if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { settingsVisible = false; wasConnecting = false }
                     if (wasConnecting && state.connection == ConnectionStatus.FAILED) { settingsVisible = true; wasConnecting = false }
-                    if (state.selectedAgent != draftAgent) {
+                    val draftContext = state.selectedSession?.let { "${state.selectedHost}/$it" } ?: state.selectedAgent
+                    if (draftContext != draftAgent) {
                         draftAgent?.let { agentDrafts[it] = draft }
                         val old = draftAgent
-                        draftAgent = state.selectedAgent
+                        draftAgent = draftContext
                         draft = draftAgent?.let { agentDrafts[it] } ?: if (old == null) draft else ""
                         if (agentDrafts.size > 32) agentDrafts.remove(agentDrafts.keys.first())
                     }
                     if (!state.desktop.takeover) { ctrlHeld = false; metaHeld = false }
                     val status = state.agents.find { it.id == state.selectedAgent }?.status
-                    if (status == "blocked" && lastStatus != "blocked" && layout == DesktopLayout.Floating) {
+                    if ((status == "blocked" && lastStatus != "blocked" || state.question != null) && layout == DesktopLayout.Floating) {
                         layout = DesktopLayout.Docked; autoDocked = true
                     } else if (status != "blocked" && autoDocked) {
                         layout = DesktopLayout.Floating; autoDocked = false
@@ -150,19 +158,48 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun trust(hostId: String, fingerprint: String) = engine.command { engine.core.trustHost(hostId, fingerprint) }
     fun forget(hostId: String) = engine.command { engine.core.forgetHost(hostId) }
     fun prepareAgent() = engine.command { engine.core.ensureAgent() }
-    fun startAgent(provider: String, cwd: String) {
-        if (creatingAgent) return
-        creatingAgent = true
-        engine.command { try { engine.core.startAgent(provider, cwd) } finally { creatingAgent = false } }
+    fun createSession(provider: String, cwd: String, title: String) {
+        if (creatingAgent || sessionBusy) return
+        creatingAgent = true; sessionBusy = true
+        engine.command { try { engine.core.createSession(provider, cwd, title) } finally { creatingAgent = false; sessionBusy = false } }
+    }
+    fun openSession(id: String) {
+        if (sessionBusy) return
+        sessionBusy = true
+        engine.command { try { engine.core.openSession(id) } finally { sessionBusy = false } }
+    }
+    fun resumeSession(id: String) {
+        if (sessionBusy) return
+        sessionBusy = true
+        engine.command { try { engine.core.resumeSession(id) } finally { sessionBusy = false } }
+    }
+    fun archiveSession(id: String, archived: Boolean) {
+        if (sessionBusy) return
+        sessionBusy = true
+        engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
+    }
+    fun questionValues(request: String): Map<String,String> = questionDrafts[request] ?: emptyMap()
+    fun setQuestionValue(request: String, field: String, value: String) {
+        val values = questionDrafts.getOrPut(request) { androidx.compose.runtime.mutableStateMapOf() }
+        values[field] = value
+        if (questionDrafts.size > 16) questionDrafts.keys.firstOrNull { it != request }?.let(questionDrafts::remove)
+    }
+    fun answerQuestion(question: QuestionInfo) {
+        val id = engine.state.value?.selectedAgent ?: return
+        if (answeringQuestion || engine.state.value?.question?.id != question.id) return
+        val answers = question.fields.map { QuestionAnswerInfo(it.id, questionDrafts[question.id]?.get(it.id).orEmpty()) }
+        answeringQuestion = true
+        engine.command { try { engine.core.answerQuestion(id, question.id, answers); questionDrafts.remove(question.id) } finally { answeringQuestion = false } }
     }
     fun selectAgent(id: String) = engine.command { engine.core.selectAgent(id) }
     fun sendPrompt(id: String) {
         if (engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
+        val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty()) || sending || copyingAttachments) return
         sendingAgents.add(id)
         engine.command {
-            try { engine.core.promptAgent(id, value); if (draftAgent == id && draft.trim() == value) draft = "" else if (agentDrafts[id]?.trim() == value) agentDrafts.remove(id) }
+            try { engine.core.promptAgent(id, value); if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context) }
             finally { sendingAgents.remove(id) }
         }
     }

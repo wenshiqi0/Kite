@@ -46,10 +46,12 @@ class UiProbe : Instrumentation() {
                 for (index in 0 until node.childCount) node.getChild(index)?.let(::visit)
             }
             visit(root)
-            check(nodes.size == 1) { "one visible text composer required, found ${nodes.size}" }
-            nodes.single().performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val field = options.getString("field")
+            val matching = if (field == null) nodes else nodes.filter { it.contentDescription?.toString() == field }
+            check(matching.size == 1) { "one matching text field required, found ${matching.size}" }
+            matching.single().performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }
-            check(nodes.single().performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) { "set-text rejected" }
+            check(matching.single().performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) { "set-text rejected" }
             finish(Activity.RESULT_OK, Bundle().apply { putBoolean("text_set", true) })
         } catch (e: Exception) {
             finish(Activity.RESULT_CANCELED, Bundle().apply { putString("failure", "${e.javaClass.simpleName}: ${e.message}") })

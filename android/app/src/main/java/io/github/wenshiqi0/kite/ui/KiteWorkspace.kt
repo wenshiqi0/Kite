@@ -68,6 +68,7 @@ private val Amber = Color(0xFFF5C847)
 fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () -> Unit) {
     val current by vm.engine.state.collectAsState()
     val state = current
+    val currentSession = state?.sessions?.find { it.id == state.selectedSession }
     val context = LocalContext.current
     val voiceUnavailable = stringResource(R.string.voice_unavailable)
     val sendTextFailure = stringResource(R.string.error_send_text)
@@ -89,25 +90,31 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var gestureHelp by remember { mutableStateOf(false) }
     var provider by remember { mutableStateOf("codex") }
     var project by remember { mutableStateOf("") }
+    var sessionName by remember { mutableStateOf("") }
     var remoteKeyboard by remember { mutableStateOf(false) }
     var remoteText by remember { mutableStateOf("") }
     var terminal by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
     var arrows by remember { mutableStateOf(false) }
     var warning by remember { mutableStateOf<String?>(null) }
+    val entries = remember(state?.conversation) { chatEntries(state?.conversation.orEmpty()) }
     val chatScroll = rememberLazyListState()
     var followTail by remember { mutableStateOf(true) }
     var chatHeight by remember { mutableIntStateOf(0) }
-    var previousAgent by remember { mutableStateOf<String?>(null) }
+    var previousConversation by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(chatScroll) {
         snapshotFlow { chatScroll.isScrollInProgress }.collect { scrolling -> if (!scrolling) followTail = !chatScroll.canScrollForward }
     }
-    LaunchedEffect(state?.selectedAgent, state?.conversation?.size, state?.approval?.id, chatHeight, vm.inPip, vm.pipTransition) {
+    LaunchedEffect(state?.selectedSession, state?.selectedAgent, entries, state?.approval?.id, state?.question?.id, state?.responsePhase, vm.sending, vm.answeringQuestion, chatHeight, vm.inPip, vm.pipTransition) {
         if (vm.inPip || vm.pipTransition || chatHeight < 16) return@LaunchedEffect
-        val count = (state?.conversation?.size ?: 0) + (if (state?.approval != null) 1 else 0) + (if (state?.conversationAvailable == false && !state.agentOutput.isBlank()) 1 else 0) + 1
-        if (previousAgent != state?.selectedAgent) followTail = true
-        if (followTail) chatScroll.scrollToItem((count - 1).coerceAtLeast(0))
-        previousAgent = state?.selectedAgent
+        val conversationKey = "${state?.selectedHost}/${state?.selectedSession ?: state?.selectedAgent}"
+        if (previousConversation != conversationKey || vm.sending || vm.answeringQuestion) followTail = true
+        if (followTail) {
+            // Read the measured presentation row count, after tool groups coalesce.
+            withFrameNanos { }; withFrameNanos { }
+            chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+        }
+        previousConversation = conversationKey
     }
     val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         vm.externalActivity = false
@@ -147,19 +154,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = false, drawerContent = {
         ModalDrawerSheet(Modifier.width(310.dp), drawerContainerColor = Color.White) {
-            Text(stringResource(R.string.app_name), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(24.dp))
-            Text(stringResource(R.string.agents_title), color = Muted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
-            state?.agents?.forEach { agent ->
-                NavigationDrawerItem(selected = agent.id == state.selectedAgent, onClick = { vm.selectAgent(agent.id); scope.launch { drawer.close() } },
-                    label = { Column { Text(agentTitle(agent), maxLines = 1, overflow = TextOverflow.Ellipsis); Text(statusLabel(agent.status, AgentPauseStatus.RUNNING, agent.launchPending), fontSize = 12.sp, color = Muted) } },
-                    icon = { StatusDot(agent.status) }, modifier = Modifier.padding(horizontal = 12.dp))
-            }
-            if (state?.agents.isNullOrEmpty()) Text(stringResource(R.string.workspace_no_agents_short), color = Muted, modifier = Modifier.padding(24.dp))
-            TextButton(onClick = { newSession = true; scope.launch { drawer.close() } }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent, modifier = Modifier.padding(horizontal = 12.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { vm.settingsVisible = true; scope.launch { drawer.close() } }, modifier = Modifier.padding(12.dp)) {
-                ProductIcon(Mark.Settings); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.host_settings))
-            }
+            SessionDrawer(vm, state, open = { id -> vm.openSession(id); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.settingsVisible = true; scope.launch { drawer.close() } })
         }
     }) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else Color.White)) {
@@ -174,14 +169,15 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             if (!fullscreen && !hideChrome) Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                 Row(Modifier.fillMaxWidth().height(56.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.semantics { contentDescription = menuDescription }) { ProductIcon(Mark.Menu) }
-                    Text(agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent.status); Spacer(Modifier.width(6.dp)); Text(statusLabel(agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
+                    Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent.status); Spacer(Modifier.width(6.dp)); Text(if (state.question != null) stringResource(R.string.awaiting_answer) else statusLabel(agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
                             DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent)
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
+                            currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(if (session.archived) R.string.restore_session else R.string.archive_session)) }, onClick = { tools = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = agent != null)
                             DropdownMenuItem(text = { Text(stringResource(R.string.connection_diagnostics)) }, onClick = { tools = false; diagnostics = true })
@@ -214,19 +210,22 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
 
-                    if (agent == null) item {
+                    if (agent == null && currentSession == null) item {
                         Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             ProductIcon(Mark.Monitor, Muted, Modifier.size(36.dp))
-                            Text(stringResource(if (state?.connection == ConnectionStatus.CONNECTED) R.string.workspace_no_agents else R.string.workspace_welcome), color = Muted, modifier = Modifier.padding(16.dp))
+                            Text(stringResource(if (state?.connection == ConnectionStatus.CONNECTED) R.string.no_active_sessions else R.string.workspace_welcome), color = Muted, modifier = Modifier.padding(16.dp))
                             if (state?.connection == ConnectionStatus.CONNECTED) {
                                 val preparing = state.connectionStep == ConnectionStep.AGENT && state.failure == null
-                                Button(onClick = vm::prepareAgent, enabled = !preparing) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.retry_agent)) }
+                                Button(onClick = { newSession = true }, enabled = !preparing) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.new_session)) }
                                 TextButton(onClick = vm::openDesktop) { Text(stringResource(R.string.open_desktop)) }
                             } else Button(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    state?.conversation?.let { messages -> items(messages, key = { it.id }) { message -> MessageCard(message) { vm.openDesktop() } } }
-                    if (state != null && agent != null && !state.conversationAvailable && state.agentOutput.isNotBlank()) item {
+                    items(entries, key = { it.key }) { entry -> when (entry) {
+                        is ChatEntry.Message -> MessageCard(entry.message)
+                        is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", { followTail = false }, vm::openDesktop)
+                    } }
+                    if (state != null && agent != null && !state.conversationAvailable && !state.composer.ready && state.agentOutput.isNotBlank()) item {
                         Surface(color = Paper, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable { terminal = true }) {
                             Column(Modifier.padding(14.dp)) {
                                 Text(stringResource(R.string.terminal_output), color = Muted, fontSize = 12.sp)
@@ -235,25 +234,39 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
-                    if (agent?.status == "blocked" && state?.approval == null) item {
+                    state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
+                    if (state?.connection == ConnectionStatus.CONNECTED && (vm.sending || state.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.FAILED))) item(key = "response-feedback") { ResponseFeedback(state.responsePhase, vm.sending) }
+                    if (agent?.status == "blocked" && state?.approval == null && state?.question == null) item {
                         TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.agent_waiting_open_terminal), color = Color(0xFF946307)) }
                     }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
+                if (currentSession != null && (currentSession.archived || agent == null)) {
+                    Row(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(if (currentSession.archived) R.string.session_archived_hint else if (currentSession.provider == "claude" && !currentSession.recorded) R.string.claude_not_connected else R.string.session_recorded), fontSize = 12.sp, color = Muted, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { vm.resumeSession(currentSession.id) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) {
+                            if (vm.sessionBusy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp) else Text(stringResource(if (currentSession.archived) R.string.restore_and_continue else if (currentSession.provider == "claude" && !currentSession.recorded) R.string.connect_claude else R.string.continue_session))
+                        }
+                    }
+                }
                 val composeReason = when {
                     state?.connection != ConnectionStatus.CONNECTED -> R.string.composer_no_connection
-                    agent == null -> R.string.composer_no_agent
+                    currentSession?.archived == true -> R.string.session_archived_hint
+                    agent == null -> if (currentSession == null) R.string.composer_no_agent else null
                     agent.launchPending -> R.string.composer_starting
                     agent.agent == "codex" && !state.composer.ready -> R.string.composer_backend_unavailable
                     state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
-                    agent.status == "blocked" -> R.string.composer_blocked_hint
+                    state.question?.blocking == true -> R.string.awaiting_answer
+                    agent.status == "blocked" && state.question == null -> R.string.composer_blocked_hint
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
-                if (composeReason != null && composeReason != R.string.composer_backend_unavailable) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (composeReason != null && composeReason != R.string.composer_backend_unavailable && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    if (agent != null && agent.launchPending) TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.terminal_output)) }
+                    if (state?.question?.blocking == true) TextButton(onClick = { followTail = true; scope.launch { chatScroll.animateScrollToItem((chatScroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) { Text(stringResource(R.string.go_answer)) }
+                    else if (agent != null && agent.launchPending) TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.terminal_output)) }
                 }
+                if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty())
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
@@ -278,6 +291,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         vm.externalActivity = true; updatePip()
                         runCatching { voice.launch(intent) }.onFailure { vm.externalActivity = false; updatePip(); warning = voiceUnavailable }
                     }, modifier = Modifier.semantics { contentDescription = voiceDescription }) { ProductIcon(Mark.Mic) }
+                }
                 }
                 ComposerSettings(vm, agent, state?.composer)
             }
@@ -399,9 +413,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 FilterChip(selected = provider == "codex", onClick = { provider = "codex" }, label = { Text("Codex") })
                 FilterChip(selected = provider == "claude", onClick = { provider = "claude" }, label = { Text("Claude") })
             }
+            Text(stringResource(if (provider == "claude") R.string.claude_draft_hint else R.string.codex_session_hint), fontSize = 12.sp, color = Muted)
+            OutlinedTextField(sessionName, { sessionName = it }, label = { Text(stringResource(R.string.session_name)) }, singleLine = true)
             OutlinedTextField(project, { project = it }, label = { Text(stringResource(R.string.project_directory)) }, singleLine = true)
         }
-    }, confirmButton = { TextButton(onClick = { vm.startAgent(provider, project); newSession = false }, enabled = !vm.creatingAgent) { Text(stringResource(R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
+    }, confirmButton = { TextButton(onClick = { vm.createSession(provider, project, sessionName); newSession = false; sessionName = "" }, enabled = !vm.creatingAgent) { Text(stringResource(if (provider == "claude") R.string.save_session else R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
     if (gestureHelp && !hideChrome) AlertDialog(onDismissRequest = { gestureHelp = false }, title = { Text(stringResource(R.string.gesture_help)) }, text = { Text(stringResource(R.string.gesture_help_text)) }, confirmButton = { TextButton(onClick = { gestureHelp = false }) { Text(stringResource(R.string.dismiss)) } })
     if (remoteKeyboard && !hideChrome) AlertDialog(onDismissRequest = { remoteKeyboard = false }, title = { Text(stringResource(R.string.remote_text)) }, text = {
         OutlinedTextField(remoteText, { remoteText = it }, label = { Text(stringResource(R.string.remote_text)) })
@@ -453,16 +469,9 @@ private fun agentTitle(a: AgentInfo): String {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else Color(0xFF64645F), Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
     }
 }
-@Composable private fun MessageCard(message: MessageInfo, desktop: () -> Unit) {
+@Composable private fun MessageCard(message: MessageInfo) {
     val user = message.kind == MessageKind.USER
-    val tool = message.tool
-    var expanded by remember(message.id) { mutableStateOf(false) }
-    if (tool != null) Surface(color = Color.White, shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(1.dp, if (tool.computer) Color(0xFF85B3F4) else Line), modifier = Modifier.fillMaxWidth().clickable { if (tool.computer) desktop() else expanded = !expanded }) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { ProductIcon(if (tool.computer) Mark.Monitor else Mark.Terminal, if (tool.computer) Blue else Muted, Modifier.size(18.dp)); Spacer(Modifier.width(9.dp)); Text(tool.label + if (tool.summary.isNotBlank()) " · " + tool.summary else "", color = if (tool.computer) Blue else Muted, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)); if (!tool.complete) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp) }
-            if (expanded) SelectionContainer { Text(tool.arguments + if (tool.output.isNotBlank()) "\n\n" + tool.output else "", fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp)) }
-        }
-    } else Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) Color(0xFFE2EEFC) else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
                 MessageAttachments(message.attachments)

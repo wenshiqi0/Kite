@@ -231,6 +231,7 @@ pub struct MessageInfo {
     pub id: String,
     pub kind: MessageKind,
     pub text: String,
+    pub intermediate: bool,
     pub tool: Option<ToolInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
@@ -258,6 +259,112 @@ pub struct DesktopInfo {
     pub source_height: u32,
     pub fps: u32,
 }
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum ResponsePhase {
+    Idle,
+    Sending,
+    Thinking,
+    Tool,
+    Responding,
+    Waiting,
+    Failed,
+}
+impl From<kite_app::ResponseActivity> for ResponsePhase {
+    fn from(a: kite_app::ResponseActivity) -> Self {
+        use kite_app::ResponseActivity as A;
+        match a {
+            A::Idle => Self::Idle,
+            A::Sending => Self::Sending,
+            A::Thinking => Self::Thinking,
+            A::Tool => Self::Tool,
+            A::Responding => Self::Responding,
+            A::Waiting => Self::Waiting,
+            A::Failed => Self::Failed,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct QuestionOptionInfo {
+    pub label: String,
+    pub description: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct QuestionFieldInfo {
+    pub id: String,
+    pub header: String,
+    pub text: String,
+    pub allow_other: bool,
+    pub secret: bool,
+    pub options: Vec<QuestionOptionInfo>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct QuestionInfo {
+    pub id: String,
+    pub blocking: bool,
+    pub fields: Vec<QuestionFieldInfo>,
+}
+impl From<kite_app::QuestionPrompt> for QuestionInfo {
+    fn from(q: kite_app::QuestionPrompt) -> Self {
+        Self {
+            id: q.id,
+            blocking: q.blocking,
+            fields: q
+                .questions
+                .into_iter()
+                .map(|f| QuestionFieldInfo {
+                    id: f.id,
+                    header: f.header,
+                    text: f.question,
+                    allow_other: f.is_other,
+                    secret: f.is_secret,
+                    options: f
+                        .options
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|o| QuestionOptionInfo {
+                            label: o.label,
+                            description: o.description,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct QuestionAnswerInfo {
+    pub question_id: String,
+    pub value: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SessionInfo {
+    pub id: String,
+    pub provider: String,
+    pub title: String,
+    pub preview: String,
+    pub cwd: Option<String>,
+    pub archived: bool,
+    pub updated_ms: i64,
+    pub agent_id: Option<String>,
+    pub status: String,
+    pub recorded: bool,
+}
+impl From<kite_app::ConversationSession> for SessionInfo {
+    fn from(s: kite_app::ConversationSession) -> Self {
+        Self {
+            id: s.id,
+            provider: s.provider,
+            title: s.title,
+            preview: s.preview,
+            cwd: s.cwd,
+            archived: s.archived,
+            updated_ms: s.updated_ms,
+            agent_id: s.agent_id,
+            status: s.status,
+            recorded: s.recorded,
+        }
+    }
+}
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CoreSnapshot {
     pub revision: u64,
@@ -274,11 +381,15 @@ pub struct CoreSnapshot {
     pub host_key_fingerprint: Option<String>,
     pub agents: Vec<AgentInfo>,
     pub selected_agent: Option<String>,
+    pub sessions: Vec<SessionInfo>,
+    pub selected_session: Option<String>,
     pub agent_output: String,
     pub conversation: Vec<MessageInfo>,
     pub conversation_available: bool,
     pub composer: ComposerInfo,
     pub approval: Option<ApprovalInfo>,
+    pub question: Option<QuestionInfo>,
+    pub response_phase: ResponsePhase,
     pub agent_pause: AgentPauseStatus,
     pub desktop: DesktopInfo,
     pub failure: Option<FailureInfo>,
@@ -343,6 +454,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 })
                 .collect(),
             selected_agent: s.selected_agent,
+            sessions: s.sessions.into_iter().map(Into::into).collect(),
+            selected_session: s.selected_session,
             agent_output: s.agent_output,
             conversation: s
                 .conversation
@@ -358,6 +471,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                             kite_app::ChatRole::Tool => MessageKind::Tool,
                         },
                         text,
+                        intermediate: m.intermediate,
                         tool: m.tool.map(|t| ToolInfo {
                             label: t.label(),
                             summary: t.summary(),
@@ -373,6 +487,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 .collect(),
             conversation_available: s.conversation_available,
             composer: s.composer.into(),
+            question: s.question.map(Into::into),
+            response_phase: s.response_activity.into(),
             approval: s.approval.map(|a| ApprovalInfo {
                 id: a.id,
                 prompt: a.prompt,
@@ -528,9 +644,36 @@ impl KiteCore {
     pub async fn ensure_agent(&self) -> Result<(), KiteError> {
         self.inner.ensure_agent().await.map_err(Into::into)
     }
-    pub async fn start_agent(&self, provider: String, cwd: String) -> Result<(), KiteError> {
+    pub async fn create_session(
+        &self,
+        provider: String,
+        cwd: String,
+        title: String,
+    ) -> Result<(), KiteError> {
         self.inner
-            .start_agent(provider, cwd)
+            .create_session(provider, cwd, title)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn open_session(&self, session_id: String) -> Result<(), KiteError> {
+        self.inner
+            .open_session(session_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn resume_session(&self, session_id: String) -> Result<(), KiteError> {
+        self.inner
+            .resume_session(session_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn archive_session(
+        &self,
+        session_id: String,
+        archived: bool,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .archive_session(session_id, archived)
             .await
             .map_err(Into::into)
     }
@@ -577,6 +720,27 @@ impl KiteCore {
     ) -> Result<(), KiteError> {
         self.inner
             .remove_attachment(agent_id, upload_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn answer_question(
+        &self,
+        agent_id: String,
+        request_id: String,
+        answers: Vec<QuestionAnswerInfo>,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .answer_question(
+                agent_id,
+                request_id,
+                answers
+                    .into_iter()
+                    .map(|a| kite_app::QuestionAnswer {
+                        question_id: a.question_id,
+                        value: a.value,
+                    })
+                    .collect(),
+            )
             .await
             .map_err(Into::into)
     }

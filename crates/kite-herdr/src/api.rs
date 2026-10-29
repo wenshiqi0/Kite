@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::Duration;
 
 use kite_ssh::{Session, SshError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 
@@ -35,7 +35,7 @@ pub struct Agent {
     pub agent_session: Option<AgentSession>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AgentSession {
     pub source: String,
     pub agent: String,

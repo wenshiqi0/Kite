@@ -19,6 +19,8 @@
 
 聊天模型、思考强度和附件按 [RFC 0006](docs/rfcs/0006-rich-composer.md) 使用 Codex app-server v2：同一 pane 的 TUI 和手机连接同一持久服务器，保留 thread ID。`kite-agent` 持有结构化聊天协议和有界附件传输，原生仅提供私有缓存文件路径和展示。模型目录、设置、上传状态归 Rust；普通文件及不支持原生音频时通过主机路径提供给 agent。Linux 辅助程序位于 `backend/`，不得修改全局 Codex 服务或凭据。
 
+会话、归档、模型提问和响应阶段按 [RFC 0007](docs/rfcs/0007-sessions-and-interactions.md) 管理：Rust 持有持久记录、提供方、选中会话、回答关联和运行阶段；主机会话索引使用原子修订号写入，辅助程序承担单会话恢复租约及 Linux 终端启动。原始 provider 历史不移动，逻辑归档不停止后台任务。Android 负责工作过程折叠、题目输入及阶段动画，Claude 未连接时明确显示待连接状态。
+
 ## 2. 仓库布局
 
 ```

@@ -1,6 +1,6 @@
 # Host setup
 
-Kite connects to services on your own machine. SSH carries herdr, Codex chat and Sunshine control requests; Sunshine sends desktop video and input over your private network. Rich Codex chat uses a private, persistent app-server for each Kite pane. The APK installs a small Python host adapter in `~/.local/lib/kite/backend-v1.py`; it does not expose another TCP port or change the global Codex daemon.
+Kite connects to services on your own machine. SSH carries herdr, Codex chat and Sunshine control requests; Sunshine sends desktop video and input over your private network. Rich Codex chat uses a private, persistent app-server shared with the session’s herdr terminal; continuing a saved conversation reuses its owner. The APK installs a small Python host adapter in `~/.local/lib/kite/backend-v2.py`; it does not expose another TCP port or change the global Codex daemon.
 
 This guide covers the current Android Alpha's supported host path: **Linux with an active X11 desktop**, with SSH, herdr and Sunshine running as the same user. Automatic capture-size discovery currently requires Linux `/proc`, `ss` and `xrandr`. Wayland, Windows and macOS host discovery are not implemented in this Alpha, even where upstream herdr or Sunshine support them.
 
@@ -20,7 +20,7 @@ Install **Codex CLI 0.164.0 or newer** and **Python 3** under the SSH user, and 
 New Kite Codex panes are prepared automatically. To upgrade a pane created by an older Alpha, first connect the new APK so its matching host adapter is installed. Find the pane ID using `herdr agent list`; when the agent is idle, run:
 
 ```bash
-python3 ~/.local/lib/kite/backend-v1.py upgrade \
+python3 ~/.local/lib/kite/backend-v2.py upgrade \
   --pane YOUR_PANE_ID --herdr "$(command -v herdr)"
 ```
 
@@ -30,7 +30,17 @@ The chat composer reads the real `model/list` catalog and shows each model's sup
 
 Use **+ → Image / File / Audio** to choose attachments with Android's system picker. Each message accepts up to five files, at most 25 MiB each. Uploads stream through SSH, verify SHA-256 and commit atomically under `~/.local/share/kite/uploads/`; failed uploads remain available to retry or remove. Files are retained on the host for the conversation. Images use Codex's native image input. Models advertising audio input use native audio; otherwise audio is a file for the agent's tools to read, and the UI says so. The microphone button performs **speech to text**, a separate feature.
 
-Approvals remain owned by the attached TUI. Kite reads the actual choices and checks their session/state before sending the corresponding keys. The structured chat connection never grants approval automatically. Unknown interactions can still be handled through **Terminal output**.
+Kite observes the existing thread on its current app-server. Recognized structured questions and approvals are answered through their correlated request IDs; terminal choices remain available for interactions owned by the TUI. Approval always requires an explicit user decision. Unknown interactions can still be handled through **Terminal output**.
+
+## Sessions and model questions
+
+The navigation menu lists saved sessions for the selected host, with separate active and archived views. **New session** lets you choose Codex / Claude and an optional title and host project directory. A Codex session connects immediately. A Claude session is saved as a pending connection; this release does not start Claude during creation or claim live Claude validation. **Connect Claude** is a separate, explicit action for a host with that backend configured.
+
+Kite keeps an atomic, revisioned index in `~/.local/share/kite/sessions.json`. It retains each provider reference rather than copying a conversation into a new thread. The phone caches recent messages in its private app storage so records can still be viewed while disconnected. Opening a saved conversation can read history without starting a model turn; **Continue session** attaches a terminal when needed. Archive changes the index only: it does not call Codex `thread/archive`, move provider files, delete messages or stop a task. Restoring a session keeps its provider identity. A per-session host lock prevents two phones from launching duplicate restores.
+
+Model questions have their own answer card, with offered choices, free-form answers when supported and navigation through multiple questions. Submission goes to the exact pending request, not to the ordinary message queue. Pending questions are replayed when reconnecting to the same Codex app-server. Unknown terminal interactions remain available through **Terminal output**. Execution approvals retain their own confirmation card and are never silently accepted.
+
+The composer immediately shows sending feedback, then animated thinking / tool / reply states from the live thread. Waiting for a question or approval stops the thinking indicator. Public progress notes and tool calls share a collapsed work group; expanding it preserves chronological details within a bounded panel.
 
 ## 1. Prepare SSH and a desktop session
 

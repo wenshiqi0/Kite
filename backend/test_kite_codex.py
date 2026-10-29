@@ -15,6 +15,21 @@ import kite_codex as backend
 
 
 class BackendTests(unittest.TestCase):
+    def test_catalog_cas_prevents_archive_and_provider_from_being_overwritten(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            first = backend.catalog_read()
+            record = {"id": "a" * 32, "provider": "claude", "reference": None, "archived": True}
+            written = backend.catalog_write(dict(first, sessions=[record]))
+            self.assertEqual(written["revision"], 1)
+            stale = backend.catalog_write(dict(first, sessions=[dict(record, archived=False, provider="codex")]))
+            self.assertTrue(stale["conflict"])
+            current = backend.catalog_read()["sessions"][0]
+            self.assertTrue(current["archived"])
+            self.assertEqual(current["provider"], "claude")
+            backend.patch_session(record["id"], {"preview": "new preview"})
+            self.assertTrue(backend.catalog_read()["sessions"][0]["archived"])
+            self.assertEqual((Path(temporary) / ".local/share/kite/sessions.json").stat().st_mode & 0o777, 0o600)
+
     def test_large_inline_image_preserves_user_text_and_attachment_history(self):
         with tempfile.TemporaryDirectory() as temporary:
             file = Path(temporary) / "history.jsonl"

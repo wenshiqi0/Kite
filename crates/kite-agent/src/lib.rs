@@ -4,7 +4,9 @@ use serde_json::Value;
 
 pub mod composer;
 pub mod history;
+pub mod interaction;
 pub mod process;
+pub mod sessions;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
@@ -43,6 +45,12 @@ impl Tool {
                 ["command", "cmd", "description", "action", "text"]
                     .into_iter()
                     .find_map(|key| v[key].as_str())
+                    .or_else(|| {
+                        v["questions"]
+                            .as_array()
+                            .and_then(|q| q.first())
+                            .and_then(|q| q["question"].as_str())
+                    })
             })
             .unwrap_or_else(|| {
                 if self.computer {
@@ -65,6 +73,7 @@ pub struct Message {
     pub id: String,
     pub role: Role,
     pub text: String,
+    pub intermediate: bool,
     pub tool: Option<Tool>,
 }
 
@@ -143,6 +152,7 @@ fn add_text(messages: &mut Vec<Message>, id: String, role: Role, text: String) {
         id,
         role,
         text,
+        intermediate: false,
         tool: None,
     });
 }
@@ -155,6 +165,7 @@ fn add_tool(messages: &mut Vec<Message>, id: String, name: &str, arguments: Stri
         id,
         role: Role::Tool,
         text: String::new(),
+        intermediate: false,
         tool: Some(Tool {
             name: name.into(),
             arguments,
@@ -175,6 +186,42 @@ fn finish_tool(messages: &mut [Message], id: &str, output: String, failed: bool)
         tool.output = output;
         tool.complete = true;
         tool.failed = failed;
+    }
+}
+
+fn model_question_answer(messages: &[Message], call: &str, output: &str) -> Option<String> {
+    let tool = messages.iter().find(|m| m.id == call)?.tool.as_ref()?;
+    if !matches!(
+        tool.name.as_str(),
+        "request_user_input" | "request_user_input_async"
+    ) {
+        return None;
+    }
+    let arguments: Value = serde_json::from_str(&tool.arguments).ok()?;
+    let result: Value = serde_json::from_str(output).ok()?;
+    let mut replies = Vec::new();
+    for question in arguments["questions"].as_array()? {
+        let id = question["id"].as_str()?;
+        let values = result["answers"][id]["answers"].as_array()?;
+        let text = if question["isSecret"] == true || question["is_secret"] == true {
+            "••••".into()
+        } else {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let label = question["header"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(id);
+        replies.push(format!("{label}: {text}"));
+    }
+    if replies.is_empty() {
+        None
+    } else {
+        Some(replies.join("\n"))
     }
 }
 
@@ -203,6 +250,14 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                     Role::Assistant
                 };
                 add_text(&mut messages, id.clone(), role, text_content(body));
+                if kind == "assistant"
+                    && body
+                        .as_array()
+                        .is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_use"))
+                    && let Some(message) = messages.iter_mut().find(|m| m.id == id)
+                {
+                    message.intermediate = true;
+                }
                 if let Some(blocks) = body.as_array() {
                     for block in blocks {
                         match block["type"].as_str() {
@@ -252,12 +307,14 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         {
                             continue;
                         }
-                        add_text(
-                            &mut messages,
-                            p["id"].as_str().unwrap_or(&id).to_owned(),
-                            role,
-                            text,
-                        );
+                        let message_id = p["id"].as_str().unwrap_or(&id).to_owned();
+                        add_text(&mut messages, message_id.clone(), role, text);
+                        if let Some(message) = messages.iter_mut().find(|m| m.id == message_id)
+                            && message.role == Role::Assistant
+                        {
+                            message.intermediate =
+                                p["phase"] == "commentary" || p["channel"] == "commentary";
+                        }
                     }
                     Some("function_call" | "custom_tool_call" | "computer_call") => {
                         if let Some(call) = p["call_id"].as_str() {
@@ -274,7 +331,17 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         "function_call_output" | "custom_tool_call_output" | "computer_call_output",
                     ) => {
                         if let Some(call) = p["call_id"].as_str() {
-                            finish_tool(&mut messages, call, text_content(&p["output"]), false);
+                            let output = text_content(&p["output"]);
+                            let answer = model_question_answer(&messages, call, &output);
+                            finish_tool(&mut messages, call, output, false);
+                            if let Some(answer) = answer {
+                                add_text(
+                                    &mut messages,
+                                    format!("{call}-answer"),
+                                    Role::User,
+                                    answer,
+                                );
+                            }
                         }
                     }
                     _ => {}
@@ -395,6 +462,26 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn actual_model_question_answers_are_retained_as_user_replies() {
+        let input = serde_json::json!({"type":"response_item","payload":{"type":"function_call","call_id":"question","name":"request_user_input","arguments":serde_json::json!({"questions":[{"id":"colour","header":"Colour"}]}).to_string()}});
+        let output = serde_json::json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"question","output":serde_json::json!({"answers":{"colour":{"answers":["Blue"]}}}).to_string()}});
+        let messages = parse_history("codex", format!("{input}\n{output}\n").as_bytes());
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].role, Role::User);
+        assert_eq!(messages[1].text, "Colour: Blue");
+        assert!(messages[0].tool.as_ref().unwrap().complete);
+    }
+    #[test]
+    fn empty_progress_does_not_hide_a_final_reply_and_commentary_is_classified() {
+        let data=br#"{"id":"a","type":"response_item","payload":{"id":"answer","type":"message","role":"assistant","channel":"final","content":[{"text":"answer"}]}}
+{"id":"empty","type":"response_item","payload":{"type":"message","role":"assistant","channel":"commentary","content":[]}}
+{"id":"p","type":"response_item","payload":{"id":"progress","type":"message","role":"assistant","phase":"commentary","content":[{"text":"checking"}]}}"#;
+        let messages = parse_history("codex", data);
+        assert_eq!(messages.len(), 2);
+        assert!(!messages[0].intermediate);
+        assert!(messages[1].intermediate);
+    }
     #[test]
     fn claude_links_real_tool_results_without_user_bubbles_for_tool_output() {
         let data = br#"{"type":"user","uuid":"u","message":{"content":"hello"}}

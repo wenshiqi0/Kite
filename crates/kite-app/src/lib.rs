@@ -14,6 +14,10 @@ pub use kite_agent::composer::{
     Attachment as ChatAttachment, Composer, Effort as ChatEffort, Model as ChatModel,
     Selection as ChatSelection, Upload as ChatUpload,
 };
+pub use kite_agent::interaction::{
+    Activity as ResponseActivity, Answer as QuestionAnswer, OptionItem as QuestionOption, Question,
+    QuestionPrompt,
+};
 pub use kite_agent::{
     Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,
 };
