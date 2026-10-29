@@ -1,0 +1,24 @@
+[package]
+name = "kite-stream"
+description = "Sunshine pairing, control and native Moonlight streaming for kite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kite-ssh.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+openssl.workspace = true
+openssl-sys.workspace = true
+tokio-openssl.workspace = true
+roxmltree.workspace = true
+hex.workspace = true
+base64.workspace = true
+rand.workspace = true
+
+[build-dependencies]
+cc.workspace = true

@@ -4,8 +4,6 @@
     <string name="cancel">取消</string>
 
     <string name="device_key_title">本机密钥</string>
-    <string name="device_key_generating">正在生成本机密钥…</string>
-    <string name="device_key_error">读取本机密钥失败：%1$s</string>
     <string name="device_key_hint">把这行公钥加到主机上对应用户的 ~/.ssh/authorized_keys。</string>
     <string name="device_key_copy">复制公钥</string>
 
@@ -14,15 +12,7 @@
     <string name="host_port">端口</string>
     <string name="host_username">用户名</string>
     <string name="host_herdr_path">herdr 路径（可选）</string>
-    <string name="host_herdr_path_placeholder">留空则自动查找</string>
-    <string name="check_herdr">连接并检查 herdr</string>
-    <string name="check_running">正在连接…</string>
 
-    <string name="check_passed">herdr 可用</string>
-    <string name="check_capability">API 桥接</string>
-    <string name="check_path">herdr 路径</string>
-    <string name="check_version">版本</string>
-    <string name="check_host_key">主机密钥指纹</string>
 
     <string name="host_key_title">第一次连接这台主机</string>
     <string name="host_key_body">%1$s 的主机密钥指纹：</string>
@@ -36,8 +26,56 @@
     <string name="error_host_key_changed">主机密钥和之前信任的不一致（之前 %1$s，现在 %2$s）。可能是主机重装过，也可能有人在中间拦截。确认安全后再忘记旧密钥。</string>
     <string name="error_auth_rejected">主机拒绝了本机密钥。把上面的公钥加到 %1$s 的 ~/.ssh/authorized_keys 后重试。</string>
     <string name="error_herdr_not_found">主机上没找到 herdr。确认已经安装，或者在「herdr 路径」里填完整路径。</string>
-    <string name="error_herdr_unsupported">%1$s 的 herdr 版本太旧，不支持 API 桥接，请在主机上升级 herdr。</string>
-    <string name="error_connection">连接失败：%1$s</string>
-    <string name="error_invalid_key">密钥无效：%1$s</string>
-    <string name="error_probe">检查 herdr 时出错：%1$s</string>
+    <string name="core_initializing">正在读取设备密钥与主机记录…</string>
+    <string name="connect_herdr">连接 herdr</string>
+    <string name="disconnect">断开连接</string>
+    <string name="connection_active">已连接 herdr</string>
+    <string name="herdr_connected_version">herdr %1$s · SSH 会话保持中</string>
+    <string name="connection_channel">主机连接</string>
+    <string name="connection_notification_title">Kite 主机连接</string>
+    <string name="connection_notification_text">SSH 会话保持中，点此返回 Kite。</string>
+    <string name="saved_hosts">已保存的主机</string>
+    <string name="advanced_settings">高级设置</string>
+    <string name="stream_address">Sunshine 地址（可选）</string>
+    <string name="stream_address_hint">留空使用主机地址；视频须通过局域网或 Tailscale 等私有网络直连。</string>
+    <string name="sunshine_port">Sunshine 基础端口</string>
+    <string name="error_sunshine_port">Sunshine 基础端口须在 6 到 65514 之间。</string>
+    <string name="agents_title">Agent</string>
+    <string name="no_agents">当前没有运行中的 agent；仍可打开远程桌面。</string>
+    <string name="terminal_output">终端输出</string>
+    <string name="agent_prompt">发送给此 agent</string>
+    <string name="send_agent_prompt">发送提示</string>
+    <string name="open_desktop">打开远程桌面</string>
+    <string name="desktop_title">远程桌面</string>
+    <string name="desktop_surface">远程桌面画面</string>
+    <string name="desktop_starting">正在连接并等待视频画面…</string>
+    <string name="video_frame_counts">接收 %1$d 帧 · 呈现 %2$d 帧</string>
+    <string name="video_dimensions">桌面 %1$d×%2$d · 视频 %3$d×%4$d · 目标 %5$d fps</string>
+    <string name="pairing_title">配对 Sunshine</string>
+    <string name="pairing_hint">在主机 Sunshine 管理页面输入此 PIN；也可使用主机已保存的管理凭据自动确认。</string>
+    <string name="auto_confirm_pairing">自动确认配对</string>
+    <string name="takeover">接管</string>
+    <string name="stop_takeover">退出接管</string>
+    <string name="watch_hint">仅观看。进入接管后可操作主机。</string>
+    <string name="takeover_hint">单指点按为左键，长按拖动；双指点按为右键，双指滑动滚动。</string>
+    <string name="keyboard">键盘</string>
+    <string name="right_click">右键</string>
+    <string name="scroll_up">向上滚动</string>
+    <string name="scroll_down">向下滚动</string>
+    <string name="remote_text">输入文字发送到主机</string>
+    <string name="send_text">发送文字</string>
+    <string name="shortcut_esc">Esc</string>
+    <string name="shortcut_tab">Tab</string>
+    <string name="shortcut_enter">Enter</string>
+    <string name="shortcut_ctrl_c">Ctrl+C</string>
+    <string name="back">返回</string>
+    <string name="retry">重试</string>
+    <string name="dismiss">关闭</string>
+    <string name="details">详情</string>
+    <string name="error_action">操作未完成，请查看详情。</string>
+    <string name="error_connection_generic">主机连接失败。</string>
+    <string name="error_secure_storage">无法读取设备安全存储。</string>
+    <string name="error_herdr_capability">主机上的 herdr 不支持 API 桥接。</string>
+    <string name="error_herdr_api">herdr API 暂时不可用。</string>
+    <string name="error_desktop">远程桌面连接失败。</string>
 </resources>

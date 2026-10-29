@@ -1,0 +1,12 @@
+[package]
+name = "kite-store"
+description = "Persistent host configuration and public trust records for kite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true

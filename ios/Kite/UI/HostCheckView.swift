@@ -122,7 +122,7 @@ private struct HostFormSection: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             Button(action: model.check) {
-                Text(model.isRunning ? "check_running" : "check_herdr")
+                Text(model.isConnected ? "disconnect" : (model.isRunning ? "check_running" : "check_herdr"))
             }
             .disabled(model.deviceKey == nil || model.isRunning)
             // ⌘↩ with a hardware keyboard, on iPad or iPhone.
@@ -158,6 +158,9 @@ private struct ResultSection: View {
             Section {
                 Text(message)
                     .foregroundStyle(.red)
+                if let details = model.failureDetails {
+                    DisclosureGroup("details") { Text(details).font(.caption.monospaced()).textSelection(.enabled) }
+                }
                 if hostKeyChanged {
                     Button("forget_host_key", role: .destructive, action: model.forgetHostKey)
                 }

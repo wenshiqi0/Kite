@@ -12,6 +12,8 @@ repository = "https://github.com/wenshiqi0/kite"
 kite-ssh = { path = "crates/kite-ssh" }
 kite-herdr = { path = "crates/kite-herdr" }
 kite-app = { path = "crates/kite-app" }
+kite-store = { path = "crates/kite-store" }
+kite-stream = { path = "crates/kite-stream" }
 
 # ring instead of the default aws-lc-rs: it cross-compiles for Android with only the NDK.
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
@@ -21,6 +23,17 @@ thiserror = "2"
 log = "0.4"
 uniffi = "0.32"
 tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+openssl = { version = "0.10", features = ["vendored"] }
+openssl-sys = { version = "0.9", features = ["vendored"] }
+tokio-openssl = "0.6"
+roxmltree = "0.21"
+hex = "0.4"
+base64 = "0.22"
+cc = "1"
+jni = "0.21"
+android_logger = "0.15"
 
 [profile.release]
 # Keep panics unwinding so UniFFI can turn them into Kotlin exceptions.

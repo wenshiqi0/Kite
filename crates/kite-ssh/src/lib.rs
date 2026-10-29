@@ -4,8 +4,11 @@
 //! and a key that differs from the trusted one is always rejected. The caller
 //! asks the user to confirm the fingerprint and retries with the key trusted.
 
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use russh::client::{self, Handle};
 use russh::keys::ssh_key::LineEnding;
@@ -16,6 +19,7 @@ use russh::{ChannelMsg, Disconnect};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+const MAX_EXEC_OUTPUT: usize = 4 * 1024 * 1024;
 
 /// An OpenSSH-encoded key pair and the fingerprint of its public half.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +59,8 @@ pub enum SshError {
     AuthRejected(String),
     #[error("server refused to run the command")]
     ExecRejected,
+    #[error("command output exceeded the size limit")]
+    OutputTooLarge,
     #[error("timed out while {0}")]
     Timeout(&'static str),
     #[error("invalid key: {0}")]
@@ -125,13 +131,17 @@ impl Session {
             .take()
             .ok_or(russh::Error::UnknownKey)?;
 
-        let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
-        let auth = handle
-            .authenticate_publickey(
-                target.username.clone(),
-                PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
-            )
-            .await?;
+        let auth = tokio::time::timeout(CONNECT_TIMEOUT, async {
+            let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
+            handle
+                .authenticate_publickey(
+                    target.username.clone(),
+                    PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                )
+                .await
+        })
+        .await
+        .map_err(|_| SshError::Timeout("authenticating"))??;
         if !auth.success() {
             return Err(SshError::AuthRejected(target.username.clone()));
         }
@@ -151,6 +161,12 @@ impl Session {
     /// Runs `command` in a new exec channel, writes `stdin` and closes it, then
     /// collects output until the channel closes.
     pub async fn exec(&self, command: &str, stdin: &[u8]) -> Result<ExecOutput, SshError> {
+        tokio::time::timeout(Duration::from_secs(30), self.exec_inner(command, stdin))
+            .await
+            .map_err(|_| SshError::Timeout("executing command"))?
+    }
+
+    async fn exec_inner(&self, command: &str, stdin: &[u8]) -> Result<ExecOutput, SshError> {
         let mut channel = self.handle.channel_open_session().await?;
         channel.exec(true, command).await?;
         if !stdin.is_empty() {
@@ -167,15 +183,83 @@ impl Session {
                 ChannelMsg::Failure => return Err(SshError::ExecRejected),
                 _ => {}
             }
+            if output.stdout.len() + output.stderr.len() > MAX_EXEC_OUTPUT {
+                let _ = channel.close().await;
+                return Err(SshError::OutputTooLarge);
+            }
         }
         Ok(output)
     }
 
-    pub async fn close(self) -> Result<(), SshError> {
-        self.handle
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await?;
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
+    pub async fn open_command(&self, command: &str) -> Result<ByteStream, SshError> {
+        tokio::time::timeout(CONNECT_TIMEOUT, async {
+            let channel = self.handle.channel_open_session().await?;
+            channel.exec(true, command).await?;
+            Ok(ByteStream {
+                inner: channel.into_stream(),
+            })
+        })
+        .await
+        .map_err(|_| SshError::Timeout("opening command channel"))?
+    }
+
+    pub async fn open_tunnel(&self, host: &str, port: u16) -> Result<ByteStream, SshError> {
+        tokio::time::timeout(CONNECT_TIMEOUT, async {
+            let channel = self
+                .handle
+                .channel_open_direct_tcpip(host, u32::from(port), "127.0.0.1", 0)
+                .await?;
+            Ok(ByteStream {
+                inner: channel.into_stream(),
+            })
+        })
+        .await
+        .map_err(|_| SshError::Timeout("opening TCP channel"))?
+    }
+
+    pub async fn close(&self) -> Result<(), SshError> {
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            self.handle.disconnect(Disconnect::ByApplication, "", "en"),
+        )
+        .await
+        .map_err(|_| SshError::Timeout("closing connection"))??;
         Ok(())
+    }
+}
+
+/// An owned SSH exec/direct-tcpip stream. Dropping it closes its channel.
+pub struct ByteStream {
+    inner: russh::ChannelStream<client::Msg>,
+}
+
+impl AsyncRead for ByteStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for ByteStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 

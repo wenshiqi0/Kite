@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "kite"
 include(":app")
+include(":ui-probe")

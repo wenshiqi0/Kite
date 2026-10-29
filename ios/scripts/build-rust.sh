@@ -36,7 +36,7 @@ cargo rustc -p kite-ffi --lib --crate-type staticlib --target "$TARGET" "$@"
 
 LIB_DIR="$IOS_DIR/build/rust/$PLATFORM_NAME"
 mkdir -p "$LIB_DIR"
-cp "target/$TARGET/$PROFILE/libkite_ffi.a" "$LIB_DIR/libkite_ffi.a"
+cp "${CARGO_TARGET_DIR:-target}/$TARGET/$PROFILE/libkite_ffi.a" "$LIB_DIR/libkite_ffi.a"
 
 # Generate into a scratch directory and swap it in only when the bindings
 # changed, so unchanged Rust doesn't make Xcode recompile the Swift side.

@@ -7,6 +7,13 @@
 
 use kite_ssh::Session;
 
+pub mod core;
+pub use core::*;
+pub use kite_store::Host as SavedHost;
+pub use kite_stream::{
+    FRAME_CONFIG, FRAME_KEY, FrameInfo, Input, InputSender, MediaSink, StreamConfig, VideoFormat,
+};
+
 pub use kite_herdr::{BridgeCheck, CheckError};
 pub use kite_ssh::{KeyPair, SshError, Target};
 
@@ -36,6 +43,14 @@ pub enum AppError {
     Ssh(#[from] SshError),
     #[error(transparent)]
     Herdr(#[from] CheckError),
+    #[error(transparent)]
+    Store(#[from] kite_store::StoreError),
+    #[error(transparent)]
+    Api(#[from] kite_herdr::api::ApiError),
+    #[error(transparent)]
+    Stream(#[from] kite_stream::StreamError),
+    #[error("{0}")]
+    State(String),
 }
 
 /// Connects to the host, verifies its key against `trusted_host_key` (an

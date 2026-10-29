@@ -51,13 +51,13 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 
 | crate | 层 | 职责 | 状态 |
 |---|---|---|---|
-| `kite-ssh` | 基础 | SSH 连接；ed25519 密钥的生成和解析；严格的主机密钥校验；执行命令；端口转发；保活和重连 | M1 已有连接、密钥、校验和执行命令；端口转发和重连待做 |
-| `kite-store` | 基础 | 本地持久化：主机列表、已信任的主机密钥、对话缓存、设置。数据目录由原生层在初始化时传入 | M2 新建 |
-| `kite-herdr` | 领域 | 查找 herdr 并检查桥接；JSON API 客户端（agent 列表、事件订阅、发消息、读屏、发按键）；客户端协议的编解码和每个 pane 的单元格模型 | M1 已有查找和检查 |
+| `kite-ssh` | 基础 | SSH 连接；ed25519 密钥的生成和解析；严格的主机密钥校验；执行命令；端口转发；保活和重连 | 已有连接、密钥、校验、exec/direct-tcpip 通道及保活；重连命令由应用层编排 |
+| `kite-store` | 基础 | 本地持久化：主机列表、已信任的主机密钥、对话缓存、设置。数据目录由原生层在初始化时传入 | 已有主机、信任记录、配对公钥和原子迁移；对话缓存待做 |
+| `kite-herdr` | 领域 | 查找 herdr 并检查桥接；JSON API 客户端（agent 列表、事件订阅、发消息、读屏、发按键）；客户端协议的编解码和每个 pane 的单元格模型 | 已有查找、检查和 JSON API；二进制客户端协议待做 |
 | `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的消息模型；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | M2 新建 |
-| `kite-stream` | 领域 | Sunshine 配对和管理；通过 moonlight-common-c 建立 Moonlight 会话；把视频帧交给 `MediaSink`，接收串流输入 | M3 新建 |
-| `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | M1 已有一次性检查 |
-| `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | M1 已有 |
+| `kite-stream` | 领域 | Sunshine 配对和管理；通过 moonlight-common-c 建立 Moonlight 会话；把视频帧交给 `MediaSink`，接收串流输入 | Android 已接入配对、H.264 和基础输入；音频/iOS 视频待做 |
+| `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | 已有持久会话、快照、任务取消和原生 SecretStore 回调 |
+| `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | 已有 Core/observer/SecretStore 导出及 Android JNI 媒体通道 |
 | `uniffi-bindgen` | 工具 | 从编译好的库生成 Kotlin / Swift 绑定 | M1 已有 |
 
 ### 3.3 依赖规则
@@ -133,7 +133,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 - **错误**：
   - 每个导出函数返回 `Result<T, KiteError>`。
   - `KiteError` 的每个变体是一个稳定的错误码，只带结构化字段。原生按变体选择文案。
-  - `message` 字段只是诊断信息，不得当作主要提示直接展示，只能放在"详情"一类的次要位置。
+  - `details` 字段只是诊断信息，不得当作主要提示直接展示，只能放在"详情"一类的次要位置。不得用 `message` 命名导出错误的字段，以免与 Kotlin 的 `Throwable.message` 冲突。
 - **panic**：release 构建保持 `panic = "unwind"`，由 UniFFI 转成原生异常；原生显示通用错误并记录日志。Rust 代码不得用 panic 做正常的流程控制。
 - **数据类型**：
   - ID 用不透明的字符串。
@@ -188,17 +188,21 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 - 设备型号只能用来判断能力，例如是否支持多窗口。硬件键盘和指针在 iPhone 上也可能连接，所以按"是否连接"判断，不按设备型号判断。
 - 同一功能在紧凑宽度和常规宽度下的差异，写在对应功能的 RFC 里。总体原则见 [RFC 0002](docs/rfcs/0002-ios.md)。
 
-## 6. M1 的现状与差距
+## 6. 当前实现与 M1 升级
 
-M1 只打通了最小链路，下面几处还没有按本规范实现，M2 时迁移。Android 和 iOS 的情况相同：iOS 把主机表单和已信任的主机密钥存在 UserDefaults 里（`HostStore`），私钥存在 Keychain 里，再作为参数传给 Rust。
+RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 适配层隐藏 Moonlight ABI，单进程仅一路串流。FFI 库和绑定同次生成，不保留旧 FFI 入口；herdr 0.9.5 协议必须兼容。结构化聊天和 iOS 视频不在本轮实现范围内。
 
-| 现状 | 规范要求 | 迁移时机 |
-|---|---|---|
-| 主机表单和已信任的主机密钥存在 Kotlin 的 SharedPreferences 里（`HostStore`） | 由 `kite-store` 持久化 | M2 |
-| 私钥由 Kotlin 读出，作为参数传给 `check_herdr` | Rust 通过 `SecretStore` 回调读取 | M2 |
-| 没有 `KiteCore` 入口对象，导出的是顶层函数 | 原生创建唯一的 `KiteCore` | M2 |
-| 检查是一次性的，连接用完就关 | `kite-app` 维护长连接的主机运行时 | M2 |
-| 界面状态由 ViewModel 自己组装 | 由 `kite-app` 推送视图模型快照 | M2 |
+| M1 现状 | 当前升级处理 |
+|---|---|
+| SharedPreferences / UserDefaults 保存主机与指纹 | 仅作只读迁移源；Rust 原子写入主机、所有公开指纹和迁移标记，重试幂等，冲突不覆盖 |
+| 原生读取私钥并作为函数参数传入 | `SecretStore` 回调复用原有 Android wrapping key/密文文件或 iOS Keychain 项；不重建设备身份 |
+| 顶层一次性检查 | 进程唯一 `KiteCore`，唯一应用运行时，连接、API 轮询和桌面任务持有取消手段与句柄 |
+| 检查后关闭 SSH | 保持 SSH，桌面控制通过 direct-tcpip；视频与实时输入通过私有网络 Moonlight |
+| ViewModel 自组领域状态 | Rust 推送带 revision 的快照，原生丢弃旧版本，仅保留展示和输入状态 |
+
+Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct ByteBuffer 传递，不走 UniFFI。默认仅观看，进入接管才转发输入；退出接管释放按键。后台暂停视频，前台服务管理 SSH 生命周期，并处理快速连接失败时先提升前台、再停止服务的顺序。
+
+验收必须分别确认真实 herdr API、持续视频接收、实际解码呈现和输入到达。编译、`/serverinfo` 与编码包计数不能代替用户可见的画面和操作证据。
 
 ## 7. 修改本规范
 

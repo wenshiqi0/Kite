@@ -1,0 +1,3 @@
+[submodule "crates/kite-stream/native/moonlight-common-c"]
+	path = crates/kite-stream/native/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git

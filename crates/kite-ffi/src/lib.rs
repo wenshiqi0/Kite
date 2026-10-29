@@ -1,71 +1,49 @@
-//! kite's boundary to the native apps, exported through UniFFI.
-//!
-//! This crate only adapts `kite-app` to FFI types: records, the error enum,
-//! and platform logging. Behaviour belongs in `kite-app` and the domain crates.
-
-use kite_app::{AppError, CheckError, HostSpec, SshError, Target};
-
+//! UniFFI commands/state and platform media adapters. Business logic lives in kite-app.
+use kite_app::{AppError, CheckError, SshError};
 uniffi::setup_scaffolding!();
+mod core_bridge;
+pub use core_bridge::*;
+#[cfg(target_os = "android")]
+mod android;
 
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct SshKeyPair {
-    pub private_key_openssh: String,
-    pub public_key_openssh: String,
-    pub fingerprint: String,
-}
-
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct HostConfig {
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    /// Absolute path of herdr on the host; `None` searches the usual places.
-    pub herdr_path: Option<String>,
-}
-
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct HerdrCheck {
-    pub herdr_path: String,
-    pub capability: String,
-    pub version: Option<String>,
-    pub host_key_fingerprint: String,
-}
-
-/// Errors carry structured fields only. User-facing text is written by the
-/// native apps; `message` fields are diagnostics.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum KiteError {
-    /// The host key is not trusted yet; show `fingerprint` and retry with
-    /// `host_key` trusted if the user accepts it.
-    #[error("host key {fingerprint} is not trusted yet")]
+    #[error("host key {fingerprint} is not trusted")]
     UnknownHostKey {
         fingerprint: String,
         host_key: String,
     },
-    #[error(
-        "host key changed: trusted {trusted_fingerprint}, server presented {presented_fingerprint}"
-    )]
+    #[error("host key changed")]
     HostKeyChanged {
         trusted_fingerprint: String,
         presented_fingerprint: String,
     },
-    #[error("server rejected public key authentication for {username}")]
+    #[error("public key authentication rejected for {username}")]
     AuthRejected { username: String },
-    #[error("invalid key: {message}")]
-    InvalidKey { message: String },
-    #[error("{message}")]
-    Connection { message: String },
-    #[error("herdr was not found on the host")]
+    #[error("invalid key: {details}")]
+    InvalidKey { details: String },
+    #[error("connection: {details}")]
+    Connection { details: String },
+    #[error("herdr not found")]
     HerdrNotFound,
-    #[error("herdr at {path} does not support the API bridge (answered `{capability}`)")]
+    #[error("herdr unsupported at {path}")]
     HerdrUnsupported { path: String, capability: String },
-    #[error("{message}")]
-    Probe { message: String },
+    #[error("probe: {details}")]
+    Probe { details: String },
+    #[error("storage: {details}")]
+    Storage { details: String },
+    #[error("herdr API: {details}")]
+    HerdrApi { details: String },
+    #[error("stream: {details}")]
+    Stream { details: String },
+    #[error("invalid state: {details}")]
+    InvalidState { details: String },
+    #[error("media target unavailable")]
+    MediaUnavailable,
 }
-
 impl From<SshError> for KiteError {
-    fn from(error: SshError) -> Self {
-        match error {
+    fn from(e: SshError) -> Self {
+        match e {
             SshError::UnknownHostKey {
                 fingerprint,
                 public_key,
@@ -78,52 +56,48 @@ impl From<SshError> for KiteError {
                 presented_fingerprint: presented,
             },
             SshError::AuthRejected(username) => Self::AuthRejected { username },
-            SshError::InvalidKey(message) => Self::InvalidKey { message },
+            SshError::InvalidKey(details) => Self::InvalidKey { details },
             other => Self::Connection {
-                message: other.to_string(),
+                details: other.to_string(),
             },
         }
     }
 }
-
 impl From<CheckError> for KiteError {
-    fn from(error: CheckError) -> Self {
-        match error {
-            CheckError::Ssh(error) => error.into(),
+    fn from(e: CheckError) -> Self {
+        match e {
+            CheckError::Ssh(e) => e.into(),
             CheckError::NotFound => Self::HerdrNotFound,
             CheckError::Unsupported { path, capability } => {
                 Self::HerdrUnsupported { path, capability }
             }
             other => Self::Probe {
-                message: other.to_string(),
+                details: other.to_string(),
             },
         }
     }
 }
-
 impl From<AppError> for KiteError {
-    fn from(error: AppError) -> Self {
-        match error {
-            AppError::Ssh(error) => error.into(),
-            AppError::Herdr(error) => error.into(),
+    fn from(e: AppError) -> Self {
+        match e {
+            AppError::Ssh(e) => e.into(),
+            AppError::Herdr(e) => e.into(),
+            AppError::Store(e) => Self::Storage {
+                details: e.to_string(),
+            },
+            AppError::Api(e) => Self::HerdrApi {
+                details: e.to_string(),
+            },
+            AppError::Stream(e) => Self::Stream {
+                details: e.to_string(),
+            },
+            AppError::State(details) => Self::InvalidState { details },
         }
     }
 }
 
-impl From<kite_app::KeyPair> for SshKeyPair {
-    fn from(pair: kite_app::KeyPair) -> Self {
-        Self {
-            private_key_openssh: pair.private_key_openssh,
-            public_key_openssh: pair.public_key_openssh,
-            fingerprint: pair.fingerprint,
-        }
-    }
-}
-
-/// Routes Rust logs to logcat on Android and to stderr (the Xcode console) on
-/// iOS. Safe to call more than once.
 #[uniffi::export]
-pub fn init_logging() {
+pub fn init_logging() -> Result<(), KiteError> {
     #[cfg(target_os = "android")]
     android_logger::init_once(
         android_logger::Config::default()
@@ -131,71 +105,24 @@ pub fn init_logging() {
             .with_tag("kite"),
     );
     #[cfg(target_os = "ios")]
-    if log::set_logger(&ios::STDERR_LOGGER).is_ok() {
+    if log::set_logger(&ios::LOGGER).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
+    Ok(())
 }
-
 #[cfg(target_os = "ios")]
 mod ios {
-    pub static STDERR_LOGGER: StderrLogger = StderrLogger;
-
-    pub struct StderrLogger;
-
-    impl log::Log for StderrLogger {
-        fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.level() <= log::Level::Info
+    pub static LOGGER: Logger = Logger;
+    pub struct Logger;
+    impl log::Log for Logger {
+        fn enabled(&self, m: &log::Metadata) -> bool {
+            m.level() <= log::Level::Info
         }
-
-        fn log(&self, record: &log::Record) {
-            if self.enabled(record.metadata()) {
-                eprintln!(
-                    "[kite] {} {}: {}",
-                    record.level(),
-                    record.target(),
-                    record.args()
-                );
+        fn log(&self, r: &log::Record) {
+            if self.enabled(r.metadata()) {
+                eprintln!("[kite] {} {}: {}", r.level(), r.target(), r.args());
             }
         }
-
         fn flush(&self) {}
     }
-}
-
-/// Generates this device's ed25519 key pair.
-#[uniffi::export]
-pub fn generate_ssh_key(comment: String) -> Result<SshKeyPair, KiteError> {
-    Ok(kite_app::keys::generate_ed25519(&comment)?.into())
-}
-
-/// Re-derives the public key and fingerprint of a stored private key.
-#[uniffi::export]
-pub fn describe_ssh_key(private_key_openssh: String) -> Result<SshKeyPair, KiteError> {
-    Ok(kite_app::keys::describe_private_key(&private_key_openssh)?.into())
-}
-
-/// Connects to `host`, verifies its host key against `trusted_host_key`,
-/// and runs `herdr remote-api-bridge --check` there.
-#[uniffi::export(async_runtime = "tokio")]
-pub async fn check_herdr(
-    host: HostConfig,
-    private_key_openssh: String,
-    trusted_host_key: Option<String>,
-) -> Result<HerdrCheck, KiteError> {
-    let spec = HostSpec {
-        target: Target {
-            host: host.host,
-            port: host.port,
-            username: host.username,
-        },
-        herdr_path: host.herdr_path,
-    };
-    let check =
-        kite_app::check_host(&spec, &private_key_openssh, trusted_host_key.as_deref()).await?;
-    Ok(HerdrCheck {
-        herdr_path: check.bridge.herdr_path,
-        capability: check.bridge.capability,
-        version: check.bridge.version,
-        host_key_fingerprint: check.host_key_fingerprint,
-    })
 }

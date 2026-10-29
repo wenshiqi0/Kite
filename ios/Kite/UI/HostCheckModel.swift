@@ -1,17 +1,16 @@
 import Foundation
 import Observation
 
-/// First connection to a host: the user must confirm its fingerprint.
-struct HostKeyConfirmation: Equatable {
-    let address: String
-    let fingerprint: String
-    let hostKey: String
+struct HerdrConnectionViewData: Equatable {
+    let herdrPath: String
+    let capability: String
+    let version: String?
+    let hostKeyFingerprint: String
 }
-
 enum CheckState: Equatable {
     case idle
     case running
-    case passed(HerdrCheck)
+    case passed(HerdrConnectionViewData)
     case confirmHostKey(HostKeyConfirmation)
     case failed(message: String, hostKeyChanged: Bool)
 }
@@ -19,114 +18,64 @@ enum CheckState: Equatable {
 @MainActor
 @Observable
 final class HostCheckModel {
-    private let deviceKeys = DeviceKeyStore()
-    private let hosts = HostStore()
-
-    private(set) var deviceKey: SshKeyPair?
-    private(set) var deviceKeyError: String?
-    var form: HostForm
-    private(set) var state: CheckState = .idle
-
-    init() {
-        form = hosts.loadForm()
+    private let engine = CoreController.shared
+    var form = HostForm()
+    private var localFailure: String?
+    var deviceKey: DeviceKeyInfo? { engine.snapshot?.deviceKey }
+    var deviceKeyError: String? { deviceKey == nil ? engine.nativeError ?? engine.snapshot?.failure?.details : nil }
+    var isRunning: Bool { engine.snapshot?.connection == .connecting }
+    var isConnected: Bool { engine.snapshot?.connection == .connected }
+    var pendingHostKey: HostKeyConfirmation? { engine.snapshot?.pendingHostKey }
+    var failureDetails: String? { engine.snapshot?.failure?.details ?? engine.nativeError }
+    var state: CheckState {
+        if let localFailure { return .failed(message: localFailure, hostKeyChanged: false) }
+        guard let snapshot = engine.snapshot else { return .idle }
+        if let pending = snapshot.pendingHostKey { return .confirmHostKey(pending) }
+        if snapshot.connection == .connecting { return .running }
+        if let failure = snapshot.failure {
+            let message: String
+            switch failure.kind {
+            case .authentication: message = localized("error_auth_rejected", [failure.username])
+            case .hostKeyChanged: message = localized("error_host_key_changed", [failure.trustedFingerprint, failure.presentedFingerprint])
+            case .herdrMissing: message = localized("error_herdr_not_found")
+            default: message = localized("error_action")
+            }
+            return .failed(message: message, hostKeyChanged: failure.kind == .hostKeyChanged)
+        }
+        if snapshot.connection == .connected {
+            return .passed(HerdrConnectionViewData(herdrPath: snapshot.herdrPath ?? "", capability: snapshot.capability ?? "",
+                version: snapshot.herdrVersion, hostKeyFingerprint: snapshot.hostKeyFingerprint ?? ""))
+        }
+        return .idle
     }
-
-    var isRunning: Bool { state == .running }
-
-    var pendingHostKey: HostKeyConfirmation? {
-        if case let .confirmHostKey(confirmation) = state { confirmation } else { nil }
-    }
-
     func loadDeviceKey() {
-        guard deviceKey == nil else { return }
-        do {
-            deviceKey = try deviceKeys.loadOrCreate()
-        } catch {
-            deviceKeyError = String(describing: error)
-        }
-    }
-
-    func check() {
-        guard let key = deviceKey, !isRunning else { return }
-        let form = form
-        let host = form.host.trimmingCharacters(in: .whitespaces)
-        let username = form.username.trimmingCharacters(in: .whitespaces)
-        let herdrPath = form.herdrPath.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty else { return fail("error_host_required") }
-        guard !username.isEmpty else { return fail("error_username_required") }
-        guard let port = UInt16(form.port.trimmingCharacters(in: .whitespaces)), port > 0 else {
-            return fail("error_port_invalid")
-        }
-        hosts.saveForm(form)
-        let config = HostConfig(
-            host: host,
-            port: port,
-            username: username,
-            herdrPath: herdrPath.isEmpty ? nil : herdrPath
-        )
-        let trusted = hosts.trustedHostKey(for: form.address)
-        state = .running
         Task {
             do {
-                let check = try await checkHerdr(
-                    host: config,
-                    privateKeyOpenssh: key.privateKeyOpenssh,
-                    trustedHostKey: trusted
-                )
-                state = .passed(check)
-            } catch let error as KiteError {
-                state = describe(error, address: form.address)
-            } catch {
-                state = .failed(message: String(describing: error), hostKeyChanged: false)
-            }
+                try await engine.initialize()
+                if let snapshot = engine.snapshot,
+                   let h = snapshot.hosts.first(where: { $0.id == snapshot.selectedHost }) ?? snapshot.hosts.first {
+                    form = HostForm(id: h.id, host: h.host, port: String(h.port), username: h.username, herdrPath: h.herdrPath ?? "")
+                }
+            } catch { engine.nativeError = String(describing: error) }
         }
     }
-
-    func trustHostKey(_ confirmation: HostKeyConfirmation) {
-        hosts.trustHostKey(confirmation.hostKey, for: confirmation.address)
-        state = .idle
-        check()
-    }
-
-    func dismissHostKey() {
-        state = .idle
-    }
-
-    func forgetHostKey() {
-        hosts.forgetHostKey(for: form.address)
-        state = .idle
-    }
-
-    private func describe(_ error: KiteError, address: String) -> CheckState {
-        switch error {
-        case let .UnknownHostKey(fingerprint, hostKey):
-            return .confirmHostKey(HostKeyConfirmation(address: address, fingerprint: fingerprint, hostKey: hostKey))
-        case let .HostKeyChanged(trusted, presented):
-            return .failed(message: localized("error_host_key_changed", [trusted, presented]), hostKeyChanged: true)
-        case let .AuthRejected(username):
-            return failure("error_auth_rejected", username)
-        case .HerdrNotFound:
-            return failure("error_herdr_not_found")
-        case let .HerdrUnsupported(path, _):
-            return failure("error_herdr_unsupported", path)
-        case let .Connection(message):
-            return failure("error_connection", message)
-        case let .InvalidKey(message):
-            return failure("error_invalid_key", message)
-        case let .Probe(message):
-            return failure("error_probe", message)
+    func check() {
+        if isConnected { engine.command { try await $0.disconnect() }; return }
+        guard !isRunning else { return }
+        let f = form
+        guard !f.host.trimmingCharacters(in: .whitespaces).isEmpty else { localFailure = localized("error_host_required"); return }
+        guard !f.username.trimmingCharacters(in: .whitespaces).isEmpty else { localFailure = localized("error_username_required"); return }
+        guard let port = UInt16(f.port.trimmingCharacters(in: .whitespaces)), port > 0 else { localFailure = localized("error_port_invalid"); return }
+        localFailure = nil
+        engine.command { [weak self] core in
+            let id = try await core.saveHost(host: HostRecord(id: f.id, host: f.host, port: port, username: f.username,
+                herdrPath: f.herdrPath.isEmpty ? nil : f.herdrPath, streamHost: nil, sunshinePort: 47989))
+            self?.form.id = id
+            try await core.connect(hostId: id)
         }
     }
-
-    private func fail(_ key: String) {
-        state = failure(key)
-    }
-
-    private func failure(_ key: String, _ args: CVarArg...) -> CheckState {
-        .failed(message: localized(key, args), hostKeyChanged: false)
-    }
-
-    private func localized(_ key: String, _ args: [CVarArg]) -> String {
-        String(format: NSLocalizedString(key, comment: ""), arguments: args)
-    }
+    func trustHostKey(_ c: HostKeyConfirmation) { engine.command { try await $0.trustHost(hostId: c.hostId, fingerprint: c.fingerprint) } }
+    func dismissHostKey() { engine.command { try await $0.disconnect() } }
+    func forgetHostKey() { guard let id = engine.snapshot?.selectedHost else { return }; engine.command { try await $0.forgetHost(hostId: id) } }
+    private func localized(_ key: String, _ args: [CVarArg] = []) -> String { String(format: NSLocalizedString(key, comment: ""), arguments: args) }
 }

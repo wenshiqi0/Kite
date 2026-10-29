@@ -5,6 +5,8 @@
 /android/.gradle/
 /android/build/
 /android/app/build/
+/android/ui-probe/build/
+/android/release-output/
 /android/local.properties
 /android/.kotlin/
 /android/app/src/main/jniLibs/
@@ -26,3 +28,4 @@ DerivedData/
 
 # macOS
 .DS_Store
+__pycache__/

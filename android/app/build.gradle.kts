@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import javax.inject.Inject
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,11 +8,16 @@ plugins {
 }
 
 val minSdkVersion = 26
+val appVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use(::load)
+}
+val rustAbis = providers.gradleProperty("kite.rustAbis")
+    .map { it.split(',').map(String::trim) }
 
 android {
     namespace = "io.github.wenshiqi0.kite"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
     ndkVersion = "30.0.16248370"
 
@@ -23,8 +29,11 @@ android {
         targetSdk {
             version = release(36)
         }
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersion.getProperty("versionCode").toInt()
+        versionName = appVersion.getProperty("versionName")
+        ndk {
+            abiFilters += rustAbis.get()
+        }
     }
 
     buildFeatures {
@@ -121,7 +130,7 @@ val rustWorkspaceDir = rootProject.layout.projectDirectory.dir("..")
 
 val cargoNdkBuild = tasks.register<CargoNdkBuild>("cargoNdkBuild") {
     cargo.set(cargoPath)
-    abis.set(providers.gradleProperty("kite.rustAbis").map { it.split(',').map(String::trim) })
+    abis.set(rustAbis)
     platform.set(minSdkVersion)
     workspaceDir.set(rustWorkspaceDir)
     ndkDir.set(androidComponents.sdkComponents.ndkDirectory)

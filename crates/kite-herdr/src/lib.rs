@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use kite_ssh::{Session, SshError};
 
+pub mod api;
+
 /// The line `herdr remote-api-bridge --check` prints when the bridge is supported.
 pub const API_BRIDGE_CAPABILITY: &str = "herdr-api-bridge-v1";
 

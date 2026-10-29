@@ -11,9 +11,10 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 kite-app.workspace = true
-uniffi = { workspace = true, features = ["tokio"] }
+uniffi.workspace = true
 thiserror.workspace = true
 log.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
-android_logger = "0.15"
+android_logger.workspace = true
+jni.workspace = true

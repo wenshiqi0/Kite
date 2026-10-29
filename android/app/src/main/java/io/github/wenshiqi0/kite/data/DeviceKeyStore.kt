@@ -1,35 +1,51 @@
 package io.github.wenshiqi0.kite.data
 
 import android.content.Context
-import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import io.github.wenshiqi0.kite.core.SshKeyPair
-import io.github.wenshiqi0.kite.core.describeSshKey
-import io.github.wenshiqi0.kite.core.generateSshKey
+import io.github.wenshiqi0.kite.core.SecretStore
+import io.github.wenshiqi0.kite.core.SecretStoreException
 import java.io.File
+import java.io.FileOutputStream
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/**
- * This device's SSH key. The private key never leaves the device: it is stored
- * encrypted with an AES key that lives in the Android Keystore.
- */
-class DeviceKeyStore(context: Context) {
-    private val file = File(context.noBackupFilesDir, "device_ed25519.enc")
+/** Platform-only secret storage. The legacy file and wrapping key retain device identity. */
+class DeviceKeyStore(context: Context) : SecretStore {
+    private val directory = context.noBackupFilesDir
 
-    fun loadOrCreate(): SshKeyPair {
-        if (file.exists()) {
-            return describeSshKey(decrypt(file.readBytes()).toString(Charsets.UTF_8))
+    @Synchronized
+    override fun read(name: String): ByteArray? = safely {
+        val file = fileFor(name)
+        if (file.exists()) decrypt(file.readBytes()) else null
+    }
+
+    @Synchronized
+    override fun write(name: String, value: ByteArray) {
+        safely {
+            val file = fileFor(name)
+            val pending = File(directory, "${file.name}.tmp")
+            val encrypted = encrypt(value)
+            FileOutputStream(pending).use { it.write(encrypted); it.fd.sync() }
+            check(pending.renameTo(file)) { "atomic secret write failed" }
         }
-        val pair = generateSshKey("kite@${Build.MODEL}")
-        val pending = File(file.parentFile, "${file.name}.tmp")
-        pending.writeBytes(encrypt(pair.privateKeyOpenssh.toByteArray(Charsets.UTF_8)))
-        check(pending.renameTo(file)) { "could not store the device key" }
-        return pair
+    }
+
+    private inline fun <T> safely(action: () -> T): T = try {
+        action()
+    } catch (e: Exception) {
+        throw SecretStoreException.Failure(e.javaClass.simpleName)
+    }
+
+    private fun fileFor(name: String): File {
+        if (name == "ssh-ed25519") return File(directory, "device_ed25519.enc")
+        val digest = MessageDigest.getInstance("SHA-256").digest(name.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return File(directory, "secret_$digest.enc")
     }
 
     private fun encrypt(plain: ByteArray): ByteArray {
@@ -40,29 +56,23 @@ class DeviceKeyStore(context: Context) {
 
     private fun decrypt(stored: ByteArray): ByteArray {
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(TAG_BITS, stored, 0, IV_BYTES))
-        return cipher.doFinal(stored, IV_BYTES, stored.size - IV_BYTES)
+        cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(128, stored, 0, 12))
+        return cipher.doFinal(stored, 12, stored.size - 12)
     }
 
     private fun wrappingKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-        (keyStore.getKey(ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build(),
-        )
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256).build())
         return generator.generateKey()
     }
 
     private companion object {
-        const val KEYSTORE = "AndroidKeyStore"
         const val ALIAS = "kite-device-key-wrap"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
-        const val IV_BYTES = 12
-        const val TAG_BITS = 128
     }
 }

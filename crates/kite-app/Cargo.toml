@@ -8,5 +8,11 @@ license.workspace = true
 [dependencies]
 kite-ssh.workspace = true
 kite-herdr.workspace = true
+kite-store.workspace = true
+kite-stream.workspace = true
+tokio.workspace = true
 thiserror.workspace = true
 log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

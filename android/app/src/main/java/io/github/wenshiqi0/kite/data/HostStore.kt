@@ -1,44 +1,41 @@
 package io.github.wenshiqi0.kite.data
 
 import android.content.Context
-import androidx.core.content.edit
+import io.github.wenshiqi0.kite.core.HostRecord
+import io.github.wenshiqi0.kite.core.LegacyData
+import io.github.wenshiqi0.kite.core.TrustedHostRecord
 
-/** What the user typed into the host form, kept as text until it is checked. */
+/** Unsaved text belongs to the native form; saved hosts belong to Rust. */
 data class HostForm(
+    val id: String = "",
     val host: String = "",
     val port: String = "22",
     val username: String = "",
     val herdrPath: String = "",
-) {
-    /** Identifies the host for host-key trust. */
-    val address: String get() = "${host.trim().lowercase()}:${port.trim()}"
-}
+    val streamHost: String = "",
+    val sunshinePort: String = "47989",
+)
 
-/** The last host the user checked, and the host keys they chose to trust. */
+fun HostRecord.toForm() = HostForm(id, host, port.toString(), username, herdrPath.orEmpty(), streamHost.orEmpty(), sunshinePort.toString())
+
+/** Read-only M1 import. Rust's atomic marker makes retries idempotent. */
 class HostStore(context: Context) {
     private val prefs = context.getSharedPreferences("hosts", Context.MODE_PRIVATE)
-
-    fun loadForm() = HostForm(
-        host = prefs.getString("host", "").orEmpty(),
-        port = prefs.getString("port", "22").orEmpty(),
-        username = prefs.getString("username", "").orEmpty(),
-        herdrPath = prefs.getString("herdr_path", "").orEmpty(),
-    )
-
-    fun saveForm(form: HostForm) = prefs.edit {
-        putString("host", form.host)
-        putString("port", form.port)
-        putString("username", form.username)
-        putString("herdr_path", form.herdrPath)
+    fun legacyData(): LegacyData {
+        val host = prefs.getString("host", "").orEmpty()
+        val username = prefs.getString("username", "").orEmpty()
+        val saved = if (host.isBlank()) null else HostRecord(
+            id = "legacy-m1", host = host,
+            port = prefs.getString("port", "22").orEmpty().trim().toUShortOrNull()
+                ?: throw IllegalStateException("invalid legacy SSH port"),
+            username = username,
+            herdrPath = prefs.getString("herdr_path", "").orEmpty().ifBlank { null },
+            streamHost = null, sunshinePort = 47989u,
+        )
+        val keys = prefs.all.filterKeys { it.startsWith("host_key:") }.map { (key, value) ->
+            TrustedHostRecord(key.removePrefix("host_key:"), value as? String
+                ?: throw IllegalStateException("invalid legacy host key"))
+        }
+        return LegacyData("android-m1", saved, keys)
     }
-
-    fun trustedHostKey(address: String): String? = prefs.getString(hostKeyEntry(address), null)
-
-    fun trustHostKey(address: String, hostKey: String) = prefs.edit {
-        putString(hostKeyEntry(address), hostKey)
-    }
-
-    fun forgetHostKey(address: String) = prefs.edit { remove(hostKeyEntry(address)) }
-
-    private fun hostKeyEntry(address: String) = "host_key:$address"
 }

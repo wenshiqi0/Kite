@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct KiteApp: App {
     init() {
-        initLogging()
+        try? initLogging()
     }
 
     var body: some Scene {
