@@ -27,6 +27,10 @@ pub struct Agent {
     pub cwd: Option<String>,
     pub revision: u64,
     #[serde(default)]
+    pub launch_pending: bool,
+    #[serde(default)]
+    pub interactive_ready: bool,
+    #[serde(default)]
     pub state_change_seq: u64,
     pub agent_session: Option<AgentSession>,
 }
@@ -111,8 +115,55 @@ impl Api {
         Ok(serde_json::from_value(value["agents"].clone())?)
     }
 
+    pub async fn create_workspace(
+        &self,
+        label: &str,
+        cwd: Option<&str>,
+    ) -> Result<(String, String), ApiError> {
+        let value = self
+            .request(
+                "workspace.create",
+                json!({"label":label,"cwd":cwd,"focus":false}),
+            )
+            .await?;
+        let workspace = value["workspace"]["workspace_id"]
+            .as_str()
+            .ok_or(ApiError::Protocol("missing created workspace"))?;
+        let pane = value["root_pane"]["pane_id"]
+            .as_str()
+            .ok_or(ApiError::Protocol("missing created pane"))?;
+        Ok((workspace.into(), pane.into()))
+    }
+
+    pub async fn start_agent(
+        &self,
+        pane: &str,
+        name: &str,
+        provider: &str,
+        args: &[String],
+    ) -> Result<Agent, ApiError> {
+        let value = self
+            .request(
+                "agent.start",
+                json!({"pane_id":pane,"name":name,"kind":provider,"args":args}),
+            )
+            .await?;
+        if value["type"] != "agent_started" {
+            return Err(ApiError::Protocol("expected agent_started"));
+        }
+        Ok(serde_json::from_value(value["agent"].clone())?)
+    }
+
     pub async fn read_agent(&self, target: &str) -> Result<String, ApiError> {
         let value = self.request("agent.read", json!({"target":target,"source":"visible","format":"text","lines":120,"strip_ansi":true})).await?;
+        value["read"]["text"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or(ApiError::Protocol("missing pane text"))
+    }
+
+    pub async fn read_pane(&self, pane: &str) -> Result<String, ApiError> {
+        let value = self.request("pane.read", json!({"pane_id":pane,"source":"visible","format":"text","lines":80,"strip_ansi":true})).await?;
         value["read"]["text"]
             .as_str()
             .map(str::to_owned)

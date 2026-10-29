@@ -11,7 +11,7 @@ cargo fmt --all --check
 ./android/gradlew -p android :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
 ```
 
-There are currently no Android JVM unit test sources. A `NO-SOURCE` result from `testDebugUnitTest` is not a passing unit test suite. CI builds and lints the Release variant separately.
+Android JVM tests now cover the pure source-to-viewport transform, inverse touch mapping, letterbox rejection, pinch focus, pan limits and orientation preservation. CI runs `:app:testReleaseUnitTest` with Release assembly and lint. A future `NO-SOURCE` result must not be counted as a passing test suite.
 
 ## Desktop acceptance
 
@@ -41,6 +41,12 @@ Android Alpha 2 was exercised on the same API 36 ARM64 emulator and real Linux S
 - Remote Unicode entry, trackpad movement and Android PiP return.
 
 This validates the client transport and product flows with controlled data. It does not establish real-model completion, voice-recognition quality, physical-phone latency or WAN performance. See the [product acceptance record](product/2026-10-29/acceptance.md) for the recorded result and screenshots.
+
+## Alpha 4 phone feedback regression
+
+The phone usability fixes have dedicated source-pixel viewport tests, plus real emulator gestures injected through the independent `ui-probe` package. Runtime acceptance checks operation-mode pinch without host click / wheel events, click targeting after zoom + pan, trackpad right-click / scroll, orientation controls with system auto-rotation off, automatic default-agent preparation and same-session reconnect, connection failures, terminal keys and PiP decoder reuse. See the [phone feedback record](product/2026-10-29/phone-fixes.md).
+
+The herdr SSH fixture also checks workspace creation followed by `agent.start` in the returned public pane, preservation of project-directory text and reporting a failed create once without starting an agent. Provider `interactive_ready` is a **managed-launch** flag; it is not a gate for ordinary agents started directly in herdr.
 
 ## Optional integration tools
 

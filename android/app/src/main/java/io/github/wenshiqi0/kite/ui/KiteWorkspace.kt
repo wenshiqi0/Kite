@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -86,6 +85,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var autoFullscreen by remember { mutableStateOf(false) }
     var tools by remember { mutableStateOf(false) }
+    var newSession by remember { mutableStateOf(false) }
+    var gestureHelp by remember { mutableStateOf(false) }
+    var provider by remember { mutableStateOf("codex") }
+    var project by remember { mutableStateOf("") }
     var remoteKeyboard by remember { mutableStateOf(false) }
     var remoteText by remember { mutableStateOf("") }
     var terminal by remember { mutableStateOf(false) }
@@ -114,10 +117,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     val hideChrome = vm.inPip || vm.pipTransition
-    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false } }
+    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false } }
     LaunchedEffect(landscape, vm.inPip) {
         if (vm.inPip) return@LaunchedEffect
-        if (landscape && vm.layout == DesktopLayout.Split) { autoFullscreen = true; vm.changeLayout(DesktopLayout.Fullscreen) }
+        if (landscape && vm.layout == DesktopLayout.Split) { autoFullscreen = true; vm.changeLayout(DesktopLayout.Fullscreen, rotate = false) }
         else if (!landscape && autoFullscreen && vm.layout == DesktopLayout.Fullscreen) { autoFullscreen = false; vm.changeLayout(DesktopLayout.Split) }
     }
     LaunchedEffect(vm.layout, vm.inPip, state?.desktop?.status, state?.desktop?.sourceWidth, state?.desktop?.sourceHeight) { updatePip() }
@@ -142,6 +145,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     icon = { StatusDot(agent.status) }, modifier = Modifier.padding(horizontal = 12.dp))
             }
             if (state?.agents.isNullOrEmpty()) Text(stringResource(R.string.workspace_no_agents_short), color = Muted, modifier = Modifier.padding(24.dp))
+            TextButton(onClick = { newSession = true; scope.launch { drawer.close() } }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent, modifier = Modifier.padding(horizontal = 12.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.settingsVisible = true; scope.launch { drawer.close() } }, modifier = Modifier.padding(12.dp)) {
                 ProductIcon(Mark.Settings); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.host_settings))
@@ -161,10 +165,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 Row(Modifier.fillMaxWidth().height(56.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.semantics { contentDescription = menuDescription }) { ProductIcon(Mark.Menu) }
                     Text(agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent.status); Spacer(Modifier.width(6.dp)); Text(statusLabel(agent.status, state.agentPause), color = Muted, fontSize = 13.sp) }
+                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent.status); Spacer(Modifier.width(6.dp)); Text(statusLabel(agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent)
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
@@ -182,17 +187,32 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (state == null || !state.initialized) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Blue)
                 if (state != null && state.connection != ConnectionStatus.CONNECTED) {
-                    Row(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(if (state.connection == ConnectionStatus.CONNECTING) R.string.workspace_connecting else R.string.workspace_connect_host), modifier = Modifier.weight(1f), color = Muted)
-                        TextButton(onClick = { if (state.hosts.isEmpty()) vm.settingsVisible = true else vm.connect() }) { Text(stringResource(R.string.retry)) }
+                    Column(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(connectionStepLabel(state), color = Muted)
+                        state.failure?.let { Text(it.details, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
+                        TextButton(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                     }
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().onSizeChanged { chatHeight = it.height }, state = chatScroll, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (state?.failure?.kind == FailureKind.AGENT_START) item {
+                        Surface(color = Color(0xFFFFF2D0), shape = RoundedCornerShape(16.dp)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(stringResource(R.string.agent_start_failed))
+                                Text(state.failure!!.details, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                TextButton(onClick = { vm.engine.command { vm.engine.core.clearFailure() } }) { Text(stringResource(R.string.dismiss)) }
+                            }
+                        }
+                    }
+
                     if (agent == null) item {
                         Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             ProductIcon(Mark.Monitor, Muted, Modifier.size(36.dp))
                             Text(stringResource(if (state?.connection == ConnectionStatus.CONNECTED) R.string.workspace_no_agents else R.string.workspace_welcome), color = Muted, modifier = Modifier.padding(16.dp))
-                            if (state?.connection == ConnectionStatus.CONNECTED) OutlinedButton(onClick = vm::openDesktop) { Text(stringResource(R.string.open_desktop)) }
+                            if (state?.connection == ConnectionStatus.CONNECTED) {
+                                val preparing = state.connectionStep == ConnectionStep.AGENT && state.failure == null
+                                Button(onClick = vm::prepareAgent, enabled = !preparing) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.retry_agent)) }
+                                TextButton(onClick = vm::openDesktop) { Text(stringResource(R.string.open_desktop)) }
+                            } else Button(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
                     state?.conversation?.let { messages -> items(messages, key = { it.id }) { message -> MessageCard(message) { vm.openDesktop() } } }
@@ -210,6 +230,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
+                val composeReason = when {
+                    state?.connection != ConnectionStatus.CONNECTED -> R.string.composer_no_connection
+                    agent == null -> R.string.composer_no_agent
+                    agent.launchPending -> R.string.composer_starting
+                    state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
+                    agent.status == "blocked" -> R.string.composer_blocked_hint
+                    state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
+                    else -> null
+                }
+                if (composeReason != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    if (agent != null && agent.launchPending) TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.terminal_output)) }
+                }
                 Row(Modifier.fillMaxWidth().borderTop().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }
@@ -222,7 +255,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     OutlinedTextField(vm.draft, { vm.draft = it }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp), maxLines = 5,
                         placeholder = { Text(stringResource(if (agent?.status == "blocked") R.string.composer_blocked else R.string.composer_hint), color = Muted, fontSize = 15.sp) })
-                    if (vm.draft.isNotBlank()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && state?.agentPause == AgentPauseStatus.RUNNING && agent.status != "blocked") {
+                    if (vm.draft.isNotBlank()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && composeReason == null) {
                         if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, Blue)
                     } else IconButton(onClick = {
                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -253,24 +286,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 if (vm.layout == DesktopLayout.Floating && !vm.inPip && !docked) {
                     Box(Modifier.absoluteOffset(fx, fy).width(floatingWidth).height(floatingHeight).background(Paper, RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFB8B8B1), RoundedCornerShape(14.dp)))
                 }
-                val fittedW = minOf(frameW, frameH * aspect)
-                val fittedH = minOf(frameH, frameW / aspect)
-                val fittedX = frameX + (frameW - fittedW) / 2
-                val fittedY = frameY + (frameH - fittedH) / 2
-                Box(Modifier.absoluteOffset(fittedX, fittedY).size(fittedW, fittedH).clipToBounds().background(Paper)) {
+                Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper)) {
                     AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone) }, update = { surface ->
                         surface.takeover = takeover && !docked
                         surface.trackpad = vm.trackpad
-                        surface.referenceWidth = state.desktop.sourceWidth.toInt().coerceAtLeast(320)
-                        surface.watchGesture = gesture@{ factor, dx, dy ->
-                            if (vm.inPip || vm.pipTransition) return@gesture
-                            vm.zoom = (vm.zoom * factor).coerceIn(1f, 4f)
-                            val maxX = with(density) { fittedW.toPx() } * (vm.zoom - 1f) / 2
-                            val maxY = with(density) { fittedH.toPx() } * (vm.zoom - 1f) / 2
-                            vm.panX = (vm.panX + dx).coerceIn(-maxX, maxX); vm.panY = (vm.panY + dy).coerceIn(-maxY, maxY)
-                        }
-                    }, modifier = Modifier.fillMaxSize().graphicsLayer { clip = true; scaleX = if (vm.inPip) 1f else vm.zoom; scaleY = if (vm.inPip) 1f else vm.zoom; translationX = if (vm.inPip) 0f else vm.panX; translationY = if (vm.inPip) 0f else vm.panY }
-                        .onGloballyPositioned { p -> val b = p.boundsInWindow(); vm.videoBounds = Rect(b.left.roundToInt(), b.top.roundToInt(), b.right.roundToInt(), b.bottom.roundToInt()) })
+                        surface.panMode = vm.panMode
+                        surface.gesturesEnabled = !hideChrome && !docked
+                        surface.pip = hideChrome
+                        surface.setSourceSize(state.desktop.sourceWidth.toInt(), state.desktop.sourceHeight.toInt())
+                        surface.onZoomChanged = { vm.zoom = it }
+                        surface.zoom = vm.zoom
+                    }, modifier = Modifier.fillMaxSize().onGloballyPositioned { p ->
+                        val b = p.boundsInWindow(); vm.videoBounds = Rect(b.left.roundToInt(), b.top.roundToInt(), b.right.roundToInt(), b.bottom.roundToInt())
+                    })
                     if (!docked && state.desktop.status != DesktopStatus.STREAMING && state.desktop.status != DesktopStatus.PAIRING) {
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (state.desktop.status == DesktopStatus.FAILED) TextButton(onClick = vm::retryDesktop) { Text(stringResource(R.string.retry)) }
@@ -308,21 +336,28 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         MiniAction(Mark.Expand, R.string.mode_fullscreen) { vm.changeLayout(DesktopLayout.Fullscreen) }
                     }
                     DesktopLayout.Fullscreen -> {
-                        Row(Modifier.align(Alignment.TopStart).padding(14.dp).widthIn(max = (availableWidth - 210.dp).coerceAtLeast(110.dp)).background(Color.White, RoundedCornerShape(24.dp)).border(1.dp, Line, RoundedCornerShape(24.dp)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.align(Alignment.TopStart).padding(14.dp).widthIn(max = (availableWidth - 270.dp).coerceAtLeast(90.dp)).background(Color.White, RoundedCornerShape(24.dp)).border(1.dp, Line, RoundedCornerShape(24.dp)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent?.status ?: "idle")
                             Spacer(Modifier.width(8.dp))
                             val activity = state.conversation.lastOrNull()?.tool?.takeIf { !it.complete && agent?.status == "working" }
                             Text(if (activity != null) "${agent?.agent.orEmpty()} · ${activity.summary}" else agent?.let(::agentTitle) ?: stringResource(R.string.desktop_title), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Row(Modifier.align(Alignment.TopEnd).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = { vm.takeOver(!state.desktop.takeover) }, enabled = state.desktop.status == DesktopStatus.STREAMING, shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = if (takeover) Blue else Color.White, contentColor = if (takeover) Color.White else Blue)) {
-                                Text(stringResource(if (takeover) R.string.end_takeover else R.string.takeover), fontSize = 14.sp)
-                            }
+                            DesktopModeSwitch(takeover, state.desktop.status == DesktopStatus.STREAMING, vm::takeOver)
+                            Spacer(Modifier.width(6.dp))
+                            KeyButton(text = stringResource(if (landscape) R.string.rotate_portrait else R.string.rotate_landscape)) { vm.rotateDesktop(landscape) }
                             Spacer(Modifier.width(8.dp)); KeyButton(icon = Mark.Shrink, label = R.string.mode_floating) { vm.changeLayout(DesktopLayout.Floating) }
+                        }
+                        Row(Modifier.align(Alignment.TopCenter).padding(top = 60.dp).background(Color.White.copy(alpha = .94f), RoundedCornerShape(16.dp)), verticalAlignment = Alignment.CenterVertically) {
+                            KeyButton(text = "−", label = R.string.zoom_out) { vm.zoom = (vm.zoom / 1.5f).coerceAtLeast(1f) }
+                            Text(stringResource(R.string.zoom_value, vm.zoom), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp))
+                            KeyButton(text = "+", label = R.string.zoom_in) { vm.zoom = (vm.zoom * 1.5f).coerceAtMost(8f) }
+                            TextButton(onClick = vm::fitVideo) { Text(stringResource(R.string.fit_desktop)) }
+                            KeyButton(text = stringResource(R.string.pan_viewport), active = vm.panMode) { vm.panMode = !vm.panMode }
                         }
                         if (!takeover) Row(Modifier.align(Alignment.BottomStart).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             ProductIcon(Mark.Eye, Muted); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.watch_gesture_hint), color = Muted, fontSize = 13.sp)
-                            TextButton(onClick = vm::fitVideo) { Text(stringResource(R.string.fit_desktop)) }
+                            TextButton(onClick = { gestureHelp = true }) { Text(stringResource(R.string.gesture_help)) }
                         }
                         Box(Modifier.align(Alignment.CenterEnd).width(32.dp).height(82.dp).background(Color.White, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)).border(1.dp, Line, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp)).clickable { vm.returnToChat(landscape) }.semantics { contentDescription = returnChat }, contentAlignment = Alignment.Center) { ProductIcon(Mark.Chat) }
                     }
@@ -330,7 +365,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (takeover && !hideChrome && !vm.settingsVisible && vm.layout == DesktopLayout.Fullscreen) {
                     val toolbarScroll = rememberScrollState()
-                    val scrolling = if (availableWidth < 600.dp) Modifier.horizontalScroll(toolbarScroll) else Modifier
+                    val scrolling = if (availableWidth < 900.dp) Modifier.horizontalScroll(toolbarScroll) else Modifier
                     Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Paper).then(scrolling).padding(horizontal = 10.dp, vertical = 9.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         KeyButton(icon = Mark.Keyboard, label = R.string.keyboard) { remoteKeyboard = !remoteKeyboard }
                         KeyButton(text = stringResource(R.string.shortcut_esc)) { vm.shortcut(27) }; KeyButton(text = stringResource(R.string.shortcut_tab)) { vm.shortcut(9) }
@@ -354,8 +389,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             val value = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                             vm.releaseModifiers(); if (value.toByteArray().size > 4096 || !vm.sendText(value)) warning = sendTextFailure
                         }
-                        if (availableWidth >= 600.dp) Spacer(Modifier.weight(1f)) else Spacer(Modifier.width(4.dp))
-                        KeyButton(text = stringResource(R.string.trackpad), icon = Mark.Touchpad, label = R.string.trackpad, active = vm.trackpad) { vm.trackpad = !vm.trackpad }
+                        if (availableWidth >= 900.dp) Spacer(Modifier.weight(1f)) else Spacer(Modifier.width(4.dp))
+                        KeyButton(text = stringResource(if (vm.trackpad) R.string.trackpad else R.string.direct_touch), icon = Mark.Touchpad, active = vm.trackpad) { vm.trackpad = !vm.trackpad }
+                        KeyButton(text = stringResource(R.string.mouse_left)) { vm.leftClick() }
+                        KeyButton(text = stringResource(R.string.mouse_right)) { vm.rightClick() }
+                        KeyButton(text = "?") { gestureHelp = true }
                     }
                 }
             }
@@ -368,28 +406,60 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     state?.desktop?.takeIf { it.status == DesktopStatus.PAIRING && !hideChrome }?.let { d -> AlertDialog(onDismissRequest = vm::closeDesktop,
         title = { Text(stringResource(R.string.pairing_title)) }, text = { Column { Text(d.pairingName.orEmpty()); Text(d.pin.orEmpty(), fontSize = 36.sp, fontFamily = FontFamily.Monospace); Text(stringResource(R.string.pairing_hint)) } },
         confirmButton = { TextButton(onClick = { d.pin?.let(vm::approve) }) { Text(stringResource(R.string.auto_confirm_pairing)) } }, dismissButton = { TextButton(onClick = vm::closeDesktop) { Text(stringResource(R.string.cancel)) } }) }
+    if (newSession && !hideChrome) AlertDialog(onDismissRequest = { if (!vm.creatingAgent) newSession = false }, title = { Text(stringResource(R.string.new_session)) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.new_session_hint), fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = provider == "codex", onClick = { provider = "codex" }, label = { Text("Codex") })
+                FilterChip(selected = provider == "claude", onClick = { provider = "claude" }, label = { Text("Claude") })
+            }
+            OutlinedTextField(project, { project = it }, label = { Text(stringResource(R.string.project_directory)) }, singleLine = true)
+        }
+    }, confirmButton = { TextButton(onClick = { vm.startAgent(provider, project); newSession = false }, enabled = !vm.creatingAgent) { Text(stringResource(R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
+    if (gestureHelp && !hideChrome) AlertDialog(onDismissRequest = { gestureHelp = false }, title = { Text(stringResource(R.string.gesture_help)) }, text = { Text(stringResource(R.string.gesture_help_text)) }, confirmButton = { TextButton(onClick = { gestureHelp = false }) { Text(stringResource(R.string.dismiss)) } })
     if (remoteKeyboard && !hideChrome) AlertDialog(onDismissRequest = { remoteKeyboard = false }, title = { Text(stringResource(R.string.remote_text)) }, text = {
         OutlinedTextField(remoteText, { remoteText = it }, label = { Text(stringResource(R.string.remote_text)) })
     }, confirmButton = { TextButton(onClick = { vm.releaseModifiers(); if (remoteText.toByteArray().size <= 4096 && vm.sendText(remoteText)) { remoteText = ""; remoteKeyboard = false } else warning = sendTextFailure }) { Text(stringResource(R.string.send_text)) } })
     if ((terminal || diagnostics) && !hideChrome) AlertDialog(onDismissRequest = { terminal = false; diagnostics = false }, title = { Text(stringResource(if (terminal) R.string.terminal_output else R.string.connection_diagnostics)) }, text = {
+        Column {
+        if (terminal && state?.selectedAgent != null) {
+            Text(stringResource(R.string.terminal_keys_hint), fontSize = 12.sp, color = Muted)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("↑" to "Up", "↓" to "Down", "Enter" to "Enter", "Esc" to "Escape", "Tab" to "Tab").forEach { (label, key) ->
+                    KeyButton(text = label) { state.selectedAgent?.let { vm.terminalKey(it, key) } }
+                }
+            }
+        }
         SelectionContainer { Text(if (terminal) state?.agentOutput.orEmpty() else buildString {
-            append("herdr ${state?.herdrVersion.orEmpty()}\n"); append("${state?.desktop?.sourceWidth}×${state?.desktop?.sourceHeight} → ${state?.desktop?.width}×${state?.desktop?.height} @${state?.desktop?.fps}\n")
+            append(state?.let(::connectionDiagnostics).orEmpty()); append("\n${state?.desktop?.sourceWidth}×${state?.desktop?.sourceHeight} → ${state?.desktop?.width}×${state?.desktop?.height} @${state?.desktop?.fps}\n")
             append(frameCounts); state?.failure?.let { append("\n${it.details}") }
         }, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) }
+        }
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })
     val platformError by vm.engine.platformError.collectAsState()
     val error = warning ?: platformError
     if (error != null && !hideChrome) AlertDialog(onDismissRequest = { warning = null; vm.clearLocalError() }, title = { Text(stringResource(R.string.error_action)) }, text = { Text(error) }, confirmButton = { TextButton(onClick = { warning = null; vm.clearLocalError() }) { Text(stringResource(R.string.dismiss)) } })
 }
 
+@Composable private fun DesktopModeSwitch(operating: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.background(Color.White, RoundedCornerShape(10.dp)).border(1.dp, Line, RoundedCornerShape(10.dp))) {
+        listOf(false, true).forEach { mode ->
+            TextButton(onClick = { change(mode) }, enabled = enabled, colors = ButtonDefaults.textButtonColors(containerColor = if (mode == operating) Blue else Color.Transparent, contentColor = if (mode == operating) Color.White else Muted), shape = RoundedCornerShape(9.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                Text(stringResource(if (mode) R.string.mode_operate else R.string.mode_watch), fontSize = 14.sp)
+            }
+        }
+    }
+}
+
 private fun Modifier.borderBottom() = border(0.5.dp, Line)
 private fun Modifier.borderTop() = border(0.5.dp, Line)
 private fun agentTitle(a: AgentInfo): String {
     val provider = a.agent ?: a.name ?: "agent"
-    val project = a.name?.takeIf { it != provider } ?: a.cwd?.trimEnd('/')?.substringAfterLast('/') ?: a.title
+    val project = a.name?.takeIf { it != provider && !it.matches(Regex("kite-(codex|claude)-[0-9a-f]{8}")) } ?: a.cwd?.trimEnd('/')?.substringAfterLast('/') ?: a.title
     return if (project.isNullOrBlank() || project == provider) provider else "$provider · $project"
 }
-@Composable private fun statusLabel(status: String, pause: AgentPauseStatus): String = stringResource(when {
+@Composable private fun statusLabel(status: String, pause: AgentPauseStatus, launching: Boolean = false): String = stringResource(when {
+    launching -> R.string.agent_starting_short
     pause == AgentPauseStatus.PAUSED -> R.string.agent_paused
     pause == AgentPauseStatus.UNKNOWN -> R.string.agent_checking
     status == "blocked" -> R.string.agent_blocked
@@ -399,7 +469,8 @@ private fun agentTitle(a: AgentInfo): String {
 @Composable private fun StatusDot(status: String) { Box(Modifier.size(9.dp).background(if (status == "blocked") Amber else if (status == "working") Blue else Muted, RoundedCornerShape(9.dp))) }
 @Composable private fun MiniAction(mark: Mark, label: Int, action: () -> Unit) { val description = stringResource(label); IconButton(onClick = action, modifier = Modifier.size(28.dp).semantics { contentDescription = description }) { ProductIcon(mark, modifier = Modifier.size(16.dp)) } }
 @Composable private fun KeyButton(text: String? = null, icon: Mark? = null, label: Int = R.string.keyboard, active: Boolean = false, action: () -> Unit) {
-    val description = text ?: stringResource(label)
+    val translated = stringResource(label)
+    val description = if (label == R.string.zoom_in || label == R.string.zoom_out) translated else text ?: translated
     Surface(onClick = action, color = if (active) Color(0xFFDDEBFA) else Color.White, shape = RoundedCornerShape(9.dp), border = androidx.compose.foundation.BorderStroke(1.dp, if (active) Blue else Color(0xFFBFBFB8)), modifier = Modifier.height(38.dp).widthIn(min = 38.dp).semantics { contentDescription = description }) {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else Color(0xFF64645F), Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
     }

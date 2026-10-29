@@ -138,10 +138,42 @@ impl server::Handler for ShellHost {
         &mut self,
         channel: ChannelId,
         data: &[u8],
-        _session: &mut ServerSession,
+        session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
-        if let Some((_, stdin)) = self.channels.get_mut(&channel) {
+        let mut request = None;
+        if let Some((command, stdin)) = self.channels.get_mut(&channel) {
             stdin.extend_from_slice(data);
+            if command.ends_with(" remote-api-bridge") && stdin.ends_with(b"\n") {
+                request = Some(serde_json::from_slice::<serde_json::Value>(stdin).unwrap());
+            }
+        }
+        if let Some(request) = request {
+            self.channels.remove(&channel);
+            let mut log = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(self.home.join("api-requests.jsonl"))
+                .unwrap();
+            std::io::Write::write_all(&mut log, format!("{request}\n").as_bytes()).unwrap();
+            let mut response = serde_json::json!({"id":request["id"]});
+            response["result"] = match request["method"].as_str().unwrap() {
+                "workspace.create" if request["params"]["cwd"] == "/missing" => {
+                    response["error"] = serde_json::json!({"code":"directory_not_found","message":"project directory does not exist"});
+                    serde_json::Value::Null
+                }
+                "workspace.create" => {
+                    serde_json::json!({"type":"workspace_created","workspace":{"workspace_id":"w9"},"root_pane":{"pane_id":"w9:p2"}})
+                }
+                "agent.start" => {
+                    assert_eq!(request["params"]["pane_id"], "w9:p2");
+                    serde_json::json!({"type":"agent_started","agent":{"terminal_id":"term_900","agent":"codex","agent_status":"idle","workspace_id":"w9","tab_id":"w9:t1","pane_id":"w9:p2","revision":1,"interactive_ready":true}})
+                }
+                method => panic!("unexpected test API method: {method}"),
+            };
+            session.data(channel, format!("{response}\n").into_bytes())?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
         }
         Ok(())
     }
@@ -306,4 +338,75 @@ async fn reports_a_rejected_client_key() {
         matches!(error, SshError::AuthRejected(ref user) if user == "kite"),
         "{error:?}"
     );
+}
+
+#[tokio::test]
+async fn creates_an_agent_in_the_public_pane_and_preserves_directory_text() {
+    let (private, public) = client_key();
+    let host = TestHost::start(public).await;
+    let binary = host.install_herdr(".local/bin/herdr", CURRENT_HERDR);
+    let session = Arc::new(
+        Session::connect(&host.target(), &private, Some(&host.host_key_openssh()))
+            .await
+            .unwrap(),
+    );
+    let api = kite_herdr::api::Api::new(session.clone(), binary.to_str().unwrap());
+    let directory = "/project's folder/$(ignored)";
+    let (workspace, pane) = api
+        .create_workspace("kite-test", Some(directory))
+        .await
+        .unwrap();
+    assert_eq!(workspace, "w9");
+    let agent = api
+        .start_agent(
+            &pane,
+            "kite-test",
+            "codex",
+            &[
+                "--no-daemon".into(),
+                "-c".into(),
+                "check_for_update_on_startup=false".into(),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent.terminal_id, "term_900");
+    assert_eq!(agent.pane_id, "w9:p2");
+    assert!(agent.interactive_ready);
+    assert!(!agent.launch_pending);
+    let log = std::fs::read_to_string(host.home.path().join("api-requests.jsonl")).unwrap();
+    let requests: Vec<serde_json::Value> = log
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["params"]["cwd"], directory);
+    assert_eq!(requests[1]["params"]["pane_id"], "w9:p2");
+    assert_eq!(
+        requests[1]["params"]["args"],
+        serde_json::json!(["--no-daemon", "-c", "check_for_update_on_startup=false"])
+    );
+    session.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_workspace_creation_is_reported_once_without_agent_launch() {
+    let (private, public) = client_key();
+    let host = TestHost::start(public).await;
+    let session = Arc::new(
+        Session::connect(&host.target(), &private, Some(&host.host_key_openssh()))
+            .await
+            .unwrap(),
+    );
+    let api = kite_herdr::api::Api::new(session.clone(), "/test-herdr");
+    let error = api
+        .create_workspace("kite-test", Some("/missing"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, kite_herdr::api::ApiError::Remote { code, .. } if code == "directory_not_found")
+    );
+    let log = std::fs::read_to_string(host.home.path().join("api-requests.jsonl")).unwrap();
+    assert_eq!(log.lines().count(), 1);
+    session.close().await.unwrap();
 }

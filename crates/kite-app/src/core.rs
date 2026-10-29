@@ -20,7 +20,7 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     runtime::Runtime,
@@ -57,6 +57,15 @@ pub enum ConnectionPhase {
     Failed,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionStep {
+    Idle,
+    Ssh,
+    HerdrDiscovery,
+    HerdrApi,
+    Agent,
+    Ready,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopPhase {
     Idle,
     Pairing,
@@ -83,6 +92,7 @@ pub enum FailureCode {
     InvalidKey,
     InvalidConfiguration,
     Stream,
+    AgentStart,
 }
 #[derive(Clone, Debug)]
 pub struct Failure {
@@ -133,6 +143,7 @@ pub struct Snapshot {
     pub hosts: Vec<Host>,
     pub selected_host: Option<String>,
     pub connection: ConnectionPhase,
+    pub connection_step: ConnectionStep,
     pub pending_key: Option<HostKeyPrompt>,
     pub herdr_version: Option<String>,
     pub herdr_path: Option<String>,
@@ -157,6 +168,7 @@ impl Default for Snapshot {
             hosts: Vec::new(),
             selected_host: None,
             connection: ConnectionPhase::Disconnected,
+            connection_step: ConnectionStep::Idle,
             pending_key: None,
             herdr_version: None,
             herdr_path: None,
@@ -197,6 +209,11 @@ struct PendingPair {
     pin: String,
     generation: u64,
 }
+struct PendingAgentStart {
+    pane: String,
+    workspace: String,
+    since: Instant,
+}
 struct PendingMessage {
     key: String,
     message: Message,
@@ -221,6 +238,7 @@ pub struct AppCore {
     pending_messages: Mutex<Vec<PendingMessage>>,
     paused_processes: Mutex<BTreeMap<String, process::Token>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
+    agent_starts: Mutex<BTreeMap<String, PendingAgentStart>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -266,6 +284,7 @@ impl AppCore {
             pending_messages: Mutex::new(Vec::new()),
             paused_processes: Mutex::new(BTreeMap::new()),
             consumed_approvals: Mutex::new(BTreeSet::new()),
+            agent_starts: Mutex::new(BTreeMap::new()),
         })
     }
     pub fn snapshot(&self) -> Snapshot {
@@ -421,6 +440,7 @@ impl AppCore {
             core.generation.fetch_add(1, Ordering::SeqCst);
             core.update(|s| {
                 s.connection = ConnectionPhase::Connecting;
+                s.connection_step = ConnectionStep::Ssh;
                 s.selected_host = Some(host.id.clone());
                 s.failure = None;
                 s.pending_key = None;
@@ -429,6 +449,7 @@ impl AppCore {
             let generation = core.generation.fetch_add(1, Ordering::SeqCst) + 1;
             core.update(|s| {
                 s.connection = ConnectionPhase::Connecting;
+                s.connection_step = ConnectionStep::Ssh;
                 s.selected_host = Some(host.id.clone());
                 s.failure = None;
                 s.pending_key = None;
@@ -444,7 +465,7 @@ impl AppCore {
     }
 
     async fn connect_flow(self: Arc<Self>, host: Host, generation: u64) {
-        let result = self.open_connection(&host).await;
+        let result = self.open_connection(&host, generation).await;
         if self.generation.load(Ordering::SeqCst) != generation {
             if let Ok(c) = result {
                 let _ = c.ssh.close().await;
@@ -456,7 +477,7 @@ impl AppCore {
                 let connection = Arc::new(connection);
                 *lock(&self.connected) = Some(connection.clone());
                 self.update(|s| {
-                    s.connection = ConnectionPhase::Connected;
+                    s.connection_step = ConnectionStep::Agent;
                     s.pending_key = None;
                     s.failure = None;
                     s.herdr_version = Some(connection.version.clone());
@@ -464,6 +485,34 @@ impl AppCore {
                     s.capability = Some(connection.capability.clone());
                     s.host_key_fingerprint = Some(connection.ssh.host_key_fingerprint());
                 });
+                let prepared = self.prepare_agent(&connection).await;
+                if self.generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                self.update(|s| {
+                    s.connection = ConnectionPhase::Connected;
+                    if let Ok(agents) = &prepared {
+                        s.agents = agents.clone();
+                        s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
+                        s.agent_pause = AgentPause::Running;
+                        s.connection_step = if agents.first().is_some_and(|a| a.launch_pending) {
+                            ConnectionStep::Agent
+                        } else {
+                            ConnectionStep::Ready
+                        };
+                    }
+                });
+                if let Err(e) = prepared {
+                    self.update(|s| {
+                        s.failure = Some(Failure {
+                            code: FailureCode::AgentStart,
+                            details: e.to_string(),
+                            username: connection.host.username.clone(),
+                            trusted: String::new(),
+                            presented: String::new(),
+                        })
+                    });
+                }
                 let core = self.clone();
                 let task = tokio::spawn(async move {
                     core.poll_connection(connection, generation).await;
@@ -488,7 +537,7 @@ impl AppCore {
             }
         }
     }
-    async fn open_connection(&self, host: &Host) -> Result<Connected, AppError> {
+    async fn open_connection(&self, host: &Host, generation: u64) -> Result<Connected, AppError> {
         let bytes = self
             .secrets
             .read("ssh-ed25519")
@@ -511,7 +560,13 @@ impl AppCore {
             )
             .await?,
         );
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.update(|s| s.connection_step = ConnectionStep::HerdrDiscovery);
+        }
         let checked = check_api_bridge(&ssh, host.herdr_path.as_deref()).await?;
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.update(|s| s.connection_step = ConnectionStep::HerdrApi);
+        }
         let api = Arc::new(Api::new(ssh.clone(), &checked.herdr_path));
         let version = api.ping().await?;
         Ok(Connected {
@@ -523,6 +578,117 @@ impl AppCore {
             capability: checked.capability,
         })
     }
+    async fn prepare_agent(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
+        let mut agents = c.api.agents().await?;
+        if agents.is_empty() {
+            let home = c.ssh.exec("/bin/sh -s", b"printf '%s' \"$HOME\"\n").await?;
+            let home = std::str::from_utf8(&home.stdout)
+                .map_err(|_| AppError::State("invalid host home directory".into()))?;
+            if home.is_empty()
+                || !home.starts_with('/')
+                || home.len() > 4096
+                || home.chars().any(char::is_control)
+            {
+                return Err(AppError::State("host home directory unavailable".into()));
+            }
+            let (workspace, pane) = c.api.create_workspace("Kite", Some(home)).await?;
+            match c
+                .api
+                .start_agent(
+                    &pane,
+                    "kite",
+                    "codex",
+                    &[
+                        "--no-daemon".into(),
+                        "-c".into(),
+                        "check_for_update_on_startup=false".into(),
+                    ],
+                )
+                .await
+            {
+                Ok(agent) => {
+                    lock(&self.agent_starts).insert(
+                        agent.terminal_id.clone(),
+                        PendingAgentStart {
+                            pane,
+                            workspace,
+                            since: Instant::now(),
+                        },
+                    );
+                    agents.push(agent);
+                }
+                Err(error) => {
+                    agents = c.api.agents().await?;
+                    if !agents.iter().any(|a| a.name.as_deref() == Some("kite")) {
+                        return Err(AppError::State(format!(
+                            "Default agent start was not confirmed in {workspace} ({pane}): {error}. Verify Codex installation / sign-in or inspect this workspace."
+                        )));
+                    }
+                }
+            }
+            // Give the host's managed launch a short readiness window. No input is replayed.
+            for _ in 0..10 {
+                if !agents.iter().any(|a| {
+                    a.name.as_deref() == Some("kite")
+                        && a.launch_pending
+                        && a.agent_status != "blocked"
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                let fresh = c.api.agents().await?;
+                if !fresh.is_empty() {
+                    agents = fresh;
+                }
+            }
+        }
+        agents.sort_by_key(|a| {
+            (
+                a.name.as_deref() != Some("kite"),
+                a.agent_status != "blocked",
+            )
+        });
+        Ok(agents)
+    }
+
+    pub async fn ensure_agent(self: &Arc<Self>) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            core.update(|s| {
+                s.connection_step = ConnectionStep::Agent;
+                s.failure = None;
+            });
+            match core.prepare_agent(&c).await {
+                Ok(agents) => core.update(|s| {
+                    s.selected_agent = agents.first().map(|a| a.terminal_id.clone());
+                    s.agents = agents;
+                    s.agent_pause = AgentPause::Running;
+                    s.connection_step = if s.agents.first().is_some_and(|a| a.launch_pending) {
+                        ConnectionStep::Agent
+                    } else {
+                        ConnectionStep::Ready
+                    };
+                }),
+                Err(error) => {
+                    core.update(|s| {
+                        s.failure = Some(Failure {
+                            code: FailureCode::AgentStart,
+                            details: error.to_string(),
+                            username: c.host.username.clone(),
+                            trusted: String::new(),
+                            presented: String::new(),
+                        })
+                    });
+                    return Err(error);
+                }
+            }
+            Ok(())
+        })
+        .await
+    }
+
     async fn poll_connection(self: Arc<Self>, connection: Arc<Connected>, generation: u64) {
         loop {
             if self.generation.load(Ordering::SeqCst) != generation {
@@ -538,9 +704,50 @@ impl AppCore {
             }
             match connection.api.agents().await {
                 Ok(mut agents) => {
-                    agents.sort_by_key(|a| if a.agent_status == "blocked" { 0 } else { 1 });
+                    let mut failed_starts = Vec::new();
+                    {
+                        let mut starts = lock(&self.agent_starts);
+                        starts.retain(|id, pending| {
+                            if let Some(agent) = agents.iter().find(|a| &a.terminal_id == id) {
+                                if agent.interactive_ready {
+                                    return false;
+                                }
+                                if agent.launch_pending
+                                    || pending.since.elapsed() < Duration::from_secs(35)
+                                {
+                                    return true;
+                                }
+                            }
+                            if pending.since.elapsed() < Duration::from_secs(5) {
+                                return true;
+                            }
+                            failed_starts.push((pending.workspace.clone(), pending.pane.clone()));
+                            false
+                        });
+                    }
+                    for (workspace, pane) in failed_starts {
+                        let output = connection.api.read_pane(&pane).await.unwrap_or_default();
+                        if self.generation.load(Ordering::SeqCst) == generation {
+                            self.update(|s| s.failure = Some(Failure {
+                                code: FailureCode::AgentStart,
+                                details: format!("Agent did not become ready in {workspace} ({pane}). Check installation and sign-in in this terminal.\n{output}"),
+                                username: connection.host.username.clone(), trusted: String::new(), presented: String::new(),
+                            }));
+                        }
+                    }
+                    agents.sort_by_key(|a| {
+                        (
+                            a.name.as_deref() != Some("kite"),
+                            a.agent_status != "blocked",
+                        )
+                    });
                     if self.generation.load(Ordering::SeqCst) != generation {
                         return;
+                    }
+                    if self.snapshot().connection_step == ConnectionStep::Agent
+                        && agents.iter().any(|a| !a.launch_pending)
+                    {
+                        self.update(|s| s.connection_step = ConnectionStep::Ready);
                     }
                     if self.snapshot().agents != agents {
                         self.update(|s| {
@@ -767,6 +974,7 @@ impl AppCore {
                 s.connection = ConnectionPhase::Disconnected;
             }
             s.pending_key = None;
+            s.connection_step = ConnectionStep::Idle;
             s.herdr_version = None;
             s.herdr_path = None;
             s.capability = None;
@@ -782,7 +990,45 @@ impl AppCore {
         *lock(&self.history) = None;
         lock(&self.pending_messages).clear();
         lock(&self.consumed_approvals).clear();
+        lock(&self.agent_starts).clear();
         Ok(())
+    }
+
+    pub async fn start_agent(
+        self: &Arc<Self>,
+        provider: String,
+        cwd: String,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            if !matches!(provider.as_str(), "claude" | "codex") {
+                return Err(AppError::State("unsupported agent provider".into()));
+            }
+            let cwd = cwd.trim();
+            if !cwd.is_empty() && (!cwd.starts_with('/') || cwd.len() > 4096 || cwd.chars().any(char::is_control)) {
+                return Err(AppError::State("project directory must be an absolute host path".into()));
+            }
+            let c = core.connection()?;
+            let suffix = new_device_id()?;
+            let name = format!("kite-{}-{}", provider, &suffix[..8]);
+            let (workspace, pane) = c.api.create_workspace(&name, if cwd.is_empty() { None } else { Some(cwd) }).await?;
+            let args = if provider == "codex" { vec!["--no-daemon".into(), "-c".into(), "check_for_update_on_startup=false".into()] } else { Vec::new() };
+            let result = c.api.start_agent(&pane, &name, &provider, &args).await;
+            let agent = match result {
+                Ok(agent) => agent,
+                Err(e) => return Err(AppError::State(format!("Agent start was not confirmed in workspace {workspace} ({pane}): {e}. Inspect this workspace before retrying."))),
+            };
+            lock(&core.agent_starts).insert(agent.terminal_id.clone(), PendingAgentStart { pane, workspace, since: Instant::now() });
+            core.update(|s| {
+                s.failure = None;
+                s.selected_agent = Some(agent.terminal_id.clone());
+                s.agents.push(agent);
+                s.agent_output.clear(); s.conversation.clear(); s.approval = None;
+                s.conversation_available = false; s.agent_pause = AgentPause::Running;
+            });
+            Ok(())
+        }).await
     }
 
     pub async fn select_agent(self: &Arc<Self>, id: String) -> Result<(), AppError> {
@@ -880,6 +1126,38 @@ impl AppCore {
                 });
             }
             result
+        })
+        .await
+    }
+
+    pub async fn send_agent_key(self: &Arc<Self>, id: String, key: String) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            if !matches!(
+                key.as_str(),
+                "Up" | "Down" | "Left" | "Right" | "Enter" | "Escape" | "Tab"
+            ) {
+                return Err(AppError::State("unsupported terminal key".into()));
+            }
+            let c = core.connection()?;
+            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+                return Err(AppError::State(
+                    "resume the tracked agent process before submitting input".into(),
+                ));
+            }
+            if core.snapshot().selected_agent.as_deref() != Some(&id) {
+                return Err(AppError::State("selected agent changed".into()));
+            }
+            let agent = c
+                .api
+                .agents()
+                .await?
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            c.api.send_keys(&agent.pane_id, &[key]).await?;
+            Ok(())
         })
         .await
     }
@@ -1385,6 +1663,8 @@ mod tests {
     #[test]
     fn approval_cannot_cross_session_state_or_question() {
         let mut agent = Agent {
+            launch_pending: false,
+            interactive_ready: true,
             terminal_id: "t1".into(),
             name: None,
             agent: Some("claude".into()),

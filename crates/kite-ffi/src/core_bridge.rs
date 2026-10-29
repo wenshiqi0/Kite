@@ -68,6 +68,15 @@ pub enum ConnectionStatus {
     Failed,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum ConnectionStep {
+    Idle,
+    Ssh,
+    HerdrDiscovery,
+    HerdrApi,
+    Agent,
+    Ready,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum DesktopStatus {
     Idle,
     Pairing,
@@ -88,6 +97,7 @@ pub enum FailureKind {
     InvalidKey,
     InvalidConfiguration,
     Stream,
+    AgentStart,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct FailureInfo {
@@ -107,6 +117,8 @@ pub struct AgentInfo {
     pub pane_id: String,
     pub cwd: Option<String>,
     pub can_pause: bool,
+    pub launch_pending: bool,
+    pub managed_ready: bool,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum MessageKind {
@@ -171,6 +183,7 @@ pub struct CoreSnapshot {
     pub hosts: Vec<HostRecord>,
     pub selected_host: Option<String>,
     pub connection: ConnectionStatus,
+    pub connection_step: ConnectionStep,
     pub pending_host_key: Option<HostKeyConfirmation>,
     pub herdr_version: Option<String>,
     pub herdr_path: Option<String>,
@@ -206,6 +219,14 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 C::Connected => ConnectionStatus::Connected,
                 C::Failed => ConnectionStatus::Failed,
             },
+            connection_step: match s.connection_step {
+                kite_app::ConnectionStep::Idle => ConnectionStep::Idle,
+                kite_app::ConnectionStep::Ssh => ConnectionStep::Ssh,
+                kite_app::ConnectionStep::HerdrDiscovery => ConnectionStep::HerdrDiscovery,
+                kite_app::ConnectionStep::HerdrApi => ConnectionStep::HerdrApi,
+                kite_app::ConnectionStep::Ready => ConnectionStep::Ready,
+                kite_app::ConnectionStep::Agent => ConnectionStep::Agent,
+            },
             pending_host_key: s.pending_key.map(|k| HostKeyConfirmation {
                 host_id: k.host_id,
                 address: k.address,
@@ -226,6 +247,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                         || a.agent
                             .as_deref()
                             .is_some_and(|s| matches!(s, "claude" | "codex")),
+                    launch_pending: a.launch_pending,
+                    managed_ready: a.interactive_ready,
                     id: a.terminal_id,
                     name: a.name,
                     agent: a.agent,
@@ -308,6 +331,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                     F::InvalidKey => FailureKind::InvalidKey,
                     F::InvalidConfiguration => FailureKind::InvalidConfiguration,
                     F::Stream => FailureKind::Stream,
+                    F::AgentStart => FailureKind::AgentStart,
                 },
                 details: f.details,
                 username: f.username,
@@ -412,12 +436,27 @@ impl KiteCore {
     pub async fn disconnect(&self) -> Result<(), KiteError> {
         self.inner.disconnect().await.map_err(Into::into)
     }
+    pub async fn ensure_agent(&self) -> Result<(), KiteError> {
+        self.inner.ensure_agent().await.map_err(Into::into)
+    }
+    pub async fn start_agent(&self, provider: String, cwd: String) -> Result<(), KiteError> {
+        self.inner
+            .start_agent(provider, cwd)
+            .await
+            .map_err(Into::into)
+    }
     pub async fn select_agent(&self, agent_id: String) -> Result<(), KiteError> {
         self.inner.select_agent(agent_id).await.map_err(Into::into)
     }
     pub async fn prompt_agent(&self, agent_id: String, text: String) -> Result<(), KiteError> {
         self.inner
             .prompt_agent(agent_id, text)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn send_agent_key(&self, agent_id: String, key: String) -> Result<(), KiteError> {
+        self.inner
+            .send_agent_key(agent_id, key)
             .await
             .map_err(Into::into)
     }

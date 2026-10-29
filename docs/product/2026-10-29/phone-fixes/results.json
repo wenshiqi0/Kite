@@ -1,0 +1,182 @@
+{
+  "device": "emulator-5558",
+  "android_api": 36,
+  "abi": "arm64-v8a",
+  "host": "Linux X11 / herdr 0.9.5 / Sunshine v2026.914.233613",
+  "tests": [
+    {
+      "name": "normal_nonmanaged_agent_can_receive_utf8",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "A normal foreground controlled process is not gated by the managed-start readiness flag; Chinese prompt reaches actual agent.prompt and transcript echo."
+    },
+    {
+      "name": "fullscreen_enters_landscape_with_system_rotation_locked",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Fullscreen requests landscape with system auto-rotation disabled; decoder source remains 1080p."
+    },
+    {
+      "name": "operation_pinch_zooms_without_remote_click_or_scroll",
+      "status": "PASS",
+      "evidence": [
+        "operate-pinch.png"
+      ],
+      "detail": "Actual two-pointer touchscreen pinch doubles viewport scale in operation; no host click, right click or wheel event."
+    },
+    {
+      "name": "zoom_and_pan_click_maps_to_source_pixels",
+      "status": "PASS",
+      "evidence": [
+        "direct-zoom-pan.png"
+      ],
+      "detail": "After 2x zoom and a 120/-60 pixel viewport pan, a calculated screen touch reaches source desktop (1100,600) within two pixels."
+    },
+    {
+      "name": "trackpad_two_finger_tap_is_one_right_click",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Two-pointer tap generates exactly one host right-click."
+    },
+    {
+      "name": "trackpad_parallel_fingers_scroll_without_click",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Parallel two-finger translation sends wheel input with no tap or right-click."
+    },
+    {
+      "name": "direct_mode_ignores_letterbox_taps",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "A direct touch in the fitted image letterbox does not click the host."
+    },
+    {
+      "name": "watch_mode_never_sends_remote_touch",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "View-only touch remains local."
+    },
+    {
+      "name": "orientation_buttons_work_both_ways",
+      "status": "PASS",
+      "evidence": [
+        "portrait.png",
+        "landscape.png"
+      ],
+      "detail": "Orientation override is observed by composition; manual portrait and landscape work with system auto-rotation off."
+    },
+    {
+      "name": "viewport_rotation_and_pip_reuse_one_1080p_decoder",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "One 1920x1080 decoder configuration across explicit portrait / landscape and system PiP return."
+    },
+    {
+      "name": "app_creates_and_starts_real_codex_without_submitting_a_prompt",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "New session from the Android app creates a distinct project workspace and starts installed Codex. No prompt or model task is submitted; provider first-run setup is not auto-approved."
+    },
+    {
+      "name": "terminal_controls_reach_current_agent_pane",
+      "status": "PASS",
+      "evidence": [
+        "terminal-controls.png"
+      ],
+      "detail": "Visible terminal Down / Enter controls send to the actual selected public pane; controlled choice records one rejection, no command runs."
+    },
+    {
+      "name": "failed_connection_keeps_settings_and_reason_visible",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "A deliberately closed SSH port fails in place with a visible translated reason and a diagnostic-copy action."
+    },
+    {
+      "name": "connection_retry_recovers_without_key_or_trust_reset",
+      "status": "PASS",
+      "evidence": [],
+      "detail": "Correcting the port reconnects and reuses saved SSH device identity and host trust."
+    },
+    {
+      "name": "real_model_reply_and_structured_chat",
+      "status": "PASS",
+      "evidence": [
+        "connected-chat.png"
+      ],
+      "detail": "Installed Codex answered the benign no-tools connectivity prompt; the selected herdr session identity yields actual assistant/user bubbles, not terminal inference."
+    },
+    {
+      "name": "disconnect_reconnect_reuses_same_persistent_agent",
+      "status": "PASS",
+      "evidence": [
+        "connected-chat.png"
+      ],
+      "detail": "Disconnecting phone SSH preserves backend foreground PID, terminal ID and provider session. Reconnect restores conversation without a provider/session setup action or extra workspace."
+    }
+  ],
+  "versionName": "0.2.0-alpha.4",
+  "mapping": {
+    "expected": [
+      1100,
+      600
+    ],
+    "phone": [
+      1520,
+      558
+    ],
+    "received": {
+      "frame": 18500,
+      "left": 1,
+      "right": 0,
+      "scroll": 0,
+      "keys": 0,
+      "f8": false,
+      "text_matched": false,
+      "alive": true,
+      "canvas_width": 1920,
+      "canvas_height": 796,
+      "last_root_x": 1100.0,
+      "last_root_y": 600.0
+    },
+    "viewport": [
+      32,
+      147,
+      2369,
+      917
+    ],
+    "scale": 1.4259259259259258
+  },
+  "backend_continuity": {
+    "before_group": 506711,
+    "disconnected_group": 506711,
+    "same_terminal": true,
+    "same_session": true,
+    "workspace_count_unchanged": true
+  },
+  "screenshots": [
+    {
+      "file": "connected-chat.png",
+      "sha256": "971de7942b11c255efab7874f923397cc556b14cccb8a60cd68f10feec8fe054"
+    },
+    {
+      "file": "direct-zoom-pan.png",
+      "sha256": "4434e32ffd1f36f2a87f07d262795c1410aa91017ec23c08bd315873c51ecc08"
+    },
+    {
+      "file": "landscape.png",
+      "sha256": "389b0a953918a88007347c45501efb50569dbbba42c8edea18987e4f8d0db75a"
+    },
+    {
+      "file": "operate-pinch.png",
+      "sha256": "f63cbf91cdd61e7e7aee8e3d40ceecf78c6a4dbf5655f36e83f8736f732dbda3"
+    },
+    {
+      "file": "portrait.png",
+      "sha256": "8e965d9264f41bf2d2c8689c175b054ac14d68c8081862befde1090af769a14f"
+    },
+    {
+      "file": "terminal-controls.png",
+      "sha256": "16854d4e401d6ea4539f08b7f8e324bfbca55524e5c4194904df30c259e36c4e"
+    }
+  ]
+}

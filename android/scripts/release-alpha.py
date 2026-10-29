@@ -155,7 +155,7 @@ def main():
         }
         print(f"Building signed Release APK: {version}", flush=True)
         command = [str(ROOT / "android/gradlew"), "-p", str(ROOT / "android"),
-                   ":app:assembleRelease", ":app:lintRelease", "--no-daemon", "--console=plain"]
+                   ":app:assembleRelease", ":app:lintRelease", ":app:testReleaseUnitTest", "--no-daemon", "--console=plain"]
         command += shlex.split(os.environ.get("KITE_GRADLE_ARGS", ""))
         command += [f"-Pandroid.injected.signing.{key}={value}" for key, value in signing.items()]
         run(*command, capture=False)

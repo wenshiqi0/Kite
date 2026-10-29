@@ -15,6 +15,8 @@
 
 聊天工作区以 [2026-10-29 产品稿](docs/product/2026-10-29/README.md) 和 [RFC 0004](docs/rfcs/0004-chat-desktop-workspace.md) 为交互依据：接管与 agent 暂停独立；观看缩放不发送输入；布局和 PiP 由原生层处理，真实会话、审批与暂停由 Rust 处理。
 
+手机操作按 [RFC 0005](docs/rfcs/0005-mobile-operation-and-session-entry.md) 使用统一源桌面坐标系和显式只看/操作模式；连接阶段与会话启动仍由 Rust Core 管理。
+
 ## 2. 仓库布局
 
 ```
@@ -192,7 +194,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 
 ## 6. 当前实现与 M1 升级
 
-RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 适配层隐藏 Moonlight ABI，单进程仅一路串流。FFI 库和绑定同次生成，不保留旧 FFI 入口；herdr 0.9.5 协议必须兼容。结构化聊天和 iOS 视频不在本轮实现范围内。
+RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 适配层隐藏 Moonlight ABI，单进程仅一路串流。FFI 库和绑定同次生成，不保留旧 FFI 入口；herdr 0.9.5 协议必须兼容。RFC 0003 阶段不含结构化聊天；RFC 0004 已落实 Android 聊天，iOS 视频仍待实现。
 
 | M1 现状 | 当前升级处理 |
 |---|---|
@@ -202,7 +204,7 @@ RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 
 | 检查后关闭 SSH | 保持 SSH，桌面控制通过 direct-tcpip；视频与实时输入通过私有网络 Moonlight |
 | ViewModel 自组领域状态 | Rust 推送带 revision 的快照，原生丢弃旧版本，仅保留展示和输入状态 |
 
-Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct ByteBuffer 传递，不走 UniFFI。默认仅观看，进入接管才转发输入；退出接管释放按键。后台暂停视频，前台服务管理 SSH 生命周期，并处理快速连接失败时先提升前台、再停止服务的顺序。
+Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct ByteBuffer 传递，不走 UniFFI。默认只看，进入操作模式才转发输入；切回只看释放按键。后台在系统 PiP 中保留视频，否则暂停；前台服务管理 SSH 生命周期，并处理快速连接失败时先提升前台、再停止服务的顺序。
 
 验收必须分别确认真实 herdr API、持续视频接收、实际解码呈现和输入到达。编译、`/serverinfo` 与编码包计数不能代替用户可见的画面和操作证据。
 

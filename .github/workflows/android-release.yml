@@ -128,7 +128,7 @@ jobs:
 
       - name: Build unsigned Release for pull requests
         if: github.event_name == 'pull_request'
-        run: ./android/gradlew -p android :app:assembleRelease :app:lintRelease --no-daemon --console=plain
+        run: ./android/gradlew -p android :app:assembleRelease :app:lintRelease :app:testReleaseUnitTest --no-daemon --console=plain
 
       - name: Upload verified Alpha build
         if: github.event_name != 'pull_request'

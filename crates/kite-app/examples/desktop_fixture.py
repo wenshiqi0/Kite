@@ -82,6 +82,7 @@ def draw(widget, ctx):
 def button(_, event):
     if event.button == 1: state['left'] += 1
     if event.button == 3: state['right'] += 1
+    state['last_root_x'] = round(event.x_root, 2); state['last_root_y'] = round(event.y_root, 2)
     save(); return False
 
 

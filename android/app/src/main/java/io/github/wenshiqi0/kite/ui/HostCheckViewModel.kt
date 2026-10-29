@@ -2,6 +2,8 @@ package io.github.wenshiqi0.kite.ui
 
 import android.app.Application
 import android.graphics.Rect
+import android.content.pm.ActivityInfo
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -40,9 +42,14 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var floatingX by mutableStateOf(.90f)
     var floatingY by mutableStateOf(.28f)
     var zoom by mutableStateOf(1f)
-    var panX by mutableStateOf(0f)
-    var panY by mutableStateOf(0f)
-    var trackpad by mutableStateOf(false)
+    var trackpad by mutableStateOf(true)
+    var panMode by mutableStateOf(false)
+    var orientationRequest by mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
+        private set
+    var creatingAgent by mutableStateOf(false)
+        private set
+    private var wasConnecting = false
+    private var lastConnection: ConnectionStatus? = null
     var ctrlHeld by mutableStateOf(false)
         private set
     var metaHeld by mutableStateOf(false)
@@ -77,6 +84,14 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
                 if (state != null) {
+                    if (lastConnection == ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.CONNECTED) {
+                        if (showDesktop) closeDesktop()
+                        settingsVisible = true
+                    }
+                    lastConnection = state.connection
+                    if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
+                    if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { settingsVisible = false; wasConnecting = false }
+                    if (wasConnecting && state.connection == ConnectionStatus.FAILED) { settingsVisible = true; wasConnecting = false }
                     if (state.selectedAgent != draftAgent) {
                         draftAgent?.let { agentDrafts[it] = draft }
                         val old = draftAgent
@@ -116,18 +131,25 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             sunshinePort == null || sunshinePort.toInt() !in 6..65514 -> { localError = app.getString(R.string.error_sunshine_port); return }
         }
         localError = null
+        wasConnecting = true
+        settingsVisible = true
         fitVideo()
         engine.command {
             val id = engine.core.saveHost(HostRecord(f.id, f.host, port, f.username, f.herdrPath.ifBlank { null }, f.streamHost.ifBlank { null }, sunshinePort))
             form = f.copy(id = id)
             engine.ensureForeground()
             engine.core.connect(id)
-            settingsVisible = false
         }
     }
     fun disconnect() = engine.command { engine.core.disconnect() }
     fun trust(hostId: String, fingerprint: String) = engine.command { engine.core.trustHost(hostId, fingerprint) }
     fun forget(hostId: String) = engine.command { engine.core.forgetHost(hostId) }
+    fun prepareAgent() = engine.command { engine.core.ensureAgent() }
+    fun startAgent(provider: String, cwd: String) {
+        if (creatingAgent) return
+        creatingAgent = true
+        engine.command { try { engine.core.startAgent(provider, cwd) } finally { creatingAgent = false } }
+    }
     fun selectAgent(id: String) = engine.command { engine.core.selectAgent(id) }
     fun sendPrompt(id: String) {
         if (engine.state.value?.selectedAgent != id) return
@@ -138,6 +160,9 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             try { engine.core.promptAgent(id, value); if (draftAgent == id && draft.trim() == value) draft = "" else if (agentDrafts[id]?.trim() == value) agentDrafts.remove(id) }
             finally { sendingAgents.remove(id) }
         }
+    }
+    fun terminalKey(id: String, key: String) {
+        if (engine.state.value?.selectedAgent == id) engine.command { engine.core.sendAgentKey(id, key) }
     }
     fun respond(id: String, request: String, choice: Int) {
         if (engine.state.value?.selectedAgent != id) return
@@ -156,22 +181,25 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         settingsVisible = false
         changeLayout(DesktopLayout.Floating)
     }
-    fun changeLayout(value: DesktopLayout) {
+    fun changeLayout(value: DesktopLayout, rotate: Boolean = true) {
         if (value == DesktopLayout.Closed) { closeDesktop(); return }
         if (value == DesktopLayout.Floating || value == DesktopLayout.Docked) exitTakeover()
         if (layout != value) {
             if (value == DesktopLayout.Fullscreen) beforeFullscreen = if (layout == DesktopLayout.Closed) DesktopLayout.Floating else layout
             releaseModifiers()
             if (target != 0L) NativeMedia.releaseInput(target)
-            fitVideo()
+            panMode = false
         }
         layout = value; autoDocked = false
+        if (value == DesktopLayout.Fullscreen && rotate) orientationRequest = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else if (value != DesktopLayout.Fullscreen) orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
     fun returnToChat(landscape: Boolean) {
         changeLayout(if (landscape && beforeFullscreen == DesktopLayout.Split) DesktopLayout.Floating else beforeFullscreen)
     }
-    fun closeDesktop() { autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop() } }
-    fun fitVideo() { zoom = 1f; panX = 0f; panY = 0f }
+    fun rotateDesktop(landscape: Boolean) { orientationRequest = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE }
+    fun closeDesktop() { orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop() } }
+    fun fitVideo() { zoom = 1f; panMode = false }
     fun exitTakeover() {
         releaseModifiers()
         if (target != 0L) NativeMedia.releaseInput(target)
@@ -206,6 +234,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         ctrlHeld = false; metaHeld = false
     }
     fun sendText(text: String): Boolean = target != 0L && NativeMedia.text(target, text)
+    fun leftClick() { if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
     fun rightClick() { if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
     fun scroll(vertical: Int) { if (target != 0L) NativeMedia.scroll(target, 0, vertical) }
     fun shortcut(key: Int, ctrl: Boolean = false) {

@@ -35,7 +35,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             KiteTheme {
                 val immersive = model.layout == DesktopLayout.Fullscreen
+                val orientation = model.orientationRequest
                 SideEffect {
+                    if (!model.inPip && requestedOrientation != orientation) requestedOrientation = orientation
                     val bars = WindowInsetsControllerCompat(window, window.decorView)
                     bars.isAppearanceLightStatusBars = true
                     bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
