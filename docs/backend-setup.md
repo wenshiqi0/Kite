@@ -1,6 +1,6 @@
 # Host setup
 
-Kite connects to services on your own machine. There is no separate Kite server to deploy: SSH carries herdr and Sunshine control requests; Sunshine sends desktop video and input over your private network.
+Kite connects to services on your own machine. SSH carries herdr, Codex chat and Sunshine control requests; Sunshine sends desktop video and input over your private network. Rich Codex chat uses a private, persistent app-server for each Kite pane. The APK installs a small Python host adapter in `~/.local/lib/kite/backend-v1.py`; it does not expose another TCP port or change the global Codex daemon.
 
 This guide covers the current Android Alpha's supported host path: **Linux with an active X11 desktop**, with SSH, herdr and Sunshine running as the same user. Automatic capture-size discovery currently requires Linux `/proc`, `ss` and `xrandr`. Wayland, Windows and macOS host discovery are not implemented in this Alpha, even where upstream herdr or Sunshine support them.
 
@@ -9,9 +9,28 @@ This guide covers the current Android Alpha's supported host path: **Linux with 
 1. Open **Host settings** (主机设置), enter an IP / hostname reachable **from the phone**, the SSH port and your host username. A laptop SSH alias such as `wen.linux` is not automatically available on Android. Keep the phone on the host LAN, or configure a reachable private VPN path.
 2. Copy the phone's public key and authorize it on the host as described below. Each phone has its own device key.
 3. Choose **Connect host** (连接主机). The form stays visible through SSH authentication, herdr discovery and API checks. Verify the host fingerprint when prompted. On failure, the reason is shown at the top; **Copy diagnostics** in the settings toolbar copies connection stages and public fingerprints, without private keys or Sunshine passwords.
-4. Kite automatically reuses the host agent, preferring its persistent `kite` session. If no agent exists, it creates a `Kite` workspace in the host user's home directory and starts Codex. Codex must be installed and signed in on the host once; afterward, reconnecting the phone reuses the same background agent. Closing Kite or disconnecting SSH does not stop that process. No model task is submitted automatically. Kite starts Codex with its documented `--no-daemon` option so per-pane herdr environment and session hooks stay attached to this backend process; herdr itself keeps it running after SSH disconnects. Interactive provider-update prompts are disabled for this invocation, and Codex updates are managed on the host. Other Codex sessions and global configuration are unchanged. **New session** is an optional action for another provider or project directory, not a prerequisite for messaging.
+4. Kite automatically reuses the host agent, preferring its persistent `kite` session. If no agent exists, it creates a `Kite` workspace in the host user's home directory and starts Codex. Codex must be installed and signed in on the host once; afterward, reconnecting the phone reuses the same background agent. Closing Kite or disconnecting SSH does not stop that process. No model task is submitted automatically. Kite starts a pane-owned Codex app-server and attaches the herdr TUI with `codex --remote unix://...`. The phone submits structured turns to that same server; it never starts a second owner for an existing thread. The server survives SSH disconnects, and herdr retains a resume command that can recreate its private listener. Interactive update prompts are disabled for this invocation; Codex updates are managed on the host. Other Codex sessions and global configuration are unchanged. **New session** is an optional action for another provider or project directory, not a prerequisite for messaging.
 5. For first-run choices, open **Terminal output** (终端输出) and use its arrow / Enter / Esc controls. A waiting agent may need login, workspace trust or another explicit choice before it can accept chat. Failed starts retain their workspace for inspection; an uncertain start is not replayed automatically.
 6. Open the remote desktop and pair with Sunshine. **Watch / Operate** (只看 / 操作) controls whether input reaches the desktop. The agent continues running independently.
+
+## Rich chat requirements and upgrading an existing Alpha host
+
+Install **Codex CLI 0.164.0 or newer** and **Python 3** under the SSH user, and sign in to Codex on the host. [Codex's app-server transport](https://learn.chatgpt.com/docs/app-server) is experimental; Kite currently ships this integration as Alpha. The host adapter uses the documented Unix WebSocket transport through SSH. Socket directories are private to the host user, and no API key or authentication token is copied to the phone.
+
+New Kite Codex panes are prepared automatically. To upgrade a pane created by an older Alpha, first connect the new APK so its matching host adapter is installed. Find the pane ID using `herdr agent list`; when the agent is idle, run:
+
+```bash
+python3 ~/.local/lib/kite/backend-v1.py upgrade \
+  --pane YOUR_PANE_ID --herdr "$(command -v herdr)"
+```
+
+The command verifies the idle in-process Codex TUI, stops that exact process and attaches a TUI to the new pane-owned server with the **same thread UUID**. It refuses active turns or unfamiliar process layouts. Do not repeatedly run it after an uncertain result; inspect the pane first. Custom agents and other providers are not migrated automatically. Host records, SSH keys, trust, Sunshine pairing and provider history are retained. A host adapter update must accompany the APK; no legacy Codex chat endpoint is maintained.
+
+The chat composer reads the real `model/list` catalog and shows each model's supported reasoning efforts. Choices are stored per host and conversation; `turn/start` receives both values explicitly. These controls and attachment uploads currently require a Kite Codex pane; Claude terminal chat remains text only.
+
+Use **+ → Image / File / Audio** to choose attachments with Android's system picker. Each message accepts up to five files, at most 25 MiB each. Uploads stream through SSH, verify SHA-256 and commit atomically under `~/.local/share/kite/uploads/`; failed uploads remain available to retry or remove. Files are retained on the host for the conversation. Images use Codex's native image input. Models advertising audio input use native audio; otherwise audio is a file for the agent's tools to read, and the UI says so. The microphone button performs **speech to text**, a separate feature.
+
+Approvals remain owned by the attached TUI. Kite reads the actual choices and checks their session/state before sending the corresponding keys. The structured chat connection never grants approval automatically. Unknown interactions can still be handled through **Terminal output**.
 
 ## 1. Prepare SSH and a desktop session
 

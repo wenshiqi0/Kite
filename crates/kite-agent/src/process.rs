@@ -28,11 +28,54 @@ pub struct Token {
     pub group: u32,
     pub started: u64,
     pub shell: Option<ShellToken>,
+    pub detached_backend: Option<String>,
 }
 
 pub async fn prepare(api: &Api, ssh: &Session, agent: &Agent) -> Result<Token, Error> {
     let result = api.process_info(&agent.pane_id).await?;
     let info = &result["process_info"];
+    let remote_codex = agent.agent.as_deref() == Some("codex")
+        && info["foreground_processes"].as_array().is_some_and(|p| {
+            p.iter().any(|p| {
+                p["argv"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|v| v == "--remote"))
+            })
+        });
+    if remote_codex {
+        let out = ssh
+            .exec(
+                &crate::composer::helper_command(&format!(
+                    "identity --pane {}",
+                    crate::composer::quote(&agent.pane_id)
+                )),
+                &[],
+            )
+            .await?;
+        if out.exit_status != Some(0) {
+            return Err(Error::Identity);
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(&out.stdout).map_err(|_| Error::Identity)?;
+        let group = v["pid"]
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or(Error::Identity)?;
+        let expected = v["start_ticks"]
+            .as_str()
+            .and_then(|n| n.parse().ok())
+            .ok_or(Error::Identity)?;
+        let (started, stopped) = inspect(ssh, group, Some(expected), "inspect").await?;
+        if stopped {
+            return Err(Error::Partial);
+        }
+        return Ok(Token {
+            group,
+            started,
+            shell: None,
+            detached_backend: Some(agent.pane_id.clone()),
+        });
+    }
     let group = info["foreground_process_group_id"]
         .as_u64()
         .and_then(|n| u32::try_from(n).ok())
@@ -91,6 +134,7 @@ pub async fn prepare(api: &Api, ssh: &Session, agent: &Agent) -> Result<Token, E
         group,
         started,
         shell,
+        detached_backend: None,
     })
 }
 
@@ -119,6 +163,24 @@ pub async fn paused(ssh: &Session, token: &Token) -> Result<bool, Error> {
 }
 
 pub async fn signal(ssh: &Session, token: &Token, pause: bool) -> Result<(), Error> {
+    if token.detached_backend.is_some() {
+        let (_, stopped) = inspect(
+            ssh,
+            token.group,
+            Some(token.started),
+            if pause {
+                "stop-shell"
+            } else {
+                "continue-shell"
+            },
+        )
+        .await?;
+        return if stopped == pause {
+            Ok(())
+        } else {
+            Err(Error::Partial)
+        };
+    }
     if pause && let Some(shell) = &token.shell {
         let (_, stopped) = inspect(ssh, shell.group, Some(shell.started), "stop-shell").await?;
         if !stopped {

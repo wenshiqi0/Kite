@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod composer;
 pub mod history;
 pub mod process;
 
@@ -94,6 +95,34 @@ fn text_content(v: &Value) -> String {
                 .join("\n")
         })
         .unwrap_or_default()
+}
+
+fn codex_message_text(v: &Value) -> String {
+    let Some(blocks) = v.as_array() else {
+        return text_content(v);
+    };
+    let mut text = Vec::new();
+    let mut i = 0;
+    while i < blocks.len() {
+        // Codex persists an image wrapper around each native image input. It is
+        // transport metadata, not part of the user's text or attachment manifest.
+        if blocks[i]["text"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("<image name=[Image #") && s.ends_with('>'))
+            && blocks
+                .get(i + 1)
+                .is_some_and(|b| b["type"] == "input_image")
+            && blocks.get(i + 2).is_some_and(|b| b["text"] == "</image>")
+        {
+            i += 3;
+            continue;
+        }
+        if let Some(value) = blocks[i]["text"].as_str() {
+            text.push(value);
+        }
+        i += 1;
+    }
+    text.join("\n")
 }
 
 fn add_text(messages: &mut Vec<Message>, id: String, role: Role, text: String) {
@@ -217,7 +246,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                             Some("assistant") => Role::Assistant,
                             _ => continue,
                         };
-                        let text = text_content(&p["content"]);
+                        let text = codex_message_text(&p["content"]);
                         if text.starts_with("<environment_context>")
                             || text.starts_with("<turn_aborted>")
                         {
@@ -389,6 +418,21 @@ mod tests {
         assert_eq!(m.len(), 3);
         assert!(m[1].tool.as_ref().unwrap().complete);
         assert_eq!(m[2].text, "done");
+    }
+    #[test]
+    fn codex_native_image_wrappers_do_not_break_attachment_reconciliation() {
+        let files = vec![composer::Attachment {
+            id: "f".into(),
+            name: "photo.png".into(),
+            mime: "image/png".into(),
+            size: 12,
+            path: "/home/user/photo.png".into(),
+        }];
+        let text = composer::compose_text("Describe", &files).unwrap();
+        let input = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text},{"type":"input_text","text":"<image name=[Image #1] path=\"/home/user/photo.png\">"},{"type":"input_image","image_url":"data:image/png;base64,AA=="},{"type":"input_text","text":"</image>"}]}});
+        let messages = parse_history("codex", input.to_string().as_bytes());
+        assert_eq!(messages[0].text, text);
+        assert_eq!(composer::split_attachments(&messages[0].text).1, files);
     }
     #[test]
     fn approval_requires_blocked_state_and_explicit_actual_choices() {

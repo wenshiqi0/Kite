@@ -15,6 +15,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0004](0004-chat-desktop-workspace.md) | 聊天主界面与浮窗、分屏、全屏、系统画中画 | 已实现（Android Alpha 2） |
 
 | [0005](0005-mobile-operation-and-session-entry.md) | 手机操作视口、横屏与会话入口 | 已实现（Android Alpha 5） |
+| [0006](0006-rich-composer.md) | 模型、思考强度与附件输入 | 已实现（Android Alpha 6） |
 
 ## 什么时候写 RFC
 

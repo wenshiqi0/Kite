@@ -17,6 +17,8 @@
 
 手机操作按 [RFC 0005](docs/rfcs/0005-mobile-operation-and-session-entry.md) 使用统一源桌面坐标系和显式只看/操作模式；连接阶段与会话启动仍由 Rust Core 管理。
 
+聊天模型、思考强度和附件按 [RFC 0006](docs/rfcs/0006-rich-composer.md) 使用 Codex app-server v2：同一 pane 的 TUI 和手机连接同一持久服务器，保留 thread ID。`kite-agent` 持有结构化聊天协议和有界附件传输，原生仅提供私有缓存文件路径和展示。模型目录、设置、上传状态归 Rust；普通文件及不支持原生音频时通过主机路径提供给 agent。Linux 辅助程序位于 `backend/`，不得修改全局 Codex 服务或凭据。
+
 ## 2. 仓库布局
 
 ```

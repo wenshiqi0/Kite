@@ -1,0 +1,115 @@
+import base64
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import socket
+import tempfile
+import threading
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+import kite_codex as backend
+
+
+class BackendTests(unittest.TestCase):
+    def test_large_inline_image_preserves_user_text_and_attachment_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            file = Path(temporary) / "history.jsonl"
+            original = {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": 'literal {"image_url":"keep this text"} and attachment manifest'}, {"type": "input_image", "image_url": "data:image/png;base64," + "A" * (3 * 1024 * 1024)}]}}
+            file.write_text(json.dumps(original) + "\n" + '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[]}}\n')
+            output = io.BytesIO()
+            backend.history_projection(str(file), output)
+            lines = output.getvalue().splitlines()
+            self.assertEqual(len(lines), 2)
+            projected = json.loads(lines[0])
+            self.assertEqual(projected["payload"]["content"][0], original["payload"]["content"][0])
+            self.assertEqual(projected["payload"]["content"][1]["image_url"], "")
+            self.assertLess(len(output.getvalue()), 1000)
+            self.assertGreater(file.stat().st_size, 3 * 1024 * 1024)
+
+    def test_upload_is_private_verified_and_never_overwrites(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            data = b"Kite attachment\x00\xff"
+            digest = hashlib.sha256(data).hexdigest()
+            with patch.object(backend.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(data))):
+                receipt = backend.upload("a" * 32, "sample.bin", len(data), digest)
+            file = Path(receipt["path"])
+            self.assertEqual(file.read_bytes(), data)
+            self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                backend.upload("a" * 32, "sample.bin", len(data), digest)
+            with patch.object(backend.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(data))):
+                with self.assertRaises(ValueError):
+                    backend.upload("b" * 32, "sample.bin", len(data), "0" * 64)
+            self.assertFalse((file.parent.parent / ("b" * 32)).exists())
+            for name in ("../escape", ".", "bad\nname", "x\\y"):
+                with self.assertRaises(ValueError):
+                    backend.upload("c" * 32, name, 1, digest)
+
+    def test_unix_proxy_masks_requests_and_reassembles_fragments_with_ping(self):
+        with tempfile.TemporaryDirectory(prefix="kite-wire-", dir="/tmp") as temporary:
+            address = str(Path(temporary) / "server.sock")
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(address)
+            listener.listen(1)
+            errors = []
+            received = []
+
+            def server():
+                try:
+                    with listener.accept()[0] as conn:
+                        conn.settimeout(5)
+                        header = bytearray()
+                        while not header.endswith(b"\r\n\r\n"):
+                            header.extend(conn.recv(1))
+                        key = next(line.split(b":", 1)[1].strip() for line in header.split(b"\r\n") if line.startswith(b"Sec-WebSocket-Key:"))
+                        accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
+                        conn.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n")
+                        def exact(n):
+                            data = b""
+                            while len(data) < n:
+                                part = conn.recv(n-len(data))
+                                if not part:
+                                    raise EOFError()
+                                data += part
+                            return data
+                        a, b = exact(2)
+                        self.assertEqual(a, 0x81)
+                        self.assertTrue(b & 0x80)
+                        mask = exact(4)
+                        data = exact(b & 127)
+                        received.append(json.loads(bytes(v ^ mask[i % 4] for i, v in enumerate(data))))
+                        conn.sendall(b'\x01\x08{"id":1,' + b'\x89\x01p' + b'\x80\x0c"result":{}}')
+                        # Consume the masked pong before closing.
+                        a, b = exact(2)
+                        self.assertEqual(a, 0x8a)
+                        mask = exact(4)
+                        self.assertEqual(bytes([exact(1)[0] ^ mask[0]]), b"p")
+                        conn.sendall(b"\x88\x00")
+                        exact(6)
+                except BaseException as error:
+                    errors.append(error)
+
+            worker = threading.Thread(target=server, daemon=True)
+            worker.start()
+            read, write = os.pipe()
+            os.write(write, b'{"id":1,"method":"initialize"}\n')
+            output = io.BytesIO()
+            try:
+                with patch.object(backend, "read_registry", return_value={"socket": address}), patch.object(backend.sys, "stdin", SimpleNamespace(fileno=lambda: read)), patch.object(backend.sys, "stdout", SimpleNamespace(buffer=output)):
+                    backend.proxy("w1:p1")
+            finally:
+                os.close(read); os.close(write); listener.close()
+            worker.join(5)
+            if errors:
+                raise errors[0]
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(received, [{"id": 1, "method": "initialize"}])
+            self.assertEqual(json.loads(output.getvalue()), {"id": 1, "result": {}})
+
+
+if __name__ == "__main__":
+    unittest.main()

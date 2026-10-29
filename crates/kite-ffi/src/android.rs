@@ -44,8 +44,26 @@ struct AndroidSink {
 }
 
 impl AndroidSink {
+    fn env(&self) -> jni::errors::Result<JNIEnv<'_>> {
+        match self.vm.get_env() {
+            Ok(env) => Ok(env),
+            Err(jni::errors::Error::JniCall(jni::errors::JniError::ThreadDetached)) => {
+                // UniFFI's JNA callbacks can detach a Tokio worker after a prior
+                // media call. jni-rs 0.21 still has that thread's TLS guard. Clear
+                // it BEFORE attaching again: replacing it afterward drops the old
+                // guard and detaches the newly returned JNIEnv (ART aborts).
+                // SAFETY: GetEnv confirmed that this thread is already detached;
+                // there is no valid JNIEnv or attachment for this call to invalidate.
+                unsafe {
+                    self.vm.detach_current_thread();
+                }
+                self.vm.attach_current_thread_permanently()
+            }
+            Err(error) => Err(error),
+        }
+    }
     fn call(&self, name: &str, signature: &str, args: &[JValue<'_, '_>]) -> bool {
-        let Ok(mut env) = self.vm.attach_current_thread_permanently() else {
+        let Ok(mut env) = self.env() else {
             return false;
         };
         match env.call_method(self.renderer.as_obj(), name, signature, args) {
@@ -69,6 +87,13 @@ impl AndroidSink {
         {
             slot.busy.store(false, Ordering::Release);
         }
+    }
+}
+impl Drop for AndroidSink {
+    fn drop(&mut self) {
+        // Field destructors release GlobalRefs on this thread too. Repair a stale
+        // attachment before jni-rs attempts its own scoped attach for those drops.
+        let _ = self.env();
     }
 }
 impl MediaSink for AndroidSink {
@@ -157,7 +182,7 @@ impl MediaSink for AndroidSink {
     fn stop(&self) {
         self.set_takeover(false);
         self.generation.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut env) = self.vm.attach_current_thread_permanently() {
+        if let Ok(mut env) = self.env() {
             if env
                 .call_method(self.renderer.as_obj(), "onStopped", "()V", &[])
                 .is_err()

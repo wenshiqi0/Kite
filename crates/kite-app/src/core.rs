@@ -1,6 +1,10 @@
 //! Process-owned domain state, command execution and cancellation.
 use crate::AppError;
-use kite_agent::{Approval, Message, Role, fingerprint, history, process};
+use kite_agent::{
+    Approval, Message, Role,
+    composer::{self, Client as ChatClient, Composer, Selection, Upload},
+    fingerprint, history, process,
+};
 use kite_herdr::{
     api::{Agent, Api},
     check_api_bridge,
@@ -156,6 +160,7 @@ pub struct Snapshot {
     pub conversation_available: bool,
     pub approval: Option<Approval>,
     pub agent_pause: AgentPause,
+    pub composer: Composer,
     pub desktop: Desktop,
     pub failure: Option<Failure>,
 }
@@ -181,6 +186,7 @@ impl Default for Snapshot {
             conversation_available: false,
             approval: None,
             agent_pause: AgentPause::Running,
+            composer: Composer::default(),
             desktop: Desktop::default(),
             failure: None,
         }
@@ -239,6 +245,9 @@ pub struct AppCore {
     paused_processes: Mutex<BTreeMap<String, process::Token>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
     agent_starts: Mutex<BTreeMap<String, PendingAgentStart>>,
+    chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
+    chat_failures: Mutex<BTreeSet<String>>,
+    uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -285,6 +294,9 @@ impl AppCore {
             paused_processes: Mutex::new(BTreeMap::new()),
             consumed_approvals: Mutex::new(BTreeSet::new()),
             agent_starts: Mutex::new(BTreeMap::new()),
+            chat_clients: AsyncMutex::new(BTreeMap::new()),
+            chat_failures: Mutex::new(BTreeSet::new()),
+            uploads: Mutex::new(BTreeMap::new()),
         })
     }
     pub fn snapshot(&self) -> Snapshot {
@@ -569,6 +581,8 @@ impl AppCore {
         }
         let api = Arc::new(Api::new(ssh.clone(), &checked.herdr_path));
         let version = api.ping().await?;
+        // Desktop and SSH remain usable if the richer chat backend needs setup.
+        let _ = composer::install(&ssh).await;
         Ok(Connected {
             host: host.clone(),
             ssh,
@@ -592,20 +606,8 @@ impl AppCore {
                 return Err(AppError::State("host home directory unavailable".into()));
             }
             let (workspace, pane) = c.api.create_workspace("Kite", Some(home)).await?;
-            match c
-                .api
-                .start_agent(
-                    &pane,
-                    "kite",
-                    "codex",
-                    &[
-                        "--no-daemon".into(),
-                        "-c".into(),
-                        "check_for_update_on_startup=false".into(),
-                    ],
-                )
-                .await
-            {
+            let args = composer::launch_args(&c.ssh, &pane, &c.path).await?;
+            match c.api.start_agent(&pane, "kite", "codex", &args).await {
                 Ok(agent) => {
                     lock(&self.agent_starts).insert(
                         agent.terminal_id.clone(),
@@ -789,6 +791,23 @@ impl AppCore {
         else {
             return;
         };
+        if agent.agent.as_deref() == Some("codex")
+            && agent.agent_session.is_none()
+            && !agent.launch_pending
+        {
+            let _ = c
+                .ssh
+                .exec(
+                    &composer::helper_command(&format!(
+                        "bind --pane {} --herdr {}",
+                        composer::quote(&agent.pane_id),
+                        composer::quote(&c.path)
+                    )),
+                    &[],
+                )
+                .await;
+        }
+        self.refresh_composer(c, &agent, generation).await;
         let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
             return;
         };
@@ -896,6 +915,288 @@ impl AppCore {
         });
     }
 
+    async fn refresh_composer(&self, c: &Connected, agent: &Agent, generation: u64) {
+        let Some(reference) = agent
+            .agent_session
+            .as_ref()
+            .filter(|r| r.agent == "codex" && r.kind == "id")
+        else {
+            return;
+        };
+        let key = chat_key(c, agent);
+        let mut clients = self.chat_clients.lock().await;
+        if clients.get(&key).is_some_and(|c| c.is_closed()) {
+            clients.remove(&key);
+        }
+        if !clients.contains_key(&key) && !lock(&self.chat_failures).contains(&key) {
+            self.update(|s| {
+                if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
+                    s.composer.loading = true;
+                }
+            });
+            match ChatClient::connect(&c.ssh, &agent.pane_id, &reference.value).await {
+                Ok(client) => {
+                    clients.insert(key.clone(), Arc::new(client));
+                }
+                Err(error) => {
+                    lock(&self.chat_failures).insert(key.clone());
+                    if self.generation.load(Ordering::SeqCst) == generation {
+                        self.update(|s| {
+                            if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
+                                s.composer = Composer {
+                                    details: error.to_string(),
+                                    ..Composer::default()
+                                };
+                            }
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+        let Some(client) = clients.get(&key).cloned() else {
+            return;
+        };
+        drop(clients);
+        let stored = lock(&self.store)
+            .as_ref()
+            .and_then(|s| {
+                s.read_document::<BTreeMap<String, Selection>>("chat-settings")
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|m| m.get(&key).cloned());
+        let selected =
+            composer::selection(&client.models, stored.as_ref().unwrap_or(&client.initial))
+                .unwrap_or_else(|_| client.initial.clone());
+        let uploads = lock(&self.uploads).get(&key).cloned().unwrap_or_default();
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.update(|s| {
+                if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
+                    s.composer = Composer {
+                        ready: true,
+                        models: client.models.clone(),
+                        selection: selected,
+                        uploads,
+                        ..Composer::default()
+                    };
+                }
+            });
+        }
+    }
+
+    pub async fn reload_composer(self: &Arc<Self>) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let c = core.connection()?;
+            lock(&core.chat_failures).clear();
+            if let Some(id) = core.snapshot().selected_agent {
+                core.refresh_agent(&c, &id, core.generation.load(Ordering::SeqCst))
+                    .await;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn set_chat_model(
+        self: &Arc<Self>,
+        id: String,
+        model: String,
+        effort: String,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            let agent = core
+                .snapshot()
+                .agents
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let key = chat_key(&c, &agent);
+            let client = core
+                .chat_clients
+                .lock()
+                .await
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| AppError::State("chat backend unavailable".into()))?;
+            let candidate = client
+                .models
+                .iter()
+                .find(|m| m.model == model)
+                .ok_or_else(|| AppError::State("model unavailable".into()))?;
+            if !candidate
+                .supported_reasoning_efforts
+                .iter()
+                .any(|e| e.reasoning_effort == effort)
+            {
+                return Err(AppError::State("reasoning effort unavailable".into()));
+            }
+            let selected = Selection { model, effort };
+            {
+                let store = lock(&core.store);
+                let store = store
+                    .as_ref()
+                    .ok_or_else(|| AppError::State("store unavailable".into()))?;
+                let mut settings: BTreeMap<String, Selection> =
+                    store.read_document("chat-settings")?.unwrap_or_default();
+                settings.insert(key, selected.clone());
+                store.write_document("chat-settings", &settings)?;
+            }
+            core.update(|s| {
+                if s.selected_agent.as_deref() == Some(&id) {
+                    s.composer.selection = selected;
+                }
+            });
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn upload_attachment(
+        self: &Arc<Self>,
+        id: String,
+        local_path: String,
+        name: String,
+        mime: String,
+        retry_id: Option<String>,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let c = core.connection()?;
+            let generation = core.generation.load(Ordering::SeqCst);
+            let agent = core
+                .snapshot()
+                .agents
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let key = chat_key(&c, &agent);
+            if !core.chat_clients.lock().await.contains_key(&key) {
+                return Err(AppError::State("chat backend unavailable".into()));
+            }
+            let upload_id = format!("{}{}", new_device_id()?, new_device_id()?);
+            let size = tokio::fs::metadata(&local_path)
+                .await
+                .map_err(|e| AppError::State(e.to_string()))?
+                .len();
+            if size == 0 || size > composer::MAX_FILE {
+                return Err(AppError::State(
+                    "attachment must be 1 byte to 25 MiB".into(),
+                ));
+            }
+            {
+                let mut all = lock(&core.uploads);
+                let files = all.entry(key.clone()).or_default();
+                if let Some(retry) = retry_id {
+                    let position = files
+                        .iter()
+                        .position(|u| u.attachment.id == retry && u.failed)
+                        .ok_or_else(|| AppError::State("upload retry expired".into()))?;
+                    files.remove(position);
+                }
+                if files.len() >= 5 {
+                    return Err(AppError::State(
+                        "maximum five attachments per message".into(),
+                    ));
+                }
+                files.push(Upload {
+                    attachment: composer::Attachment {
+                        id: upload_id.clone(),
+                        name: name.clone(),
+                        mime: mime.clone(),
+                        size,
+                        path: String::new(),
+                    },
+                    sent: 0,
+                    failed: false,
+                    local_path: local_path.clone(),
+                });
+            }
+            core.publish_uploads(&id, &key);
+            let last = std::sync::Mutex::new(Instant::now());
+            let result = composer::upload(&c.ssh, &local_path, &upload_id, &name, &mime, |sent| {
+                if sent != size && lock(&last).elapsed() < Duration::from_millis(200) {
+                    return;
+                }
+                *lock(&last) = Instant::now();
+                if let Some(upload) = lock(&core.uploads)
+                    .get_mut(&key)
+                    .and_then(|u| u.iter_mut().find(|u| u.attachment.id == upload_id))
+                {
+                    upload.sent = sent;
+                }
+                core.publish_uploads(&id, &key);
+            })
+            .await;
+            if core.generation.load(Ordering::SeqCst) != generation {
+                if let Some(upload) = lock(&core.uploads)
+                    .get_mut(&key)
+                    .and_then(|u| u.iter_mut().find(|u| u.attachment.id == upload_id))
+                {
+                    upload.failed = true;
+                }
+                return Err(AppError::State("host changed during upload".into()));
+            }
+            if let Some(upload) = lock(&core.uploads)
+                .get_mut(&key)
+                .and_then(|u| u.iter_mut().find(|u| u.attachment.id == upload_id))
+            {
+                match &result {
+                    Ok(file) => {
+                        upload.attachment = file.clone();
+                        upload.sent = file.size;
+                    }
+                    Err(_) => {
+                        upload.failed = true;
+                    }
+                }
+            }
+            core.publish_uploads(&id, &key);
+            result.map(|_| ()).map_err(Into::into)
+        })
+        .await
+    }
+    fn publish_uploads(&self, id: &str, key: &str) {
+        let uploads = lock(&self.uploads).get(key).cloned().unwrap_or_default();
+        self.update(|s| {
+            if s.selected_agent.as_deref() == Some(id)
+                && s.selected_host
+                    .as_ref()
+                    .zip(s.agents.iter().find(|a| a.terminal_id == id))
+                    .is_some_and(|(h, a)| format!("{h}/{}", source_key(a)) == key)
+            {
+                s.composer.uploads = uploads;
+            }
+        });
+    }
+    pub async fn remove_attachment(
+        self: &Arc<Self>,
+        id: String,
+        upload_id: String,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let c = core.connection()?;
+            let agent = core
+                .snapshot()
+                .agents
+                .into_iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let key = chat_key(&c, &agent);
+            if let Some(files) = lock(&core.uploads).get_mut(&key) {
+                files.retain(|u| u.attachment.id != upload_id);
+            }
+            core.publish_uploads(&id, &key);
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn trust_host(
         self: &Arc<Self>,
         host_id: String,
@@ -991,6 +1292,16 @@ impl AppCore {
         lock(&self.pending_messages).clear();
         lock(&self.consumed_approvals).clear();
         lock(&self.agent_starts).clear();
+        self.chat_clients.lock().await.clear();
+        lock(&self.chat_failures).clear();
+        for files in lock(&self.uploads).values_mut() {
+            for file in files {
+                if file.attachment.path.is_empty() {
+                    file.failed = true;
+                }
+            }
+        }
+        self.update(|s| s.composer = Composer::default());
         Ok(())
     }
 
@@ -1013,7 +1324,7 @@ impl AppCore {
             let suffix = new_device_id()?;
             let name = format!("kite-{}-{}", provider, &suffix[..8]);
             let (workspace, pane) = c.api.create_workspace(&name, if cwd.is_empty() { None } else { Some(cwd) }).await?;
-            let args = if provider == "codex" { vec!["--no-daemon".into(), "-c".into(), "check_for_update_on_startup=false".into()] } else { Vec::new() };
+            let args = if provider == "codex" { composer::launch_args(&c.ssh, &pane, &c.path).await? } else { Vec::new() };
             let result = c.api.start_agent(&pane, &name, &provider, &args).await;
             let agent = match result {
                 Ok(agent) => agent,
@@ -1039,6 +1350,7 @@ impl AppCore {
             }
             core.update(|s| {
                 s.selected_agent = Some(id);
+                s.composer = Composer::default();
                 s.agent_output.clear();
                 s.conversation.clear();
                 s.conversation_available = false;
@@ -1067,7 +1379,9 @@ impl AppCore {
                     "resume the tracked agent process before submitting input".into(),
                 ));
             }
-            if text.trim().is_empty() || text.len() > 65536 {
+            if (text.trim().is_empty() && core.snapshot().composer.uploads.is_empty())
+                || text.len() > 65536
+            {
                 return Err(AppError::State("invalid prompt length".into()));
             }
             let agent = core
@@ -1089,11 +1403,51 @@ impl AppCore {
                 .iter()
                 .map(|m| m.id.clone())
                 .collect();
-            let result = c
-                .api
-                .prompt_agent(&agent.pane_id, &text)
-                .await
-                .map_err(AppError::from);
+            let key = chat_key(&c, &agent);
+            let files = lock(&core.uploads).get(&key).cloned().unwrap_or_default();
+            if files
+                .iter()
+                .any(|u| u.failed || u.attachment.path.is_empty())
+            {
+                return Err(AppError::State(
+                    "wait for all attachments to upload or remove failed files".into(),
+                ));
+            }
+            let attachments: Vec<_> = files.iter().map(|u| u.attachment.clone()).collect();
+            let result = if agent.agent.as_deref() == Some("codex") {
+                let client = core
+                    .chat_clients
+                    .lock()
+                    .await
+                    .get(&key)
+                    .cloned()
+                    .ok_or_else(|| AppError::State("Codex chat backend requires setup".into()))?;
+                let selected = lock(&core.store)
+                    .as_ref()
+                    .and_then(|s| {
+                        s.read_document::<BTreeMap<String, Selection>>("chat-settings")
+                            .ok()
+                            .flatten()
+                    })
+                    .and_then(|m| m.get(&key).cloned())
+                    .unwrap_or_else(|| client.initial.clone());
+                client
+                    .send(&text, &attachments, &selected)
+                    .await
+                    .map(|_| ())
+                    .map_err(AppError::from)
+            } else {
+                if !files.is_empty() {
+                    return Err(AppError::State(
+                        "attachments require the Codex backend".into(),
+                    ));
+                }
+                c.api
+                    .prompt_agent(&agent.pane_id, &text)
+                    .await
+                    .map_err(AppError::from)
+            };
+            let text = composer::compose_text(&text, &attachments)?;
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Err(AppError::State(
                     "host changed during prompt submission".into(),
@@ -1103,6 +1457,14 @@ impl AppCore {
                 core.report(e);
             }
             if result.is_ok() {
+                if let Some(staged) = lock(&core.uploads).get_mut(&key) {
+                    staged.retain(|u| {
+                        !files
+                            .iter()
+                            .any(|sent| sent.attachment.id == u.attachment.id)
+                    });
+                }
+                core.publish_uploads(&id, &key);
                 let message = Message {
                     id: format!("local-{}", new_device_id()?),
                     role: Role::User,
@@ -1605,6 +1967,10 @@ fn describe(error: &AppError) -> Failure {
         _ => {}
     }
     f
+}
+
+fn chat_key(c: &Connected, agent: &Agent) -> String {
+    format!("{}/{}", c.host.id, source_key(agent))
 }
 
 fn source_key(agent: &Agent) -> String {

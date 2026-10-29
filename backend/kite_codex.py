@@ -1,0 +1,454 @@
+#!/usr/bin/env python3
+"""Kite's per-pane Codex host adapter. No TCP listener or global daemon changes."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import time
+import base64
+import selectors
+import struct
+import select
+
+PROTOCOL = 1
+MAX_FILE = 25 * 1024 * 1024
+
+
+def private_dir(path):
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise RuntimeError("invalid private directory")
+    path.chmod(0o700)
+    return path
+
+
+def state_dir():
+    return private_dir(Path.home() / ".local/state/kite/codex")
+
+
+def pane_key(pane):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+:p[0-9]+", pane):
+        raise ValueError("invalid pane ID")
+    return hashlib.sha256(pane.encode()).hexdigest()[:20]
+
+
+def registry_path(pane):
+    return state_dir() / (pane_key(pane) + ".json")
+
+
+def start_ticks(pid):
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[19]
+
+
+def read_registry(pane):
+    info = json.loads(registry_path(pane).read_text())
+    if info["protocol"] != PROTOCOL or info["pane"] != pane:
+        raise RuntimeError("backend protocol mismatch")
+    if start_ticks(info["pid"]) != info["start_ticks"]:
+        raise RuntimeError("backend process changed")
+    args = Path(f'/proc/{info["pid"]}/cmdline').read_bytes().split(b"\0")
+    if b"app-server" not in args or ("unix://" + info["socket"]).encode() not in args:
+        raise RuntimeError("backend identity mismatch")
+    path = Path(info["socket"])
+    # Codex may publish a symlink to its shortened, hashed control-socket path.
+    link = path.lstat()
+    st = path.stat()
+    parent = path.resolve().parent.stat()
+    if link.st_uid != os.getuid() or not stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077 or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
+        raise RuntimeError("backend socket is not private")
+    return info
+
+
+def api(binary, method, params):
+    out = subprocess.run([binary, "remote-api-bridge"], input=json.dumps({"id": "kite-backend", "method": method, "params": params}) + "\n", text=True, capture_output=True, timeout=15, check=True)
+    response = json.loads(out.stdout)
+    if "error" in response:
+        raise RuntimeError("herdr " + json.dumps(response["error"]))
+    return response["result"]
+
+
+def ensure(pane, binary):
+    try:
+        return read_registry(pane)
+    except (OSError, ValueError, KeyError, RuntimeError):
+        pass
+    # Serialize separate phones without creating duplicate session owners.
+    import fcntl
+    with (state_dir() / (pane_key(pane) + ".lock")).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            return read_registry(pane)
+        except (OSError, ValueError, KeyError, RuntimeError):
+            pass
+        version = subprocess.check_output(["codex", "--version"], text=True, timeout=10).strip()
+        match = re.search(r"(\d+)\.(\d+)\.(\d+)", version)
+        if not match or tuple(map(int, match.groups())) < (0, 164, 0):
+            raise RuntimeError("Codex 0.164.0 or newer is required")
+        process = api(binary, "pane.process_info", {"pane_id": pane})["process_info"]
+        shell = process["shell_pid"]
+        env = os.environ.copy()
+        env.pop("CODEX_THREAD_ID", None)
+        shell_env = Path(f"/proc/{shell}/environ").read_bytes().split(b"\0")
+        env.update(dict(x.decode().split("=", 1) for x in shell_env if x.startswith(b"HERDR_")))
+        if env.get("HERDR_PANE_ID") != pane or not env.get("HERDR_SOCKET_PATH"):
+            raise RuntimeError("pane environment unavailable")
+        runtime = Path(f"/run/user/{os.getuid()}")
+        root = private_dir((runtime if runtime.is_dir() else state_dir()) / "kite")
+        sock = root / ("codex-" + pane_key(pane) + ".sock")
+        # Never unlink a live socket. Stale sockets are removed by Codex itself.
+        if sock.exists():
+            with socket.socket(socket.AF_UNIX) as probe:
+                probe.settimeout(1)
+                if probe.connect_ex(str(sock)) == 0:
+                    raise RuntimeError("unregistered live backend; inspect before retrying")
+        log = state_dir() / (pane_key(pane) + ".log")
+        descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            child = subprocess.Popen(["codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, start_new_session=True)
+        finally:
+            os.close(descriptor)
+        info = {"protocol": PROTOCOL, "pane": pane, "socket": str(sock), "pid": child.pid, "start_ticks": start_ticks(child.pid)}
+        for _ in range(100):
+            if child.poll() is not None:
+                raise RuntimeError("Codex backend exited; inspect private host log")
+            if sock.exists():
+                sock.chmod(0o600)
+                path = registry_path(pane)
+                temporary = path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(info))
+                temporary.chmod(0o600)
+                temporary.replace(path)
+                return read_registry(pane)
+            time.sleep(.1)
+        child.terminate()
+        raise TimeoutError("Codex backend startup timed out")
+
+
+def upgrade(pane, binary):
+    agents = api(binary, "agent.list", {})["agents"]
+    agent = next(a for a in agents if a["pane_id"] == pane)
+    if agent.get("agent") != "codex" or agent.get("agent_status") not in ("idle", "done"):
+        raise RuntimeError("only an idle Codex pane can be upgraded")
+    thread = agent["agent_session"]
+    if thread["kind"] != "id" or not re.fullmatch(r"[a-f0-9-]{36}", thread["value"]):
+        raise RuntimeError("a persisted Codex thread ID is required")
+    info = ensure(pane, binary)
+    process = api(binary, "pane.process_info", {"pane_id": pane})["process_info"]
+    front = process["foreground_processes"]
+    if len(front) != 1 or front[0]["name"] != "codex" or "--no-daemon" not in front[0]["argv"]:
+        raise RuntimeError("expected one idle in-process Codex TUI; no process was stopped")
+    pid = front[0]["pid"]
+    ticks = start_ticks(pid)
+    # Recheck state immediately before changing the session owner.
+    fresh = next(a for a in api(binary, "agent.list", {})["agents"] if a["pane_id"] == pane)
+    if fresh["agent_status"] not in ("idle", "done") or fresh["agent_session"] != thread or start_ticks(pid) != ticks:
+        raise RuntimeError("session became active; upgrade cancelled")
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(100):
+        if not Path(f"/proc/{pid}").exists():
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError("old session did not stop; inspect before retrying")
+    time.sleep(.5)
+    api(binary, "agent.start", {"pane_id": pane, "name": agent["name"], "kind": "codex", "args": ["--remote", "unix://" + info["socket"], "-c", "check_for_update_on_startup=false", "resume", thread["value"]]})
+    for _ in range(100):
+        try:
+            bind(pane, binary, thread["value"])
+        except (RuntimeError, OSError):
+            pass
+        fresh = next((a for a in api(binary, "agent.list", {})["agents"] if a["pane_id"] == pane), {})
+        if fresh.get("agent_session", {}).get("value") == thread["value"] and fresh.get("interactive_ready"):
+            return {"thread": thread["value"], "pane": pane, "protocol": PROTOCOL}
+        time.sleep(.2)
+    raise RuntimeError("TUI resume not confirmed; inspect pane, do not create another thread")
+
+
+def bind(pane, binary, expected=None):
+    process = subprocess.Popen([sys.executable, __file__, "proxy", "--pane", pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    buffer = bytearray()
+    def rpc(identifier, method, params):
+        process.stdin.write((json.dumps({"id": identifier, "method": method, "params": params}) + "\n").encode())
+        process.stdin.flush()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if b"\n" not in buffer:
+                if not select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0]:
+                    break
+                data = os.read(process.stdout.fileno(), 65536)
+                if not data:
+                    break
+                buffer.extend(data)
+                if len(buffer) > 2 * 1024 * 1024:
+                    raise RuntimeError("oversized backend metadata")
+            while b"\n" in buffer:
+                index = buffer.index(10)
+                result = json.loads(buffer[:index])
+                del buffer[:index+1]
+                if result.get("id") == identifier:
+                    if "error" in result:
+                        raise RuntimeError("backend metadata unavailable")
+                    return result["result"]
+        raise RuntimeError("backend metadata timed out")
+    try:
+        rpc(1, "initialize", {"clientInfo": {"name": "kite-host", "version": "1"}})
+        process.stdin.write(b'{"method":"initialized"}\n'); process.stdin.flush()
+        threads = rpc(2, "thread/loaded/list", {})["data"]
+        if len(threads) != 1 or (expected is not None and threads[0] != expected):
+            raise RuntimeError("expected exactly one pane-owned Codex thread")
+        thread = threads[0]
+        info = read_registry(pane)
+        api(binary, "pane.report_agent_session", {"pane_id": pane, "source": "herdr:codex", "agent": "codex", "agent_session_id": thread, "resume_argv": ["python3", str(Path(__file__).resolve()), "tui", "--pane", pane, "--herdr", binary, "--thread", thread]})
+        return {"thread": thread}
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+def upload(identifier, name, size, digest):
+    if not re.fullmatch(r"[a-f0-9]{32}", identifier) or not 0 < size <= MAX_FILE:
+        raise ValueError("invalid upload")
+    if not name or len(name.encode()) > 180 or name in (".", "..") or any(c in name for c in "/\\\0\r\n"):
+        raise ValueError("invalid filename")
+    root = private_dir(Path.home() / ".local/share/kite/uploads")
+    directory = root / identifier
+    directory.mkdir(mode=0o700)  # Each attempt is unique; never overwrite an existing upload.
+    temporary = directory / ".part"
+    try:
+        checksum = hashlib.sha256()
+        remaining = size
+        with temporary.open("xb") as dest:
+            temporary.chmod(0o600)
+            while remaining:
+                chunk = sys.stdin.buffer.read(min(65536, remaining))
+                if not chunk:
+                    raise ValueError("incomplete upload")
+                checksum.update(chunk)
+                dest.write(chunk)
+                remaining -= len(chunk)
+            dest.flush()
+            os.fsync(dest.fileno())
+        if checksum.hexdigest() != digest:
+            raise ValueError("upload checksum mismatch")
+        final = directory / name
+        temporary.rename(final)
+        return {"path": str(final), "sha256": digest, "size": size}
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        directory.rmdir()
+        raise
+
+
+def proxy(pane):
+    """Adapt JSONL to the documented Unix WebSocket transport with bounded frames."""
+    info = read_registry(pane)
+    limit = 2 * 1024 * 1024
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(20)
+        connection.connect(info["socket"])
+        key = base64.b64encode(os.urandom(16)).decode()
+        connection.sendall(("GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+        header = bytearray()
+        while not header.endswith(b"\r\n\r\n"):
+            byte = connection.recv(1)
+            if not byte:
+                raise EOFError("incomplete WebSocket handshake")
+            header.extend(byte)
+            if len(header) > 8192:
+                raise RuntimeError("oversized WebSocket handshake")
+        expected = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
+        fields = {key.lower(): value.strip() for line in bytes(header).split(b"\r\n")[1:] if b":" in line for key, value in [line.split(b":", 1)]}
+        if not header.startswith(b"HTTP/1.1 101 ") or fields.get(b"sec-websocket-accept") != expected:
+            raise RuntimeError("WebSocket handshake rejected")
+
+        def exact(count):
+            data = bytearray()
+            while len(data) < count:
+                chunk = connection.recv(count - len(data))
+                if not chunk:
+                    raise EOFError("backend disconnected")
+                data.extend(chunk)
+            return bytes(data)
+
+        def frame(opcode, data):
+            mask = os.urandom(4)
+            size = len(data)
+            prefix = bytes([0x80 | opcode])
+            if size < 126:
+                prefix += bytes([0x80 | size])
+            elif size < 65536:
+                prefix += b"\xfe" + struct.pack("!H", size)
+            else:
+                prefix += b"\xff" + struct.pack("!Q", size)
+            connection.sendall(prefix + mask + bytes(value ^ mask[i % 4] for i, value in enumerate(data)))
+
+        with selectors.DefaultSelector() as selected:
+            selected.register(sys.stdin.fileno(), selectors.EVENT_READ, "stdin")
+            selected.register(connection, selectors.EVENT_READ, "socket")
+            stdin = bytearray()
+            fragments = bytearray()
+            continuing = False
+            while True:
+                for entry, _ in selected.select():
+                    if entry.data == "stdin":
+                        chunk = os.read(sys.stdin.fileno(), 65536)
+                        if not chunk:
+                            frame(8, b"")
+                            return
+                        stdin.extend(chunk)
+                        while b"\n" in stdin:
+                            line, _, remainder = stdin.partition(b"\n")
+                            if len(line) > limit:
+                                raise ValueError("oversized RPC")
+                            frame(1, line)
+                            stdin = bytearray(remainder)
+                        if len(stdin) > limit:
+                            raise ValueError("oversized RPC")
+                    else:
+                        a, b = exact(2)
+                        opcode, final = a & 15, bool(a & 128)
+                        if a & 0x70 or b & 128:
+                            raise RuntimeError("invalid server WebSocket frame")
+                        size = b & 127
+                        if size == 126:
+                            size = struct.unpack("!H", exact(2))[0]
+                        elif size == 127:
+                            size = struct.unpack("!Q", exact(8))[0]
+                        if size > limit or len(fragments) + size > limit:
+                            raise RuntimeError("oversized backend frame")
+                        if opcode >= 8 and (not final or size > 125):
+                            raise RuntimeError("invalid control frame")
+                        data = exact(size)
+                        if opcode == 8:
+                            frame(8, data[:125])
+                            return
+                        if opcode == 9:
+                            frame(10, data)
+                            continue
+                        if opcode == 10:
+                            continue
+                        if opcode not in (0, 1) or (opcode == 0) != continuing:
+                            raise RuntimeError("unexpected backend frame")
+                        fragments.extend(data)
+                        continuing = not final
+                        if final:
+                            # JSONL messages must contain no literal line break.
+                            if b"\n" in fragments:
+                                raise RuntimeError("invalid JSONL frame")
+                            sys.stdout.buffer.write(fragments + b"\n")
+                            sys.stdout.buffer.flush()
+                            fragments.clear()
+
+
+def history_projection(file, output):
+    """Keep textual JSONL history bounded without transporting inline image data."""
+    process = subprocess.Popen(["tail", "-n", "4096", "--", file], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    pattern = re.compile(rb'"image_url"\s*:\s*"')
+    carry = b""
+    skipping = False
+    escaped = False
+    result = bytearray()
+    def emit(data):
+        result.extend(data)
+        if len(result) > 2097152:
+            del result[:-2097152]
+    try:
+        while True:
+            chunk = process.stdout.read(65536)
+            if not chunk:
+                break
+            data = carry + chunk
+            carry = b""
+            while data:
+                if skipping:
+                    position = data.find(b'"')
+                    while position >= 0:
+                        back = position - 1
+                        while back >= 0 and data[back] == 92:
+                            back -= 1
+                        odd = (position - back - 1) % 2 == 1
+                        if back < 0:
+                            odd ^= escaped
+                        if not odd:
+                            break
+                        position = data.find(b'"', position + 1)
+                    if position < 0:
+                        back = len(data) - 1
+                        while back >= 0 and data[back] == 92:
+                            back -= 1
+                        escaped = ((len(data) - back - 1) % 2 == 1) ^ (escaped if back < 0 else False)
+                        break
+                    data = data[position + 1:]
+                    skipping = False
+                    escaped = False
+                else:
+                    match = pattern.search(data)
+                    if match:
+                        emit(data[:match.start()] + b'"image_url":""')
+                        data = data[match.end():]
+                        skipping = True
+                    else:
+                        # The SDK serializes compact JSON; retain a key-sized overlap.
+                        if len(data) > 64:
+                            emit(data[:-64])
+                        carry = data[-64:]
+                        break
+        emit(carry)
+        if process.wait(timeout=5) != 0:
+            raise RuntimeError("history read failed")
+        output.write(result)
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history"])
+    parser.add_argument("--pane")
+    parser.add_argument("--herdr")
+    parser.add_argument("--thread")
+    parser.add_argument("--file")
+    parser.add_argument("--id")
+    parser.add_argument("--name")
+    parser.add_argument("--size", type=int)
+    parser.add_argument("--sha256")
+    args = parser.parse_args()
+    if args.action == "proxy":
+        proxy(args.pane)
+    elif args.action == "upload":
+        print(json.dumps(upload(args.id, args.name, args.size, args.sha256)), flush=True)
+    elif args.action == "ensure":
+        print(json.dumps(ensure(args.pane, args.herdr)))
+    elif args.action == "bind":
+        print(json.dumps(bind(args.pane, args.herdr)))
+    elif args.action == "identity":
+        print(json.dumps(read_registry(args.pane)))
+    elif args.action == "history":
+        history_projection(args.file, sys.stdout.buffer)
+    elif args.action == "tui":
+        info = ensure(args.pane, args.herdr)
+        if not re.fullmatch(r"[a-f0-9-]{36}", args.thread or ""):
+            raise ValueError("invalid thread ID")
+        os.execvp("codex", ["codex", "--remote", "unix://" + info["socket"], "-c", "check_for_update_on_startup=false", "resume", args.thread])
+    else:
+        print(json.dumps(upgrade(args.pane, args.herdr)))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(type(error).__name__ + ": " + str(error), file=sys.stderr)
+        sys.exit(1)

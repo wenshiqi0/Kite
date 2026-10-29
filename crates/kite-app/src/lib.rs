@@ -9,6 +9,11 @@ use kite_ssh::Session;
 
 pub mod core;
 pub use core::*;
+pub use kite_agent::composer::split_attachments as split_chat_attachments;
+pub use kite_agent::composer::{
+    Attachment as ChatAttachment, Composer, Effort as ChatEffort, Model as ChatModel,
+    Selection as ChatSelection, Upload as ChatUpload,
+};
 pub use kite_agent::{
     Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,
 };
@@ -54,6 +59,8 @@ pub enum AppError {
     Stream(#[from] kite_stream::StreamError),
     #[error(transparent)]
     AgentProcess(#[from] kite_agent::process::Error),
+    #[error(transparent)]
+    Composer(#[from] kite_agent::composer::Error),
     #[error("{0}")]
     State(String),
 }

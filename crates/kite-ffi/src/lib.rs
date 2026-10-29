@@ -91,6 +91,9 @@ impl From<AppError> for KiteError {
             AppError::AgentProcess(e) => Self::HerdrApi {
                 details: e.to_string(),
             },
+            AppError::Composer(e) => Self::InvalidState {
+                details: e.to_string(),
+            },
             AppError::Stream(e) => Self::Stream {
                 details: e.to_string(),
             },

@@ -144,7 +144,90 @@ pub struct ToolInfo {
     pub computer: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct ChatModelInfo {
+    pub model: String,
+    pub name: String,
+    pub description: String,
+    pub efforts: Vec<String>,
+    pub default_effort: String,
+    pub modalities: Vec<String>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AttachmentInfo {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+impl From<kite_app::ChatAttachment> for AttachmentInfo {
+    fn from(a: kite_app::ChatAttachment) -> Self {
+        Self {
+            id: a.id,
+            name: a.name,
+            mime: a.mime,
+            size: a.size,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct UploadInfo {
+    pub file: AttachmentInfo,
+    pub sent: u64,
+    pub ready: bool,
+    pub failed: bool,
+    pub local_path: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ComposerInfo {
+    pub ready: bool,
+    pub loading: bool,
+    pub details: String,
+    pub models: Vec<ChatModelInfo>,
+    pub model: String,
+    pub effort: String,
+    pub uploads: Vec<UploadInfo>,
+}
+impl From<kite_app::Composer> for ComposerInfo {
+    fn from(c: kite_app::Composer) -> Self {
+        Self {
+            ready: c.ready,
+            loading: c.loading,
+            details: c.details,
+            model: c.selection.model,
+            effort: c.selection.effort,
+            models: c
+                .models
+                .into_iter()
+                .map(|m| ChatModelInfo {
+                    model: m.model,
+                    name: m.display_name,
+                    description: m.description,
+                    efforts: m
+                        .supported_reasoning_efforts
+                        .into_iter()
+                        .map(|e| e.reasoning_effort)
+                        .collect(),
+                    default_effort: m.default_reasoning_effort,
+                    modalities: m.input_modalities,
+                })
+                .collect(),
+            uploads: c
+                .uploads
+                .into_iter()
+                .map(|u| UploadInfo {
+                    ready: !u.failed && !u.attachment.path.is_empty(),
+                    file: u.attachment.into(),
+                    sent: u.sent,
+                    failed: u.failed,
+                    local_path: u.local_path,
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageInfo {
+    pub attachments: Vec<AttachmentInfo>,
     pub id: String,
     pub kind: MessageKind,
     pub text: String,
@@ -194,6 +277,7 @@ pub struct CoreSnapshot {
     pub agent_output: String,
     pub conversation: Vec<MessageInfo>,
     pub conversation_available: bool,
+    pub composer: ComposerInfo,
     pub approval: Option<ApprovalInfo>,
     pub agent_pause: AgentPauseStatus,
     pub desktop: DesktopInfo,
@@ -263,27 +347,32 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             conversation: s
                 .conversation
                 .into_iter()
-                .map(|m| MessageInfo {
-                    id: m.id,
-                    kind: match m.role {
-                        kite_app::ChatRole::User => MessageKind::User,
-                        kite_app::ChatRole::Assistant => MessageKind::Assistant,
-                        kite_app::ChatRole::Tool => MessageKind::Tool,
-                    },
-                    text: m.text,
-                    tool: m.tool.map(|t| ToolInfo {
-                        label: t.label(),
-                        summary: t.summary(),
-                        name: t.name,
-                        arguments: t.arguments,
-                        output: t.output,
-                        complete: t.complete,
-                        failed: t.failed,
-                        computer: t.computer,
-                    }),
+                .map(|m| {
+                    let (text, attachments) = kite_app::split_chat_attachments(&m.text);
+                    MessageInfo {
+                        attachments: attachments.into_iter().map(Into::into).collect(),
+                        id: m.id,
+                        kind: match m.role {
+                            kite_app::ChatRole::User => MessageKind::User,
+                            kite_app::ChatRole::Assistant => MessageKind::Assistant,
+                            kite_app::ChatRole::Tool => MessageKind::Tool,
+                        },
+                        text,
+                        tool: m.tool.map(|t| ToolInfo {
+                            label: t.label(),
+                            summary: t.summary(),
+                            name: t.name,
+                            arguments: t.arguments,
+                            output: t.output,
+                            complete: t.complete,
+                            failed: t.failed,
+                            computer: t.computer,
+                        }),
+                    }
                 })
                 .collect(),
             conversation_available: s.conversation_available,
+            composer: s.composer.into(),
             approval: s.approval.map(|a| ApprovalInfo {
                 id: a.id,
                 prompt: a.prompt,
@@ -451,6 +540,43 @@ impl KiteCore {
     pub async fn prompt_agent(&self, agent_id: String, text: String) -> Result<(), KiteError> {
         self.inner
             .prompt_agent(agent_id, text)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn reload_composer(&self) -> Result<(), KiteError> {
+        self.inner.reload_composer().await.map_err(Into::into)
+    }
+    pub async fn set_chat_model(
+        &self,
+        agent_id: String,
+        model: String,
+        effort: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .set_chat_model(agent_id, model, effort)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn upload_attachment(
+        &self,
+        agent_id: String,
+        local_path: String,
+        name: String,
+        mime: String,
+        retry_id: Option<String>,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .upload_attachment(agent_id, local_path, name, mime, retry_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn remove_attachment(
+        &self,
+        agent_id: String,
+        upload_id: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .remove_attachment(agent_id, upload_id)
             .await
             .map_err(Into::into)
     }

@@ -2,6 +2,7 @@ package io.github.wenshiqi0.kite.ui
 
 import android.app.Application
 import android.graphics.Rect
+import android.net.Uri
 import android.content.pm.ActivityInfo
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
@@ -18,6 +19,8 @@ import io.github.wenshiqi0.kite.core.DesktopStatus
 import io.github.wenshiqi0.kite.core.AgentPauseStatus
 import io.github.wenshiqi0.kite.data.HostForm
 import io.github.wenshiqi0.kite.data.toForm
+import io.github.wenshiqi0.kite.data.cacheAttachment
+import io.github.wenshiqi0.kite.core.UploadInfo
 import io.github.wenshiqi0.kite.media.NativeMedia
 import kotlinx.coroutines.launch
 
@@ -37,6 +40,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var pipTransition by mutableStateOf(false)
         private set
     var draft by mutableStateOf("")
+    var copyingAttachments by mutableStateOf(false)
+        private set
     val sending: Boolean get() = engine.state.value?.selectedAgent?.let { it in sendingAgents } ?: false
     var splitRatio by mutableStateOf(.36f)
     var floatingX by mutableStateOf(.90f)
@@ -154,12 +159,36 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun sendPrompt(id: String) {
         if (engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
-        if (value.isEmpty() || sending) return
+        if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty()) || sending || copyingAttachments) return
         sendingAgents.add(id)
         engine.command {
             try { engine.core.promptAgent(id, value); if (draftAgent == id && draft.trim() == value) draft = "" else if (agentDrafts[id]?.trim() == value) agentDrafts.remove(id) }
             finally { sendingAgents.remove(id) }
         }
+    }
+    fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
+    fun reloadComposer() = engine.command { engine.core.reloadComposer() }
+    fun attachFiles(uris: List<Uri>) {
+        val id = engine.state.value?.selectedAgent ?: return
+        if (copyingAttachments || sending || uris.isEmpty()) return
+        copyingAttachments = true
+        engine.command {
+            try {
+                for (uri in uris.take(5)) {
+                    val file = cacheAttachment(getApplication(), uri)
+                    engine.core.uploadAttachment(id, file.path, file.name, file.mime, null)
+                    java.io.File(file.path).delete()
+                }
+            } finally { copyingAttachments = false }
+        }
+    }
+    fun retryAttachment(file: UploadInfo) {
+        val id = engine.state.value?.selectedAgent ?: return
+        engine.command { engine.core.uploadAttachment(id, file.localPath, file.file.name, file.file.mime, file.file.id) }
+    }
+    fun removeAttachment(file: UploadInfo) {
+        val id = engine.state.value?.selectedAgent ?: return
+        engine.command { engine.core.removeAttachment(id, file.file.id); java.io.File(file.localPath).delete() }
     }
     fun terminalKey(id: String, key: String) {
         if (engine.state.value?.selectedAgent == id) engine.command { engine.core.sendAgentKey(id, key) }

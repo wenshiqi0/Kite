@@ -8,6 +8,7 @@ on:
     paths:
       - 'android/**'
       - 'crates/**'
+      - 'backend/**'
       - 'Cargo.*'
       - '.gitmodules'
       - '.github/workflows/android-release.yml'
@@ -52,6 +53,9 @@ jobs:
 
       - name: Check Alpha publisher
         run: python3 -m unittest discover -s android/scripts -p 'test_*.py'
+
+      - name: Check host adapter
+        run: python3 -m unittest discover -s backend -p 'test_*.py'
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:

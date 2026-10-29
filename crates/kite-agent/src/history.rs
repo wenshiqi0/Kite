@@ -62,7 +62,11 @@ test -f "$file"
 stamp=$(stat -c '%d:%i:%s:%y' "$file")
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
-tail -c 2097152 "$file"
+if test "$provider" = codex; then
+  python3 "$HOME/.local/lib/kite/backend-v1.py" history --file "$file"
+else
+  tail -c 2097152 "$file"
+fi
 "#,
         provider = quote(&reference.agent),
         kind = quote(&reference.kind),
