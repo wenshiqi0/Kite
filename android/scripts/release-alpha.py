@@ -47,6 +47,19 @@ def release_info(repo, tag):
     return json.loads(result.stdout)
 
 
+def wait_for_created_release(repo, tag):
+    # A newly created draft can briefly be absent from GitHub's release list.
+    # Retry reads only; never replay creation, uploads or publication.
+    import time
+    for delay in (0, 1, 2, 4, 8):
+        if delay:
+            time.sleep(delay)
+        release = release_info(repo, tag)
+        if release is not None:
+            return release
+    raise RuntimeError("Created Alpha draft is not visible yet; rerun the publish job to recover it.")
+
+
 def inspect_apk(apk, tools, version, code):
     badging = run(str(tools / "aapt2"), "dump", "badging", str(apk))
     package = next(line for line in badging.splitlines() if line.startswith("package:"))
@@ -177,7 +190,7 @@ def main():
         run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--target", head,
             "--title", f"Kite {version} (Alpha)", "--notes-file", str(notes),
             "--draft", "--prerelease", "--latest=false")
-        release = release_info(repo, tag)
+        release = wait_for_created_release(repo, tag)
     require(release and release["prerelease"], "Existing release is not an Alpha prerelease.")
     names = {a["name"] for a in release["assets"]}
     missing = [p for p in assets if p.name not in names]
