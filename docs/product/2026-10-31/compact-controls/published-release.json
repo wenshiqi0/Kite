@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-31",
+  "version": "0.2.0-alpha.12",
+  "versionCode": 14,
+  "tag": "v0.2.0-alpha.12",
+  "sourceCommit": "076db1285772e1ecfa4c346d01d7abf01342850a",
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.12",
+  "prerelease": true,
+  "draft": false,
+  "apk": {
+    "name": "kite-0.2.0-alpha.12-arm64-v8a.apk",
+    "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.12/kite-0.2.0-alpha.12-arm64-v8a.apk",
+    "bytes": 21046057,
+    "sha256": "30a32c8ee1dc27948d3a78ee3bd6e5fca66dbcc4f99989926e9501de128feb67",
+    "abis": [
+      "arm64-v8a"
+    ],
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "zipAlignmentKiB": 16
+  },
+  "ci": [
+    {
+      "id": 41093857559,
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41093857559",
+      "conclusion": "success"
+    },
+    {
+      "id": 41094211385,
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41094211385",
+      "conclusion": "success"
+    }
+  ],
+  "validationEnvironment": "Owned ARM64 Android API 36 emulator and Linux X11 1080p desktop through private QA relays",
+  "validation": {
+    "inPlaceInstall": "passed",
+    "deviceIdentityRetained": true,
+    "sshTrustRetained": true,
+    "pairingReused": true,
+    "recentHistoryRetained": true,
+    "hostProfilesRetained": true,
+    "clipboardPreferenceRetained": true,
+    "releaseUiTrackpadAndSystemIme": "passed",
+    "receivedFrames": 364,
+    "renderedFrames": 352
+  },
+  "cleanup": {
+    "ownedServiceStopped": true,
+    "ownedDisplayStopped": true,
+    "ownedHistoryRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Retained": true,
+    "androidRelayRemoved": true,
+    "ownedReversePortsRemoved": true,
+    "localRelayStopped": true,
+    "ownedEmulatorStopped": true
+  }
+}

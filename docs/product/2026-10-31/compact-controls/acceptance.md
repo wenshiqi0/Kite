@@ -30,4 +30,10 @@ The [13 controlled runtime checks](results.json) and [screenshot checksums](asse
 
 Geometry unit checks cover narrower and shorter budgets; the runtime screenshots above use the stated emulator size. Large-font layouts, the user's physical phone, third-party Chinese input methods and WAN responsiveness remain user/device acceptance work. Claude remains a pending provider connection; production Herdr TUI is not migrated to herdr-core by this release.
 
-The published Release APK is checked separately after CI: version, stable v1/v2/v3 certificate, 16KiB alignment, checksum, in-place upgrade, SSH reconnection, recent history and Sunshine pairing reuse. The publication record is added after those checks.
+## Published APK verification
+
+The [published Release APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.12/kite-0.2.0-alpha.12-arm64-v8a.apk) was downloaded and verified separately from local builds. The [publication record](published-release.json) identifies source **076db1285772e1ecfa4c346d01d7abf01342850a**, passing main/tag CI runs, the exact **21,046,057-byte** APK and SHA-256 **30a32c8ee1dc27948d3a78ee3bd6e5fca66dbcc4f99989926e9501de128feb67**. It verifies as a non-debuggable ARM64 Release with versionCode 14, the existing signing certificate in v1/v2/v3, and 16KiB alignment. The GitHub release is a published prerelease.
+
+An in-place install succeeded without clearing data. The official APK reopened the same saved session and QA0650 history, reconnected with the existing device key and SSH trust, reused Sunshine pairing without a new PIN, and received/presented 1080p frames. Its trackpad and direct system IME worked, and all three saved host profiles plus the prior clipboard preference remained intact. These are emulator results; physical-phone and WAN acceptance remain outside this record.
+
+Cleanup removed the owned session catalogue entry, synthetic provider log and cache, temporary SSH authorization, isolated Sunshine/display/GTK processes, local relay ports and owned emulator. Both phone keys and the production Sunshine service remain. The old backend-v2 file is byte-identical; the new backend-v3 remains installed for this APK. No production Herdr/Codex session was replaced.

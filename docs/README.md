@@ -11,7 +11,7 @@
 
 ## Delivery and evaluation records
 
-- [Alpha 12 native controls and history](product/2026-10-31/compact-controls/acceptance.md): collapsible portrait trackpad, compact fullscreen mouse, direct system IME, host cards and paged virtual history.
+- [Alpha 12 native controls and history](product/2026-10-31/compact-controls/acceptance.md): collapsible portrait trackpad, compact fullscreen mouse, direct system IME, host cards and paged virtual history; includes published APK verification and retention checks.
 - [Accepted compact controls prototype](product/2026-10-30/compact-controls/README.md): archived interactive design reference; native evidence is recorded above.
 - [Alpha 11 interaction acceptance](product/2026-10-30/hybrid-input/acceptance.md): automatic text clipboard, hybrid mouse/touch, rich text and sidebar fixes; includes public APK verification and upgrade results.
 - [herdr-core restoration evaluation](product/2026-10-30/herdr-core-migration.md): same-thread recovery with the existing provider and after a fresh provider process restart; remaining migration requirements.

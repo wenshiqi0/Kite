@@ -74,3 +74,5 @@ Alpha 12 adds tests for fixed-window IME batching, Unicode deletion/chunking, po
 The opt-in `LiveDesktopInputTest` verifies the real IME → 200 ms scheduler → JNI → Sunshine path against an isolated GTK fixture. It skips unless explicitly enabled with `qa_live=true` and an owned `qa_session`. Its fixed host/port guards must not be relaxed to target a production desktop. Keep its authorization and fixture data outside the repository, remove only owned test records, and retain existing host services and phone keys.
 
 Controlled runtime evidence is recorded separately from host/JVM checks. Android API 36 emulator behavior does not establish physical-phone latency or WAN acceptance.
+
+The completed [Alpha 12 acceptance](product/2026-10-31/compact-controls/acceptance.md) links native screenshots, the public APK checksum, passing CI runs, in-place install/retention checks and owned-resource cleanup.
