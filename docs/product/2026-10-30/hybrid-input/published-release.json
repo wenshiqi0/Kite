@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0-alpha.11",
+  "code": 13,
+  "bytes": 20906418,
+  "sourceCommit": "1bd806f15b0c49842f857b5128151a028fca052d",
+  "sha256": "f6ecea40f69b58533a2f0a37bc8ba905453c6700f9420d3c4581f8ce78653bcf",
+  "certificate": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "verifiedSigningSchemes": [
+    1,
+    2,
+    3
+  ],
+  "zipAlignmentKiB": 16,
+  "downloadMatchesManifest": true,
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.11",
+  "tagCi": "https://github.com/wenshiqi0/Kite/actions/runs/41035579445",
+  "mainCi": "https://github.com/wenshiqi0/Kite/actions/runs/41035506785",
+  "bothCiPassed": true,
+  "androidApi": 36,
+  "physicalPhoneValidated": false,
+  "upgradeInstalled": true,
+  "reusedSshIdentityAndDesktopPairing": true,
+  "clipboardPreferenceRetained": true,
+  "publishedApkBidirectionalClipboardPassed": true,
+  "temporaryAuthorizationsAndInstancesRemoved": true,
+  "productionSunshineAndOriginalProviderThreadStillLive": true
+}

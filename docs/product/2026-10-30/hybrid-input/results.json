@@ -103,8 +103,23 @@
       "name": "held-button-survives-canvas-finger-lift",
       "status": "PASS",
       "detail": "Lifting the canvas finger keeps the virtual left button down until the button finger releases."
+    },
+    {
+      "name": "published-release-upgrade-and-reconnect",
+      "status": "PASS",
+      "detail": "The downloaded, non-debuggable Release APK installed as an update and reopened the paired isolated desktop without SSH authorization or pairing again."
+    },
+    {
+      "name": "published-release-keeps-clipboard-preference",
+      "status": "PASS",
+      "detail": "The published APK update retained the disabled clipboard preference."
+    },
+    {
+      "name": "published-release-bidirectional-clipboard",
+      "status": "PASS",
+      "detail": "The exact public Release attachment automatically transfers a phone copy to Linux and imports a Chinese desktop copy for normal Android paste. No model message was sent."
     }
   ],
-  "build": "0.2.0-alpha.11 candidate, versionCode 13",
+  "build": "0.2.0-alpha.11 / versionCode 13; candidate checks plus published Release smoke",
   "physicalPhoneValidated": false
 }

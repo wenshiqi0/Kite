@@ -34,3 +34,11 @@ The first sync prefers existing phone text; simultaneous fresh copies prefer the
 - [Recorded runtime cases](results.json) cover sidebar, mouse, coordinate mapping and clipboard behavior. Tagged CI separately verifies the Release variant, stable certificate, all three APK signature schemes and 16 KiB ZIP alignment before publishing.
 
 The independent [herdr-core experiment](../herdr-core-migration.md) verifies preserved provider context after terminal reattachment. Production runtime migration, macOS/Linux desktop clients and multi-machine MCP remain later stages in the [implementation plan](../../../implementation-plan.md).
+
+## Published attachment confirmation
+
+The [public Alpha 11](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.11) attachment was downloaded after both main and tagged CI passed. Its **20,906,418 bytes** match the manifest SHA-256 `f6ecea40f69b58533a2f0a37bc8ba905453c6700f9420d3c4581f8ce78653bcf` and source commit `1bd806f15b0c49842f857b5128151a028fca052d`. Local verification independently passed v1/v2/v3 signatures with the existing Alpha certificate, Release metadata and 16 KiB ZIP alignment.
+
+That exact non-debuggable APK installed over the candidate, reconnected over SSH and reopened the paired desktop without reauthorization or another PIN. Its clipboard preference survived, and its automatic phone→desktop and Chinese desktop→phone copy/paste paths passed again after enabling the single switch. This confirms the released bytes on the API 36 emulator; it does not claim a physical-handset run. [Machine-readable delivery evidence](published-release.json).
+
+Owned test services, display, emulator, helper apps and temporary SSH authorization were removed. Both phone public keys remain authorized; the original Sunshine and provider thread remain live. The host's private `xclip` dependency remains installed for the feature.
