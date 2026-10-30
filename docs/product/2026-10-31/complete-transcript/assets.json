@@ -28,5 +28,15 @@
     "file": "local-scroll.png",
     "bytes": 241872,
     "sha256": "7647ea101fd878776634dbe1ebd095e7a5614d4ee2b904a947c6867c13a746fe"
+  },
+  {
+    "file": "release-fullscreen-mouse.png",
+    "bytes": 102036,
+    "sha256": "1d1660fe72fb443963310a6530d8f1ccb9c9c37f18db744d6ee13a2065a553f0"
+  },
+  {
+    "file": "release-split-trackpad.png",
+    "bytes": 143210,
+    "sha256": "69d4c07cbd8270d67e6451ed8d17b44617a019adfa58bc32293f661ae526bc15"
   }
 ]

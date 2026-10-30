@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-31",
+  "version": "0.2.0-alpha.13",
+  "versionCode": 15,
+  "tag": "v0.2.0-alpha.13",
+  "sourceCommit": "dc099e70d584d25e090abc64169dc7040f879bd1",
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.13",
+  "prerelease": true,
+  "draft": false,
+  "apk": {
+    "name": "kite-0.2.0-alpha.13-arm64-v8a.apk",
+    "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.13/kite-0.2.0-alpha.13-arm64-v8a.apk",
+    "bytes": 21385599,
+    "sha256": "33f256fee97dab331acf523cb79d5c0cffca9c53ab86662473bdc890bcb2619c",
+    "abis": [
+      "arm64-v8a"
+    ],
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "zipAlignmentKiB": 16
+  },
+  "ci": [
+    {
+      "id": 41125120318,
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41125120318",
+      "conclusion": "success"
+    },
+    {
+      "id": 41125379252,
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41125379252",
+      "conclusion": "success"
+    }
+  ],
+  "verificationEnvironment": "Owned ARM64 Android API 36 emulator, isolated Linux X11 1080p desktop and private QA relays",
+  "verification": {
+    "inPlaceInstall": "passed",
+    "deviceIdentityRetained": true,
+    "sshTrustRetained": true,
+    "pairingReused": true,
+    "completeHistoryReopened": true,
+    "latestRecord": "qa-message-10000",
+    "hostProfilesRetained": 4,
+    "clipboardPreferenceRetained": true,
+    "releaseUiDarkMouseAndSplitTrackpad": true,
+    "releaseSystemIme": true,
+    "receivedFrames": 361,
+    "renderedFrames": 348
+  },
+  "currentNativeRegression": {
+    "records": 10001,
+    "result": "passed",
+    "nativeMarkdownViewsUpperBound": 32
+  },
+  "cleanup": {
+    "ownedServiceStopped": true,
+    "ownedDisplayStopped": true,
+    "ownedHistoryRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Unchanged": true,
+    "backendV4Retained": true,
+    "androidRelayRemoved": true,
+    "ownedReversePortsRemoved": true,
+    "localRelayStopped": true,
+    "ownedEmulatorStopped": true
+  }
+}

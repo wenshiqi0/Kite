@@ -25,7 +25,7 @@ Colours are shared across Compose, native Markdown/code/tables, cards, sidebars,
 
 ## Automated scope
 
-Local results: **75 Rust tests**, **15 host-adapter tests**, **4 publisher tests**, **22 Android JVM tests**, **8 native presentation tests**, plus **1 controlled long-transcript test** and **1 controlled direct-IME test**.
+Recorded checks (JVM tests also passed in the trusted tagged Release build): **75 Rust tests**, **15 host-adapter tests**, **4 publisher tests**, **22 Android JVM tests**, **8 native presentation tests**, plus **1 controlled long-transcript test** and **1 controlled direct-IME test**.
 
 Rust workspace tests and Clippy cover full collections, source-order/cursor coverage, append gaps, immutable telemetry, one-record tail deltas, late-context resets, complete cache migration and preservation on empty/failed reads. Host-adapter tests cover 10,000-record traversal, duplicate text, large inline images, a 3MiB text record, explicit rejection of oversized records and compressed transport. Android JVM checks cover incremental native rows, stable tool-group keys, Unicode chunks, viewport mapping and IME batching. API 36 tests cover native rendering plus the owned long-transcript and direct-IME integrations.
 
@@ -37,4 +37,12 @@ The runtime is an owned ARM64 API 36 emulator at approximately 411dp portrait wi
 
 Transport batches are bounded, with up to 4MiB decompressed per response. This does not cap total conversation size. A single record beyond the transport boundary reports failure and preserves existing content instead of silently skipping it. The original provider files remain authoritative and unchanged.
 
-The published APK, stable signature, in-place upgrade and cleanup are recorded separately after tagged CI finishes.
+## Published APK verification
+
+The [publication record](published-release.json) identifies source **dc099e70d584d25e090abc64169dc7040f879bd1**, successful main/tag CI runs, and the exact **21,385,599-byte** Release APK with SHA-256 **33f256fee97dab331acf523cb79d5c0cffca9c53ab86662473bdc890bcb2619c**. The downloaded public asset passed versionCode 15, non-debuggable ARM64 Release, stable v1/v2/v3 certificate, checksum and 16KiB alignment checks.
+
+An in-place installation retained the complete saved history through QA10000, all four saved host profiles, device identity, SSH trust, Sunshine pairing and the clipboard preference. The official APK reconnected without a new PIN and presented 1080p frames. Its [fullscreen mouse](release-fullscreen-mouse.png), [split-only trackpad](release-split-trackpad.png), dark theme and direct system IME were exercised separately from local builds. A final cold native regression passed against the appended **10,001-record** fixture and verified the bounded view allocation; the emulator was returned to the exact public APK afterward.
+
+The owned provider log, catalogue record, control cache, temporary SSH authorization, Sunshine/GTK/Xvfb instances, relay ports and emulator were cleaned up. Both phone keys and production Sunshine remain; backend-v2 and backend-v3 are byte-identical, and backend-v4 remains installed for the new APK.
+
+The late local rerun hit a missing Gradle test-worker bootstrap class after dependency-cache recovery; no product checks were disabled. The hosted tagged build passed the normal repository configuration, Rust/host/publisher checks, Release lint and all JVM tests. Native and published-APK runtime checks are recorded above. Physical-phone and WAN responsiveness remain unverified.
