@@ -1,28 +1,34 @@
 {
   "date": "2026-10-30",
   "kind": "Interactive design prototype renders, not Android screenshots",
+  "portraitOrder": [
+    "desktop",
+    "trackpad",
+    "chat",
+    "composer"
+  ],
   "source": "compact-controls.html",
-  "sourceSha256": "2e28ff64d30e47431eb2b81cbaa87c106ffb6244e22818324491305d4c80b3e9",
+  "sourceSha256": "9d2b9f2f93b55e2a88b785bf0403d555ff46ca38b0e3f80e22ba5e746fb9d042",
   "referenceImagesIncluded": false,
   "assets": [
     {
       "file": "split-open.png",
-      "sha256": "88a9d3455f884912d9328e188f646833b06a6f83bbeeafcf210b87098f1dc3e9",
-      "bytes": 36272,
+      "sha256": "10ba1c8a94504c5a498dcdf4f9889e58f15f5bcdd671f816dfe45db311769dc2",
+      "bytes": 36981,
       "width": 360,
       "height": 780
     },
     {
       "file": "split-closed.png",
-      "sha256": "b28731ba18218f825f210f435bc0866be9a32ee8d74f9b8d5a846e91b5a33416",
-      "bytes": 33298,
+      "sha256": "d291dc979d39c1092b6182494cadd6b7bb6a936afadef4676b80747dd5e81e69",
+      "bytes": 34099,
       "width": 360,
       "height": 780
     },
     {
       "file": "small-window.png",
-      "sha256": "5553f3de2ee8bf870abdcb8a4fe31703180ed1fc9a66d1c73c8d15851cc47193",
-      "bytes": 27882,
+      "sha256": "0c141dfe368de82c23d62a4b51e9108bbcbfdbe31b435e9c66287fd17d5c4033",
+      "bytes": 27800,
       "width": 320,
       "height": 640
     },
@@ -42,15 +48,15 @@
     },
     {
       "file": "split-dark.png",
-      "sha256": "35090804a5e3496c177553c2192a275564dc9e98d9f55bbaf030143fc37f7c60",
-      "bytes": 36663,
+      "sha256": "0a5ef67cde1a93f05bbccc4a88e614bd71ac2a37c6f3b3c334b3d8c1aee16ab9",
+      "bytes": 37437,
       "width": 328,
       "height": 780
     },
     {
       "file": "preview-checks.json",
-      "sha256": "69df136873c5a37f34daa2df1ef1ac8ac11ab6a197ac761f19f1c27f36fec121",
-      "bytes": 3035
+      "sha256": "28c11f4ff3e7caaecd2620914627a533606a6f6944dea60aecc02abb400caccb",
+      "bytes": 4042
     }
   ]
 }

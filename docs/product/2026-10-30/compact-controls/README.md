@@ -2,14 +2,14 @@
 
 **Status: interactive design only. No Android client change or new APK is delivered by this proposal.** The user reviewed Alpha 11 and reported excessive control size, a bulky collapsed state, restricted dragging and poor space usage in portrait split view.
 
-The user's follow-up chose a specific portrait interaction: open a separate bottom surface with a laptop-style trackpad above left/right buttons and a wheel between them. Closing it returns the space to chat. Fullscreen uses a separate compact mouse control informed by the user's UU expanded/collapsed reference images. Those images were reviewed as references; the captures below use only constructed test content.
+The user's follow-up fixed the portrait order: **desktop → collapsible trackpad → Chat → message composer**. The laptop-style trackpad opens directly below the desktop controls, with a movement area above left/right buttons and a wheel between them. Chat stays below the trackpad and the composer stays at the bottom. Closing the trackpad moves Chat upward into the released space. Fullscreen uses a separate compact mouse control informed by the user's UU expanded/collapsed reference images. Those images were reviewed as references; the captures below use only constructed test content.
 
 The complete decisions and native acceptance requirements are in [RFC 0011](../../../rfcs/0011-compact-desktop-controls.md). Existing source resolution, input coordinate mapping, explicit Watch/Operate, separate agent pause, history/identity and automatic clipboard behavior are retained.
 
 ## Preview states
 
-- [Bottom trackpad open](split-open.png): chat and composer participate in layout above a 176dp bottom surface; video remains clear.
-- [Bottom trackpad closed](split-closed.png): the surface disappears and space returns to chat; Operate remains selected.
+- [Trackpad below desktop](split-open.png): a 176dp trackpad sits between the desktop controls and Chat; the composer stays at the bottom.
+- [Trackpad closed](split-closed.png): Chat moves upward into the released space and the composer keeps its bottom position; Operate remains selected.
 - [Small window](small-window.png): a 320×640 logical window uses a 144dp trackpad and retains a usable chat region.
 - [Fullscreen collapsed mouse](fullscreen-icon.png) and [expanded mouse](fullscreen-mouse.png): small visible graphics, explicit touch areas and workspace-level positioning.
 - [Dark appearance](split-dark.png): the same geometry at a narrow preview width.

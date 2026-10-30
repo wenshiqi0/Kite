@@ -2,25 +2,7 @@
   "scope": "Interactive design prototype only; not APK or physical-device acceptance",
   "checks": [
     {
-      "name": "bottom-panel-does-not-overlay-chat",
-      "status": "PASS",
-      "detail": {
-        "pad": {
-          "x": 261,
-          "y": 611,
-          "width": 358,
-          "height": 176
-        },
-        "composer": {
-          "x": 261,
-          "y": 555,
-          "width": 358,
-          "height": 56
-        }
-      }
-    },
-    {
-      "name": "video-is-clear-above-chat",
+      "name": "trackpad-is-below-desktop",
       "status": "PASS",
       "detail": {
         "video": {
@@ -29,11 +11,65 @@
           "width": 358,
           "height": 201.375
         },
-        "chat": {
+        "pad": {
           "x": 261,
           "y": 354.375,
           "width": 358,
+          "height": 176
+        }
+      }
+    },
+    {
+      "name": "chat-is-below-trackpad",
+      "status": "PASS",
+      "detail": {
+        "pad": {
+          "x": 261,
+          "y": 354.375,
+          "width": 358,
+          "height": 176
+        },
+        "chat": {
+          "x": 261,
+          "y": 530.375,
+          "width": 358,
           "height": 200.625
+        }
+      }
+    },
+    {
+      "name": "composer-is-below-chat",
+      "status": "PASS",
+      "detail": {
+        "chat": {
+          "x": 261,
+          "y": 530.375,
+          "width": 358,
+          "height": 200.625
+        },
+        "composer": {
+          "x": 261,
+          "y": 731,
+          "width": 358,
+          "height": 56
+        }
+      }
+    },
+    {
+      "name": "composer-stays-at-window-bottom",
+      "status": "PASS",
+      "detail": {
+        "composer": {
+          "x": 261,
+          "y": 731,
+          "width": 358,
+          "height": 56
+        },
+        "nav": {
+          "x": 261,
+          "y": 787,
+          "width": 358,
+          "height": 24
         }
       }
     },
@@ -43,6 +79,22 @@
       "detail": {
         "before": 200.625,
         "after": 376.625
+      }
+    },
+    {
+      "name": "closing-panel-moves-chat-up",
+      "status": "PASS",
+      "detail": {
+        "before": 530.375,
+        "after": 354.375
+      }
+    },
+    {
+      "name": "closing-panel-keeps-composer-anchored",
+      "status": "PASS",
+      "detail": {
+        "before": 731,
+        "after": 731
       }
     },
     {

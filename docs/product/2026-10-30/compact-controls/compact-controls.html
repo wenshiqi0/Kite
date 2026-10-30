@@ -49,7 +49,7 @@
     #kite-compact-preview .input-shell{position:relative;flex:1;min-width:0;height:42px;border:1px solid var(--kite-line);border-radius:18px;background:var(--kite-surface)}
     #kite-compact-preview .model-label{position:absolute;left:11px;top:-8px;background:var(--kite-surface);padding:0 3px;color:var(--kite-muted);font-size:11px;white-space:nowrap}
     #kite-compact-preview .input-shell input{width:100%;height:100%;padding:6px 12px;border:0;outline-offset:2px;background:transparent;font-size:14px}
-    #kite-compact-preview .bottom{flex:none;overflow:hidden;background:var(--kite-bg)}
+    #kite-compact-preview .bottom,#kite-compact-preview .pad-slot{flex:none;overflow:hidden;background:var(--kite-bg)}
     #kite-compact-preview .trackpad{position:relative}
     #kite-compact-preview .trackpad::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:var(--kite-line);z-index:1;pointer-events:none}
     #kite-compact-preview .pad-area{position:relative;display:block;width:100%;height:calc(var(--kite-pad-height,176px) - 48px);padding:0;background:var(--kite-soft);color:var(--kite-muted);border-radius:0;cursor:default}
@@ -83,7 +83,7 @@
     #kite-compact-preview .popover{position:absolute;z-index:10;right:8px;bottom:80px;width:240px;padding:14px;background:var(--kite-surface);border:1px solid var(--kite-line);border-radius:14px;box-shadow:0 8px 24px #00000026}
     #kite-compact-preview .popover label{display:block;font-size:12px;color:var(--kite-muted);margin-bottom:8px}
     #kite-compact-preview .popover select{display:block;width:100%;min-height:44px;border:1px solid var(--kite-line);border-radius:6px;background:var(--kite-surface);padding:6px;font:inherit;color:var(--kite-ink)}
-    #kite-compact-preview .is-fullscreen .status,#kite-compact-preview .is-fullscreen .appbar,#kite-compact-preview .is-fullscreen .divider,#kite-compact-preview .is-fullscreen .chat,#kite-compact-preview .is-fullscreen .composer,#kite-compact-preview .is-fullscreen .bottom,#kite-compact-preview .is-fullscreen .nav{display:none}
+    #kite-compact-preview .is-fullscreen .status,#kite-compact-preview .is-fullscreen .appbar,#kite-compact-preview .is-fullscreen .divider,#kite-compact-preview .is-fullscreen .pad-slot,#kite-compact-preview .is-fullscreen .chat,#kite-compact-preview .is-fullscreen .composer,#kite-compact-preview .is-fullscreen .bottom,#kite-compact-preview .is-fullscreen .nav{display:none}
     #kite-compact-preview .is-fullscreen .main{height:100%}
     #kite-compact-preview .is-fullscreen .video{flex:1;height:auto!important}
     #kite-compact-preview .is-fullscreen .rail{display:flex}
@@ -92,9 +92,9 @@
     #kite-compact-preview .is-fullscreen.keyboard-visible .rail{display:none}
     #kite-compact-preview .feedback{position:absolute;pointer-events:none;z-index:7;left:50%;top:10px;transform:translateX(-50%);background:var(--kite-dark);color:var(--kite-on-dark);padding:5px 10px;border-radius:10px;font-size:11px}
     #kite-compact-preview .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-    @media(prefers-reduced-motion:no-preference){#kite-compact-preview .bottom{transition:height 180ms ease-out}#kite-compact-preview .login{transition:transform 180ms ease-out}}
+    @media(prefers-reduced-motion:no-preference){#kite-compact-preview .bottom,#kite-compact-preview .pad-slot{transition:height 180ms ease-out}#kite-compact-preview .login{transition:transform 180ms ease-out}}
   </style>
-  <section class="device" aria-label="Kite 分屏与底部触控板交互草案">
+  <section class="device" aria-label="Kite 桌面、触控板、Chat 布局草案">
     <div class="status"><span>9:41</span><span>Kite · 交互预览</span></div>
     <header class="appbar">
       <button type="button" class="ctl cursor-interaction" aria-label="会话列表"><i data-lucide="menu" aria-hidden="true"></i></button>
@@ -118,19 +118,7 @@
         <button type="button" class="ctl cursor-interaction" data-action="keyboard" aria-label="打开键盘"><i data-lucide="keyboard" aria-hidden="true"></i></button>
         <button type="button" class="ctl cursor-interaction" data-action="fullscreen" aria-label="全屏桌面"><i data-lucide="expand" aria-hidden="true"></i></button>
       </div>
-      <div class="chat" aria-label="聊天">
-        <div class="message user">帮我测试登录流程。</div>
-        <button type="button" class="tool cursor-interaction" aria-expanded="false"><i data-lucide="check" aria-hidden="true"></i><span>2 次工具调用</span><i data-lucide="chevron-down" aria-hidden="true"></i></button>
-        <div class="tool-detail" hidden>打开浏览器 · 检查登录页面</div>
-        <div class="message">页面已打开，正在检查。<br>你也可以<strong>直接点桌面</strong>，或用下方触控板操作。</div>
-      </div>
-      <div class="composer">
-        <button type="button" class="ctl cursor-interaction" data-action="attach" aria-label="添加附件"><i data-lucide="plus" aria-hidden="true"></i></button>
-        <button type="button" class="ctl cursor-interaction" data-action="model" aria-label="模型与思考强度"><i data-lucide="sliders-horizontal" aria-hidden="true"></i></button>
-        <label class="input-shell"><span class="model-label">Sol · 深入</span><input readonly inputmode="none" placeholder="发消息给 agent" aria-label="聊天输入预览"></label>
-        <button type="button" class="ctl cursor-interaction" data-action="voice" aria-label="语音输入"><i data-lucide="mic" aria-hidden="true"></i></button>
-      </div>
-      <div class="bottom">
+      <div class="pad-slot" aria-label="桌面下方触控板">
         <div class="trackpad">
           <button type="button" class="pad-area" aria-label="触控板移动区"><span class="pad-label">触控板</span><span class="pad-mark"><i data-lucide="move" aria-hidden="true"></i></span></button>
           <button type="button" class="ctl pad-close cursor-interaction" data-action="close-pad" aria-label="收起触控板"><i data-lucide="chevron-down" aria-hidden="true"></i></button>
@@ -140,6 +128,20 @@
             <button type="button" class="mouse-key" data-mouse="right"><i data-lucide="mouse" aria-hidden="true"></i><span>右键</span></button>
           </div>
         </div>
+      </div>
+      <div class="chat" aria-label="聊天">
+        <div class="message user">帮我测试登录流程。</div>
+        <button type="button" class="tool cursor-interaction" aria-expanded="false"><i data-lucide="check" aria-hidden="true"></i><span>2 次工具调用</span><i data-lucide="chevron-down" aria-hidden="true"></i></button>
+        <div class="tool-detail" hidden>打开浏览器 · 检查登录页面</div>
+        <div class="message">页面已打开，正在检查。<br>你也可以<strong>直接点桌面</strong>，或用桌面下方的触控板操作。</div>
+      </div>
+      <div class="composer">
+        <button type="button" class="ctl cursor-interaction" data-action="attach" aria-label="添加附件"><i data-lucide="plus" aria-hidden="true"></i></button>
+        <button type="button" class="ctl cursor-interaction" data-action="model" aria-label="模型与思考强度"><i data-lucide="sliders-horizontal" aria-hidden="true"></i></button>
+        <label class="input-shell"><span class="model-label">Sol · 深入</span><input readonly inputmode="none" placeholder="发消息给 agent" aria-label="聊天输入预览"></label>
+        <button type="button" class="ctl cursor-interaction" data-action="voice" aria-label="语音输入"><i data-lucide="mic" aria-hidden="true"></i></button>
+      </div>
+      <div class="bottom">
         <div class="keyboard-area" hidden><span>键盘</span><button type="button" class="ctl cursor-interaction" data-action="hide-keyboard" aria-label="收起键盘"><i data-lucide="chevron-down" aria-hidden="true"></i></button></div>
       </div>
     </main>
@@ -166,18 +168,19 @@
     (() => {
       const root=document.getElementById("kite-compact-preview");
       const q=s=>root.querySelector(s);
-      const device=q(".device"),video=q(".video"),plane=q(".plane"),bottom=q(".bottom"),trackpad=q(".trackpad"),keyboard=q(".keyboard-area"),floating=q(".mouse-float"),entry=q(".mouse-entry"),body=q(".mouse-body"),popover=q(".popover");
+      const device=q(".device"),video=q(".video"),plane=q(".plane"),bottom=q(".bottom"),padSlot=q(".pad-slot"),trackpad=q(".trackpad"),keyboard=q(".keyboard-area"),floating=q(".mouse-float"),entry=q(".mouse-entry"),body=q(".mouse-body"),popover=q(".popover");
       const config={width:360,height:780,padHeight:176};
       const state={surface:"pad",operate:true,fullscreen:false,expanded:false,cursor:{x:.62,y:.58},position:{x:.72,y:.58},held:new Map(),resize:0,scroll:0};
       let toastTimer;
       const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
       function announce(text){q('[role="status"]').textContent=text;}
       function save(){
-        if(window.openai&&window.openai.setWidgetState)window.openai.setWidgetState({modelContent:{proposal:"底部独立触控板",surface:state.surface,fullscreen:state.fullscreen,operate:state.operate},privateContent:{position:state.position,expanded:state.expanded}}).catch(()=>{});
+        if(window.openai&&window.openai.setWidgetState)window.openai.setWidgetState({modelContent:{proposal:"桌面-触控板-Chat",layoutRevision:2,surface:state.surface,fullscreen:state.fullscreen,operate:state.operate},privateContent:{position:state.position,expanded:state.expanded}}).catch(()=>{});
       }
       function restore(value){
         if(!value)return;
         const a=value.modelContent||{},b=value.privateContent||{};
+        if(a.layoutRevision!==2)return;
         if(["pad","none","keyboard"].includes(a.surface))state.surface=a.surface;
         if(typeof a.operate==="boolean")state.operate=a.operate;
         if(typeof a.fullscreen==="boolean")state.fullscreen=a.fullscreen;
@@ -207,7 +210,8 @@
         root.style.setProperty("--kite-pad-height",padHeight+"px");
         const surface=state.surface;
         trackpad.hidden=surface!=="pad";keyboard.hidden=surface!=="keyboard";
-        bottom.style.height=(state.fullscreen?(surface==="keyboard"?228:0):surface==="pad"?padHeight:surface==="keyboard"?228:0)+"px";
+        padSlot.style.height=(!state.fullscreen&&surface==="pad"?padHeight:0)+"px";
+        bottom.style.height=(surface==="keyboard"?228:0)+"px";
         q(".pad-toggle").classList.toggle("is-active",surface==="pad");q(".pad-toggle").setAttribute("aria-pressed",String(surface==="pad"));
         q(".mode span").textContent=state.operate?"操作":"只看";
         const max=state.surface==="keyboard"?72:device.clientWidth*9/16;
