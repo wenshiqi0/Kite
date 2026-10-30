@@ -70,3 +70,11 @@ The current script builds the ARM64 simulator target. A successful iOS build val
 ## Checks
 
 Run the [testing checks](testing.md) before delivery. GitHub Actions also builds the Android Release variant and checks Rust and Android lint; signing and publishing behavior are described in [Alpha releases](releases.md).
+
+## Conversation and input presentation
+
+Codex history pages are projected by `backend/kite_codex.py` and installed as `backend-v3.py`. The backend returns file-bound record cursors; `kite-agent` parses and merges complete pages, and `kite-app` owns the bounded browsing window, cache protection and follow-latest state. Kotlin owns scroll anchors only. `conversationRevision` changes when conversation content changes, so media telemetry does not repeatedly rebuild message/tool groups. Chat, sessions, host cards and expanded tool details use stable-key virtual lists.
+
+`WorkspaceGeometry` budgets portrait desktop, controls, optional trackpad, Chat and composer in device-independent units. `DesktopViewport` remains the single source-to-view coordinate transform. `RemoteInputConnection` preserves IME composition; `RemoteTextBuffer` batches committed text over a fixed 200 ms window and invalidates pending callbacks when a destination closes. Keyboard, pointer and modifier transitions flush committed text in order.
+
+The opt-in `LiveDesktopInputTest` requires an explicitly named isolated 1080p QA desktop on Sunshine base port 48200, a test-only host relay and a synthetic saved session. It skips by default and must never be pointed at a user's active desktop. Ordinary native rendering tests need no remote host.

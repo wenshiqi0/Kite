@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,9 +39,12 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -55,8 +59,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
 import io.github.wenshiqi0.kite.media.VideoSurface
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import java.lang.ref.WeakReference
 
 private val Ink = Color(0xFF161715)
 private val Muted = Color(0xFF888982)
@@ -96,26 +102,74 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var project by remember { mutableStateOf("") }
     var sessionName by remember { mutableStateOf("") }
     var remoteKeyboard by remember { mutableStateOf(false) }
-    var remoteText by remember { mutableStateOf("") }
+    var modelSettings by remember { mutableStateOf(false) }
+    val videoReference=remember { mutableStateOf<VideoSurface?>(null) }
+    var videoArea by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var mouseBounds by remember { mutableStateOf(emptyList<androidx.compose.ui.geometry.Rect>()) }
+    val chromeBounds=remember { mutableStateMapOf<String,androidx.compose.ui.geometry.Rect>() }
+    var footerHeight by remember { mutableStateOf(60.dp) }
+    val focusManager=LocalFocusManager.current
+    val softwareKeyboard=LocalSoftwareKeyboardController.current
+    val inputDensity=LocalDensity.current
+    val imeVisible=WindowInsets.ime.getBottom(inputDensity)>0
     var terminal by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
     var answerRequest by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state?.question?.id) { if (answerRequest != state?.question?.id) answerRequest = null }
     var arrows by remember { mutableStateOf(false) }
     var warning by remember { mutableStateOf<String?>(null) }
-    val entries = remember(state?.conversation) { chatEntries(state?.conversation.orEmpty()) }
+    val entries = remember(state?.selectedHost,state?.selectedSession,state?.selectedAgent,state?.conversationRevision) { chatEntries(state?.conversation.orEmpty()) }
+    val streamingId=remember(state?.conversationRevision){state?.conversation?.lastOrNull{it.kind==MessageKind.ASSISTANT}?.id}
     val chatScroll = rememberLazyListState()
     var followTail by remember { mutableStateOf(true) }
     var chatHeight by remember { mutableIntStateOf(0) }
     var previousConversation by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(chatScroll) {
-        snapshotFlow { chatScroll.isScrollInProgress }.collect { scrolling -> if (!scrolling) followTail = !chatScroll.canScrollForward }
+    var paging by remember { mutableStateOf(false) }
+    val draggingHistory by chatScroll.interactionSource.collectIsDraggedAsState()
+    var loadedThisDrag by remember { mutableStateOf(false) }
+    fun pauseHistory(){
+        followTail=false
+        vm.engine.command { vm.engine.core.setHistoryFollowing(false) }
     }
-    LaunchedEffect(state?.selectedSession, state?.selectedAgent, entries, state?.approval?.id, state?.question?.id, state?.responsePhase, vm.sending, vm.answeringQuestion, chatHeight, vm.inPip, vm.pipTransition) {
+    fun loadPage(newer:Boolean){
+        if(paging||state?.history?.loading==true)return
+        val selectedKey=state?.selectedHost.toString()+"/"+state?.selectedSession
+        val first=chatScroll.layoutInfo.visibleItemsInfo.firstOrNull { row->entries.any{it.key==row.key} }
+        val anchor=entries.firstOrNull{it.key==first?.key}?.let{if(it is ChatEntry.Message)it.message.id else (it as ChatEntry.Work).messages.first().id}
+        followTail=false;paging=true
+        scope.launch {
+            try{
+                vm.engine.core.loadHistoryPage(newer)
+                withFrameNanos{};withFrameNanos{}
+                val next=vm.engine.state.value
+                if(selectedKey==next?.selectedHost.toString()+"/"+next?.selectedSession&&anchor!=null&&next?.history?.followingLatest==false&&!chatScroll.isScrollInProgress){
+                    val rows=chatEntries(next?.conversation.orEmpty())
+                    val index=rows.indexOfFirst{if(it is ChatEntry.Message)it.message.id==anchor else (it as ChatEntry.Work).messages.any{m->m.id==anchor}}
+                    val header=next?.history?.let{it.hasOlder||it.loading||it.failed}==true
+                    val prefix=(if(header)1 else 0)+(if(next?.failure?.kind==FailureKind.AGENT_START)1 else 0)+(if(next?.selectedAgent==null&&next?.selectedSession==null)1 else 0)
+                    if(index>=0)chatScroll.scrollToItem(prefix+index,-(first?.offset?:0))
+                }
+            }catch(e:CancellationException){throw e}
+            catch(e:Exception){warning=e.message}
+            finally{paging=false}
+        }
+    }
+    LaunchedEffect(draggingHistory) {
+        if(draggingHistory){loadedThisDrag=false;pauseHistory()}
+        else if(!chatScroll.canScrollForward&&state?.history?.hasNewer!=true&&state?.history?.followingLatest==false){
+            followTail=true;vm.engine.command{vm.engine.core.setHistoryFollowing(true)}
+        }
+    }
+    LaunchedEffect(draggingHistory,chatScroll.firstVisibleItemIndex,state?.history?.hasOlder,state?.history?.loading) {
+        if(draggingHistory&&!loadedThisDrag&&chatScroll.firstVisibleItemIndex<=1&&state?.history?.hasOlder==true&&state.history.failed!=true&&!paging){
+            loadedThisDrag=true;loadPage(false)
+        }
+    }
+    LaunchedEffect(state?.selectedSession, state?.selectedAgent, entries, state?.history?.followingLatest,state?.approval?.id, state?.question?.id, state?.responsePhase, vm.sending, vm.answeringQuestion, chatHeight, vm.inPip, vm.pipTransition) {
         if (vm.inPip || vm.pipTransition || chatHeight < 16) return@LaunchedEffect
         val conversationKey = "${state?.selectedHost}/${state?.selectedSession ?: state?.selectedAgent}"
         if (previousConversation != conversationKey || vm.sending || vm.answeringQuestion) followTail = true
-        if (followTail) {
+        if (followTail&&state?.history?.followingLatest!=false) {
             // Read the measured presentation row count, after tool groups coalesce.
             withFrameNanos { }; withFrameNanos { }
             chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
@@ -140,6 +194,22 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         runCatching { attachments.launch(types) }.onFailure { vm.externalActivity = false; updatePip(); warning = it.message }
     }
     val hideChrome = vm.inPip || vm.pipTransition
+    val bridgeActive=state?.desktop?.takeover==true&&!hideChrome&&!vm.settingsVisible&&!drawerActive
+    fun toggleRemoteKeyboard(){
+        vm.hideTouchpad()
+        if(remoteKeyboard&&imeVisible){videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false}
+        else if(bridgeActive){
+            focusManager.clearFocus()
+            remoteKeyboard=videoReference.value?.openRemoteKeyboard()==true
+        }
+    }
+    fun toggleTouchpad(){
+        videoReference.value?.closeRemoteKeyboard()
+        remoteKeyboard=false;softwareKeyboard?.hide();focusManager.clearFocus()
+        vm.toggleTouchpad()
+    }
+    LaunchedEffect(imeVisible){if(imeVisible)vm.hideTouchpad()else if(remoteKeyboard){videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false}}
+    LaunchedEffect(bridgeActive){if(!bridgeActive){videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false;vm.releaseMouseButtons()}}
     ClipboardBridge(vm,blocked=hideChrome || vm.settingsVisible || drawerActive)
     LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false } }
     LaunchedEffect(landscape, vm.inPip) {
@@ -151,11 +221,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     LaunchedEffect(vm.settingsVisible) { if (vm.settingsVisible) vm.exitTakeover() }
     BackHandler(enabled = vm.settingsVisible || terminal || diagnostics || vm.showDesktop) {
         when {
+            remoteKeyboard -> {videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false}
             terminal -> terminal = false
             diagnostics -> diagnostics = false
-            vm.settingsVisible -> vm.settingsVisible = false
+            vm.settingsVisible -> if(vm.hostEditorVisible)vm.hostEditorVisible=false else vm.settingsVisible=false
             vm.layout == DesktopLayout.Fullscreen -> vm.returnToChat(landscape)
-            remoteKeyboard -> remoteKeyboard = false
             vm.showDesktop -> enterPip()
         }
     }
@@ -165,7 +235,23 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { id -> vm.openSession(id); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.settingsVisible = true; scope.launch { drawer.close() } })
         }
     }) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else Color.White)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else Color.White).pointerInput(vm.target,bridgeActive){
+            if(!bridgeActive)return@pointerInput
+            var canvasFinger:PointerId?=null
+            try{awaitPointerEventScope{
+                while(true){
+                    val event=awaitPointerEvent(PointerEventPass.Initial)
+                    if(canvasFinger==null&&vm.heldMouseButtons!=0){
+                        canvasFinger=event.changes.firstOrNull{it.pressed&&!it.previousPressed&&videoArea.contains(it.position)&&mouseBounds.none{b->b.contains(it.position)}&&chromeBounds.values.none{b->b.contains(it.position)}}?.id
+                    }
+                    event.changes.firstOrNull{it.id==canvasFinger}?.let{finger->
+                        if(finger.pressed)videoReference.value?.bridgePointer(finger.position.x-videoArea.left,finger.position.y-videoArea.top)
+                        else{videoReference.value?.finishBridgedPointer();canvasFinger=null}
+                        finger.consume()
+                    }
+                }
+            }}finally{if(canvasFinger!=null)videoReference.value?.finishBridgedPointer()}
+        }) {
             val density = LocalDensity.current
             val availableWidth = maxWidth
             val availableHeight = maxHeight
@@ -173,12 +259,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             val agent = state?.agents?.find { it.id == state.selectedAgent }
             val takeover = state?.desktop?.takeover == true && !hideChrome && !vm.settingsVisible
             val split = vm.layout == DesktopLayout.Split && !fullscreen
-            val splitHeight = (availableHeight * vm.splitRatio).coerceIn(140.dp, (availableHeight * .65f).coerceAtLeast(140.dp))
+            val aspect=if(state!=null&&state.desktop.sourceWidth>0u&&state.desktop.sourceHeight>0u)(state.desktop.sourceWidth.toFloat()/state.desktop.sourceHeight.toFloat()).coerceIn(.1f,10f)else 16f/9f
+            val safeTop=with(density){WindowInsets.safeDrawing.getTop(this).toDp()}
+            val safeBottom=with(density){maxOf(WindowInsets.safeDrawing.getBottom(this),WindowInsets.ime.getBottom(this)).toDp()}
+            val usableHeight=(availableHeight-safeTop-safeBottom).coerceAtLeast(0.dp)
+            val padVisible=split&&vm.touchpadVisible&&takeover&&!imeVisible
+            val padHeight=WorkspaceGeometry.padHeight(usableHeight.value).dp
+            val splitHeight=WorkspaceGeometry.splitVideoHeight(availableWidth.value,usableHeight.value,aspect,if(padVisible)padHeight.value else 0f,footerHeight.value,vm.splitAdjustment).dp
             if (!fullscreen && !hideChrome) Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-                Row(Modifier.fillMaxWidth().height(56.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().height(48.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.semantics { contentDescription = menuDescription }) { ProductIcon(Mark.Menu) }
-                    Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)); Text(if (state.question != null) stringResource(if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_short) else statusLabel(if (responseInProgress) "working" else agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
+                    Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)) }
+                    if(split&&state!=null)DesktopModeSwitch(takeover,state.desktop.status==DesktopStatus.STREAMING,vm::takeOver)
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
@@ -195,9 +288,18 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (split) {
                     Spacer(Modifier.height(splitHeight))
-                    Box(Modifier.fillMaxWidth().height(18.dp).semantics { contentDescription = splitDescription }.pointerInput(availableHeight) {
-                        detectDragGestures { change, amount -> change.consume(); vm.splitRatio = (vm.splitRatio + amount.y / with(density) { availableHeight.toPx() }).coerceIn(.20f, .65f) }
-                    }, contentAlignment = Alignment.Center) { Box(Modifier.width(62.dp).height(4.dp).background(Color(0xFFA3A39F), RoundedCornerShape(2.dp))) }
+                    Row(Modifier.fillMaxWidth().height(48.dp).background(Paper),verticalAlignment=Alignment.CenterVertically){
+                        Box(Modifier.size(48.dp).semantics{contentDescription=splitDescription}.pointerInput(availableHeight){
+                            detectDragGestures{change,amount->change.consume();vm.splitAdjustment=(vm.splitAdjustment+amount.y/density.density).coerceIn(-240f,240f)}
+                        },contentAlignment=Alignment.Center){Box(Modifier.size(24.dp,3.dp).background(Muted.copy(alpha=.5f),RoundedCornerShape(3.dp)))}
+                        Text("live",color=Muted,fontSize=11.sp,modifier=Modifier.weight(1f))
+                        TextButton(onClick=::toggleTouchpad,enabled=takeover&&state?.desktop?.status==DesktopStatus.STREAMING,modifier=Modifier.height(48.dp)){
+                            ProductIcon(Mark.Touchpad,if(padVisible)Blue else Muted,Modifier.size(18.dp));Spacer(Modifier.width(5.dp));Text(stringResource(R.string.trackpad),fontSize=12.sp)
+                        }
+                        IconButton(onClick=::toggleRemoteKeyboard,enabled=takeover,modifier=Modifier.size(48.dp).semantics{contentDescription="键盘"}){ProductIcon(Mark.Keyboard,modifier=Modifier.size(20.dp))}
+                        IconButton(onClick={vm.changeLayout(DesktopLayout.Fullscreen)},modifier=Modifier.size(48.dp).semantics{contentDescription="全屏桌面"}){ProductIcon(Mark.Expand,modifier=Modifier.size(20.dp))}
+                    }
+                    if(padVisible)TouchpadPanel(vm,padHeight,bridgeActive,vm::hideTouchpad)
                 }
                 if (state == null || !state.initialized) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Blue)
                 if (state != null && state.connection != ConnectionStatus.CONNECTED) {
@@ -207,7 +309,16 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         TextButton(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                     }
                 }
-                LazyColumn(Modifier.weight(1f).fillMaxWidth().onSizeChanged { chatHeight = it.height }, state = chatScroll, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
+                LazyColumn(Modifier.fillMaxSize().semantics { contentDescription="聊天记录" }, state = chatScroll, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if(state?.history?.let{it.hasOlder||it.loading||it.failed}==true)item(key="history-start",contentType="history-control"){
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){
+                            if(state.history.loading)CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=1.5.dp)
+                            TextButton(onClick={loadPage(false)},enabled=!paging&&!state.history.loading){
+                                Text(stringResource(if(state.history.failed)R.string.history_retry else R.string.history_older),fontSize=12.sp)
+                            }
+                        }
+                    }
                     if (state?.failure?.kind == FailureKind.AGENT_START) item {
                         Surface(color = Color(0xFFFFF2D0), shape = RoundedCornerShape(16.dp)) {
                             Column(Modifier.padding(16.dp)) {
@@ -229,10 +340,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             } else Button(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    items(entries, key = { it.key }) { entry -> when (entry) {
-                        is ChatEntry.Message -> MessageCard(entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == state?.conversation?.lastOrNull { it.kind == MessageKind.ASSISTANT }?.id)
-                        is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", { followTail = false }, vm::openDesktop)
+                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.kind}) { entry -> when (entry) {
+                        is ChatEntry.Message -> MessageCard(entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
+                        is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
                     } }
+                    if(state?.history?.hasNewer==true&&state.history.followingLatest==false)item(key="history-newer",contentType="history-control"){
+                        TextButton(onClick={loadPage(true)},enabled=!paging&&!state.history.loading){Text(stringResource(R.string.history_newer))}
+                    }
                     if (state != null && agent != null && !state.conversationAvailable && !state.composer.ready && state.agentOutput.isNotBlank()) item {
                         Surface(color = Paper, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable { terminal = true }) {
                             Column(Modifier.padding(14.dp)) {
@@ -249,6 +363,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
+                if(state?.history?.followingLatest==false)Surface(onClick={followTail=true;vm.engine.command{vm.engine.core.setHistoryFollowing(true)}},color=Color(0xFFE5F0FD),shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics{contentDescription="回到最新消息"}){
+                    Row(Modifier.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){ProductIcon(Mark.Chevron,Blue,Modifier.size(18.dp));Text(stringResource(if(state.history.hasNewer)R.string.history_new_messages else R.string.history_latest),color=Blue,fontSize=12.sp)}
+                }
+                }
+                Column(Modifier.fillMaxWidth().onSizeChanged{footerHeight=with(density){it.height.toDp()}}){
                 if (currentSession != null && (currentSession.archived || agent == null)) {
                     Row(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(if (currentSession.archived) R.string.session_archived_hint else if (currentSession.provider == "claude" && !currentSession.recorded) R.string.claude_not_connected else R.string.session_recorded), fontSize = 12.sp, color = Muted, modifier = Modifier.weight(1f))
@@ -276,7 +395,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty())
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }
                         IconButton(onClick = { plus = true }, modifier = Modifier.semantics { contentDescription = addDescription }) { ProductIcon(Mark.Plus) }
@@ -290,7 +409,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_fullscreen)) }, onClick = { plus = false; vm.changeLayout(DesktopLayout.Fullscreen) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                         }
                     }
-                    OutlinedTextField(vm.draft, { vm.draft = it }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(28.dp), maxLines = 5,
+                    IconButton(onClick={modelSettings=true},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
+                    OutlinedTextField(vm.draft, { vm.draft = it }, modifier = Modifier.weight(1f).onFocusChanged{if(it.isFocused){vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()}}, shape = RoundedCornerShape(20.dp), maxLines = 5,
+                        label={state?.composer?.takeIf{it.ready}?.let{composer->Text((composer.models.find{it.model==composer.model}?.name?:composer.model)+" · "+effortLabel(composer.effort),fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}},
                         placeholder = { Text(stringResource(if (agent?.status == "blocked") R.string.composer_blocked else R.string.composer_hint), color = Muted, fontSize = 15.sp) })
                     if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
                         if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, Blue)
@@ -301,11 +422,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }, modifier = Modifier.semantics { contentDescription = voiceDescription }) { ProductIcon(Mark.Mic) }
                 }
                 }
-                ComposerSettings(vm, agent, state?.composer)
+                }
             }
             if (state != null && vm.showDesktop && state.connection == ConnectionStatus.CONNECTED) {
-                val aspect = if (state.desktop.sourceWidth > 0u && state.desktop.sourceHeight > 0u) (state.desktop.sourceWidth.toFloat() / state.desktop.sourceHeight.toFloat()).coerceIn(.1f, 10f) else 16f / 9f
-                val safeTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
                 val floatingWidth = (availableWidth * .59f).coerceIn(160.dp, 250.dp)
                 val floatingHeight = floatingWidth / aspect + 38.dp
                 val fx = (availableWidth - floatingWidth - 12.dp).coerceAtLeast(0.dp) * vm.floatingX
@@ -318,41 +437,32 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 when {
                     vm.inPip -> { frameX = 0.dp; frameY = 0.dp; frameW = availableWidth; frameH = availableHeight }
                     docked -> { frameX = (-2).dp; frameY = (-2).dp; frameW = 1.dp; frameH = 1.dp }
-                    vm.layout == DesktopLayout.Fullscreen -> { frameX = 12.dp; frameY = 56.dp; frameW = availableWidth - 24.dp; frameH = (availableHeight - if (takeover) 118.dp else 94.dp).coerceAtLeast(80.dp) }
-                    split -> { frameX = 0.dp; frameY = safeTop + 56.dp; frameW = availableWidth; frameH = (splitHeight - 38.dp).coerceAtLeast(80.dp) }
+                    vm.layout == DesktopLayout.Fullscreen -> { frameX = 0.dp; frameY = 0.dp; frameW = availableWidth; frameH = (availableHeight-with(density){WindowInsets.ime.getBottom(this).toDp()}).coerceAtLeast(80.dp) }
+                    split -> { frameX = 0.dp; frameY = safeTop + 48.dp; frameW = availableWidth; frameH = splitHeight }
                     else -> { frameX = fx; frameY = fy + 12.dp; frameW = floatingWidth; frameH = floatingHeight - 38.dp }
                 }
                 if (vm.layout == DesktopLayout.Floating && !vm.inPip && !docked) {
                     Box(Modifier.absoluteOffset(fx, fy).width(floatingWidth).height(floatingHeight).background(Paper, RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFB8B8B1), RoundedCornerShape(14.dp)))
                 }
-                val videoReference = remember { mutableStateOf<VideoSurface?>(null) }
-                var mouseBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-                val hybrid = takeover && !hideChrome && !docked && !drawerActive && vm.inputMode == DesktopInputMode.Hybrid
-                Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper).pointerInput(vm.target,hybrid) {
-                    if (!hybrid) return@pointerInput
-                    var canvasFinger: PointerId? = null
-                    try {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event=awaitPointerEvent(PointerEventPass.Initial)
-                                if(event.changes.any { it.pressed && !it.previousPressed && mouseBounds.contains(it.position) }) videoReference.value?.requestFocus()
-                                if (canvasFinger==null && vm.heldMouseButtons!=0) {
-                                    canvasFinger=event.changes.firstOrNull { it.pressed && !it.previousPressed && !mouseBounds.contains(it.position) }?.id
-                                }
-                                event.changes.firstOrNull { it.id==canvasFinger }?.let { finger ->
-                                    if (finger.pressed) videoReference.value?.bridgePointer(finger.position.x,finger.position.y)
-                                    else { videoReference.value?.finishBridgedPointer();canvasFinger=null }
-                                    finger.consume()
-                                }
-                            }
-                        }
-                    } finally { if(canvasFinger!=null)videoReference.value?.finishBridgedPointer() }
-                }) {
-                    AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone).also { surface -> videoReference.value=surface } }, update = { surface ->
+                SideEffect{
+                    videoArea=if(docked||hideChrome)androidx.compose.ui.geometry.Rect.Zero else with(density){androidx.compose.ui.geometry.Rect(frameX.toPx(),frameY.toPx(),(frameX+frameW).toPx(),(frameY+frameH).toPx())}
+                    if(vm.layout==DesktopLayout.Fullscreen){
+                        chromeBounds["top"]=with(density){androidx.compose.ui.geometry.Rect(0f,0f,availableWidth.toPx(),(safeTop+56.dp).toPx())}
+                        chromeBounds["chat"]=with(density){androidx.compose.ui.geometry.Rect((availableWidth-32.dp).toPx(),(availableHeight/2-42.dp).toPx(),availableWidth.toPx(),(availableHeight/2+42.dp).toPx())}
+                    }else{chromeBounds.remove("top");chromeBounds.remove("chat");chromeBounds.remove("toolbar")}
+                }
+                Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper)) {
+                    AndroidView(factory = { VideoSurface(it, vm::videoReady, {id->vm.videoGone(id);if(videoReference.value?.target==id){videoReference.value=null;vm.flushRemoteText=null}}).also { surface ->
+                        videoReference.value=surface
+                        val weak=WeakReference(surface)
+                        vm.flushRemoteText={weak.get()?.flushRemoteText()}
+                    } }, update = { surface ->
                         surface.takeover = takeover && !docked
                         surface.trackpad = vm.inputMode == DesktopInputMode.Trackpad
                         surface.externalMouseButtons = vm.heldMouseButtons
                         surface.onPaste = if(vm.engine.clipboardSyncEnabled) vm::pasteSynchronized else null
+                        surface.onTextFailure={warning=sendTextFailure}
+                        surface.editorModifiers=(if(vm.ctrlHeld)2 else 0) or (if(vm.metaHeld)8 else 0)
                         surface.panMode = vm.panMode
                         surface.gesturesEnabled = !hideChrome && !docked && !drawerActive
                         surface.pip = hideChrome
@@ -362,7 +472,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }, modifier = Modifier.fillMaxSize().onGloballyPositioned { p ->
                         val b = p.boundsInWindow(); vm.videoBounds = Rect(b.left.roundToInt(), b.top.roundToInt(), b.right.roundToInt(), b.bottom.roundToInt())
                     })
-                    if (hybrid) VirtualMouse(vm,frameW,frameH) { mouseBounds=it }
                     if (!docked && state.desktop.status != DesktopStatus.STREAMING && state.desktop.status != DesktopStatus.PAIRING) {
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (state.desktop.status == DesktopStatus.FAILED) TextButton(onClick = vm::retryDesktop) { Text(stringResource(R.string.retry)) }
@@ -391,14 +500,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             MiniAction(Mark.Close, R.string.close_desktop) { vm.closeDesktop() }
                         }
                     }
-                    DesktopLayout.Docked -> Box(Modifier.align(Alignment.CenterEnd).width(34.dp).height(92.dp).background(Paper, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).border(1.dp, Line, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)).clickable { vm.changeLayout(DesktopLayout.Floating) }.semantics { contentDescription = restoreDesktop }, contentAlignment = Alignment.Center) { ProductIcon(Mark.Monitor) }
-                    DesktopLayout.Split -> Row(Modifier.absoluteOffset(0.dp, safeTop + 56.dp + splitHeight - 36.dp).fillMaxWidth().height(36.dp).background(Paper), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                        Text(stringResource(if (state.desktop.status == DesktopStatus.STREAMING) R.string.desktop_live else R.string.desktop_connecting), color = Color(0xFFB52B1D), fontSize = 12.sp, modifier = Modifier.padding(start = 12.dp).weight(1f))
-                        MiniAction(Mark.Eye, R.string.watch_only) { vm.exitTakeover() }
-                        MiniAction(Mark.Touchpad, R.string.takeover) { vm.takeOver(!state.desktop.takeover) }
-                        MiniAction(Mark.Dock, R.string.mode_floating) { vm.changeLayout(DesktopLayout.Floating) }
-                        MiniAction(Mark.Expand, R.string.mode_fullscreen) { vm.changeLayout(DesktopLayout.Fullscreen) }
-                    }
+                    DesktopLayout.Docked -> Box(Modifier.align(Alignment.CenterEnd).size(48.dp).clickable { vm.changeLayout(DesktopLayout.Floating) }.semantics { contentDescription = restoreDesktop }, contentAlignment = Alignment.Center) { Box(Modifier.size(32.dp).background(Paper,RoundedCornerShape(16.dp)),contentAlignment=Alignment.Center){ProductIcon(Mark.Monitor,modifier=Modifier.size(18.dp))} }
+                    DesktopLayout.Split -> Unit
                     DesktopLayout.Fullscreen -> {
                         Row(Modifier.align(Alignment.TopStart).padding(14.dp).widthIn(max = (availableWidth - 270.dp).coerceAtLeast(90.dp)).background(Color.White, RoundedCornerShape(24.dp)).border(1.dp, Line, RoundedCornerShape(24.dp)).padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent?.status ?: "idle")
@@ -423,8 +526,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     else -> Unit
                 }
                 if (takeover && !hideChrome && !vm.settingsVisible && vm.layout == DesktopLayout.Fullscreen) {
-                    DesktopToolbar(vm, availableWidth, Modifier.align(Alignment.BottomCenter), keyboard = { remoteKeyboard = !remoteKeyboard }, help = { gestureHelp = true })
+                    DesktopToolbar(vm, availableWidth, Modifier.align(Alignment.BottomCenter).imePadding().onGloballyPositioned{chromeBounds["toolbar"]=it.boundsInWindow()}, keyboard = ::toggleRemoteKeyboard, help = { gestureHelp = true })
                 }
+                if(vm.layout==DesktopLayout.Fullscreen&&takeover&&!hideChrome&&!docked&&!drawerActive&&vm.inputMode==DesktopInputMode.Hybrid)VirtualMouse(vm,availableWidth,availableHeight,safeTop,safeBottom,bridgeActive){mouseBounds=it}
             }
             if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = Color.White) { HostSetupScreen(vm) { vm.settingsVisible = false } }
         }
@@ -456,9 +560,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             }
         }
     }
-    if (remoteKeyboard && !hideChrome) AlertDialog(onDismissRequest = { remoteKeyboard = false }, title = { Text(stringResource(R.string.remote_text)) }, text = {
-        OutlinedTextField(remoteText, { remoteText = it }, label = { Text(stringResource(R.string.remote_text)) })
-    }, confirmButton = { TextButton(onClick = { vm.releaseModifiers(); if (remoteText.toByteArray().size <= 4096 && vm.sendText(remoteText)) { remoteText = ""; remoteKeyboard = false } else warning = sendTextFailure }) { Text(stringResource(R.string.send_text)) } })
+    if(modelSettings&&!hideChrome)AlertDialog(onDismissRequest={modelSettings=false},title={Text("模型与思考强度")},text={ComposerSettings(vm,state?.agents?.find{it.id==state.selectedAgent},state?.composer)},confirmButton={TextButton(onClick={modelSettings=false}){Text(stringResource(R.string.dismiss))}})
     if ((terminal || diagnostics) && !hideChrome) AlertDialog(onDismissRequest = { terminal = false; diagnostics = false }, title = { Text(stringResource(if (terminal) R.string.terminal_output else R.string.connection_diagnostics)) }, text = {
         Column {
         if (terminal && state?.selectedAgent != null) {

@@ -24,11 +24,11 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
+internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
     val snapshot by viewModel.engine.state.collectAsState()
     val platformError by viewModel.engine.platformError.collectAsState()
     val state = snapshot
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.host_settings)) }, navigationIcon = {
+    Scaffold(topBar = { TopAppBar(title = { Text(if(viewModel.form.id.isEmpty())stringResource(R.string.add_host)else "编辑主机") }, navigationIcon = {
         IconButton(onClick = onBack) { ProductIcon(Mark.Back) }
     }, actions = { state?.let { CopyDiagnosticsButton(it) } }) }) { padding ->
         Column(Modifier.padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -37,20 +37,12 @@ fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
                 Text(stringResource(R.string.core_initializing))
                 if (state?.failure != null) FailureCard(state.failure!!, onForget = null)
             } else {
-                val connected = state.connection == ConnectionStatus.CONNECTED
-                val running = state.connection == ConnectionStatus.CONNECTING
-                TextButton(onClick=viewModel::newHost,enabled=!running) { ProductIcon(Mark.Plus);Spacer(Modifier.width(8.dp));Text(stringResource(R.string.add_host)) }
-                if (state.hosts.size > 1) Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(stringResource(R.string.saved_hosts), style = MaterialTheme.typography.titleMedium)
-                        state.hosts.forEach { host -> TextButton(onClick = { viewModel.chooseHost(host) }, enabled = !connected && !running) { Text("${host.username}@${host.host}:${host.port}") } }
-                    }
-                }
-                Text(connectionStepLabel(state), color = if (state.connection == ConnectionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                state.failure?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
-                HostFormCard(viewModel, enabled = !connected && !running && state.pendingHostKey == null, running = running, connected = connected)
+                val connected = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTED
+                val running = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTING
+                if(state.selectedHost==viewModel.form.id)Text(connectionStepLabel(state), color = if (state.connection == ConnectionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                state.failure?.takeIf{state.selectedHost==viewModel.form.id}?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
+                HostFormCard(viewModel, enabled = !running && !viewModel.savingHost && state.pendingHostKey == null, running = running, connected = connected)
                 state.deviceKey?.let { DeviceKeyCard(it) }
-                ClipboardSyncSetting(viewModel)
                 if (running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (connected) {
                     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -77,7 +69,7 @@ fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DeviceKeyCard(key: DeviceKeyInfo) {
+internal fun DeviceKeyCard(key: DeviceKeyInfo) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
@@ -118,14 +110,18 @@ private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Bool
                 OutlinedTextField(form.sunshinePort, { vm.updateForm(form.copy(sunshinePort = it)) }, enabled = enabled, singleLine = true,
                     label = { Text(stringResource(R.string.sunshine_port)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             }
-            if (connected || running) OutlinedButton(onClick = vm::disconnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.disconnect)) }
-            else Button(onClick = vm::connect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect_herdr)) }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                OutlinedButton(onClick=vm::saveHostProfile,enabled=enabled,modifier=Modifier.weight(1f)){Text("保存")}
+                Button(onClick=vm::connect,enabled=enabled,modifier=Modifier.weight(1f)){Text("保存并连接")}
+            }
+            if(running||vm.savingHost)LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(connected)TextButton(onClick=vm::disconnect){Text(stringResource(R.string.disconnect))}
         }
     }
 }
 
 @Composable
-private fun FailureCard(failure: FailureInfo, onForget: (() -> Unit)?) {
+internal fun FailureCard(failure: FailureInfo, onForget: (() -> Unit)?) {
     val title = when (failure.kind) {
         FailureKind.AUTHENTICATION -> stringResource(R.string.error_auth_rejected, failure.username)
         FailureKind.HOST_KEY_CHANGED -> stringResource(R.string.error_host_key_changed, failure.trustedFingerprint, failure.presentedFingerprint)
@@ -155,7 +151,7 @@ private fun FailureCard(failure: FailureInfo, onForget: (() -> Unit)?) {
 }
 
 @Composable
-private fun DiagnosticCard(details: String, dismiss: () -> Unit) {
+internal fun DiagnosticCard(details: String, dismiss: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
         Text(stringResource(R.string.error_action))
@@ -188,7 +184,7 @@ internal fun connectionDiagnostics(state: CoreSnapshot): String = buildString {
     state.failure?.let { append("error=${it.kind}: ${it.details}") }
 }
 
-@Composable private fun CopyDiagnosticsButton(state: CoreSnapshot) {
+@Composable internal fun CopyDiagnosticsButton(state: CoreSnapshot) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Kite connection diagnostics", connectionDiagnostics(state)))) } }) { Text(stringResource(R.string.copy_diagnostics)) }

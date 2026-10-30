@@ -9,7 +9,7 @@ sealed interface ChatEntry {
         override val key = "message:${message.id}"
     }
     data class Work(val messages: List<MessageInfo>) : ChatEntry {
-        val calls get() = messages.filter { it.tool != null }
+        val calls = messages.filter { it.tool != null }
         override val key = "work:${messages.first { it.tool != null }.id}"
     }
 }

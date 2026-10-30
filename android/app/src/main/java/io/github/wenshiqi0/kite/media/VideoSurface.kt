@@ -8,6 +8,12 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
+import android.os.Handler
+import android.os.Looper
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import io.github.wenshiqi0.kite.R
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -24,9 +30,22 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private var pasteKey = false
     private var externalGesture = false
     private var bridgedPointer = false
+    private var bridgedX=0f;private var bridgedY=0f
+    private var remoteEditor=false
+    private var keyboardTarget=0L
+    private var connection:RemoteInputConnection?=null
+    var onTextFailure:()->Unit={}
+    var editorModifiers=0
+        set(value){if(field!=value)flushRemoteText();field=value}
+    private val inputHandler=Handler(Looper.getMainLooper())
+    private val textBuffer=RemoteTextBuffer(
+        ::sendCommittedText,
+        { task->inputHandler.postDelayed({task()},200) },
+        {onTextFailure()},
+    )
     val target: Long get() = renderer?.id ?: 0L
     var takeover = false
-        set(value) { if (field != value) { cancelGesture(); field = value } }
+        set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value } }
     var trackpad = true
         set(value) { if (field != value) { cancelGesture(); field = value } }
     var panMode = false
@@ -110,7 +129,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         }
     }
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        cancelGesture(); renderer?.let { gone(it.id); it.release() }; renderer = null
+        closeRemoteKeyboard();cancelGesture(); renderer?.let { gone(it.id); it.release() }; renderer = null
     }
     private fun cancelGesture() {
         removeCallbacks(longPress)
@@ -122,9 +141,14 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     fun bridgePointer(x: Float, y: Float) {
         if (!takeover || !gesturesEnabled || target == 0L) return
         removeCallbacks(longPress)
-        if (!bridgedPointer) requestFocus()
+        val first=!bridgedPointer
+        if(first){requestFocus();bridgedX=x;bridgedY=y}
         bridgedPointer = true; externalGesture = true; moved = true
-        position(x, y, true)
+        if(trackpad) {
+            val delta=pointerMotion.move(x-bridgedX,y-bridgedY,resources.displayMetrics.density)
+            if(delta.x!=0||delta.y!=0)NativeMedia.mouseMove(target,delta.x,delta.y)
+        } else position(x, y, true)
+        bridgedX=x;bridgedY=y
     }
     fun finishBridgedPointer() { bridgedPointer = false; externalGesture = true; moved = true }
     private fun position(x: Float, y: Float, clamp: Boolean = false): Boolean {
@@ -140,6 +164,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private fun span(event: MotionEvent): Float = if (event.pointerCount > 1) hypot(event.getX(1) - event.getX(0), event.getY(1) - event.getY(0)).coerceAtLeast(1f) else 1f
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!gesturesEnabled || pip) return true
+        if(event.actionMasked==MotionEvent.ACTION_DOWN)flushRemoteText()
         if (bridgedPointer) return true
         if (takeover && target != 0L && event.isFromSource(InputDevice.SOURCE_MOUSE)) { mouse(event); return true }
         when (event.actionMasked) {
@@ -187,7 +212,13 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
             } else if (!multiple) {
                 val dx = event.x - lastX; val dy = event.y - lastY
                 if (externalGesture) { position(event.x, event.y, true); moved = true }
-                else if (!takeover || panMode) { viewport.pan(dx, dy); applyViewport(); moved = true }
+                else if (!takeover || panMode || viewport.zoom>1.01f&&!trackpad&&!dragging) {
+                    if(!takeover||panMode||moved||hypot(event.x-downX,event.y-downY)>slop) {
+                        removeCallbacks(longPress)
+                        viewport.pan(if(moved)dx else event.x-downX,if(moved)dy else event.y-downY)
+                        applyViewport();moved=true
+                    }
+                }
                 else if (target != 0L && trackpad) {
                     if (hypot(event.x - downX, event.y - downY) > slop || moved || dragging) {
                         removeCallbacks(longPress)
@@ -205,7 +236,13 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
                 }
                 lastX = event.x; lastY = event.y
             }
-            MotionEvent.ACTION_POINTER_UP -> Unit
+            MotionEvent.ACTION_POINTER_UP -> {
+                if(event.pointerCount==2&&(multi==Multi.Pan||multi==Multi.Zoom)){
+                    val remaining=if(event.actionIndex==0)1 else 0
+                    lastX=event.getX(remaining);lastY=event.getY(remaining)
+                    downX=lastX;downY=lastY;multiple=false;moved=true;rightTap=false
+                }
+            }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPress)
                 if (takeover && !panMode && target != 0L && !externalGesture) {
@@ -224,6 +261,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private fun mouse(event: MotionEvent) {
         if (!position(event.x, event.y, dragging || buttons != 0)) return
         val next = event.buttonState
+        if(next and buttons.inv()!=0)flushRemoteText()
         for ((mask, button) in listOf(MotionEvent.BUTTON_PRIMARY to 1, MotionEvent.BUTTON_SECONDARY to 3, MotionEvent.BUTTON_TERTIARY to 2)) {
             if ((next xor buttons) and mask != 0) NativeMedia.mouseButton(target, button, next and mask != 0)
         }
@@ -245,6 +283,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = keyboard(keyCode, event, false) || super.onKeyUp(keyCode, event)
     private fun keyboard(keyCode: Int, event: KeyEvent, down: Boolean): Boolean {
         if (!takeover || !gesturesEnabled || target == 0L) return false
+        flushRemoteText()
         if(keyCode==KeyEvent.KEYCODE_V) {
             if(!down && pasteKey){pasteKey=false;return true}
             if(down && pasteKey)return true
@@ -254,8 +293,49 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         val modifiers = (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
         return NativeMedia.key(target, key, down, modifiers)
     }
-    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) { super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); if (!gainFocus && target != 0L) NativeMedia.releaseInput(target) }
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) { super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); if (!gainFocus && target != 0L) {flushRemoteText();NativeMedia.releaseInput(target)} }
     override fun performClick(): Boolean = super.performClick()
+
+    fun flushRemoteText(){textBuffer.flush()}
+    fun openRemoteKeyboard():Boolean {
+        if(!takeover||!gesturesEnabled||target==0L)return false
+        remoteEditor=true;keyboardTarget=target;requestFocus()
+        val input=context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        input.restartInput(this)
+        post{if(remoteEditor&&keyboardTarget==target)input.showSoftInput(this,InputMethodManager.SHOW_IMPLICIT)}
+        return true
+    }
+    fun closeRemoteKeyboard(hide:Boolean=true) {
+        if(remoteEditor){connection?.cancelComposition();textBuffer.flush()}
+        remoteEditor=false;keyboardTarget=0;connection=null;textBuffer.cancel()
+        if(hide&&windowToken!=null)(context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(windowToken,0)
+    }
+    override fun onCheckIsTextEditor():Boolean=remoteEditor&&takeover
+    override fun onCreateInputConnection(outAttrs:EditorInfo):InputConnection? {
+        if(!onCheckIsTextEditor()||target==0L)return null
+        outAttrs.inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        outAttrs.imeOptions=EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        outAttrs.initialSelStart=1;outAttrs.initialSelEnd=1
+        return RemoteInputConnection(this,textBuffer,::editorKey){event->
+            keyboard(event.keyCode,event,event.action==KeyEvent.ACTION_DOWN)
+        }.also{connection=it}
+    }
+    private fun editorKey(key:Int):Boolean {
+        if(keyboardTarget!=target||!remoteEditor||!takeover||target==0L)return false
+        val down=NativeMedia.key(target,key,true,editorModifiers)
+        val up=NativeMedia.key(target,key,false,editorModifiers)
+        return down&&up
+    }
+    private fun sendCommittedText(text:String):Boolean {
+        if(keyboardTarget!=target||!remoteEditor||!takeover||target==0L)return false
+        if(editorModifiers==0)return NativeMedia.text(target,text)
+        for(c in text) {
+            val upper=c.uppercaseChar()
+            if(upper in 'A'..'Z'||upper in '0'..'9') {if(!editorKey(upper.code))return false}
+            else if(!NativeMedia.text(target,c.toString()))return false
+        }
+        return true
+    }
 
     private fun virtualKey(key: Int): Int? = when (key) {
         in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> 65 + key - KeyEvent.KEYCODE_A

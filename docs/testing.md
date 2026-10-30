@@ -66,3 +66,11 @@ This delivery passed 60 Rust tests, 10 host-adapter tests, 4 publisher tests, 13
 The host fixture is not a product runtime dependency. It restores the prior focus on exit and does not change the display mode. Input testing must target that live fixture. Remove temporary SSH authorizations and test helper apps afterward; keep the user's desktop session and normal Sunshine service.
 
 A screenshot-based click round trip includes input-dispatch and screenshot overhead. Do not report it as a pure touch-to-photon latency measurement. Likewise, a requested 60fps mode is not proof of sustained 60fps presentation.
+
+## Compact controls and paged history
+
+Alpha 12 adds tests for fixed-window IME batching, Unicode deletion/chunking, portrait geometry budgets, zoomed one-finger panning, IME composition/key ordering, history cursor traversal and invalidation, cross-page tool merging, bounded bidirectional windows and non-destructive host saving. Chat grouping keys use a separate content revision; video telemetry does not invalidate them.
+
+The opt-in `LiveDesktopInputTest` verifies the real IME → 200 ms scheduler → JNI → Sunshine path against an isolated GTK fixture. It skips unless explicitly enabled with `qa_live=true` and an owned `qa_session`. Its fixed host/port guards must not be relaxed to target a production desktop. Keep its authorization and fixture data outside the repository, remove only owned test records, and retain existing host services and phone keys.
+
+Controlled runtime evidence is recorded separately from host/JVM checks. Android API 36 emulator behavior does not establish physical-phone latency or WAN acceptance.

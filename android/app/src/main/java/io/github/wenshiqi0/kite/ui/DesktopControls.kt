@@ -1,6 +1,8 @@
 package io.github.wenshiqi0.kite.ui
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,10 +37,10 @@ private val ControlBlue = Color(0xFF2D85D8)
 
 @Composable private fun ControlButton(text: String? = null, mark: Mark? = null, label: Int = R.string.desktop_tools, active: Boolean = false, enabled: Boolean = true, action: () -> Unit) {
     val description = if (label == R.string.zoom_in || label == R.string.zoom_out) stringResource(label) else text ?: stringResource(label)
-    Surface(onClick = action, enabled = enabled, color = if (active) Color(0xFFE4EFFB) else Color.White.copy(alpha = .94f), contentColor = if (active) ControlBlue else ControlInk, shape = RoundedCornerShape(12.dp), modifier = Modifier.height(42.dp).widthIn(min = 44.dp).semantics { contentDescription = description }) {
-        Row(Modifier.padding(horizontal = if (text == null) 12.dp else 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            if (mark != null) ProductIcon(mark, if (active) ControlBlue else ControlInk, Modifier.size(19.dp))
-            if (text != null) { if (mark != null) Spacer(Modifier.width(7.dp)); Text(text, fontSize = 13.sp) }
+    Box(Modifier.height(48.dp).widthIn(min=48.dp).clickable(enabled=enabled,onClick=action).semantics { contentDescription = description },contentAlignment=Alignment.Center) {
+        Row(Modifier.heightIn(min=32.dp).background(if(active)Color(0xFFE4EFFB)else Color.White.copy(alpha=.92f),RoundedCornerShape(10.dp)).padding(horizontal=9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            if (mark != null) ProductIcon(mark, if (active) ControlBlue else ControlInk, Modifier.size(18.dp))
+            if (text != null) { if (mark != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 12.sp,color=if(active)ControlBlue else ControlInk) }
         }
     }
 }
@@ -64,7 +66,7 @@ private val ControlBlue = Color(0xFF2D85D8)
     var inputs by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     val narrow = width < 620.dp
-    Row(modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp).then(if (narrow) Modifier.horizontalScroll(rememberScrollState()) else Modifier), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp).then(if (narrow) Modifier.horizontalScroll(rememberScrollState()) else Modifier), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(color = Color.White.copy(alpha = .95f), shape = RoundedCornerShape(13.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ControlButton(mark = Mark.Keyboard, label = R.string.keyboard, action = keyboard)

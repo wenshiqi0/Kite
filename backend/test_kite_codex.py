@@ -15,14 +15,71 @@ import kite_codex as backend
 
 
 class BackendTests(unittest.TestCase):
-    def projection(self, file):
+    def page(self, file, before=None, after=None):
         output = io.BytesIO()
-        backend.history_projection(str(file), output)
+        backend.history_projection(str(file), output, before, after)
         marker, size, body = output.getvalue().split(b"\n", 2)
         self.assertEqual(marker, b"kite-codex-history-v2")
         size = int(size)
         self.assertLessEqual(len(output.getvalue()), 2097152)
-        return body[:size], body[size:]
+        meta, records = body[size:].split(b"\n", 1)
+        page = json.loads(meta)
+        self.assertEqual(page["type"], "kite_history_page")
+        return page, body[:size], records
+
+    def projection(self, file):
+        _, controls, records = self.page(file)
+        return controls, records
+
+    def test_long_history_can_be_read_backwards_and_forwards_without_gaps(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            file = Path(temporary)/"history.jsonl"
+            records = [{"id":f"message-{i}","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":f"历史消息 {i}"}]}} for i in range(650)]
+            noise = '{"type":"event_msg","payload":{"type":"task_started"}}\n'
+            file.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n"+noise*8 for r in records))
+            latest, _, body = self.page(file)
+            reverse = [json.loads(line)["id"] for line in body.splitlines()]
+            page = latest
+            while page["has_older"]:
+                page, _, body = self.page(file, before=page["start"])
+                reverse = [json.loads(line)["id"] for line in body.splitlines()] + reverse
+            self.assertEqual(reverse, [r["id"] for r in records])
+            forward = [json.loads(line)["id"] for line in body.splitlines()]
+            while True:
+                page, _, body = self.page(file, after=page["end"])
+                forward.extend(json.loads(line)["id"] for line in body.splitlines())
+                if not page["has_newer"]:break
+            # The last backwards page can contain only source metadata.
+            self.assertEqual(forward,[r["id"] for r in records])
+            appended={"id":"appended","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"追加"}]}}
+            with file.open("a") as stream:stream.write(json.dumps(appended)+"\n")
+            _,_,body=self.page(file,after=latest["end"])
+            self.assertEqual([json.loads(line)["id"] for line in body.splitlines()],["appended"])
+
+    def test_history_cursors_reject_replacement_truncation_and_malformed_values(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            file=Path(temporary)/"history.jsonl"
+            row={"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"long enough"}]}}
+            file.write_text(json.dumps(row)+"\n")
+            page,_,_=self.page(file)
+            for invalid in ("", "1:2:3", "../../etc/passwd", "1:2:-1:3"):
+                with self.assertRaises(ValueError):self.page(file,before=invalid)
+            file.write_text("{}\n")
+            with self.assertRaisesRegex(ValueError,"source changed"):self.page(file,before=page["start"])
+            replacement=file.with_suffix(".new");replacement.write_text(json.dumps(row)+"\n");replacement.replace(file)
+            with self.assertRaisesRegex(ValueError,"source changed"):self.page(file,after=page["end"])
+
+    def test_partial_display_record_is_not_published_until_complete(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            file=Path(temporary)/"history.jsonl"
+            row={"id":"complete","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"ready"}]}}
+            pending=dict(row,id="pending")
+            file.write_text(json.dumps(row)+"\n"+json.dumps(pending))
+            page,_,body=self.page(file)
+            self.assertEqual([json.loads(line)["id"] for line in body.splitlines()],["complete"])
+            with file.open("a") as stream:stream.write("\n")
+            _,_,body=self.page(file,after=page["end"])
+            self.assertEqual([json.loads(line)["id"] for line in body.splitlines()],["pending"])
 
     def test_catalog_cas_prevents_archive_and_provider_from_being_overwritten(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):

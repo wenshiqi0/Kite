@@ -32,6 +32,8 @@ use tokio::{
     task::JoinHandle,
 };
 pub mod clipboard;
+mod conversation;
+pub use conversation::HistoryStatus;
 mod sessions;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 use sessions::SessionBook;
@@ -177,7 +179,9 @@ pub struct Snapshot {
     pub selected_session: Option<String>,
     pub agent_output: String,
     pub conversation: Vec<Message>,
+    pub conversation_revision: u64,
     pub conversation_available: bool,
+    pub history_status: HistoryStatus,
     pub approval: Option<Approval>,
     pub question: Option<QuestionPrompt>,
     pub response_activity: ResponseActivity,
@@ -207,7 +211,9 @@ impl Default for Snapshot {
             selected_session: None,
             agent_output: String::new(),
             conversation: Vec::new(),
+            conversation_revision: 0,
             conversation_available: false,
+            history_status: HistoryStatus::default(),
             approval: None,
             question: None,
             response_activity: ResponseActivity::Idle,
@@ -216,6 +222,16 @@ impl Default for Snapshot {
             desktop: Desktop::default(),
             failure: None,
         }
+    }
+}
+
+impl Snapshot {
+    fn replace_conversation(&mut self, messages: Vec<Message>, available: bool) {
+        if self.conversation != messages {
+            self.conversation = messages;
+            self.conversation_revision = self.conversation_revision.wrapping_add(1);
+        }
+        self.conversation_available = available;
     }
 }
 
@@ -267,6 +283,7 @@ pub struct AppCore {
     generation: AtomicU64,
     desktop_generation: AtomicU64,
     history: Mutex<Option<history::History>>,
+    history_window: Mutex<conversation::Window>,
     pending_messages: Mutex<Vec<PendingMessage>>,
     paused_processes: Mutex<BTreeMap<String, process::Token>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
@@ -319,6 +336,7 @@ impl AppCore {
             generation: AtomicU64::new(0),
             desktop_generation: AtomicU64::new(0),
             history: Mutex::new(None),
+            history_window: Mutex::new(conversation::Window::default()),
             pending_messages: Mutex::new(Vec::new()),
             paused_processes: Mutex::new(BTreeMap::new()),
             consumed_approvals: Mutex::new(BTreeSet::new()),
@@ -458,6 +476,12 @@ impl AppCore {
                 host.id = format!("host-{}", new_device_id()?);
             }
             let id = host.id.clone();
+            let edits_active = lock(&core.connected)
+                .as_ref()
+                .is_some_and(|c| c.host.id == id && c.host != host);
+            if edits_active {
+                core.disconnect_inner(true).await?;
+            }
             {
                 let mut store = lock(&core.store);
                 let store = store
@@ -469,7 +493,9 @@ impl AppCore {
                 } else {
                     next.hosts.push(host);
                 }
-                next.selected_host = Some(id.clone());
+                if next.selected_host.is_none() {
+                    next.selected_host = Some(id.clone());
+                }
                 store.commit(next)?;
             }
             core.sync_store();
@@ -483,6 +509,15 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let host = core.host(&host_id)?;
+            {
+                let mut store = lock(&core.store);
+                let store = store
+                    .as_mut()
+                    .ok_or_else(|| AppError::State("core is not initialized".into()))?;
+                let mut next = store.data().clone();
+                next.selected_host = Some(host.id.clone());
+                store.commit(next)?;
+            }
             core.generation.fetch_add(1, Ordering::SeqCst);
             core.update(|s| {
                 s.connection = ConnectionPhase::Connecting;
@@ -783,10 +818,11 @@ impl AppCore {
                                     .any(|a| Some(&a.terminal_id) == s.selected_agent.as_ref())
                             {
                                 s.selected_agent = preferred;
-                                s.conversation.clear();
+                                if s.selected_session.is_none() {
+                                    s.replace_conversation(Vec::new(), false);
+                                }
                                 s.agent_output.clear();
                                 s.approval = None;
-                                s.conversation_available = false;
                                 s.agent_pause = AgentPause::Unknown;
                             }
                             s.agents = agents;
@@ -962,13 +998,10 @@ impl AppCore {
         {
             return;
         }
-        let available = history.available;
-        *lock(&self.history) = Some(history);
+        self.present_history(&history, messages);
         self.update(|s| {
             if s.selected_agent.as_deref() == Some(selected) {
                 s.agent_output = text;
-                s.conversation = messages;
-                s.conversation_available = available;
                 s.approval = approval;
                 s.question = question;
                 s.response_activity = activity;
@@ -1320,6 +1353,7 @@ impl AppCore {
     }
     async fn disconnect_inner(&self, notify: bool) -> Result<(), AppError> {
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.reset_history_view();
         self.stop_desktop_inner().await;
         let connect = lock(&self.connect_job).take();
         if let Some(task) = connect {
@@ -1347,8 +1381,9 @@ impl AppCore {
             s.host_key_fingerprint = None;
             s.agents.clear();
             s.selected_agent = None;
+            s.history_status = HistoryStatus::default();
             s.agent_output.clear();
-            s.conversation.clear();
+            s.replace_conversation(Vec::new(), false);
             s.conversation_available = false;
             s.approval = None;
             s.question = None;
@@ -1379,12 +1414,14 @@ impl AppCore {
             if !core.snapshot().agents.iter().any(|a| a.terminal_id == id) {
                 return Err(AppError::State("agent unavailable".into()));
             }
+            core.reset_history_view();
             core.update(|s| {
                 s.selected_agent = Some(id);
                 s.composer = Composer::default();
                 s.agent_output.clear();
-                s.conversation.clear();
+                s.replace_conversation(Vec::new(), false);
                 s.conversation_available = false;
+                s.history_status = HistoryStatus::default();
                 s.approval = None;
                 s.question = None;
                 s.response_activity = ResponseActivity::Idle;
@@ -1406,6 +1443,7 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
+            core.return_to_latest();
             let generation = core.generation.load(Ordering::SeqCst);
             if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
                 return Err(AppError::State(
@@ -1550,6 +1588,7 @@ impl AppCore {
                 core.update(|s| {
                     if s.selected_agent.as_deref() == Some(&id) {
                         s.conversation.push(message);
+                        s.conversation_revision = s.conversation_revision.wrapping_add(1);
                     }
                 });
             }
@@ -2271,6 +2310,45 @@ mod tests {
             key.public_key_openssh
         );
         assert_eq!(secrets.writes.load(Ordering::Relaxed), 0);
+    }
+    #[tokio::test]
+    async fn saving_profiles_keeps_the_selected_host_until_explicit_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let (secrets, _) = fixture();
+        let core = AppCore::new(secrets.clone(), Arc::new(NoObserver));
+        core.initialize(dir.path().into(), "fixture".into(), legacy())
+            .await
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let first = Host {
+            id: "first".into(),
+            host: "127.0.0.1".into(),
+            port: listener.local_addr().unwrap().port(),
+            username: "kite".into(),
+            herdr_path: None,
+            stream_host: None,
+            sunshine_port: 47989,
+        };
+        core.save_host(first.clone()).await.unwrap();
+        let mut second = first.clone();
+        second.id = "second".into();
+        core.save_host(second.clone()).await.unwrap();
+        assert_eq!(core.snapshot().selected_host.as_deref(), Some("first"));
+        second.sunshine_port = 48200;
+        core.save_host(second).await.unwrap();
+        assert_eq!(core.snapshot().hosts.len(), 2);
+        assert_eq!(core.snapshot().selected_host.as_deref(), Some("first"));
+        core.connect("second".into()).await.unwrap();
+        core.disconnect().await.unwrap();
+        let reopened = AppCore::new(secrets, Arc::new(NoObserver));
+        reopened
+            .initialize(dir.path().into(), "fixture".into(), legacy())
+            .await
+            .unwrap();
+        assert_eq!(reopened.snapshot().selected_host.as_deref(), Some("second"));
+        assert_eq!(reopened.snapshot().hosts.len(), 2);
     }
     #[tokio::test]
     async fn a_corrupt_native_secret_is_not_silently_replaced() {

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="history_older">加载更早的消息</string>
+    <string name="history_newer">加载更新的消息</string>
+    <string name="history_retry">历史暂不可用，点此重试</string>
+    <string name="history_latest">回到最新</string>
+    <string name="history_new_messages">新消息</string>
     <string name="copy_reply">复制完整回复</string>
     <string name="app_name">kite</string>
     <string name="cancel">取消</string>
@@ -153,7 +158,7 @@
     <string name="gesture_help_text">只看：单指平移，双指缩放。
 操作 · 混合触控：直接点按画面，也可用仿真鼠标移动、左右键和滚轮。按住鼠标键，另一根手指在移动区或画面拖动；拖动鼠标标题可调整位置。
 操作 · 触控板：单指移动鼠标，轻点左键，双击后拖动；双指轻点右键、滑动滚动、捏合缩放。
-操作 · 直接触控：点按或拖动远端目标，双指缩放和平移。
+操作 · 直接触控：轻点点击；放大后单指拖动画面，长按或按住鼠标键后拖动远端目标。双指缩放和平移。
 也可点“移画面”后单指移动视口。缩放不会改变主机分辨率。</string>
     <string name="mouse_left">左键</string>
     <string name="mouse_right">右键</string>

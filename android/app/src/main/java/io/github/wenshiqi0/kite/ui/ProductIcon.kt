@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom }
+enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel }
 
 @Composable
 fun ProductIcon(mark: Mark, color: Color = Color(0xFF64645F), modifier: Modifier = Modifier) {
@@ -23,6 +23,8 @@ fun ProductIcon(mark: Mark, color: Color = Color(0xFF64645F), modifier: Modifier
         fun line(x: Float, y: Float, xx: Float, yy: Float) = drawLine(color, Offset(x * unit, y * unit), Offset(xx * unit, yy * unit), stroke.width, StrokeCap.Round)
         fun box(x: Float, y: Float, w: Float, h: Float, r: Float = 2f) = drawRoundRect(color, Offset(x * unit, y * unit), Size(w * unit, h * unit), CornerRadius(r * unit), style = stroke)
         when (mark) {
+            Mark.Mouse -> {box(6f,2f,12f,20f,6f);line(6f,10f,18f,10f);line(12f,2f,12f,10f)}
+            Mark.Wheel -> {box(7f,3f,10f,18f,4f);line(10f,8f,14f,8f);line(10f,12f,14f,12f);line(10f,16f,14f,16f)}
             Mark.Menu -> { line(4f, 6f, 20f, 6f); line(4f, 12f, 20f, 12f); line(4f, 18f, 20f, 18f) }
             Mark.Monitor -> { box(3f, 4f, 18f, 13f); line(12f, 17f, 12f, 21f); line(8f, 21f, 16f, 21f) }
             Mark.Terminal -> { box(3f, 4f, 18f, 16f); line(7f, 8f, 10f, 11f); line(10f, 11f, 7f, 14f); line(12f, 15f, 17f, 15f) }

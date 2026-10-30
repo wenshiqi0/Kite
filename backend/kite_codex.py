@@ -670,70 +670,105 @@ def question_records(file):
         return records
 
 
-def history_projection(file, output):
-    """Keep textual JSONL history bounded without transporting inline image data."""
-    controls = question_records(file)
-    budget = 2097152 - len(controls) - 64
-    process = subprocess.Popen(["tail", "-n", "4096", "--", file], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    pattern = re.compile(rb'"image_url"\s*:\s*"')
-    carry = b""
-    skipping = False
-    escaped = False
-    result = bytearray()
-    def emit(data):
-        result.extend(data)
-        if len(result) > budget:
-            del result[:-budget]
-    try:
+def reverse_record_ranges(stream, end):
+    """Yield source line boundaries backwards using constant-size scan buffers."""
+    position = line_end = end
+    while position:
+        start = max(0, position - 65536)
+        stream.seek(start)
+        block = stream.read(position - start)
+        index = len(block)
         while True:
-            chunk = process.stdout.read(65536)
-            if not chunk:
+            index = block.rfind(b"\n", 0, index)
+            if index < 0:
                 break
-            data = carry + chunk
-            carry = b""
-            while data:
-                if skipping:
-                    position = data.find(b'"')
-                    while position >= 0:
-                        back = position - 1
-                        while back >= 0 and data[back] == 92:
-                            back -= 1
-                        odd = (position - back - 1) % 2 == 1
-                        if back < 0:
-                            odd ^= escaped
-                        if not odd:
-                            break
-                        position = data.find(b'"', position + 1)
-                    if position < 0:
-                        back = len(data) - 1
-                        while back >= 0 and data[back] == 92:
-                            back -= 1
-                        escaped = ((len(data) - back - 1) % 2 == 1) ^ (escaped if back < 0 else False)
-                        break
-                    data = data[position + 1:]
-                    skipping = False
-                    escaped = False
-                else:
-                    match = pattern.search(data)
-                    if match:
-                        emit(data[:match.start()] + b'"image_url":""')
-                        data = data[match.end():]
-                        skipping = True
-                    else:
-                        # The SDK serializes compact JSON; retain a key-sized overlap.
-                        if len(data) > 64:
-                            emit(data[:-64])
-                        carry = data[-64:]
-                        break
-        emit(carry)
-        if process.wait(timeout=5) != 0:
-            raise RuntimeError("history read failed")
-        output.write(b"kite-codex-history-v2\n" + str(len(controls)).encode() + b"\n" + controls + result)
-    finally:
-        process.stdout.close()
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            line_start = start + index + 1
+            if line_start < line_end:
+                yield line_start, line_end
+            line_end = line_start
+        position = start
+    if line_end:
+        yield 0, line_end
+
+
+def history_cursor(info, position):
+    return f"{info.st_dev}:{info.st_ino}:{position}:{info.st_size}"
+
+
+def cursor_position(value, info):
+    if not re.fullmatch(r"\d+:\d+:\d+:\d+", value or "") or len(value) > 128:
+        raise ValueError("invalid history cursor")
+    device, inode, position, size = map(int, value.split(":"))
+    if device != info.st_dev or inode != info.st_ino or not 0 <= position <= size <= info.st_size:
+        raise ValueError("history source changed; reopen the latest page")
+    return position
+
+
+def display_record(line):
+    try:
+        record = json.loads(line)
+        payload = record.get("payload")
+        return record.get("type") == "response_item" and isinstance(payload, dict) and payload.get("type") in {
+            "message", "function_call", "custom_tool_call", "computer_call",
+            "function_call_output", "custom_tool_call_output", "computer_call_output",
+        }
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def history_projection(file, output, before=None, after=None):
+    """Project complete source records with bidirectional, append-safe cursors."""
+    if before is not None and after is not None:
+        raise ValueError("choose one history direction")
+    controls = question_records(file)
+    transport_budget = 2097152 - len(controls) - 1024
+    page_budget = min(192 * 1024, transport_budget)
+    rows = []
+    total = 0
+    with Path(file).open("rb") as stream:
+        info = os.fstat(stream.fileno())
+        boundary = cursor_position(before or after, info) if before is not None or after is not None else info.st_size
+
+        def forward_ranges():
+            position = boundary
+            while position < info.st_size:
+                stream.seek(position)
+                line, complete = control_line(stream, transport_budget)
+                end = stream.tell()
+                if not complete or end > info.st_size:
+                    break
+                yield position, end, line
+                position = end
+
+        def backward_ranges():
+            for start, end in reverse_record_ranges(stream, boundary):
+                stream.seek(start)
+                line, complete = control_line(stream, transport_budget)
+                if complete and stream.tell() == end:
+                    yield start, end, line
+
+        for start, end, line in (forward_ranges() if after is not None else backward_ranges()):
+            if line is None or not display_record(line):
+                continue
+            if rows and (len(rows) >= 80 or total + len(line) > page_budget):
+                break
+            rows.append((start, end, line))
+            total += len(line)
+            if total >= page_budget:
+                break
+        if after is None:
+            rows.reverse()
+        start = rows[0][0] if rows else (0 if after is None else boundary)
+        end = rows[-1][1] if rows else (info.st_size if after is not None else boundary)
+        page = {
+            "type": "kite_history_page",
+            "start": history_cursor(info, start),
+            "end": history_cursor(info, end),
+            "has_older": bool(rows) and start > 0,
+            "has_newer": bool(rows) and end < info.st_size and (before is not None or after is not None),
+        }
+        body = json.dumps(page, separators=(",", ":")).encode() + b"\n" + b"".join(row[2] for row in rows)
+        output.write(b"kite-codex-history-v2\n" + str(len(controls)).encode() + b"\n" + controls + body)
 
 
 def main():
@@ -744,6 +779,8 @@ def main():
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
     parser.add_argument("--file")
+    parser.add_argument("--before")
+    parser.add_argument("--after")
     parser.add_argument("--id")
     parser.add_argument("--name")
     parser.add_argument("--size", type=int)
@@ -760,7 +797,7 @@ def main():
     elif args.action == "identity":
         print(json.dumps(read_registry(args.pane)))
     elif args.action == "history":
-        history_projection(args.file, sys.stdout.buffer)
+        history_projection(args.file, sys.stdout.buffer, args.before, args.after)
     elif args.action == "catalog-read":
         print(json.dumps(catalog_read()))
     elif args.action == "catalog-write":

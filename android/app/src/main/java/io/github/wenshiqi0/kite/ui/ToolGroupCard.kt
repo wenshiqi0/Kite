@@ -55,7 +55,7 @@ fun ToolGroupCard(group: ChatEntry.Work, working: Boolean, inspect: () -> Unit, 
                 HorizontalDivider(color = Color(0xFFE8E8E1))
                 // Even a turn with hundreds of calls occupies one bounded timeline row.
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(group.messages, key = { it.id }) { message ->
+                    items(group.messages, key = { it.id },contentType={if(it.tool==null)"progress" else "call"}) { message ->
                         val tool = message.tool
                         if (tool == null) MarkdownMessage(message.text, color = Color(0xFF888982), size = 12f, streaming = working && message.id == group.messages.lastOrNull()?.id, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                         else Row(Modifier.fillMaxWidth().clickable { inspect(); selectedCall = message.id }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -12,6 +12,11 @@ import android.widget.ScrollView
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.media.DesktopViewport
 import io.github.wenshiqi0.kite.media.VideoSurface
+import io.github.wenshiqi0.kite.media.RemoteInputConnection
+import io.github.wenshiqi0.kite.media.RemoteTextBuffer
+import android.view.MotionEvent
+import android.view.inputmethod.EditorInfo
+import android.os.SystemClock
 import io.github.wenshiqi0.kite.ui.MarkdownRenderer
 import io.github.wenshiqi0.kite.ui.MarkdownTextView
 import io.github.wenshiqi0.kite.ui.markdownLabel
@@ -197,5 +202,30 @@ class NativePresentationTest {
         view.bind("**正在输出**",false);assertEquals("正在输出",view.text.toString())
         view.bind("```\n**原样",true);assertTrue(view.text.toString().contains("**原样"))
         view.bind("\\*\\*原样",true);assertEquals("**原样",view.text.toString())
+    }
+    @Test fun zoomed_one_finger_drag_pans_the_viewport_without_a_second_finger()=onMain{
+        val parent=VideoSurface(instrumentation.targetContext,{fail("No renderer expected")},{})
+        layout(parent,1080,764);parent.takeover=true;parent.trackpad=false;parent.zoom=3f
+        val child=parent.getChildAt(0);val before=child.translationX;val t=SystemClock.uptimeMillis()
+        fun touch(action:Int,x:Float){val event=MotionEvent.obtain(t,SystemClock.uptimeMillis(),action,x,350f,0);try{parent.onTouchEvent(event)}finally{event.recycle()}}
+        touch(MotionEvent.ACTION_DOWN,400f);touch(MotionEvent.ACTION_MOVE,600f);touch(MotionEvent.ACTION_UP,600f)
+        assertEquals(before+200f,child.translationX,.5f)
+    }
+    @Test fun remote_ime_holds_composition_and_flushes_committed_text_before_enter()=onMain{
+        val events=mutableListOf<String>();val tasks=mutableListOf<()->Unit>()
+        val buffer=RemoteTextBuffer({events.add("text:"+it);true},{tasks.add(it)},{fail("send failed")})
+        val connection=RemoteInputConnection(View(instrumentation.targetContext),buffer,{events.add("key:"+it);true},{true})
+        connection.setComposingText("n",1);connection.setComposingText("ni",1)
+        assertTrue(events.isEmpty());assertTrue(tasks.isEmpty())
+        connection.commitText("你",1);connection.commitText("a",1)
+        connection.deleteSurroundingText(1,0)
+        assertTrue(events.isEmpty());assertEquals(1,tasks.size)
+        connection.performEditorAction(EditorInfo.IME_ACTION_DONE)
+        assertEquals(listOf("text:你","key:13"),events)
+        connection.deleteSurroundingText(1,0)
+        assertEquals("key:8",events.last())
+        connection.commitText("x",1);connection.setComposingText("pin",1);connection.closeConnection()
+        assertEquals("text:x",events.last());assertFalse(events.any{it.contains("pin")})
+        tasks.forEach{it()};assertEquals(4,events.size)
     }
 }

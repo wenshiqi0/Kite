@@ -388,6 +388,25 @@ impl From<kite_app::ConversationSession> for SessionInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct HistoryInfo {
+    pub has_older: bool,
+    pub has_newer: bool,
+    pub following_latest: bool,
+    pub loading: bool,
+    pub failed: bool,
+}
+impl From<kite_app::HistoryStatus> for HistoryInfo {
+    fn from(value: kite_app::HistoryStatus) -> Self {
+        Self {
+            has_older: value.has_older,
+            has_newer: value.has_newer,
+            following_latest: value.following_latest,
+            loading: value.loading,
+            failed: value.failed,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct CoreSnapshot {
     pub revision: u64,
     pub initialized: bool,
@@ -407,7 +426,9 @@ pub struct CoreSnapshot {
     pub selected_session: Option<String>,
     pub agent_output: String,
     pub conversation: Vec<MessageInfo>,
+    pub conversation_revision: u64,
     pub conversation_available: bool,
+    pub history: HistoryInfo,
     pub composer: ComposerInfo,
     pub approval: Option<ApprovalInfo>,
     pub question: Option<QuestionInfo>,
@@ -508,6 +529,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 })
                 .collect(),
             conversation_available: s.conversation_available,
+            conversation_revision: s.conversation_revision,
+            history: s.history_status.into(),
             composer: s.composer.into(),
             question: s.question.map(Into::into),
             response_phase: s.response_activity.into(),
@@ -807,6 +830,18 @@ impl KiteCore {
     }
     pub async fn stop_desktop(&self) -> Result<(), KiteError> {
         self.inner.stop_desktop().await.map_err(Into::into)
+    }
+    pub async fn set_history_following(&self, following: bool) -> Result<(), KiteError> {
+        self.inner
+            .set_history_following(following)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn load_history_page(&self, newer: bool) -> Result<(), KiteError> {
+        self.inner
+            .load_history_page(newer)
+            .await
+            .map_err(Into::into)
     }
     pub async fn read_clipboard(&self, host_id: String) -> Result<RemoteClipboardInfo, KiteError> {
         let value = self.inner.read_clipboard(host_id).await?;

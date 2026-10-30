@@ -11,7 +11,8 @@
 
 ## Delivery and evaluation records
 
-- [Compact controls proposal](product/2026-10-30/compact-controls/README.md): portrait desktop → trackpad → Chat, with a compact fullscreen mouse; interactive design only, pending native implementation.
+- [Alpha 12 native controls and history](product/2026-10-31/compact-controls/acceptance.md): collapsible portrait trackpad, compact fullscreen mouse, direct system IME, host cards and paged virtual history.
+- [Accepted compact controls prototype](product/2026-10-30/compact-controls/README.md): archived interactive design reference; native evidence is recorded above.
 - [Alpha 11 interaction acceptance](product/2026-10-30/hybrid-input/acceptance.md): automatic text clipboard, hybrid mouse/touch, rich text and sidebar fixes; includes public APK verification and upgrade results.
 - [herdr-core restoration evaluation](product/2026-10-30/herdr-core-migration.md): same-thread recovery with the existing provider and after a fresh provider process restart; remaining migration requirements.
 - [Alpha 10 installation investigation](product/2026-10-30/install-signatures/acceptance.md): signing checks, emulator update and subsequent user-reported handset installation success.

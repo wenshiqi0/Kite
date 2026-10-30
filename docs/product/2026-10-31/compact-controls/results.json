@@ -1,0 +1,71 @@
+{
+  "environment": "Owned ARM64 Android API 36 emulator, Linux X11 1920x1080 fixture, Sunshine software encoder",
+  "transport": "Private test-only TCP/UDP loopback relays; not a LAN/WAN latency result",
+  "tests": [
+    {
+      "name": "host-manager-save-card",
+      "status": "PASS",
+      "detail": "Adding a host saves one card and returns to the independent manager without connecting."
+    },
+    {
+      "name": "isolated-input",
+      "status": "PASS",
+      "detail": "Small pointer movement affects only the owned :21 display; production :10 is unchanged."
+    },
+    {
+      "name": "pad-held-buttons-wheel",
+      "status": "PASS",
+      "detail": "Both held mouse buttons move remote targets and release in pairs; the center wheel scrolls."
+    },
+    {
+      "name": "portrait-panel-layout",
+      "status": "PASS",
+      "detail": "Trackpad is below the desktop and above Chat; closing it returns 176dp to Chat while the composer stays at the bottom."
+    },
+    {
+      "name": "zoomed-one-finger-pan",
+      "status": "PASS",
+      "detail": "A one-finger slide on the zoomed desktop pans the local viewport without clicking or dragging remote targets."
+    },
+    {
+      "name": "direct-system-ime",
+      "status": "PASS",
+      "detail": "The system IME opens directly from the desktop keyboard button. The opt-in native test sent the exact Chinese/Latin token to the isolated GTK entry through the real 200ms scheduler."
+    },
+    {
+      "name": "reading-position-preserved",
+      "status": "PASS",
+      "detail": "Appending a new source message keeps the same earlier messages visible and leaves return-to-latest available."
+    },
+    {
+      "name": "history-reaches-first-message",
+      "status": "PASS",
+      "detail": "The actual app reaches QA0000 from a 651-message / 5851-record source. Continuous gestures across page boundaries do not open an error dialog."
+    },
+    {
+      "name": "history-forwards-to-latest",
+      "status": "PASS",
+      "detail": "The app explicitly loads five newer pages after older pages have been evicted, reaching final QA0650."
+    },
+    {
+      "name": "history-return-latest",
+      "status": "PASS",
+      "detail": "Return-to-latest leaves the reading window and resumes following new messages."
+    },
+    {
+      "name": "fullscreen-mouse-draggable",
+      "status": "PASS",
+      "detail": "Collapsed 48dp touch target (32dp visual) can be dragged into the left video letterbox area."
+    },
+    {
+      "name": "fullscreen-close-reachable",
+      "status": "PASS",
+      "detail": "Expanded mouse keeps its separate 48dp close button on screen at the workspace edge."
+    },
+    {
+      "name": "source-coordinate-mapping",
+      "status": "PASS",
+      "detail": "A center tap after 2x zoom and a 110×40 local pan hits source coordinates (905,520), using the same inverse viewport transform."
+    }
+  ]
+}

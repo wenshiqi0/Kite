@@ -21,7 +21,7 @@ use tokio::{
 const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
-const HELPER: &str = "$HOME/.local/lib/kite/backend-v2.py";
+const HELPER: &str = "$HOME/.local/lib/kite/backend-v3.py";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -62,7 +62,7 @@ s=sys.stdin.buffer.read(65537)
 assert 0<len(s)<=65536
 with tempfile.NamedTemporaryFile(dir=p,delete=False) as f:
     f.write(s);f.flush();os.fsync(f.fileno());t=pathlib.Path(f.name)
-t.chmod(0o700);t.replace(p/'backend-v2.py')
+t.chmod(0o700);t.replace(p/'backend-v3.py')
 "#;
     let output = ssh
         .exec(

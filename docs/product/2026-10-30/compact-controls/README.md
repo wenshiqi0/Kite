@@ -17,3 +17,5 @@ The complete decisions and native acceptance requirements are in [RFC 0011](../.
 [Interactive preview source](compact-controls.html) is a self-contained fragment for the conversation preview runtime. Its controls simulate cursor movement, buttons, wheel, panel/keyboard exclusion and fullscreen dragging locally. It does not connect to SSH, Sunshine, a model, system clipboard or a native decoder. The keyboard region represents a keyboard surface; it is not a custom keyboard implementation.
 
 Browser checks are recorded in [preview-checks.json](preview-checks.json). They verify the design model only, not Android gesture delivery, device responsiveness or backend behavior. The previous [Alpha 11 acceptance](../hybrid-input/acceptance.md) remains the shipped implementation record until this proposal is implemented.
+
+Native implementation and controlled runtime validation are recorded in the [Alpha 12 acceptance](../../2026-10-31/compact-controls/acceptance.md). This directory retains the accepted prototype as a dated design reference.

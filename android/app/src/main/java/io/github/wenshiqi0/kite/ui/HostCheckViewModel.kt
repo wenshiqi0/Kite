@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -39,6 +40,9 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     val showDesktop: Boolean get() = layout != DesktopLayout.Closed
     var settingsVisible by mutableStateOf(false)
+    var hostEditorVisible by mutableStateOf(false)
+    var savingHost by mutableStateOf(false)
+        private set
     var externalActivity by mutableStateOf(false)
     var inPip by mutableStateOf(false)
         private set
@@ -48,7 +52,9 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var copyingAttachments by mutableStateOf(false)
         private set
     val sending: Boolean get() = engine.state.value?.selectedAgent?.let { it in sendingAgents } ?: false
-    var splitRatio by mutableStateOf(.36f)
+    var splitAdjustment by mutableFloatStateOf(0f)
+    var touchpadVisible by mutableStateOf(false)
+        private set
     var floatingX by mutableStateOf(.90f)
     var floatingY by mutableStateOf(.28f)
     var zoom by mutableStateOf(1f)
@@ -59,6 +65,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var clipboardBusy by mutableStateOf(false)
         private set
     private val pointerMotion = PointerMotion()
+    var flushRemoteText:(()->Unit)?=null
     var panMode by mutableStateOf(false)
     var orientationRequest by mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
         private set
@@ -111,7 +118,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     lastConnection = state.connection
                     if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
-                    if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { settingsVisible = false; wasConnecting = false }
+                    if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { if(form.id==state.selectedHost){settingsVisible = false;hostEditorVisible=false}; wasConnecting = false }
                     if (wasConnecting && state.connection == ConnectionStatus.FAILED) { settingsVisible = true; wasConnecting = false }
                     val draftContext = state.selectedSession?.let { "${state.selectedHost}/$it" } ?: state.selectedAgent
                     if (draftContext != draftAgent) {
@@ -121,7 +128,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                         draft = draftAgent?.let { agentDrafts[it] } ?: if (old == null) draft else ""
                         if (agentDrafts.size > 32) agentDrafts.remove(agentDrafts.keys.first())
                     }
-                    if (!state.desktop.takeover) { ctrlHeld = false; metaHeld = false; releaseMouseButtons() }
+                    if (!state.desktop.takeover) { ctrlHeld = false; metaHeld = false; hideTouchpad();releaseMouseButtons() }
                     val status = state.agents.find { it.id == state.selectedAgent }?.status
                     if ((status == "blocked" && lastStatus != "blocked" || state.question != null) && layout == DesktopLayout.Floating) {
                         layout = DesktopLayout.Docked; autoDocked = true
@@ -139,34 +146,47 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun updateForm(value: HostForm) { form = value }
-    fun chooseHost(host: HostRecord) { form = host.toForm() }
+    fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
     fun newHost() {
-        engine.command { engine.core.disconnect(); form=HostForm();settingsVisible=true }
+        clearLocalError();form=HostForm();hostEditorVisible=true;settingsVisible=true
     }
     fun clearLocalError() { localError = null; engine.platformError.value = null }
-    fun connect() {
+    private fun validatedHost():HostRecord? {
         val f = form
         val app = getApplication<Application>()
         val port = f.port.trim().toUShortOrNull()
         val sunshinePort = f.sunshinePort.trim().toUShortOrNull()
         when {
-            f.host.isBlank() -> { localError = app.getString(R.string.error_host_required); return }
-            f.username.isBlank() -> { localError = app.getString(R.string.error_username_required); return }
-            port == null || port == 0.toUShort() -> { localError = app.getString(R.string.error_port_invalid); return }
-            sunshinePort == null || sunshinePort.toInt() !in 6..65514 -> { localError = app.getString(R.string.error_sunshine_port); return }
+            f.host.isBlank() -> { localError = app.getString(R.string.error_host_required); return null }
+            f.username.isBlank() -> { localError = app.getString(R.string.error_username_required); return null }
+            port == null || port == 0.toUShort() -> { localError = app.getString(R.string.error_port_invalid); return null }
+            sunshinePort == null || sunshinePort.toInt() !in 6..65514 -> { localError = app.getString(R.string.error_sunshine_port); return null }
         }
         localError = null
+        return HostRecord(f.id,f.host,port,f.username,f.herdrPath.ifBlank{null},f.streamHost.ifBlank{null},sunshinePort)
+    }
+    fun saveHostProfile(){
+        val host=validatedHost()?:return
+        if(savingHost)return
+        savingHost=true
+        engine.command {try{val id=engine.core.saveHost(host);if(form.id==host.id){form=host.toForm().copy(id=id);hostEditorVisible=false}}finally{savingHost=false}}
+    }
+    fun connectSaved(host:HostRecord){
+        form=host.toForm();connect()
+    }
+    fun connect() {
+        val host=validatedHost()?:return
         wasConnecting = true
         settingsVisible = true
         fitVideo()
         engine.command {
-            val id = engine.core.saveHost(HostRecord(f.id, f.host, port, f.username, f.herdrPath.ifBlank { null }, f.streamHost.ifBlank { null }, sunshinePort))
-            form = f.copy(id = id)
+            val id = engine.core.saveHost(host)
+            form = host.toForm().copy(id = id)
             engine.ensureForeground()
             engine.core.connect(id)
         }
     }
-    fun disconnect() = engine.command { engine.core.disconnect() }
+    fun disconnect() {flushRemoteText?.invoke();hideTouchpad();engine.command { engine.core.disconnect() }}
     fun trust(hostId: String, fingerprint: String) = engine.command { engine.core.trustHost(hostId, fingerprint) }
     fun forget(hostId: String) = engine.command { engine.core.forgetHost(hostId) }
     fun prepareAgent() = engine.command { engine.core.ensureAgent() }
@@ -253,10 +273,14 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun promptAgent(id: String, text: String) = engine.command { engine.core.promptAgent(id, text) }
     fun approve(pin: String) = engine.command { engine.core.approvePairing(pin) }
-    fun takeOver(enabled: Boolean) = engine.command { engine.core.setTakeover(enabled) }
+    fun takeOver(enabled: Boolean) {
+        if(!enabled){flushRemoteText?.invoke();hideTouchpad();releaseMouseButtons();releaseModifiers()}
+        engine.command { engine.core.setTakeover(enabled) }
+    }
     fun openDesktop() {
         autoDesktop = true
         settingsVisible = false
+        hostEditorVisible = false
         changeLayout(DesktopLayout.Floating)
     }
     fun changeLayout(value: DesktopLayout, rotate: Boolean = true) {
@@ -280,6 +304,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun closeDesktop() { orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop() } }
     fun fitVideo() { zoom = 1f; panMode = false }
     fun exitTakeover() {
+        flushRemoteText?.invoke()
+        hideTouchpad()
         releaseMouseButtons()
         releaseModifiers()
         if (target != 0L) NativeMedia.releaseInput(target)
@@ -302,6 +328,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun onBackground(keepVideo: Boolean = false) { releaseMouseButtons(); foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop() } } }
     fun onForeground() { foreground = true; if (showDesktop && target != 0L && (videoSuspended || engine.state.value?.desktop?.status == DesktopStatus.IDLE)) { videoSuspended = false; retryDesktop() } }
     fun modifier(ctrl: Boolean) {
+        flushRemoteText?.invoke()
         if (target == 0L) return
         if (ctrl) { ctrlHeld = !ctrlHeld; NativeMedia.key(target, 162, ctrlHeld, 0) }
         else { metaHeld = !metaHeld; NativeMedia.key(target, 91, metaHeld, 0) }
@@ -336,7 +363,13 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         return true
     }
     fun chooseInputMode(mode: DesktopInputMode) { releaseMouseButtons(); releaseModifiers(); inputMode = mode; panMode = false; pointerMotion.reset() }
+    fun hideTouchpad() { if(touchpadVisible){releaseMouseButtons();touchpadVisible=false} }
+    fun toggleTouchpad() {
+        if(touchpadVisible)hideTouchpad()
+        else if(engine.state.value?.desktop?.takeover==true){releaseMouseButtons();touchpadVisible=true}
+    }
     fun mouseButton(button: Int, down: Boolean) {
+        if(down)flushRemoteText?.invoke()
         if (down && (!foreground || engine.state.value?.desktop?.takeover != true)) return
         val mask = 1 shl button
         if (target != 0L) NativeMedia.mouseButton(target, button, down)
@@ -353,10 +386,11 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         val amount = pointerMotion.scroll(dy, density)
         if (amount != 0) NativeMedia.scroll(target, 0, amount)
     }
-    fun leftClick() { if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
-    fun rightClick() { if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
+    fun leftClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
+    fun rightClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
     fun scroll(vertical: Int) { if (target != 0L) NativeMedia.scroll(target, 0, vertical) }
     fun shortcut(key: Int, ctrl: Boolean = false) {
+        flushRemoteText?.invoke()
         if (target == 0L) return
         if (ctrl || ctrlHeld) NativeMedia.key(target, 162, true, 0)
         if (metaHeld) NativeMedia.key(target, 91, true, 0)

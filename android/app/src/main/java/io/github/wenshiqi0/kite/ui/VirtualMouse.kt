@@ -4,72 +4,82 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.wenshiqi0.kite.R
 
-/** Buttons and wheel stay reachable while the rest of the canvas accepts direct touch. */
+/** Fullscreen control: workspace coordinates, small visual, explicit hit regions. */
 @Composable
-fun VirtualMouse(vm: HostCheckViewModel, width: Dp, height: Dp, bounds: (Rect) -> Unit) {
-    val density = LocalDensity.current
-    var expanded by rememberSaveable { mutableStateOf(true) }
-    var x by rememberSaveable { mutableFloatStateOf(.95f) }
-    var y by rememberSaveable { mutableFloatStateOf(.94f) }
-    val full = expanded && width >= 190.dp && height >= 172.dp
-    val w = if (full) 170.dp else 46.dp
-    val h = if (full) 162.dp else 46.dp
-    val rangeX = (width - w - 16.dp).coerceAtLeast(0.dp)
-    val rangeY = (height - h - 16.dp).coerceAtLeast(0.dp)
-    val label = stringResource(R.string.virtual_mouse)
-    DisposableEffect(vm.target) { onDispose { vm.releaseMouseButtons(); bounds(Rect.Zero) } }
-    Surface(color = Color(0xFFF8F9F7), shadowElevation = 5.dp, shape = RoundedCornerShape(21.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCDD5D9)), modifier = Modifier.offset { IntOffset(with(density){ (8.dp + rangeX*x).roundToPx() }, with(density){ (8.dp + rangeY*y).roundToPx() }) }.size(w,h).onGloballyPositioned { bounds(it.boundsInParent()) }.semantics { contentDescription = label }) {
-        if (!full) IconButton(onClick = { expanded = true; if(width < 190.dp || height < 172.dp)vm.changeLayout(DesktopLayout.Fullscreen) }, modifier = Modifier.fillMaxSize()) { ProductIcon(Mark.Pointer) }
-        else Column {
-            Row(Modifier.fillMaxWidth().height(32.dp).pointerInput(rangeX,rangeY) {
-                detectDragGestures { change, amount -> change.consume()
-                    x = (x + amount.x / with(density){rangeX.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
-                    y = (y + amount.y / with(density){rangeY.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
-                }
-            }.padding(start=13.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProductIcon(Mark.More, modifier=Modifier.size(17.dp));Text(label,fontSize=11.sp,modifier=Modifier.weight(1f).padding(start=6.dp))
-                IconButton(onClick={ vm.releaseMouseButtons();expanded=false },modifier=Modifier.size(32.dp)) { ProductIcon(Mark.Shrink,modifier=Modifier.size(15.dp)) }
-            }
-            Row(Modifier.fillMaxWidth().height(59.dp).padding(horizontal=6.dp), horizontalArrangement=Arrangement.spacedBy(3.dp)) {
-                MouseButton(vm,1,R.string.mouse_left,Modifier.weight(1f))
-                val wheel = stringResource(R.string.mouse_wheel)
-                Box(Modifier.width(42.dp).fillMaxHeight().background(Color(0xFFE9ECE8),RoundedCornerShape(12.dp)).semantics { contentDescription=wheel }.pointerInput(vm.target) {
-                    detectDragGestures { change, amount -> change.consume();vm.wheelMouse(amount.y,density.density) }
-                },contentAlignment=Alignment.Center) { Text("↕",fontSize=22.sp,color=Color(0xFF696F69)) }
-                MouseButton(vm,3,R.string.mouse_right,Modifier.weight(1f))
-            }
-            val move = stringResource(R.string.mouse_move_area)
-            Box(Modifier.fillMaxWidth().weight(1f).padding(6.dp).background(Color(0xFFF0F2EE),RoundedCornerShape(13.dp)).semantics { contentDescription=move }.pointerInput(vm.target) {
-                detectDragGestures { change, amount -> change.consume();vm.moveMouse(amount.x,amount.y,density.density) }
-            },contentAlignment=Alignment.Center) { Row(verticalAlignment=Alignment.CenterVertically) { ProductIcon(Mark.Pointer,Color(0xFF828A82),Modifier.size(20.dp));Text(stringResource(R.string.move_mouse),fontSize=11.sp,color=Color(0xFF828A82),modifier=Modifier.padding(start=6.dp)) } }
+fun VirtualMouse(vm:HostCheckViewModel,width:Dp,height:Dp,safeTop:Dp,safeBottom:Dp,enabled:Boolean,bounds:(List<Rect>)->Unit) {
+    val density=LocalDensity.current
+    var expanded by rememberSaveable{mutableStateOf(false)}
+    var x by rememberSaveable{mutableFloatStateOf(.88f)}
+    var y by rememberSaveable{mutableFloatStateOf(.78f)}
+    val full=expanded&&width>=208.dp&&height-safeTop-safeBottom>=128.dp
+    val w=if(full)192.dp else 48.dp
+    val h=if(full)112.dp else 48.dp
+    val closeLeft=x>.5f
+    val bodyX=if(full&&closeLeft)48.dp else 0.dp
+    val closeX=if(closeLeft)0.dp else 144.dp
+    val rangeX=(width-w-16.dp).coerceAtLeast(0.dp)
+    val rangeY=(height-safeTop-safeBottom-h-16.dp).coerceAtLeast(0.dp)
+    val label=stringResource(R.string.virtual_mouse)
+    val drag=Modifier.pointerInput(vm.target,rangeX,rangeY){
+        detectDragGestures{change,amount->
+            change.consume()
+            x=(x+amount.x/with(density){rangeX.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
+            y=(y+amount.y/with(density){rangeY.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
         }
     }
-}
-
-@Composable private fun MouseButton(vm: HostCheckViewModel, button: Int, label: Int, modifier: Modifier) {
-    val description=stringResource(label);val down=vm.heldMouseButtons and (1 shl button)!=0
-    Box(modifier.fillMaxHeight().background(if(down)Color(0xFFD9E9FB) else Color.White,RoundedCornerShape(12.dp)).semantics { contentDescription=description }.pointerInput(vm.target,button) {
-        detectTapGestures(onPress={ vm.mouseButton(button,true);try { tryAwaitRelease() } finally { vm.mouseButton(button,false) } })
-    },contentAlignment=Alignment.Center) { Text(description,fontSize=12.sp,color=Color(0xFF414941)) }
+    DisposableEffect(vm.target){onDispose{vm.releaseMouseButtons();bounds(emptyList())}}
+    Box(Modifier.absoluteOffset{IntOffset(with(density){(8.dp+rangeX*x).roundToPx()},with(density){(safeTop+8.dp+rangeY*y).roundToPx()})}.size(w,h).onGloballyPositioned{
+        val b=it.boundsInParent()
+        if(full){
+            val bx=with(density){bodyX.toPx()};val cx=with(density){closeX.toPx()}
+            bounds(listOf(Rect(b.left+bx,b.top,b.left+bx+with(density){144.dp.toPx()},b.bottom),Rect(b.left+cx,b.top,b.left+cx+with(density){48.dp.toPx()},b.top+with(density){48.dp.toPx()})))
+        }else bounds(listOf(b))
+    }.semantics{contentDescription=label}){
+        if(!full){
+            Box(Modifier.size(48.dp).then(drag).semantics{contentDescription="展开鼠标";onClick{expanded=true;true}}.pointerInput(vm.target){detectTapGestures(onTap={expanded=true})},contentAlignment=Alignment.Center){
+                Box(Modifier.size(32.dp).background(Color(0xFF202B32),CircleShape),contentAlignment=Alignment.Center){ProductIcon(Mark.Mouse,Color.White,Modifier.size(18.dp))}
+            }
+        }else{
+            Surface(Modifier.absoluteOffset(bodyX,0.dp).size(144.dp,112.dp),color=Color(0xFFEDF1E9),shape=RoundedCornerShape(topStart=40.dp,topEnd=40.dp,bottomStart=28.dp,bottomEnd=28.dp),shadowElevation=2.dp){
+                Column{
+                    Row(Modifier.fillMaxWidth().height(48.dp)){
+                        RemoteMouseButton(vm,1,enabled,Modifier.width(48.dp),compact=true)
+                        MouseWheel(vm,enabled,Modifier.width(48.dp).height(48.dp))
+                        RemoteMouseButton(vm,3,enabled,Modifier.width(48.dp),compact=true)
+                    }
+                    HorizontalDivider(color=Color(0xFFD4DCD0))
+                    Box(Modifier.fillMaxWidth().weight(1f)){
+                        RelativeMouseArea(vm,enabled,Modifier.fillMaxSize())
+                        ProductIcon(Mark.Pointer,Color(0xFF899585),Modifier.align(Alignment.CenterStart).padding(start=28.dp).size(18.dp))
+                        Box(Modifier.align(Alignment.CenterEnd).size(48.dp).then(drag).semantics{contentDescription="拖动鼠标位置"},contentAlignment=Alignment.Center){ProductIcon(Mark.Pan,modifier=Modifier.size(18.dp))}
+                    }
+                }
+            }
+            IconButton(onClick={vm.releaseMouseButtons();expanded=false},modifier=Modifier.absoluteOffset(closeX,0.dp).size(48.dp).semantics{contentDescription="收起鼠标"}){
+                Box(Modifier.size(32.dp).background(Color(0xFF202B32),CircleShape),contentAlignment=Alignment.Center){ProductIcon(Mark.Close,Color.White,Modifier.size(18.dp))}
+            }
+        }
+    }
 }

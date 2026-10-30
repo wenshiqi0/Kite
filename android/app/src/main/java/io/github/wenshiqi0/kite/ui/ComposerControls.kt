@@ -66,7 +66,7 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
     }
 }
 
-@Composable private fun effortLabel(effort: String): String = when (effort) {
+@Composable internal fun effortLabel(effort: String): String = when (effort) {
     "none" -> stringResource(R.string.effort_none)
     "minimal" -> stringResource(R.string.effort_minimal)
     "low" -> stringResource(R.string.effort_low)

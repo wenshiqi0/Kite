@@ -178,7 +178,10 @@ fn add_tool(messages: &mut Vec<Message>, id: String, name: &str, arguments: Stri
     });
 }
 
-fn finish_tool(messages: &mut [Message], id: &str, output: String, failed: bool) {
+fn finish_tool(messages: &mut Vec<Message>, id: &str, output: String, failed: bool) {
+    if !messages.iter().any(|m| m.id == id) {
+        add_tool(messages, id.into(), "tool", String::new());
+    }
     if let Some(tool) = messages
         .iter_mut()
         .find(|m| m.id == id)

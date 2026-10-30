@@ -4,6 +4,14 @@ use kite_herdr::api::AgentSession;
 use kite_ssh::Session;
 use std::time::Duration;
 
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+pub struct Page {
+    pub start: String,
+    pub end: String,
+    pub has_older: bool,
+    pub has_newer: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct History {
     pub key: String,
@@ -11,6 +19,7 @@ pub struct History {
     pub available: bool,
     pub messages: Vec<Message>,
     pub async_input: crate::async_input::History,
+    pub page: Option<Page>,
 }
 
 pub fn key(reference: &AgentSession) -> String {
@@ -21,6 +30,25 @@ pub fn key(reference: &AgentSession) -> String {
 }
 
 pub async fn read(ssh: &Session, reference: &AgentSession, previous: Option<History>) -> History {
+    request(ssh, reference, previous, None).await
+}
+
+pub async fn page(ssh: &Session, reference: &AgentSession, cursor: &str, newer: bool) -> History {
+    if reference.agent != "codex"
+        || cursor.len() > 128
+        || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
+    {
+        return History::default();
+    }
+    request(ssh, reference, None, Some((cursor, newer))).await
+}
+
+async fn request(
+    ssh: &Session,
+    reference: &AgentSession,
+    previous: Option<History>,
+    page: Option<(&str, bool)>,
+) -> History {
     let cache_key = key(reference);
     let previous = previous.filter(|p| p.key == cache_key);
     if !matches!(reference.agent.as_str(), "claude" | "codex")
@@ -40,6 +68,15 @@ pub async fn read(ssh: &Session, reference: &AgentSession, previous: Option<Hist
         return History::default();
     }
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    let page_args = page
+        .map(|(cursor, newer)| {
+            format!(
+                " --{} {}",
+                if newer { "after" } else { "before" },
+                quote(cursor)
+            )
+        })
+        .unwrap_or_default();
     let script = format!(
         r#"set -eu
 provider={provider}
@@ -64,7 +101,7 @@ stamp=$(stat -c '%d:%i:%s:%y' "$file")
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
 if test "$provider" = codex; then
-  python3 "$HOME/.local/lib/kite/backend-v2.py" history --file "$file"
+  python3 "$HOME/.local/lib/kite/backend-v3.py" history --file "$file"{page_args}
 else
   tail -c 2097152 "$file"
 fi
@@ -72,7 +109,8 @@ fi
         provider = quote(&reference.agent),
         kind = quote(&reference.kind),
         value = quote(value),
-        cached = quote(previous.as_ref().map(|p| p.stamp.as_str()).unwrap_or(""))
+        cached = quote(previous.as_ref().map(|p| p.stamp.as_str()).unwrap_or("")),
+        page_args = page_args,
     );
     let Ok(Ok(output)) = tokio::time::timeout(
         Duration::from_secs(10),
@@ -98,13 +136,16 @@ fi
         return previous;
     }
     let bytes = lines.next().unwrap_or_default();
-    let (controls, bytes) = if reference.agent == "codex" {
+    let (controls, bytes, page) = if reference.agent == "codex" {
         let Some(parts) = codex_projection(bytes) else {
             return History::default();
         };
-        parts
+        let Some((page, display)) = display_page(parts.1) else {
+            return History::default();
+        };
+        (parts.0, display, Some(page))
     } else {
-        (&b""[..], bytes)
+        (&b""[..], bytes, None)
     };
     History {
         key: cache_key,
@@ -116,7 +157,21 @@ fi
         } else {
             Default::default()
         },
+        page,
     }
+}
+
+fn display_page(bytes: &[u8]) -> Option<(Page, &[u8])> {
+    let split = bytes.iter().position(|c| *c == b'\n')?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes[..split]).ok()?;
+    if value["type"] != "kite_history_page" {
+        return None;
+    }
+    let page: Page = serde_json::from_value(value).ok()?;
+    if page.start.len() > 128 || page.end.len() > 128 {
+        return None;
+    }
+    Some((page, &bytes[split + 1..]))
 }
 
 fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
@@ -133,6 +188,40 @@ fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
         return None;
     }
     Some(body.split_at(size))
+}
+
+/// Merge chronological pages, retaining tool details split across a page boundary.
+pub fn merge(older: &[Message], newer: &[Message]) -> Vec<Message> {
+    let mut result = older.to_vec();
+    let mut positions: std::collections::BTreeMap<String, usize> = result
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.id.clone(), i))
+        .collect();
+    for incoming in newer {
+        if let Some(&i) = positions.get(&incoming.id) {
+            let mut next = incoming.clone();
+            if let (Some(old), Some(new)) = (&result[i].tool, &mut next.tool) {
+                if new.name == "tool" {
+                    new.name = old.name.clone();
+                }
+                if new.arguments.is_empty() {
+                    new.arguments = old.arguments.clone();
+                }
+                if !new.complete && old.complete {
+                    new.output = old.output.clone();
+                }
+                new.complete |= old.complete;
+                new.failed |= old.failed;
+                new.computer |= old.computer;
+            }
+            result[i] = next;
+        } else {
+            positions.insert(incoming.id.clone(), result.len());
+            result.push(incoming.clone());
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -152,5 +241,32 @@ mod tests {
         ] {
             assert!(codex_projection(invalid).is_none());
         }
+    }
+
+    #[test]
+    fn page_metadata_is_separate_from_messages_and_required_fields_are_checked() {
+        let data = br#"{"type":"kite_history_page","start":"1:2:0:12","end":"1:2:12:12","has_older":false,"has_newer":false}
+records
+"#;
+        let (page, records) = display_page(data).unwrap();
+        assert_eq!(page.end, "1:2:12:12");
+        assert_eq!(records, b"records\n");
+        assert!(display_page(b"{}\n").is_none());
+        assert!(display_page(b"not json\n").is_none());
+    }
+
+    #[test]
+    fn a_tool_call_and_its_output_can_span_pages_without_losing_details() {
+        let call = parse_history("codex", br#"{"type":"response_item","payload":{"type":"function_call","call_id":"call","name":"Bash","arguments":"echo hello"}}
+"#);
+        let output = parse_history("codex", br#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call","output":"hello"}}
+"#);
+        let messages = merge(&call, &output);
+        assert_eq!(messages.len(), 1);
+        let tool = messages[0].tool.as_ref().unwrap();
+        assert_eq!(tool.name, "Bash");
+        assert_eq!(tool.arguments, "echo hello");
+        assert_eq!(tool.output, "hello");
+        assert!(tool.complete);
     }
 }

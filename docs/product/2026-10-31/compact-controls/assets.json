@@ -1,0 +1,42 @@
+[
+  {
+    "file": "portrait-trackpad-open.png",
+    "bytes": 138332,
+    "sha256": "21d363c41aaabfca0c0f1efafc34d113f263ea1c13b2ff69d33037282b0f52b1"
+  },
+  {
+    "file": "portrait-trackpad-closed.png",
+    "bytes": 161411,
+    "sha256": "2af8cc5cbd734e836e6107905e5332fc08f8b43e181419b8491778d46605af4d"
+  },
+  {
+    "file": "remote-system-keyboard.png",
+    "bytes": 146212,
+    "sha256": "0c43d5d5ac22a7226576a33e802e9de2ad1d7937b835c510343a64cc15ee3436"
+  },
+  {
+    "file": "history-oldest.png",
+    "bytes": 171280,
+    "sha256": "a7ea2fb35f2d8604a389e6626dabd526c2dd4c8c4350722a66eb5c92a3f1a091"
+  },
+  {
+    "file": "history-newest.png",
+    "bytes": 164842,
+    "sha256": "6ccea4375653476d65e2a0ce8a99ab4771a3c117ad98ca20676d4d01a2edc731"
+  },
+  {
+    "file": "fullscreen-mouse-collapsed-edge.png",
+    "bytes": 101208,
+    "sha256": "ef2449babc19076cd58c5eb6b5505beeafa512f9a1a93f38ce5bc9d8c7eb2d53"
+  },
+  {
+    "file": "fullscreen-mouse-expanded-edge.png",
+    "bytes": 112504,
+    "sha256": "9388a8305be4a9f3c19219a3489aef080a968da2f86ca0a734d46b3fbcae33d8"
+  },
+  {
+    "file": "fullscreen-zoom-pan.png",
+    "bytes": 117925,
+    "sha256": "af1449abf3d82b239e3581bd91fa4b28099abff98f6a2a13f833c956bec2a75a"
+  }
+]

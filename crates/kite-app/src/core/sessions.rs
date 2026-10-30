@@ -78,11 +78,13 @@ impl AppCore {
             s.sessions = views(&records, &s.agents);
             s.selected_session = selected;
             if s.selected_agent.is_none() {
-                s.conversation = cache
-                    .as_ref()
-                    .map(|c| c.messages.clone())
-                    .unwrap_or_default();
-                s.conversation_available = cache.is_some_and(|c| c.available);
+                s.replace_conversation(
+                    cache
+                        .as_ref()
+                        .map(|c| c.messages.clone())
+                        .unwrap_or_default(),
+                    cache.is_some_and(|c| c.available),
+                );
             }
         });
     }
@@ -115,7 +117,7 @@ impl AppCore {
         }
         Ok(catalog.clone())
     }
-    fn session_record(&self, host: &str, id: &str) -> Option<Record> {
+    pub(super) fn session_record(&self, host: &str, id: &str) -> Option<Record> {
         lock(&self.session_book)
             .catalogs
             .get(host)?
@@ -157,7 +159,7 @@ impl AppCore {
         generation: u64,
     ) -> Result<(), AppError> {
         let catalog = Repository::new(&c.ssh).observe(agents).await?;
-        self.install_catalog(&c.host.id, &catalog)?;
+        let catalog = self.install_catalog(&c.host.id, &catalog)?;
         if self.generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
@@ -210,7 +212,11 @@ impl AppCore {
                     None
                 }
             });
-        let changed = current.selected_session != selected || current.selected_agent != active;
+        let session_changed = current.selected_session != selected;
+        let changed = session_changed || current.selected_agent != active;
+        if session_changed {
+            self.reset_history_view();
+        }
         let cache = selected.as_ref().and_then(|id| {
             lock(&self.session_book)
                 .histories
@@ -223,11 +229,16 @@ impl AppCore {
             s.selected_session = selected.clone();
             s.selected_agent = active;
             if changed {
-                s.conversation = cache
-                    .as_ref()
-                    .map(|c| c.messages.clone())
-                    .unwrap_or_default();
-                s.conversation_available = cache.is_some_and(|c| c.available);
+                if session_changed {
+                    s.history_status = HistoryStatus::default();
+                    s.replace_conversation(
+                        cache
+                            .as_ref()
+                            .map(|c| c.messages.clone())
+                            .unwrap_or_default(),
+                        cache.is_some_and(|c| c.available),
+                    );
+                }
                 s.composer = Composer::default();
                 s.approval = None;
                 s.question = None;
@@ -248,7 +259,7 @@ impl AppCore {
         if selected_changed {
             self.persist_session_book()?;
         }
-        if changed {
+        if session_changed {
             *lock(&self.history) = None;
         }
         Ok(())
@@ -259,7 +270,7 @@ impl AppCore {
         agents: &[Agent],
     ) -> Result<Option<Agent>, AppError> {
         let catalog = Repository::new(&c.ssh).observe(agents).await?;
-        self.install_catalog(&c.host.id, &catalog)?;
+        let catalog = self.install_catalog(&c.host.id, &catalog)?;
         if agents.is_empty() && !catalog.sessions.is_empty() {
             let selected = lock(&self.session_book)
                 .selected
@@ -301,8 +312,7 @@ impl AppCore {
         {
             return Ok(false);
         }
-        if !available
-            && messages.is_empty()
+        if messages.is_empty()
             && book
                 .histories
                 .get(&key)
@@ -337,6 +347,9 @@ impl AppCore {
     }
     pub(super) async fn record_selected_history(&self, c: &Connected) -> Result<(), AppError> {
         let snapshot = self.snapshot();
+        if !snapshot.history_status.following_latest {
+            return Ok(());
+        }
         if snapshot.selected_host.as_deref() != Some(&c.host.id) {
             return Ok(());
         }
@@ -384,12 +397,7 @@ impl AppCore {
             && self.snapshot().selected_session.as_ref() == Some(&id)
             && self.snapshot().selected_agent.is_none()
         {
-            let messages = history.messages.clone();
-            *lock(&self.history) = Some(history);
-            self.update(|s| {
-                s.conversation = messages;
-                s.conversation_available = true;
-            });
+            self.present_history(&history, history.messages.clone());
             self.record_selected_history(c).await?;
         }
         Ok(())
@@ -427,14 +435,18 @@ impl AppCore {
                 .selected
                 .insert(host.clone(), Some(id.clone()));
             core.persist_session_book()?;
+            core.reset_history_view();
             core.update(|s| {
                 s.selected_session = Some(id);
+                s.history_status = HistoryStatus::default();
                 s.selected_agent = active;
-                s.conversation = cache
-                    .as_ref()
-                    .map(|c| c.messages.clone())
-                    .unwrap_or_default();
-                s.conversation_available = cache.is_some_and(|c| c.available);
+                s.replace_conversation(
+                    cache
+                        .as_ref()
+                        .map(|c| c.messages.clone())
+                        .unwrap_or_default(),
+                    cache.is_some_and(|c| c.available),
+                );
                 s.composer = Composer::default();
                 s.approval = None;
                 s.question = None;
@@ -519,6 +531,7 @@ impl AppCore {
             let catalog = Repository::new(&c.ssh).archive(&id, archived).await?;
             core.install_catalog(&c.host.id, &catalog)?;
             if archived && core.snapshot().selected_session.as_ref() == Some(&id) {
+                core.reset_history_view();
                 let next = catalog
                     .sessions
                     .iter()
@@ -531,8 +544,9 @@ impl AppCore {
                 core.update(|s| {
                     s.selected_session = next;
                     s.selected_agent = None;
-                    s.conversation.clear();
+                    s.replace_conversation(Vec::new(), false);
                     s.conversation_available = false;
+                    s.history_status = HistoryStatus::default();
                     s.composer = Composer::default();
                     s.approval = None;
                     s.question = None;
@@ -588,12 +602,14 @@ impl AppCore {
                 .selected
                 .insert(c.host.id.clone(), Some(id.clone()));
             core.persist_session_book()?;
+            core.reset_history_view();
             core.update(|s| {
                 s.sessions = views(&catalog.sessions, &s.agents);
                 s.selected_session = Some(id.clone());
                 s.selected_agent = None;
-                s.conversation.clear();
+                s.replace_conversation(Vec::new(), false);
                 s.conversation_available = false;
+                s.history_status = HistoryStatus::default();
                 s.composer = Composer::default();
                 s.approval = None;
                 s.question = None;
@@ -695,5 +711,29 @@ mod tests {
         assert!(view.archived && view.agent_id.is_none() && !view.recorded);
         assert_eq!(view.provider, "claude");
         assert_eq!(restored.selected["host"], Some("a".into()));
+    }
+    #[test]
+    fn an_empty_successful_or_failed_read_never_erases_a_nonempty_cache() {
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let message = Message {
+            id: "old".into(),
+            role: Role::Assistant,
+            text: "retained history".into(),
+            intermediate: false,
+            tool: None,
+        };
+        core.cache_conversation("host", "session", std::slice::from_ref(&message), true)
+            .unwrap();
+        for available in [true, false] {
+            assert!(
+                !core
+                    .cache_conversation("host", "session", &[], available)
+                    .unwrap()
+            );
+            assert_eq!(
+                lock(&core.session_book).histories[&domain::cache_key("host", "session")].messages,
+                vec![message.clone()]
+            );
+        }
     }
 }

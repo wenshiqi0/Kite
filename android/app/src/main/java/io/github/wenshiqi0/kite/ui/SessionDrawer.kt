@@ -39,9 +39,9 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                 FilterChip(selected = archived == filter, onClick = { archived = filter }, label = { Text(stringResource(if (filter) R.string.archived_sessions else R.string.active_sessions)) })
             }
         }
-        val sessions = state?.sessions.orEmpty().filter { it.archived == archived }
+        val sessions = remember(state?.sessions,archived){state?.sessions.orEmpty().filter { it.archived == archived }}
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(sessions, key = { it.id }) { session ->
+            items(sessions, key = { it.id },contentType={"session"}) { session ->
                 var menu by remember(session.id) { mutableStateOf(false) }
                 val selected = state?.selectedSession == session.id
                 Surface(color = if (selected) Color(0xFFE8F1FC) else Color.Transparent, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {

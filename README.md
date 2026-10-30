@@ -6,13 +6,13 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 
 ## What you can do
 
-- Keep a connection to your own machine over SSH.
+- Manage your machines as host cards, edit their connection settings, and connect over SSH.
 - Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
-- Organize saved sessions, continue earlier conversations, and archive them while their tasks keep running.
+- Organize saved sessions, page through earlier messages, continue conversations, and archive them while their tasks keep running.
 - Read compact, collapsible tool activity; answer model questions with choices or text and see live response feedback.
 - Choose a Codex model and reasoning effort, and send images, files and audio attachments.
 - Keep the live desktop in a draggable window, dock it to the edge, use split view or fullscreen, and continue watching in Android picture-in-picture.
-- Switch between Watch and Operate. Zoom and pan in either mode, with direct touch, a floating mouse and wheel, or a trackpad. Pause or resume an agent separately when needed.
+- Switch between Watch and Operate. Zoom and pan, type with the system keyboard, and use a collapsible trackpad below the desktop or a compact fullscreen mouse and wheel. Pause or resume an agent separately when needed.
 - Enable automatic text clipboard sharing with one switch in settings, then copy and paste normally between phone and desktop.
 - Fit the full desktop to your phone while preserving its source resolution, with responsiveness as the priority.
 
