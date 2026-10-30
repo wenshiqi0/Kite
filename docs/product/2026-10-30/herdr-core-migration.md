@@ -12,10 +12,21 @@ The user selected evaluation of herdr-core migration with history, trust and dev
 
 The proof is terminal transport migration plus preserved provider history/context. It is not a full production rollout or a reboot-recovery claim.
 
+## Follow-up: provider process restart
+
+After publishing the Alpha 11 source tag, the disposable legacy provider owner and the first isolated hc runtime were stopped. A new hc runtime launched a fresh `codex app-server` on a separate owned Unix socket, and a new hc terminal resumed the original provider thread against it.
+
+- `/proc` verified a different provider PID and absence of `HERDR_PANE_ID` in the new process environment.
+- The new terminal displayed the previous history. A follow-up sent through hc returned **`KITE-RESTART-RESTORED CEDAR42`**, recalling the original first-turn token after the provider process restart.
+- A direct JSON-RPC `thread/loaded/list` on the new provider socket confirmed the exact original thread ID, independently of the CLI resume arguments.
+- Production Herdr TUI, its provider owner and the user's active conversation were not migrated or sent a prompt.
+
+This adds process-restart feasibility to terminal reattachment. It does not establish automatic OS boot recovery, migration of the whole session catalogue, or correct routing of every model interaction.
+
 ## Remaining migration requirements
 
-The old private app-server still inherited the legacy pane environment. Reattaching a TUI does not rewrite the environment used by model tools. A product migration must bind runtime-independent agent/provider identities, route messages and approvals by that identity, and define a clean provider-owner transition at an idle or explicitly approved boundary. It must not launch a second owner for an already running thread.
+The first private app-server inherited the legacy pane environment; the follow-up demonstrates a clean process restart without it. Reattaching a TUI alone does not rewrite the environment used by model tools. A product migration must bind runtime-independent agent/provider identities, route messages and approvals by that identity, and perform the provider-owner transition at an idle or explicitly approved boundary. It must not launch a second owner for an already running thread.
 
-Herdr-core terminals use addresses such as `t1`, distinct from Herdr TUI pane/terminal IDs. The new backend needs an explicit adapter and mapping; changing the executable name is insufficient. Questions, execution approvals, archive/restore, connection loss, parent/child lifecycle and provider-owner restart need separate validation before switching production.
+Herdr-core terminals use addresses such as `t1`, distinct from Herdr TUI pane/terminal IDs. The new backend needs an explicit adapter and mapping; changing the executable name is insufficient. Questions, execution approvals, archive/restore, connection loss, parent/child lifecycle and automatic owner recovery need separate validation before switching production.
 
 Sources: [herdr-core](https://herdr.dev/core/), [separation from Herdr TUI](https://herdr.dev/#questions), [runtime security and sessions](https://github.com/herdrdev/herdr-core/blob/master/docs/security.md).
