@@ -19,6 +19,10 @@ Only tagged builds publish a user-facing GitHub Release. They are always prerele
 
 Alpha uses the same signing identity as the earlier test APKs so existing installations can upgrade without replacing their device SSH key, hosts or trust records. The keystore remains outside Git. CI receives it through an encrypted Actions secret; it is never an artifact.
 
+Alpha 10 explicitly enables APK signing schemes v1, v2 and v3 with this same key. The publisher requires all three schemes to verify and checks 16 KiB ZIP alignment before creating the release manifest. These checks cover the reported `-103` certificate-collection failure path; a handset's downloaded bytes and installer behavior still require device verification. Signature schemes and ZIP alignment are recorded in the manifest.
+
+The JAR/v1 check runs separately with the verifier constrained to API 23, because the normal minimum-API-26 verification can skip the v1 path even when it is present. Both verification passes must report the same certificate. This does not lower the app's minimum supported Android version.
+
 Configure these repository settings before the first signed build:
 
 | Setting | Kind | Purpose |

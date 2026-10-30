@@ -68,11 +68,23 @@ def inspect_apk(apk, tools, version, code):
     require("application-debuggable" not in badging, "Alpha APK must use the Release variant.")
     abi_line = next(line for line in badging.splitlines() if line.startswith("native-code:"))
     abis = re.findall(r"'([^']+)'", abi_line)
-    signature = run(str(tools / "apksigner"), "verify", "--print-certs", str(apk))
+    signature = run(str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(apk))
+    for scheme in (2, 3):
+        require(re.search(rf"^Verified using v{scheme} scheme .*: true$", signature, re.MULTILINE),
+                f"Alpha APK must verify with signing scheme v{scheme}.")
     certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", signature)
     require(certificate is not None, "APK signature verification failed.")
     expected = os.environ.get("KITE_EXPECTED_CERTIFICATE_SHA256")
     require(not expected or certificate[1].lower() == expected.lower(), "APK signing certificate changed.")
+    # With minSdk >= 24, apksigner does not exercise the JAR path by default.
+    legacy = run(str(tools / "apksigner"), "verify", "--verbose", "--print-certs",
+                 "--min-sdk-version", "23", "--max-sdk-version", "23", str(apk))
+    require(re.search(r"^Verified using v1 scheme .*: true$", legacy, re.MULTILINE),
+            "Alpha APK must verify with signing scheme v1.")
+    legacy_certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", legacy)
+    require(legacy_certificate and legacy_certificate[1].lower() == certificate[1].lower(),
+            "APK signature schemes must use the same certificate.")
+    run(str(tools / "zipalign"), "-c", "-P", "16", "4", str(apk))
     return abis, certificate[1]
 
 
@@ -144,8 +156,8 @@ def main():
         require(keystore.is_file(), "Configure the existing Alpha signing keystore outside the repository.")
         sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))
         candidates = [p for p in (sdk / "build-tools").glob("*")
-                      if (p / "aapt2").is_file() and (p / "apksigner").is_file()]
-        require(candidates, "Set ANDROID_HOME to an SDK containing aapt2 and apksigner.")
+                      if all((p / name).is_file() for name in ("aapt2", "apksigner", "zipalign"))]
+        require(candidates, "Set ANDROID_HOME to an SDK containing aapt2, apksigner and zipalign.")
         tools = max(candidates, key=lambda p: tuple(map(int, re.findall(r"\d+", p.name))))
         signing = {
             "store.file": str(keystore),
@@ -169,7 +181,8 @@ def main():
         manifest = {"versionName": version, "versionCode": code, "sourceCommit": head,
                     "variant": "release", "debuggable": False, "abis": abis,
                     "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
-                    "signingCertificateSha256": certificate, "androidLint": "passed"}
+                    "signingCertificateSha256": certificate, "signingSchemes": [1, 2, 3],
+                    "zipAlignmentKiB": 16, "androidLint": "passed"}
         manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
         sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]))
         print(str(output), flush=True)

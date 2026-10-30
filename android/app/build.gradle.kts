@@ -161,6 +161,12 @@ androidComponents {
     }
 
     onVariants { variant ->
+        variant.signingConfig?.apply {
+            enableV1Signing.set(true)
+            enableV2Signing.set(true)
+            enableV3Signing.set(true)
+            enableV4Signing.set(false)
+        }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoNdkBuild, CargoNdkBuild::outputDir)
         variant.sources.kotlin?.addGeneratedSourceDirectory(uniffiBindgen, UniffiBindgen::outputDir)
     }
