@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
                 SideEffect {
                     if (!model.inPip && requestedOrientation != orientation) requestedOrientation = orientation
                     val bars = WindowInsetsControllerCompat(window, window.decorView)
-                    bars.isAppearanceLightStatusBars = true
+                    bars.isAppearanceLightStatusBars = false
+                    bars.isAppearanceLightNavigationBars = false
                     bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     if (!model.inPip) {
                         if (immersive) bars.hide(WindowInsetsCompat.Type.systemBars()) else bars.show(WindowInsetsCompat.Type.systemBars())

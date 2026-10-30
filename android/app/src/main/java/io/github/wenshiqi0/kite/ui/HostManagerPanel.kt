@@ -1,5 +1,7 @@
 package io.github.wenshiqi0.kite.ui
 
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,18 +35,18 @@ fun HostSetupScreen(vm:HostCheckViewModel,onBack:()->Unit){
                 items(state?.hosts.orEmpty(),key={it.id},contentType={"host"}){host->
                     val connected=state?.selectedHost==host.id&&state?.connection==ConnectionStatus.CONNECTED
                     val connecting=state?.selectedHost==host.id&&state?.connection==ConnectionStatus.CONNECTING
-                    Card(onClick={vm.chooseHost(host)},enabled=!vm.savingHost&&!connecting,modifier=Modifier.fillMaxWidth().semantics{contentDescription="编辑主机 "+host.host},colors=CardDefaults.cardColors(containerColor=if(connected)Color(0xFFEAF2FC)else Color(0xFFF5F6F1))){
+                    Card(onClick={vm.chooseHost(host)},enabled=!vm.savingHost&&!connecting,modifier=Modifier.fillMaxWidth().semantics{contentDescription="编辑主机 "+host.host},colors=CardDefaults.cardColors(containerColor=if(connected)KiteColors.AccentSurface else KiteColors.Surface)){
                         Column(Modifier.padding(16.dp)){
                             Row(verticalAlignment=Alignment.CenterVertically){
                                 ProductIcon(Mark.Monitor,modifier=Modifier.size(24.dp))
                                 Column(Modifier.weight(1f).padding(start=12.dp)){
                                     Text(host.host,fontSize=16.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                    Text(host.username+" · SSH "+host.port,fontSize=12.sp,color=Color(0xFF737B71))
+                                    Text(host.username+" · SSH "+host.port,fontSize=12.sp,color=KiteColors.Muted)
                                 }
                                 ProductIcon(Mark.Settings,modifier=Modifier.size(18.dp))
                             }
                             Row(Modifier.fillMaxWidth().padding(top=8.dp),verticalAlignment=Alignment.CenterVertically){
-                                Text(if(connected)"已连接"else if(connecting)"连接中…"else"已保存",fontSize=12.sp,color=Color(0xFF737B71),modifier=Modifier.weight(1f))
+                                Text(if(connected)"已连接"else if(connecting)"连接中…"else"已保存",fontSize=12.sp,color=KiteColors.Muted,modifier=Modifier.weight(1f))
                                 TextButton(onClick={if(connected)onBack()else vm.connectSaved(host)},enabled=!connecting&&!vm.savingHost){Text(if(connected)"进入工作区"else"连接",fontSize=13.sp)}
                             }
                         }

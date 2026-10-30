@@ -2,7 +2,7 @@
 use crate::{Message, parse_history};
 use kite_herdr::api::AgentSession;
 use kite_ssh::Session;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
 pub struct Page {
@@ -20,6 +20,7 @@ pub struct History {
     pub messages: Vec<Message>,
     pub async_input: crate::async_input::History,
     pub page: Option<Page>,
+    pub positions: std::collections::BTreeMap<String, (u64, u32)>,
 }
 
 pub fn key(reference: &AgentSession) -> String {
@@ -29,16 +30,25 @@ pub fn key(reference: &AgentSession) -> String {
     ))
 }
 
-pub async fn read(ssh: &Session, reference: &AgentSession, previous: Option<History>) -> History {
+pub async fn read(
+    ssh: &Session,
+    reference: &AgentSession,
+    previous: Option<Arc<History>>,
+) -> Arc<History> {
     request(ssh, reference, previous, None).await
 }
 
-pub async fn page(ssh: &Session, reference: &AgentSession, cursor: &str, newer: bool) -> History {
+pub async fn page(
+    ssh: &Session,
+    reference: &AgentSession,
+    cursor: &str,
+    newer: bool,
+) -> Arc<History> {
     if reference.agent != "codex"
         || cursor.len() > 128
         || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
     {
-        return History::default();
+        return Arc::new(History::default());
     }
     request(ssh, reference, None, Some((cursor, newer))).await
 }
@@ -46,26 +56,26 @@ pub async fn page(ssh: &Session, reference: &AgentSession, cursor: &str, newer: 
 async fn request(
     ssh: &Session,
     reference: &AgentSession,
-    previous: Option<History>,
+    previous: Option<Arc<History>>,
     page: Option<(&str, bool)>,
-) -> History {
+) -> Arc<History> {
     let cache_key = key(reference);
     let previous = previous.filter(|p| p.key == cache_key);
     if !matches!(reference.agent.as_str(), "claude" | "codex")
         || !matches!(reference.kind.as_str(), "id" | "path")
     {
-        return History::default();
+        return Arc::new(History::default());
     }
     let value = &reference.value;
     if value.is_empty() || value.len() > 1024 || value.contains(['\0', '\n', '\r']) {
-        return History::default();
+        return Arc::new(History::default());
     }
     if reference.kind == "id"
         && !value
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
     {
-        return History::default();
+        return Arc::new(History::default());
     }
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let page_args = page
@@ -101,7 +111,7 @@ stamp=$(stat -c '%d:%i:%s:%y' "$file")
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
 if test "$provider" = codex; then
-  python3 "$HOME/.local/lib/kite/backend-v3.py" history --file "$file"{page_args}
+  python3 "$HOME/.local/lib/kite/backend-v4.py" history --compressed --file "$file"{page_args}
 else
   tail -c 2097152 "$file"
 fi
@@ -113,22 +123,22 @@ fi
         page_args = page_args,
     );
     let Ok(Ok(output)) = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(30),
         ssh.exec("/bin/sh -s", script.as_bytes()),
     )
     .await
     else {
-        return History::default();
+        return Arc::new(History::default());
     };
-    if output.exit_status != Some(0) || output.stdout.len() > 2097280 {
-        return History::default();
+    if output.exit_status != Some(0) || output.stdout.len() > 4 * 1024 * 1024 {
+        return Arc::new(History::default());
     }
     let mut lines = output.stdout.splitn(3, |b| *b == b'\n');
     if lines.next() != Some(b"kite-history-v1".as_slice()) {
-        return History::default();
+        return Arc::new(History::default());
     }
     let Some(stamp) = lines.next().and_then(|b| std::str::from_utf8(b).ok()) else {
-        return History::default();
+        return Arc::new(History::default());
     };
     if let Some(previous) = previous
         && previous.stamp == stamp
@@ -136,18 +146,28 @@ fi
         return previous;
     }
     let bytes = lines.next().unwrap_or_default();
+    let decoded;
+    let bytes = if reference.agent == "codex" {
+        let Some(value) = decode_history(bytes) else {
+            return Arc::new(History::default());
+        };
+        decoded = value;
+        decoded.as_slice()
+    } else {
+        bytes
+    };
     let (controls, bytes, page) = if reference.agent == "codex" {
         let Some(parts) = codex_projection(bytes) else {
-            return History::default();
+            return Arc::new(History::default());
         };
         let Some((page, display)) = display_page(parts.1) else {
-            return History::default();
+            return Arc::new(History::default());
         };
         (parts.0, display, Some(page))
     } else {
         (&b""[..], bytes, None)
     };
-    History {
+    Arc::new(History {
         key: cache_key,
         stamp: stamp.into(),
         available: true,
@@ -157,8 +177,20 @@ fi
         } else {
             Default::default()
         },
+        positions: record_positions(bytes),
         page,
-    }
+    })
+}
+
+fn decode_history(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let decoder = flate2::read::GzDecoder::new(bytes);
+    let mut output = Vec::new();
+    decoder
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut output)
+        .ok()?;
+    (output.len() <= 4 * 1024 * 1024).then_some(output)
 }
 
 fn display_page(bytes: &[u8]) -> Option<(Page, &[u8])> {
@@ -191,34 +223,76 @@ fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 /// Merge chronological pages, retaining tool details split across a page boundary.
+pub fn merge_message(older: &Message, newer: &Message) -> Message {
+    let mut next = newer.clone();
+    if let (Some(old), Some(new)) = (&older.tool, &mut next.tool) {
+        if new.name == "tool" {
+            new.name = old.name.clone();
+        }
+        if new.arguments.is_empty() {
+            new.arguments = old.arguments.clone();
+        }
+        if !new.complete && old.complete {
+            new.output = old.output.clone();
+        }
+        new.complete |= old.complete;
+        new.failed |= old.failed;
+        new.computer |= old.computer;
+    }
+    next
+}
+
 pub fn merge(older: &[Message], newer: &[Message]) -> Vec<Message> {
     let mut result = older.to_vec();
-    let mut positions: std::collections::BTreeMap<String, usize> = result
+    let mut positions: std::collections::BTreeMap<_, _> = result
         .iter()
         .enumerate()
         .map(|(i, m)| (m.id.clone(), i))
         .collect();
     for incoming in newer {
         if let Some(&i) = positions.get(&incoming.id) {
-            let mut next = incoming.clone();
-            if let (Some(old), Some(new)) = (&result[i].tool, &mut next.tool) {
-                if new.name == "tool" {
-                    new.name = old.name.clone();
-                }
-                if new.arguments.is_empty() {
-                    new.arguments = old.arguments.clone();
-                }
-                if !new.complete && old.complete {
-                    new.output = old.output.clone();
-                }
-                new.complete |= old.complete;
-                new.failed |= old.failed;
-                new.computer |= old.computer;
-            }
-            result[i] = next;
+            result[i] = merge_message(&result[i], incoming);
         } else {
             positions.insert(incoming.id.clone(), result.len());
             result.push(incoming.clone());
+        }
+    }
+    result
+}
+
+fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u32)> {
+    use serde_json::Value;
+    let mut result = std::collections::BTreeMap::new();
+    for line in bytes.split(|b| *b == b'\n') {
+        let Ok(mut value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let Some(offset) = value
+            .as_object_mut()
+            .and_then(|v| v.remove("_kite_offset"))
+            .and_then(|v| v.as_u64())
+        else {
+            continue;
+        };
+        let p = &value["payload"];
+        let id = if p["type"] == "message" {
+            p["id"]
+                .as_str()
+                .or_else(|| value["uuid"].as_str())
+                .or_else(|| value["id"].as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| crate::fingerprint(&value.to_string()))
+        } else if let Some(id) = p["call_id"].as_str() {
+            id.into()
+        } else {
+            continue;
+        };
+        result
+            .entry(id.clone())
+            .and_modify(|old| *old = std::cmp::min(*old, (offset, 0)))
+            .or_insert((offset, 0));
+        if p["type"] == "function_call_output" {
+            result.insert(format!("{id}-answer"), (offset, 1));
         }
     }
     result
@@ -268,5 +342,39 @@ records
         assert_eq!(tool.arguments, "echo hello");
         assert_eq!(tool.output, "hello");
         assert!(tool.complete);
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn compressed_pages_decode_with_a_hard_bound() {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(b"projected records").unwrap();
+        assert_eq!(
+            decode_history(&encoder.finish().unwrap()).unwrap(),
+            b"projected records"
+        );
+        let mut bomb = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        bomb.write_all(&vec![b'x'; 5 * 1024 * 1024]).unwrap();
+        assert!(decode_history(&bomb.finish().unwrap()).is_none());
+        assert!(decode_history(b"not gzip").is_none());
+    }
+    #[test]
+    fn transport_offsets_do_not_change_provider_message_identity() {
+        let original=br#"{"timestamp":"2026-10-31T00:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"same message"}]}}"#;
+        let mut projected: serde_json::Value = serde_json::from_slice(original).unwrap();
+        projected["_kite_offset"] = 12345.into();
+        let projected = serde_json::to_vec(&projected).unwrap();
+        assert_eq!(
+            parse_history("codex", original),
+            parse_history("codex", &projected)
+        );
+        assert_eq!(
+            record_positions(&projected).values().next(),
+            Some(&(12345, 0))
+        );
     }
 }

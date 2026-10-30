@@ -21,7 +21,8 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0009](0009-async-questions-in-chat.md) | 聊天中的异步问题 | 已实现（Android Alpha 9） |
 | [0010](0010-hybrid-input-and-clipboard.md) | 混合鼠标、双向剪贴板与聊天入口 | 已采纳 |
 | [0011](0011-compact-desktop-controls.md) | 桌面下方触控板与紧凑鼠标控件 | 已实现 |
-| [0012](0012-history-pagination.md) | 长会话历史分页与浏览位置保护 | 已实现 |
+| [0012](0012-history-pagination.md) | 长会话历史分页与浏览位置保护 | 已被 0013 取代 |
+| [0013](0013-complete-transcript-and-dark-workspace.md) | 完整数据、虚拟渲染与深色工作区 | 已实现（Alpha 13） |
 
 ## 什么时候写 RFC
 

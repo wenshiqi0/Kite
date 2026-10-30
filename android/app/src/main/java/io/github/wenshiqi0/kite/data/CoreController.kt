@@ -21,6 +21,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.Channel
+import io.github.wenshiqi0.kite.ui.ChatTimelineState
 import java.io.File
 
 /** One process-wide Core and observer; no Activity-owned domain state. */
@@ -35,6 +39,9 @@ class CoreController(private val context: Context) {
     private val current = MutableStateFlow<CoreSnapshot?>(null)
     val state = current.asStateFlow()
     val platformError = MutableStateFlow<String?>(null)
+    val timeline=ChatTimelineState()
+    private val conversationRequests=Channel<Unit>(Channel.CONFLATED)
+    private var requestedConversation:Pair<String,ULong>?=null
     private var lastRevision: ULong? = null
     private var foregroundWanted = false
     private var foregroundRequested = false
@@ -45,12 +52,33 @@ class CoreController(private val context: Context) {
             main.post {
                 if (lastRevision == null || snapshot.revision > lastRevision!!) {
                     lastRevision = snapshot.revision
+                    timeline.prepareContext(snapshot.conversationContext)
                     current.value = snapshot
+                    val requested=snapshot.conversationContext to snapshot.conversationRevision
+                    if(requestedConversation!=requested){requestedConversation=requested;conversationRequests.trySend(Unit)}
                     refreshForeground(snapshot)
                 }
             }
         }
     })
+
+    init {
+        scope.launch {
+            for(signal in conversationRequests) {
+                val requestContext=timeline.appliedContext
+                val requestRevision=timeline.revision
+                try {
+                    var delta=withContext(Dispatchers.Default){core.conversationSince(requestContext,requestRevision)}
+                    if(delta.context!=current.value?.conversationContext)continue
+                    try {timeline.apply(delta)}catch(e:IllegalArgumentException) {
+                        delta=withContext(Dispatchers.Default){core.conversationSince("",0uL)}
+                        if(delta.context==current.value?.conversationContext)timeline.apply(delta)
+                    }
+                }catch(e:CancellationException){throw e}
+                catch(e:Exception){platformError.value=context.getString(R.string.error_action)+"\n"+(e.message?:e.javaClass.simpleName)}
+            }
+        }
+    }
 
     fun initialize() = command {
         core.initialize(File(context.filesDir, "core").absolutePath, "kite@${Build.MODEL}", HostStore(context).legacyData())
@@ -58,7 +86,7 @@ class CoreController(private val context: Context) {
 
     fun command(action: suspend () -> Unit) {
         scope.launch {
-            try { action() } catch (e: Exception) {
+            try { action() } catch(e:CancellationException){throw e} catch (e: Exception) {
                 platformError.value = context.getString(R.string.error_action) + "\n" + (e.message ?: e.javaClass.simpleName)
                 current.value?.let(::refreshForeground)
             }

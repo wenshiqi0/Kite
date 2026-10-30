@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.Kite" parent="Theme.Kite.Base">
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowSplashScreenBackground">#111316</item>
+    </style>
+</resources>

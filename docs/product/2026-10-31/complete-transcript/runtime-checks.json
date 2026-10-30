@@ -1,0 +1,45 @@
+{
+  "environment": "Owned ARM64 API 36 emulator and isolated Linux X11 desktop through QA relays",
+  "tests": [
+    {
+      "name": "complete-cache-and-local-scroll",
+      "status": "PASS",
+      "detail": "With the owned provider log temporarily unavailable, the app reopened cached data and scrolled older records locally; all 10000 records and the 3MiB tool output remain in the independent cache."
+    },
+    {
+      "name": "split-controls-and-release",
+      "status": "PASS",
+      "detail": "Owned canvas receives both held-button movements, paired releases and continuous wheel input."
+    },
+    {
+      "name": "split-layout-space",
+      "status": "PASS",
+      "detail": "Closing the 176dp panel returns space to Chat and keeps the composer bottom fixed."
+    },
+    {
+      "name": "fullscreen-reference-control",
+      "status": "PASS",
+      "detail": "Mouse-shaped left/right/wheel control and right-hand rail replace the fullscreen trackpad; lower positioning grip and close button stay reachable at the edge."
+    },
+    {
+      "name": "zoom-pan-coordinate-mapping",
+      "status": "PASS",
+      "detail": "At 2x zoom after a 110x40 pan, the viewport center maps to source (905,520). One-finger panning sends no remote drag."
+    },
+    {
+      "name": "large-tool-output-virtualized",
+      "status": "PASS",
+      "detail": "The full 3MiB tool result stays in data/cache; its detail dialog lays out only bounded 1024-character chunks in a virtual list."
+    },
+    {
+      "name": "new-output-preserves-reading-position",
+      "status": "PASS",
+      "detail": "Appending source message QA10000 keeps the same earlier visible messages and pixel bounds; the collection is updated without automatic scrolling."
+    },
+    {
+      "name": "return-to-latest-is-local",
+      "status": "PASS",
+      "detail": "Return-to-latest scrolls the complete local collection to the appended message without replacing it."
+    }
+  ]
+}

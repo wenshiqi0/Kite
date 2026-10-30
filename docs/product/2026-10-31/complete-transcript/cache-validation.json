@@ -1,0 +1,8 @@
+{
+  "records": 10000,
+  "first": "qa-message-00000",
+  "last": "qa-message-09999",
+  "largeToolOutputBytes": 3145728,
+  "independentCache": true,
+  "inlineBodiesInCatalog": false
+}

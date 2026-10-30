@@ -30,7 +30,6 @@ import io.github.wenshiqi0.kite.core.ClipboardPlatformInfo
 import kotlinx.coroutines.launch
 
 enum class DesktopLayout { Closed, Floating, Docked, Split, Fullscreen }
-enum class DesktopInputMode { Hybrid, Trackpad, Direct }
 
 class HostCheckViewModel(application: Application) : AndroidViewModel(application) {
     val engine = (application as KiteApplication).engine
@@ -58,8 +57,6 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var floatingX by mutableStateOf(.90f)
     var floatingY by mutableStateOf(.28f)
     var zoom by mutableStateOf(1f)
-    var inputMode by mutableStateOf(DesktopInputMode.Hybrid)
-        private set
     var heldMouseButtons by mutableIntStateOf(0)
         private set
     var clipboardBusy by mutableStateOf(false)
@@ -136,7 +133,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                         layout = DesktopLayout.Floating; autoDocked = false
                     }
                     lastStatus = status
-                    val latest = state.conversation.lastOrNull()
+                    val latest = engine.timeline.messages.lastOrNull()
                     if (autoDesktop && latest?.tool?.computer == true && !latest.tool!!.complete && status == "working" && seenComputerCalls.add(latest.id) && layout == DesktopLayout.Closed) {
                         layout = DesktopLayout.Floating
                     }
@@ -362,7 +359,6 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         } finally { clipboardBusy = false } }
         return true
     }
-    fun chooseInputMode(mode: DesktopInputMode) { releaseMouseButtons(); releaseModifiers(); inputMode = mode; panMode = false; pointerMotion.reset() }
     fun hideTouchpad() { if(touchpadVisible){releaseMouseButtons();touchpadVisible=false} }
     fun toggleTouchpad() {
         if(touchpadVisible)hideTouchpad()
@@ -389,6 +385,13 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun leftClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
     fun rightClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
     fun scroll(vertical: Int) { if (target != 0L) NativeMedia.scroll(target, 0, vertical) }
+    fun desktopChord(modifierKey:Int,key:Int,mask:Int) {
+        flushRemoteText?.invoke()
+        if(target==0L||engine.state.value?.desktop?.takeover!=true)return
+        NativeMedia.key(target,modifierKey,true,0)
+        NativeMedia.key(target,key,true,mask);NativeMedia.key(target,key,false,mask)
+        NativeMedia.key(target,modifierKey,false,0)
+    }
     fun shortcut(key: Int, ctrl: Boolean = false) {
         flushRemoteText?.invoke()
         if (target == 0L) return

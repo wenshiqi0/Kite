@@ -389,21 +389,54 @@ impl From<kite_app::ConversationSession> for SessionInfo {
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct HistoryInfo {
-    pub has_older: bool,
-    pub has_newer: bool,
-    pub following_latest: bool,
     pub loading: bool,
+    pub complete: bool,
     pub failed: bool,
 }
 impl From<kite_app::HistoryStatus> for HistoryInfo {
-    fn from(value: kite_app::HistoryStatus) -> Self {
+    fn from(v: kite_app::HistoryStatus) -> Self {
         Self {
-            has_older: value.has_older,
-            has_newer: value.has_newer,
-            following_latest: value.following_latest,
-            loading: value.loading,
-            failed: value.failed,
+            loading: v.loading,
+            complete: v.complete,
+            failed: v.failed,
         }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConversationEditInfo {
+    pub at: u64,
+    pub remove: u64,
+    pub items: Vec<MessageInfo>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConversationDeltaInfo {
+    pub context: String,
+    pub revision: u64,
+    pub reset: bool,
+    pub edits: Vec<ConversationEditInfo>,
+}
+fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
+    let (text, attachments) = kite_app::split_chat_attachments(&m.text);
+    MessageInfo {
+        attachments: attachments.into_iter().map(Into::into).collect(),
+        id: m.id.clone(),
+        kind: match m.role {
+            kite_app::ChatRole::User => MessageKind::User,
+            kite_app::ChatRole::Assistant => MessageKind::Assistant,
+            kite_app::ChatRole::Tool => MessageKind::Tool,
+        },
+        text,
+        intermediate: m.intermediate,
+        tool: m.tool.as_ref().map(|t| ToolInfo {
+            label: t.label(),
+            summary: t.summary(),
+            name: t.name.clone(),
+            arguments: t.arguments.clone(),
+            output: t.output.clone(),
+            complete: t.complete,
+            failed: t.failed,
+            computer: t.computer,
+        }),
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
@@ -425,7 +458,8 @@ pub struct CoreSnapshot {
     pub sessions: Vec<SessionInfo>,
     pub selected_session: Option<String>,
     pub agent_output: String,
-    pub conversation: Vec<MessageInfo>,
+    pub conversation_context: String,
+    pub conversation_count: u64,
     pub conversation_revision: u64,
     pub conversation_available: bool,
     pub history: HistoryInfo,
@@ -440,6 +474,7 @@ pub struct CoreSnapshot {
 
 impl From<kite_app::Snapshot> for CoreSnapshot {
     fn from(s: kite_app::Snapshot) -> Self {
+        let conversation_context = s.conversation_context();
         use kite_app::{ConnectionPhase as C, DesktopPhase as D, FailureCode as F};
         Self {
             revision: s.revision,
@@ -500,34 +535,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             sessions: s.sessions.into_iter().map(Into::into).collect(),
             selected_session: s.selected_session,
             agent_output: s.agent_output,
-            conversation: s
-                .conversation
-                .into_iter()
-                .map(|m| {
-                    let (text, attachments) = kite_app::split_chat_attachments(&m.text);
-                    MessageInfo {
-                        attachments: attachments.into_iter().map(Into::into).collect(),
-                        id: m.id,
-                        kind: match m.role {
-                            kite_app::ChatRole::User => MessageKind::User,
-                            kite_app::ChatRole::Assistant => MessageKind::Assistant,
-                            kite_app::ChatRole::Tool => MessageKind::Tool,
-                        },
-                        text,
-                        intermediate: m.intermediate,
-                        tool: m.tool.map(|t| ToolInfo {
-                            label: t.label(),
-                            summary: t.summary(),
-                            name: t.name,
-                            arguments: t.arguments,
-                            output: t.output,
-                            complete: t.complete,
-                            failed: t.failed,
-                            computer: t.computer,
-                        }),
-                    }
-                })
-                .collect(),
+            conversation_context,
+            conversation_count: s.conversation.len() as u64,
             conversation_available: s.conversation_available,
             conversation_revision: s.conversation_revision,
             history: s.history_status.into(),
@@ -831,18 +840,27 @@ impl KiteCore {
     pub async fn stop_desktop(&self) -> Result<(), KiteError> {
         self.inner.stop_desktop().await.map_err(Into::into)
     }
-    pub async fn set_history_following(&self, following: bool) -> Result<(), KiteError> {
-        self.inner
-            .set_history_following(following)
-            .await
-            .map_err(Into::into)
+    pub fn conversation_since(&self, context: String, revision: u64) -> ConversationDeltaInfo {
+        let delta = self.inner.conversation_since(&context, revision);
+        ConversationDeltaInfo {
+            context: delta.context,
+            revision: delta.revision,
+            reset: delta.reset,
+            edits: delta
+                .edits
+                .into_iter()
+                .map(|e| ConversationEditInfo {
+                    at: e.at as u64,
+                    remove: e.remove as u64,
+                    items: e.items.iter().map(|m| message_info(m)).collect(),
+                })
+                .collect(),
+        }
     }
-    pub async fn load_history_page(&self, newer: bool) -> Result<(), KiteError> {
-        self.inner
-            .load_history_page(newer)
-            .await
-            .map_err(Into::into)
+    pub async fn retry_history(&self) -> Result<(), KiteError> {
+        self.inner.retry_history().await.map_err(Into::into)
     }
+
     pub async fn read_clipboard(&self, host_id: String) -> Result<RemoteClipboardInfo, KiteError> {
         let value = self.inner.read_clipboard(host_id).await?;
         Ok(RemoteClipboardInfo {

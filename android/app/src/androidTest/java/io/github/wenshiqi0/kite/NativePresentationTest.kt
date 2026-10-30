@@ -122,7 +122,7 @@ class NativePresentationTest {
         }
         val file = File(instrumentation.targetContext.getExternalFilesDir(null), "markdown-validation.png")
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap); canvas.drawColor(0xFFF5F4EF.toInt()); view.draw(canvas)
+        val canvas = Canvas(bitmap); canvas.drawColor(0xFF111316.toInt()); view.draw(canvas)
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
         measureText(view, 420)
         assertTrue(view.measuredHeight > height)
@@ -149,7 +149,7 @@ class NativePresentationTest {
         val root = activity.findViewById<FrameLayout>(android.R.id.content)
         try {
             onMain {
-                overlay = ScrollView(activity).apply { setBackgroundColor(0xFFF5F4EF.toInt()) }
+                overlay = ScrollView(activity).apply { setBackgroundColor(0xFF111316.toInt()) }
                 view = MarkdownTextView(activity)
                 val pad = (20 * activity.resources.displayMetrics.density).toInt()
                 view.setPadding(pad, pad, pad, pad)

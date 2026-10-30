@@ -1,5 +1,7 @@
 package io.github.wenshiqi0.kite.ui
 
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
+
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -46,7 +48,7 @@ import org.commonmark.node.Paragraph
 
 /** Presentation only: original Markdown remains in the shared message history. */
 @Composable
-fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = Color(0xFF161715), size: Float = 16f, streaming: Boolean = false) {
+fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 16f, streaming: Boolean = false) {
     AndroidView(
         factory = { MarkdownTextView(it) },
         update = { it.setTextColor(color.toArgb()); it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size); it.bind(text,streaming) },
@@ -56,7 +58,7 @@ fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = 
 
 /** Styled control labels keep their parent's selection action and original wire value. */
 @Composable
-fun MarkdownLabel(text: String, modifier: Modifier = Modifier, color: Color = Color(0xFF161715), size: Float = 13f) {
+fun MarkdownLabel(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 13f) {
     val context = LocalContext.current
     val label = remember(text, context) { markdownLabel(context, text) }
     Text(label, modifier = modifier, color = color, fontSize = size.sp)
@@ -70,7 +72,7 @@ fun markdownLabel(context: Context, source: String): AnnotatedString {
             val style = when (span) {
                 is StrongEmphasisSpan -> SpanStyle(fontWeight = FontWeight.Bold)
                 is EmphasisSpan -> SpanStyle(fontStyle = FontStyle.Italic)
-                is CodeSpan -> SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFFE7E8E2))
+                is CodeSpan -> SpanStyle(fontFamily = FontFamily.Monospace, background = KiteColors.Raised)
                 is StrikethroughSpan -> SpanStyle(textDecoration = TextDecoration.LineThrough)
                 is URLSpan -> SpanStyle(textDecoration = TextDecoration.Underline)
                 else -> continue
@@ -89,7 +91,7 @@ class MarkdownTextView(context: Context) : TextView(context) {
         includeFontPadding = false
         setLineSpacing(0f, 1.3f)
         setTextIsSelectable(true)
-        setTextColor(0xFF161715.toInt())
+        setTextColor(0xFFE5E9EE.toInt())
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
     }
     fun bind(value: String, inProgress: Boolean = false) {
@@ -118,13 +120,13 @@ object MarkdownRenderer {
 
     private fun create(context: Context): Markwon = Markwon.builder(context)
         .usePlugin(StrikethroughPlugin.create())
-        .usePlugin(TaskListPlugin.create(0xFF2D85D8.toInt(), 0xFF888982.toInt(), 0xFFFFFFFF.toInt()))
+        .usePlugin(TaskListPlugin.create(0xFF9BBEF5.toInt(), 0xFF9AA4B1.toInt(), 0xFF102039.toInt()))
         .usePlugin(TablePlugin.create { it
-            .tableBorderColor(0xFFDDDDD6.toInt())
+            .tableBorderColor(0xFF343B44.toInt())
             .tableCellPadding((8 * context.resources.displayMetrics.density).toInt())
-            .tableHeaderRowBackgroundColor(0xFFE8EAE3.toInt())
-            .tableEvenRowBackgroundColor(0xFFF5F4EF.toInt())
-            .tableOddRowBackgroundColor(0xFFFAFAF7.toInt())
+            .tableHeaderRowBackgroundColor(0xFF2C3138.toInt())
+            .tableEvenRowBackgroundColor(0xFF191C20.toInt())
+            .tableOddRowBackgroundColor(0xFF23272D.toInt())
         })
         .usePlugin(MovementMethodPlugin.create(TableAwareMovementMethod.create()))
         .usePlugin(object : AbstractMarkwonPlugin() {
@@ -135,11 +137,11 @@ object MarkdownRenderer {
                 }
             }
             override fun configureTheme(builder: MarkwonTheme.Builder) {
-                builder.linkColor(0xFF2269AA.toInt())
+                builder.linkColor(0xFF9BBEF5.toInt())
                     .codeTypeface(Typeface.MONOSPACE)
-                    .codeTextColor(0xFF344451.toInt())
-                    .codeBackgroundColor(0xFFE7E8E2.toInt())
-                    .codeBlockBackgroundColor(0xFFECEDE7.toInt())
+                    .codeTextColor(0xFFE5E9EE.toInt())
+                    .codeBackgroundColor(0xFF23272D.toInt())
+                    .codeBlockBackgroundColor(0xFF23272D.toInt())
                     .headingBreakHeight(0)
                     .headingTextSizeMultipliers(floatArrayOf(1.5f, 1.3f, 1.15f, 1.05f, 1f, 1f))
             }

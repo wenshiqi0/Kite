@@ -1,5 +1,7 @@
 package io.github.wenshiqi0.kite.ui
 
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
+
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -26,11 +28,11 @@ fun ResponseFeedback(phase: ResponsePhase, sending: Boolean) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(3) { index ->
                     val alpha by transition.animateFloat(initialValue = .25f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(420), RepeatMode.Reverse, StartOffset(index * 140)), label = "response dot $index")
-                    Box(Modifier.size(5.dp).alpha(alpha).background(Color(0xFF2D85D8), CircleShape))
+                    Box(Modifier.size(5.dp).alpha(alpha).background(KiteColors.Accent, CircleShape))
                 }
             }
             Spacer(Modifier.width(10.dp))
         }
-        Text(stringResource(label), color = Color(0xFF888982), fontSize = 12.sp)
+        Text(stringResource(label), color = KiteColors.Muted, fontSize = 12.sp)
     }
 }

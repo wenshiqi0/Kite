@@ -1,5 +1,7 @@
 package io.github.wenshiqi0.kite.ui
 
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,25 +34,25 @@ fun ModelQuestionCard(vm: HostCheckViewModel, question: QuestionInfo, enabled: B
     var page by rememberSaveable(question.id) { mutableIntStateOf(0) }
     val field = question.fields.getOrNull(page) ?: question.fields.firstOrNull() ?: return
     val focus = LocalFocusManager.current
-    Surface(color = Color(0xFFF0F5FC), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFFD3E2F6)), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = KiteColors.Raised, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, KiteColors.Line), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.model_question_title), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                if (question.fields.size > 1) Text(stringResource(R.string.question_progress, page + 1, question.fields.size), color = Color(0xFF777C84), fontSize = 12.sp)
+                if (question.fields.size > 1) Text(stringResource(R.string.question_progress, page + 1, question.fields.size), color = KiteColors.Muted, fontSize = 12.sp)
             }
-            if (!question.blocking) Text(stringResource(R.string.question_async_hint), fontSize = 12.sp, color = Color(0xFF777C84))
+            if (!question.blocking) Text(stringResource(R.string.question_async_hint), fontSize = 12.sp, color = KiteColors.Muted)
             key(field.id) {
             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 listOf(field).forEach { field ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (question.fields.size > 1) Text(field.header, color = Color(0xFF777C84), fontSize = 12.sp)
+                        if (question.fields.size > 1) Text(field.header, color = KiteColors.Muted, fontSize = 12.sp)
                         MarkdownMessage(field.text, size = 14f)
                         field.options.forEach { option ->
                             val selected = values[field.id] == option.label
-                            Surface(color = if (selected) Color(0xFFE0ECFC) else Color.White, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, Color(0xFF2D85D8)) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = enabled && !vm.answeringQuestion) { vm.setQuestionValue(question.id, field.id, option.label) }) {
+                            Surface(color = if (selected) KiteColors.AccentSurface else KiteColors.Surface, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, KiteColors.Accent) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = enabled && !vm.answeringQuestion) { vm.setQuestionValue(question.id, field.id, option.label) }) {
                                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = selected, onClick = null, modifier = Modifier.size(26.dp))
-                                    Column(Modifier.weight(1f).padding(start = 8.dp)) { MarkdownLabel(option.label); if (option.description.isNotBlank()) MarkdownLabel(option.description, size = 11f, color = Color(0xFF777C84)) }
+                                    Column(Modifier.weight(1f).padding(start = 8.dp)) { MarkdownLabel(option.label); if (option.description.isNotBlank()) MarkdownLabel(option.description, size = 11f, color = KiteColors.Muted) }
                                 }
                             }
                         }
@@ -67,7 +69,7 @@ fun ModelQuestionCard(vm: HostCheckViewModel, question: QuestionInfo, enabled: B
                 if (page > 0) TextButton(onClick = { focus.clearFocus(); page-- }, enabled = !vm.answeringQuestion) { Text(stringResource(R.string.question_previous)) }
                 val last = page == question.fields.lastIndex
                 Button(onClick = { focus.clearFocus(); if (last) vm.answerQuestion(question) else page++ }, enabled = enabled && !vm.answeringQuestion && if (last) question.fields.all { !values[it.id].isNullOrBlank() } else !values[field.id].isNullOrBlank(), modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp)) {
-                    if (vm.answeringQuestion) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp, color = Color.White); Spacer(Modifier.width(8.dp)) }
+                    if (vm.answeringQuestion) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp, color = KiteColors.OnAccent); Spacer(Modifier.width(8.dp)) }
                     Text(stringResource(if (vm.answeringQuestion) R.string.question_submitting else if (last) R.string.question_submit else R.string.question_next))
                 }
             }

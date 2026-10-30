@@ -23,7 +23,7 @@ class LiveDesktopInputTest {
         val args=InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("qa_live")=="true")
         val session=requireNotNull(args.getString("qa_session"))
-        require(session.startsWith("kite-alpha12-history-"))
+        require(session.startsWith("kite-qa-history-"))
         val test=InstrumentationRegistry.getInstrumentation()
         val activity=test.startActivitySync(Intent(test.targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         lateinit var vm:HostCheckViewModel
@@ -37,7 +37,7 @@ class LiveDesktopInputTest {
         val state=requireNotNull(vm.engine.state.value)
         val host=state.hosts.single{it.id==state.selectedHost}
         assertEquals("The test must target the loopback QA relay", "10.0.2.2",host.host)
-        assertEquals(22222,host.port.toInt())
+        assertEquals(22223,host.port.toInt())
         assertEquals(48200,host.sunshinePort.toInt())
         test.runOnMainSync{vm.openSession(session)}
         waitFor{vm.engine.state.value?.selectedSession==session&&!vm.sessionBusy}
@@ -59,6 +59,8 @@ class LiveDesktopInputTest {
             assertTrue(NativeMedia.mousePosition(video.target,200,940,1920,1080))
             assertTrue(NativeMedia.mouseButton(video.target,1,true))
             assertTrue(NativeMedia.mouseButton(video.target,1,false))
+            vm.shortcut(65,true)
+            vm.shortcut(8)
             assertTrue(video.openRemoteKeyboard())
         }
         SystemClock.sleep(300)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Kite's per-pane Codex host adapter. No TCP listener or global daemon changes."""
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -662,6 +663,18 @@ def question_records(file):
                     index["rows"].append(record)
             except (ValueError, KeyError, TypeError):
                 continue
+        # Ordinary user boundaries carry no body. Repeated adjacent boundaries
+        # are equivalent for question resolution; don't grow this control index
+        # with the entire ordinary conversation.
+        compact = []
+        for row in index["rows"]:
+            ordinary = row.get("payload", {}).get("role") == "user" and row["payload"].get("content") == []
+            if ordinary and compact and row == compact[-1]:
+                continue
+            compact.append(row)
+        if len(compact) != len(index["rows"]):
+            index["rows"] = compact
+            changed = True
         records = b"".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode() + b"\n" for row in index["rows"])
         if len(records) > 1024 * 1024:
             raise ValueError("question history index exceeds transport capacity")
@@ -721,8 +734,8 @@ def history_projection(file, output, before=None, after=None):
     if before is not None and after is not None:
         raise ValueError("choose one history direction")
     controls = question_records(file)
-    transport_budget = 2097152 - len(controls) - 1024
-    page_budget = min(192 * 1024, transport_budget)
+    transport_budget = 4 * 1024 * 1024 - len(controls) - 4096
+    page_budget = min(1024 * 1024, transport_budget)
     rows = []
     total = 0
     with Path(file).open("rb") as stream:
@@ -748,9 +761,17 @@ def history_projection(file, output, before=None, after=None):
                     yield start, end, line
 
         for start, end, line in (forward_ranges() if after is not None else backward_ranges()):
-            if line is None or not display_record(line):
+            if line is None:
+                stream.seek(start)
+                header = stream.read(min(1024,end-start))
+                if b'response_item' in header:
+                    raise ValueError("conversation record exceeds the history transport limit")
                 continue
-            if rows and (len(rows) >= 80 or total + len(line) > page_budget):
+            if not display_record(line):
+                continue
+            # Transport-only record position. Raw provider files stay unchanged.
+            line = line.rstrip()[:-1] + b',"_kite_offset":' + str(start).encode() + b'}\n'
+            if rows and (len(rows) >= 2048 or total + len(line) > page_budget):
                 break
             rows.append((start, end, line))
             total += len(line)
@@ -779,6 +800,7 @@ def main():
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
     parser.add_argument("--file")
+    parser.add_argument("--compressed", action="store_true")
     parser.add_argument("--before")
     parser.add_argument("--after")
     parser.add_argument("--id")
@@ -797,7 +819,11 @@ def main():
     elif args.action == "identity":
         print(json.dumps(read_registry(args.pane)))
     elif args.action == "history":
-        history_projection(args.file, sys.stdout.buffer, args.before, args.after)
+        if args.compressed:
+            with gzip.GzipFile(fileobj=sys.stdout.buffer,mode="wb",compresslevel=1,mtime=0) as output:
+                history_projection(args.file, output, args.before, args.after)
+        else:
+            history_projection(args.file, sys.stdout.buffer, args.before, args.after)
     elif args.action == "catalog-read":
         print(json.dumps(catalog_read()))
     elif args.action == "catalog-write":

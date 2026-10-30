@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct CachedConversation {
-    messages: Vec<Message>,
+    messages: SharedMessages,
     available: bool,
     viewed_ms: i64,
 }
@@ -13,7 +13,21 @@ pub(super) struct SessionBook {
     catalogs: BTreeMap<String, Vec<Record>>,
     selected: BTreeMap<String, Option<String>>,
     revisions: BTreeMap<String, u64>,
-    histories: BTreeMap<String, CachedConversation>,
+    #[serde(default, skip_serializing)]
+    pub(super) histories: BTreeMap<String, CachedConversation>,
+}
+pub(super) fn history_document(key: &str) -> String {
+    // A namespaced 256-bit key encoded as letters fits Store's existing path contract.
+    fingerprint(&format!("conversation-cache/{key}"))
+        .bytes()
+        .map(|b| {
+            (if b.is_ascii_digit() {
+                b'a' + b - b'0'
+            } else {
+                b'k' + b - b'a'
+            }) as char
+        })
+        .collect()
 }
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -51,6 +65,81 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
 }
 
 impl AppCore {
+    fn cached_history(&self, host: &str, id: &str) -> Option<CachedConversation> {
+        let key = domain::cache_key(host, id);
+        if let Some(value) = lock(&self.session_book).histories.get(&key).cloned() {
+            return Some(value);
+        }
+        let value = {
+            lock(&self.store)
+                .as_ref()?
+                .read_document::<CachedConversation>(&history_document(&key))
+        };
+        match value {
+            Ok(Some(value)) => {
+                lock(&self.session_book)
+                    .histories
+                    .insert(key.clone(), value.clone());
+                if let Err(error) = self.trim_memory_history(&key) {
+                    self.report(&error);
+                }
+                Some(value)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                self.report(&error.into());
+                None
+            }
+        }
+    }
+    fn trim_memory_history(&self, keep: &str) -> Result<(), AppError> {
+        if lock(&self.session_book).histories.len() <= 4 {
+            return Ok(());
+        }
+        self.flush_history_caches(true)?;
+        let mut book = lock(&self.session_book);
+        while book.histories.len() > 4 {
+            let oldest = book
+                .histories
+                .iter()
+                .filter(|(key, _)| key.as_str() != keep)
+                .min_by_key(|(_, v)| v.viewed_ms)
+                .map(|(key, _)| key.clone());
+            if let Some(key) = oldest {
+                book.histories.remove(&key);
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn flush_history_caches(&self, force: bool) -> Result<(), AppError> {
+        let keys: Vec<_> = lock(&self.dirty_histories).iter().cloned().collect();
+        for key in keys {
+            if !force
+                && lock(&self.history_cache_written)
+                    .get(&key)
+                    .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+            {
+                continue;
+            }
+            let cache = lock(&self.session_book).histories.get(&key).cloned();
+            if let Some(cache) = cache {
+                if let Some(store) = lock(&self.store).as_ref() {
+                    store.write_document(&history_document(&key), &cache)?;
+                }
+                lock(&self.history_cache_written).insert(key.clone(), Instant::now());
+                let book = lock(&self.session_book);
+                if book.histories.get(&key).is_some_and(|current| {
+                    Arc::ptr_eq(&current.messages, &cache.messages)
+                        && current.available == cache.available
+                }) {
+                    lock(&self.dirty_histories).remove(&key);
+                }
+            }
+        }
+        Ok(())
+    }
     fn persist_session_book(&self) -> Result<(), AppError> {
         let book = lock(&self.session_book);
         if let Some(store) = lock(&self.store).as_ref() {
@@ -72,16 +161,15 @@ impl AppCore {
             .filter(|id| records.iter().any(|r| &r.id == id));
         let cache = selected
             .as_ref()
-            .and_then(|id| book.histories.get(&domain::cache_key(&host, id)))
-            .cloned();
+            .and_then(|id| self.cached_history(&host, id));
         self.update(|s| {
             s.sessions = views(&records, &s.agents);
             s.selected_session = selected;
             if s.selected_agent.is_none() {
-                s.replace_conversation(
+                s.replace_shared_conversation(
                     cache
                         .as_ref()
-                        .map(|c| c.messages.clone())
+                        .map(|c| c.messages.as_ref().clone())
                         .unwrap_or_default(),
                     cache.is_some_and(|c| c.available),
                 );
@@ -217,12 +305,9 @@ impl AppCore {
         if session_changed {
             self.reset_history_view();
         }
-        let cache = selected.as_ref().and_then(|id| {
-            lock(&self.session_book)
-                .histories
-                .get(&domain::cache_key(&c.host.id, id))
-                .cloned()
-        });
+        let cache = selected
+            .as_ref()
+            .and_then(|id| self.cached_history(&c.host.id, id));
         let all_views = views(&catalog.sessions, agents);
         self.update(|s| {
             s.sessions = all_views;
@@ -231,10 +316,10 @@ impl AppCore {
             if changed {
                 if session_changed {
                     s.history_status = HistoryStatus::default();
-                    s.replace_conversation(
+                    s.replace_shared_conversation(
                         cache
                             .as_ref()
-                            .map(|c| c.messages.clone())
+                            .map(|c| c.messages.as_ref().clone())
                             .unwrap_or_default(),
                         cache.is_some_and(|c| c.available),
                     );
@@ -300,16 +385,15 @@ impl AppCore {
         &self,
         host: &str,
         id: &str,
-        messages: &[Message],
+        messages: &SharedMessages,
         available: bool,
     ) -> Result<bool, AppError> {
         let key = domain::cache_key(host, id);
         let mut book = lock(&self.session_book);
-        if book
-            .histories
-            .get(&key)
-            .is_some_and(|v| v.messages == messages && v.available == available)
-        {
+        if book.histories.get(&key).is_some_and(|v| {
+            (Arc::ptr_eq(&v.messages, messages) || v.messages.as_ref() == messages.as_ref())
+                && v.available == available
+        }) {
             return Ok(false);
         }
         if messages.is_empty()
@@ -323,33 +407,20 @@ impl AppCore {
         book.histories.insert(
             key.clone(),
             CachedConversation {
-                messages: messages.to_vec(),
+                messages: messages.clone(),
                 available,
                 viewed_ms: now_ms(),
             },
         );
-        while book.histories.len() > 12 {
-            let oldest = book
-                .histories
-                .iter()
-                .filter(|(k, _)| *k != &key)
-                .min_by_key(|(_, v)| v.viewed_ms)
-                .map(|(k, _)| k.clone());
-            if let Some(oldest) = oldest {
-                book.histories.remove(&oldest);
-            } else {
-                break;
-            }
-        }
         drop(book);
-        self.persist_session_book()?;
+        lock(&self.dirty_histories).insert(key.clone());
+        self.flush_history_caches(false)?;
+        self.trim_memory_history(&key)?;
         Ok(true)
     }
     pub(super) async fn record_selected_history(&self, c: &Connected) -> Result<(), AppError> {
+        self.flush_history_caches(false)?;
         let snapshot = self.snapshot();
-        if !snapshot.history_status.following_latest {
-            return Ok(());
-        }
         if snapshot.selected_host.as_deref() != Some(&c.host.id) {
             return Ok(());
         }
@@ -390,9 +461,6 @@ impl AppCore {
         };
         let cached = lock(&self.history).clone();
         let history = history::read(&c.ssh, &reference, cached).await;
-        if !history.available {
-            return Ok(());
-        }
         if self.generation.load(Ordering::SeqCst) == generation
             && self.snapshot().selected_session.as_ref() == Some(&id)
             && self.snapshot().selected_agent.is_none()
@@ -427,10 +495,7 @@ impl AppCore {
                     .find(|a| record.matches(a))
                     .map(|a| a.terminal_id.clone())
             };
-            let cache = lock(&core.session_book)
-                .histories
-                .get(&domain::cache_key(&host, &id))
-                .cloned();
+            let cache = core.cached_history(&host, &id);
             lock(&core.session_book)
                 .selected
                 .insert(host.clone(), Some(id.clone()));
@@ -440,10 +505,10 @@ impl AppCore {
                 s.selected_session = Some(id);
                 s.history_status = HistoryStatus::default();
                 s.selected_agent = active;
-                s.replace_conversation(
+                s.replace_shared_conversation(
                     cache
                         .as_ref()
-                        .map(|c| c.messages.clone())
+                        .map(|c| c.messages.as_ref().clone())
                         .unwrap_or_default(),
                     cache.is_some_and(|c| c.available),
                 );
@@ -722,18 +787,103 @@ mod tests {
             intermediate: false,
             tool: None,
         };
-        core.cache_conversation("host", "session", std::slice::from_ref(&message), true)
-            .unwrap();
+        core.cache_conversation(
+            "host",
+            "session",
+            &Arc::new(vec![Arc::new(message.clone())]),
+            true,
+        )
+        .unwrap();
         for available in [true, false] {
             assert!(
                 !core
-                    .cache_conversation("host", "session", &[], available)
+                    .cache_conversation("host", "session", &Arc::new(Vec::new()), available)
                     .unwrap()
             );
             assert_eq!(
                 lock(&core.session_book).histories[&domain::cache_key("host", "session")].messages,
-                vec![message.clone()]
+                Arc::new(vec![Arc::new(message.clone())])
             );
+        }
+    }
+    #[tokio::test]
+    async fn old_inline_history_migrates_to_a_complete_independent_cache() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path()).unwrap();
+        let key = domain::cache_key("host", "session");
+        let messages: Vec<Message> = (0..10000)
+            .map(|i| Message {
+                id: format!("m-{i}"),
+                role: Role::Assistant,
+                text: format!("record {i}"),
+                intermediate: false,
+                tool: None,
+            })
+            .collect();
+        let record = Record::draft("session".into(), "codex".into(), "saved".into(), None, 1);
+        let old = serde_json::json!({"catalogs":{"host":[record]},"selected":{"host":"session"},"revisions":{},"histories":{(key.clone()):{"messages":messages,"available":true,"viewed_ms":1}}});
+        store.write_document("sessions", &old).unwrap();
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        core.initialize(
+            directory.path().into(),
+            "fixture".into(),
+            LegacyImport {
+                source: "migration".into(),
+                host: Some(Host {
+                    id: "host".into(),
+                    host: "localhost".into(),
+                    port: 22,
+                    username: "fixture".into(),
+                    herdr_path: None,
+                    stream_host: None,
+                    sunshine_port: 47989,
+                }),
+                trusted_keys: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(core.snapshot().conversation.len(), 10000);
+        let stored: CachedConversation = store
+            .read_document(&history_document(&key))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.messages.len(), 10000);
+        let metadata: serde_json::Value = store.read_document("sessions").unwrap().unwrap();
+        assert!(metadata.get("histories").is_none());
+        assert_eq!(core.snapshot().conversation[0].id, "m-0");
+        assert_eq!(core.snapshot().conversation[9999].id, "m-9999");
+        lock(&core.session_book).histories.clear();
+        assert_eq!(
+            core.cached_history("host", "session")
+                .unwrap()
+                .messages
+                .len(),
+            10000
+        );
+    }
+    #[test]
+    fn memory_eviction_keeps_every_saved_conversation_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        *lock(&core.store) = Some(Store::open(directory.path()).unwrap());
+        for i in 0..16 {
+            let records = Arc::new(vec![Arc::new(Message {
+                id: format!("m-{i}"),
+                role: Role::Assistant,
+                text: format!("conversation {i}"),
+                intermediate: false,
+                tool: None,
+            })]);
+            core.cache_conversation("host", &format!("s-{i}"), &records, true)
+                .unwrap();
+        }
+        core.flush_history_caches(true).unwrap();
+        assert!(lock(&core.session_book).histories.len() <= 4);
+        for i in 0..16 {
+            let cache = core.cached_history("host", &format!("s-{i}")).unwrap();
+            assert_eq!(cache.messages[0].id, format!("m-{i}"));
+            assert!(lock(&core.session_book).histories.len() <= 4);
         }
     }
 }

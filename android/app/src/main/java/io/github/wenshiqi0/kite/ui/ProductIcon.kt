@@ -1,5 +1,7 @@
 package io.github.wenshiqi0.kite.ui
 
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -13,16 +15,20 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel }
+enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows }
 
 @Composable
-fun ProductIcon(mark: Mark, color: Color = Color(0xFF64645F), modifier: Modifier = Modifier) {
+fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier = Modifier) {
     Canvas(modifier.size(22.dp)) {
         val unit = size.width / 24f
         val stroke = Stroke(1.7f * unit, cap = StrokeCap.Round)
         fun line(x: Float, y: Float, xx: Float, yy: Float) = drawLine(color, Offset(x * unit, y * unit), Offset(xx * unit, yy * unit), stroke.width, StrokeCap.Round)
         fun box(x: Float, y: Float, w: Float, h: Float, r: Float = 2f) = drawRoundRect(color, Offset(x * unit, y * unit), Size(w * unit, h * unit), CornerRadius(r * unit), style = stroke)
         when (mark) {
+            Mark.Windows -> {
+                drawRoundRect(color, Offset(3*unit,4*unit),Size(13*unit,12*unit),CornerRadius(2*unit),style=stroke)
+                drawRoundRect(color, Offset(8*unit,9*unit),Size(13*unit,12*unit),CornerRadius(2*unit),style=stroke)
+            }
             Mark.Mouse -> {box(6f,2f,12f,20f,6f);line(6f,10f,18f,10f);line(12f,2f,12f,10f)}
             Mark.Wheel -> {box(7f,3f,10f,18f,4f);line(10f,8f,14f,8f);line(10f,12f,14f,12f);line(10f,16f,14f,16f)}
             Mark.Menu -> { line(4f, 6f, 20f, 6f); line(4f, 12f, 20f, 12f); line(4f, 18f, 20f, 18f) }

@@ -1117,6 +1117,7 @@ dependencies = [
 name = "kite-agent"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "hex",
  "kite-herdr",
  "kite-ssh",

@@ -143,12 +143,6 @@ fn add_text(messages: &mut Vec<Message>, id: String, role: Role, text: String) {
         m.text = text;
         return;
     }
-    if messages
-        .last()
-        .is_some_and(|m| m.role == role && m.text == text && m.tool.is_none())
-    {
-        return;
-    }
     messages.push(Message {
         id,
         role,
@@ -233,9 +227,12 @@ fn model_question_answer(messages: &[Message], call: &str, output: &str) -> Opti
 pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
     let mut messages = Vec::new();
     for line in bytes.split(|b| *b == b'\n') {
-        let Ok(v) = serde_json::from_slice::<Value>(line) else {
+        let Ok(mut v) = serde_json::from_slice::<Value>(line) else {
             continue;
         };
+        if let Some(record) = v.as_object_mut() {
+            record.remove("_kite_offset");
+        }
         let id = v["uuid"]
             .as_str()
             .or_else(|| v["id"].as_str())
@@ -367,41 +364,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
             _ => {}
         }
     }
-    if messages.len() > 300 {
-        messages.drain(..messages.len() - 300);
-    }
-    // Keep snapshots small enough that desktop statistics do not copy megabytes
-    // of historical tool output through the state channel on every update.
-    let mut budget = 256 * 1024;
-    let mut keep = messages.len();
-    for m in messages.iter_mut().rev() {
-        fn limit(s: &mut String, max: usize) {
-            if s.len() > max {
-                let mut end = max;
-                while !s.is_char_boundary(end) {
-                    end -= 1;
-                }
-                s.truncate(end);
-                s.push('…');
-            }
-        }
-        limit(&mut m.text, 16 * 1024);
-        if let Some(t) = &mut m.tool {
-            limit(&mut t.arguments, 8 * 1024);
-            limit(&mut t.output, 16 * 1024);
-        }
-        let size = m.text.len()
-            + m.tool
-                .as_ref()
-                .map(|t| t.arguments.len() + t.output.len())
-                .unwrap_or(0);
-        if size > budget {
-            break;
-        }
-        budget -= size;
-        keep -= 1;
-    }
-    messages.drain(..keep);
+
     messages
 }
 
@@ -554,5 +517,22 @@ mod tests {
         assert!(terminal_choices(true, "claude", "Proceed?\n 1. Yes\n 2. No").is_none());
         assert_ne!(a.id, fingerprint("different question"));
         assert!(terminal_choices(true, "claude", "ordinary output").is_none());
+    }
+}
+
+#[cfg(test)]
+mod complete_history_tests {
+    use super::*;
+    #[test]
+    fn full_records_and_repeated_text_are_not_cut_to_the_render_window() {
+        let long = "完整内容 ".repeat(12000);
+        let mut rows = Vec::new();
+        for i in 0..1000 {
+            rows.push(serde_json::json!({"id":format!("m-{i}"),"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":if i==0 {&long}else{"same repeated body"}}]}}).to_string());
+        }
+        let parsed = parse_history("codex", rows.join("\n").as_bytes());
+        assert_eq!(parsed.len(), 1000);
+        assert_eq!(parsed[0].text, long);
+        assert_eq!(parsed[999].id, "m-999");
     }
 }

@@ -76,3 +76,10 @@ The opt-in `LiveDesktopInputTest` verifies the real IME → 200 ms scheduler →
 Controlled runtime evidence is recorded separately from host/JVM checks. Android API 36 emulator behavior does not establish physical-phone latency or WAN acceptance.
 
 The completed [Alpha 12 acceptance](product/2026-10-31/compact-controls/acceptance.md) links native screenshots, the public APK checksum, passing CI runs, in-place install/retention checks and owned-resource cleanup.
+
+
+## Complete conversations and local rendering
+
+The [Alpha 13 revision](product/2026-10-31/complete-transcript/acceptance.md) replaces UI-driven history pagination with independent full synchronization, complete per-session caches and versioned message edits. Native tests use 10,000 records and a 3MiB tool result, inspect actual rich-text view allocation and verify that telemetry does not replace message objects. The owned-source-unavailable check verifies local scrolling after a fresh cache reopen; the append check compares visible message text and pixel bounds. Large tool details use bounded virtual text chunks.
+
+The optional long-transcript test accepts qa_live, a strictly owned qa_session and qa_records (10000 by default). Never point these opt-in tests at a user's desktop. They do not establish physical-phone/WAN performance.

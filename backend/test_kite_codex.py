@@ -21,7 +21,7 @@ class BackendTests(unittest.TestCase):
         marker, size, body = output.getvalue().split(b"\n", 2)
         self.assertEqual(marker, b"kite-codex-history-v2")
         size = int(size)
-        self.assertLessEqual(len(output.getvalue()), 2097152)
+        self.assertLessEqual(len(output.getvalue()), 4*1024*1024)
         meta, records = body[size:].split(b"\n", 1)
         page = json.loads(meta)
         self.assertEqual(page["type"], "kite_history_page")
@@ -30,6 +30,33 @@ class BackendTests(unittest.TestCase):
     def projection(self, file):
         _, controls, records = self.page(file)
         return controls, records
+
+    def test_ten_thousand_messages_keep_all_records_and_compact_only_redundant_controls(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path,"home",return_value=Path(temporary)):
+            file=Path(temporary)/"history.jsonl"
+            with file.open("w") as stream:
+                for i in range(10000):
+                    stream.write(json.dumps({"id":f"m-{i}","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"same repeated body"}]}})+"\n")
+            page,controls,body=self.page(file)
+            found=[json.loads(line)["id"] for line in body.splitlines()]
+            while page["has_older"]:
+                page,_,body=self.page(file,before=page["start"])
+                found=[json.loads(line)["id"] for line in body.splitlines()]+found
+            self.assertEqual(found,[f"m-{i}" for i in range(10000)])
+            self.assertEqual(len(controls.splitlines()),1)
+            self.assertIn("_kite_offset",json.loads(body.splitlines()[0]))
+
+    def test_large_text_is_preserved_and_oversized_records_are_not_silently_skipped(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path,"home",return_value=Path(temporary)):
+            file=Path(temporary)/"history.jsonl"
+            text="x"*(3*1024*1024)
+            row={"id":"large","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":text}]}}
+            file.write_text(json.dumps(row)+"\n")
+            _,_,body=self.page(file)
+            self.assertEqual(json.loads(body)["payload"]["content"][0]["text"],text)
+            row["payload"]["content"][0]["text"]="x"*(5*1024*1024)
+            file.write_text(json.dumps(row)+"\n")
+            with self.assertRaisesRegex(ValueError,"transport limit"):self.page(file)
 
     def test_long_history_can_be_read_backwards_and_forwards_without_gaps(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):

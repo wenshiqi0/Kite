@@ -33,7 +33,9 @@ use tokio::{
 };
 pub mod clipboard;
 mod conversation;
-pub use conversation::HistoryStatus;
+pub use conversation::{
+    ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
+};
 mod sessions;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 use sessions::SessionBook;
@@ -178,7 +180,8 @@ pub struct Snapshot {
     pub sessions: Vec<ConversationSession>,
     pub selected_session: Option<String>,
     pub agent_output: String,
-    pub conversation: Vec<Message>,
+    pub conversation: SharedMessages,
+    conversation_journal: Arc<std::collections::VecDeque<ConversationEdit>>,
     pub conversation_revision: u64,
     pub conversation_available: bool,
     pub history_status: HistoryStatus,
@@ -210,7 +213,8 @@ impl Default for Snapshot {
             sessions: Vec::new(),
             selected_session: None,
             agent_output: String::new(),
-            conversation: Vec::new(),
+            conversation: Arc::new(Vec::new()),
+            conversation_journal: Arc::new(std::collections::VecDeque::new()),
             conversation_revision: 0,
             conversation_available: false,
             history_status: HistoryStatus::default(),
@@ -227,11 +231,7 @@ impl Default for Snapshot {
 
 impl Snapshot {
     fn replace_conversation(&mut self, messages: Vec<Message>, available: bool) {
-        if self.conversation != messages {
-            self.conversation = messages;
-            self.conversation_revision = self.conversation_revision.wrapping_add(1);
-        }
-        self.conversation_available = available;
+        self.replace_shared_conversation(messages.into_iter().map(Arc::new).collect(), available);
     }
 }
 
@@ -282,8 +282,10 @@ pub struct AppCore {
     media: Mutex<Option<Arc<dyn MediaSink>>>,
     generation: AtomicU64,
     desktop_generation: AtomicU64,
-    history: Mutex<Option<history::History>>,
-    history_window: Mutex<conversation::Window>,
+    history: Mutex<Option<Arc<history::History>>>,
+    history_window: Mutex<conversation::Transcript>,
+    history_sync_job: Mutex<Option<JoinHandle<()>>>,
+    self_weak: std::sync::Weak<AppCore>,
     pending_messages: Mutex<Vec<PendingMessage>>,
     paused_processes: Mutex<BTreeMap<String, process::Token>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
@@ -292,6 +294,8 @@ pub struct AppCore {
     chat_failures: Mutex<BTreeSet<String>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
     session_book: Mutex<SessionBook>,
+    dirty_histories: Mutex<BTreeSet<String>>,
+    history_cache_written: Mutex<BTreeMap<String, Instant>>,
     clipboard_mirrors: Mutex<BTreeMap<String, clipboard::Mirror>>,
     clipboard_operations: AsyncMutex<()>,
 }
@@ -321,7 +325,8 @@ async fn dispatch<T: Send + 'static>(
 
 impl AppCore {
     pub fn new(secrets: Arc<dyn SecretStorage>, observer: Arc<dyn Observer>) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new_cyclic(|weak| Self {
+            self_weak: weak.clone(),
             secrets,
             observer,
             state: Mutex::new(Snapshot::default()),
@@ -336,7 +341,8 @@ impl AppCore {
             generation: AtomicU64::new(0),
             desktop_generation: AtomicU64::new(0),
             history: Mutex::new(None),
-            history_window: Mutex::new(conversation::Window::default()),
+            history_window: Mutex::new(conversation::Transcript::default()),
+            history_sync_job: Mutex::new(None),
             pending_messages: Mutex::new(Vec::new()),
             paused_processes: Mutex::new(BTreeMap::new()),
             consumed_approvals: Mutex::new(BTreeSet::new()),
@@ -345,6 +351,8 @@ impl AppCore {
             chat_failures: Mutex::new(BTreeSet::new()),
             uploads: Mutex::new(BTreeMap::new()),
             session_book: Mutex::new(SessionBook::default()),
+            dirty_histories: Mutex::new(BTreeSet::new()),
+            history_cache_written: Mutex::new(BTreeMap::new()),
             clipboard_mirrors: Mutex::new(BTreeMap::new()),
             clipboard_operations: AsyncMutex::new(()),
         })
@@ -403,7 +411,15 @@ impl AppCore {
                 let mut store = Store::open(&directory)?;
                 *lock(&core.paused_processes) =
                     store.read_document("paused-processes")?.unwrap_or_default();
-                *lock(&core.session_book) = store.read_document("sessions")?.unwrap_or_default();
+                let book: SessionBook = store.read_document("sessions")?.unwrap_or_default();
+                // One-shot migration: retain every old cache before removing its inline copy.
+                for (key, cache) in &book.histories {
+                    store.write_document(&sessions::history_document(key), cache)?;
+                }
+                if !book.histories.is_empty() {
+                    store.write_document("sessions", &book)?;
+                }
+                *lock(&core.session_book) = book;
                 if !store.data().completed_imports.contains(&legacy.source) {
                     for (_, key) in &legacy.trusted_keys {
                         kite_ssh::fingerprint_of(key)?;
@@ -891,7 +907,7 @@ impl AppCore {
         let history = if let Some(reference) = &agent.agent_session {
             history::read(&c.ssh, reference, cached).await
         } else {
-            history::History::default()
+            Arc::new(history::History::default())
         };
         if history.available
             && let Some(client) = &client
@@ -1352,6 +1368,7 @@ impl AppCore {
         .await
     }
     async fn disconnect_inner(&self, notify: bool) -> Result<(), AppError> {
+        self.flush_history_caches(true)?;
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.reset_history_view();
         self.stop_desktop_inner().await;
@@ -1443,7 +1460,6 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
-            core.return_to_latest();
             let generation = core.generation.load(Ordering::SeqCst);
             if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
                 return Err(AppError::State(
@@ -1587,8 +1603,9 @@ impl AppCore {
                 drop(pending);
                 core.update(|s| {
                     if s.selected_agent.as_deref() == Some(&id) {
-                        s.conversation.push(message);
-                        s.conversation_revision = s.conversation_revision.wrapping_add(1);
+                        let mut messages = s.conversation.as_ref().clone();
+                        messages.push(Arc::new(message));
+                        s.replace_shared_conversation(messages, true);
                     }
                 });
             }

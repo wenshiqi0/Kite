@@ -1,0 +1,32 @@
+[
+  {
+    "file": "fullscreen-mouse.png",
+    "bytes": 105181,
+    "sha256": "58cf4be06e1d32254a2eca6e305be99225d2f75e8b11fc2f7cde01a372322c0b"
+  },
+  {
+    "file": "fullscreen-icon.png",
+    "bytes": 86874,
+    "sha256": "f2a0dabf903f94dfecd40e7e20c9230a87d224c8d90a786f60390b9be4718a1f"
+  },
+  {
+    "file": "split-trackpad.png",
+    "bytes": 133133,
+    "sha256": "1e7681d3a3300dff45f4f3b544ccdb2e263415ec43048274a09930ce8760f208"
+  },
+  {
+    "file": "large-tool-output.png",
+    "bytes": 260387,
+    "sha256": "6732e5dbb0bb1e0980b428a11c59fa66a5eac90fd8cc49a9f0c1c61ea1b8ce8e"
+  },
+  {
+    "file": "cached-history.png",
+    "bytes": 176283,
+    "sha256": "a35b55d1372b44e1f649516773120705b35268125c4991184cb7721c4468e15a"
+  },
+  {
+    "file": "local-scroll.png",
+    "bytes": 241872,
+    "sha256": "7647ea101fd878776634dbe1ebd095e7a5614d4ee2b904a947c6867c13a746fe"
+  }
+]
