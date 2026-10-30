@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-30",
+  "kind": "Interactive design prototype renders, not Android screenshots",
+  "source": "compact-controls.html",
+  "sourceSha256": "2e28ff64d30e47431eb2b81cbaa87c106ffb6244e22818324491305d4c80b3e9",
+  "referenceImagesIncluded": false,
+  "assets": [
+    {
+      "file": "split-open.png",
+      "sha256": "88a9d3455f884912d9328e188f646833b06a6f83bbeeafcf210b87098f1dc3e9",
+      "bytes": 36272,
+      "width": 360,
+      "height": 780
+    },
+    {
+      "file": "split-closed.png",
+      "sha256": "b28731ba18218f825f210f435bc0866be9a32ee8d74f9b8d5a846e91b5a33416",
+      "bytes": 33298,
+      "width": 360,
+      "height": 780
+    },
+    {
+      "file": "small-window.png",
+      "sha256": "5553f3de2ee8bf870abdcb8a4fe31703180ed1fc9a66d1c73c8d15851cc47193",
+      "bytes": 27882,
+      "width": 320,
+      "height": 640
+    },
+    {
+      "file": "fullscreen-icon.png",
+      "sha256": "c66e2cc19d733175de3ca549c1f06ca98dcdcdda47fefa57039db070b35a6f12",
+      "bytes": 7469,
+      "width": 780,
+      "height": 360
+    },
+    {
+      "file": "fullscreen-mouse.png",
+      "sha256": "6414c5a35daab3b46d60600d468786853b23b6f15e746fa797597ebccb47d90f",
+      "bytes": 9987,
+      "width": 780,
+      "height": 360
+    },
+    {
+      "file": "split-dark.png",
+      "sha256": "35090804a5e3496c177553c2192a275564dc9e98d9f55bbaf030143fc37f7c60",
+      "bytes": 36663,
+      "width": 328,
+      "height": 780
+    },
+    {
+      "file": "preview-checks.json",
+      "sha256": "69df136873c5a37f34daa2df1ef1ac8ac11ab6a197ac761f19f1c27f36fec121",
+      "bytes": 3035
+    }
+  ]
+}

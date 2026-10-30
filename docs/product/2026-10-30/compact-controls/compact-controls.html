@@ -1,0 +1,286 @@
+<div id="kite-compact-preview" class="viz-dotted-background" aria-label="Kite 触控板布局参数">
+  <style>
+    #kite-compact-preview{--kite-bg:light-dark(#f5f4ef,#171916);--kite-surface:light-dark(#ffffff,#22251f);--kite-ink:light-dark(#1e241e,#ecede8);--kite-muted:light-dark(#697268,#a4afa0);--kite-line:light-dark(#dce1d7,#3d4639);--kite-soft:light-dark(#edf1e9,#2c3428);--kite-blue:light-dark(#2675c0,#8ec2f5);--kite-tint:light-dark(#e5f0fd,#253f58);--kite-dark:light-dark(#222c35,#101711);--kite-on-dark:#e9eef2;--kite-device-width:360px;--kite-device-height:780px;color:var(--kite-ink);color-scheme:light dark;padding:16px 0;font:400 14px/1.45 system-ui,sans-serif}
+    #kite-compact-preview *{box-sizing:border-box}
+    #kite-compact-preview button,#kite-compact-preview input{font:inherit;color:inherit}
+    #kite-compact-preview button{border:0;touch-action:none;-webkit-user-select:none;user-select:none}
+    #kite-compact-preview [hidden]{display:none!important}
+    #kite-compact-preview .device{position:relative;display:flex;flex-direction:column;width:min(var(--kite-device-width),100%);height:var(--kite-device-height);margin:auto;background:var(--kite-surface);border:1px solid var(--kite-line);border-radius:22px;overflow:hidden;box-shadow:0 14px 40px light-dark(#1c30221a,#00000038)}
+    #kite-compact-preview .device.is-fullscreen{width:min(780px,100%);height:360px;border-radius:18px}
+    #kite-compact-preview .status{height:24px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:var(--kite-surface);font-size:11px}
+    #kite-compact-preview .appbar{height:48px;flex:none;display:flex;align-items:center;background:var(--kite-surface)}
+    #kite-compact-preview .session{flex:1;min-width:0;display:flex;align-items:center;gap:7px;white-space:nowrap;font-size:15px;font-weight:500}
+    #kite-compact-preview .session span{overflow:hidden;text-overflow:ellipsis}
+    #kite-compact-preview .dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--kite-blue)}
+    #kite-compact-preview .ctl{display:inline-flex;flex:none;align-items:center;justify-content:center;width:48px;height:48px;min-height:48px;background:transparent;border-radius:8px;color:var(--kite-muted)}
+    #kite-compact-preview .ctl svg{width:20px;height:20px;flex:none}
+    #kite-compact-preview .ctl.is-active{color:var(--kite-blue)}
+    #kite-compact-preview .mode{width:64px}
+    #kite-compact-preview .mode span{display:block;padding:4px 9px;background:var(--kite-tint);border-radius:14px;color:var(--kite-blue);font-size:12px}
+    #kite-compact-preview .main{flex:1;min-height:0;display:flex;flex-direction:column}
+    #kite-compact-preview .video{position:relative;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--kite-dark);touch-action:none}
+    #kite-compact-preview .plane{position:relative;flex:none;background:var(--kite-bg);overflow:hidden;transform-origin:center}
+    #kite-compact-preview .browserbar{position:absolute;left:0;right:0;top:0;height:12%;background:var(--kite-soft);border-bottom:1px solid var(--kite-line);display:flex;align-items:center;gap:3px;padding:0 10px}
+    #kite-compact-preview .browserbar b{width:4px;height:4px;border-radius:50%;background:var(--kite-muted);opacity:.5}
+    #kite-compact-preview .address{width:52%;height:45%;margin:auto;background:var(--kite-surface);border-radius:4px}
+    #kite-compact-preview .login{position:absolute;left:23%;top:24%;width:54%;height:61%;padding:7%;background:var(--kite-surface);border:1px solid var(--kite-line);border-radius:5px}
+    #kite-compact-preview .remote-heading{width:60%;height:8%;background:var(--kite-muted);border-radius:2px;margin:0 auto 10%;opacity:.65}
+    #kite-compact-preview .field{height:16%;margin:7% 0;background:var(--kite-soft);border-radius:2px;border:1px solid var(--kite-line)}
+    #kite-compact-preview .remote-submit{display:block;width:100%;height:19%;border-radius:3px;background:var(--kite-blue);opacity:.75}
+    #kite-compact-preview .plane.clicked .remote-submit{opacity:1}
+    #kite-compact-preview .plane.scrolled .login{transform:translateY(-12%)}
+    #kite-compact-preview .remote-cursor{position:absolute;left:62%;top:58%;color:var(--kite-blue);pointer-events:none;z-index:2}
+    #kite-compact-preview .remote-cursor svg{width:16px;height:16px;filter:drop-shadow(0 1px 1px #00000040)}
+    #kite-compact-preview .context{position:absolute;left:58%;top:55%;z-index:3;background:var(--kite-surface);padding:8px 14px;border:1px solid var(--kite-line);border-radius:6px;font-size:12px;box-shadow:0 3px 10px #00000018}
+    #kite-compact-preview .divider{height:48px;flex:none;display:flex;align-items:center;border-bottom:1px solid var(--kite-line);background:var(--kite-bg);padding:0 4px;gap:0}
+    #kite-compact-preview .grip{cursor:ns-resize}
+    #kite-compact-preview .grip span{width:24px;height:3px;background:var(--kite-muted);border-radius:3px;opacity:.5}
+    #kite-compact-preview .live{flex:1;min-width:0;display:flex;align-items:center;gap:5px;color:var(--kite-muted);font-size:11px}
+    #kite-compact-preview .pad-toggle{width:88px;gap:6px;font-size:12px}
+    #kite-compact-preview .chat{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;scrollbar-width:thin}
+    #kite-compact-preview .message{max-width:92%;flex:none;padding:9px 12px;border-radius:13px;background:var(--kite-bg);font-size:15px;line-height:1.5}
+    #kite-compact-preview .user{align-self:flex-end;background:var(--kite-tint);color:var(--kite-blue)}
+    #kite-compact-preview .message strong{font-weight:500}
+    #kite-compact-preview .tool{display:flex;align-items:center;gap:8px;flex:none;width:100%;min-height:48px;padding:8px 12px;border:1px solid var(--kite-line);background:var(--kite-surface);border-radius:10px;color:var(--kite-muted);font-size:12px;text-align:left}
+    #kite-compact-preview .tool svg{width:16px;height:16px}
+    #kite-compact-preview .tool span{flex:1}
+    #kite-compact-preview .tool-detail{padding:8px 12px;font-size:12px;color:var(--kite-muted)}
+    #kite-compact-preview .composer{height:56px;flex:none;display:flex;align-items:center;padding:0 4px;gap:0;border-top:1px solid var(--kite-line);background:var(--kite-surface)}
+    #kite-compact-preview .input-shell{position:relative;flex:1;min-width:0;height:42px;border:1px solid var(--kite-line);border-radius:18px;background:var(--kite-surface)}
+    #kite-compact-preview .model-label{position:absolute;left:11px;top:-8px;background:var(--kite-surface);padding:0 3px;color:var(--kite-muted);font-size:11px;white-space:nowrap}
+    #kite-compact-preview .input-shell input{width:100%;height:100%;padding:6px 12px;border:0;outline-offset:2px;background:transparent;font-size:14px}
+    #kite-compact-preview .bottom{flex:none;overflow:hidden;background:var(--kite-bg)}
+    #kite-compact-preview .trackpad{position:relative}
+    #kite-compact-preview .trackpad::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:var(--kite-line);z-index:1;pointer-events:none}
+    #kite-compact-preview .pad-area{position:relative;display:block;width:100%;height:calc(var(--kite-pad-height,176px) - 48px);padding:0;background:var(--kite-soft);color:var(--kite-muted);border-radius:0;cursor:default}
+    #kite-compact-preview .pad-label{position:absolute;left:14px;top:12px;font-size:12px;pointer-events:none}
+    #kite-compact-preview .pad-mark{display:grid;place-items:center;position:absolute;inset:40px 20px 12px;pointer-events:none;opacity:.25}
+    #kite-compact-preview .pad-mark svg{width:26px;height:26px}
+    #kite-compact-preview .pad-close{position:absolute;right:4px;top:0;z-index:2}
+    #kite-compact-preview .pad-buttons{display:grid;grid-template-columns:1fr 56px 1fr;height:48px;background:var(--kite-surface);border-top:1px solid var(--kite-line)}
+    #kite-compact-preview .mouse-key{min-height:48px;display:flex;align-items:center;justify-content:center;gap:7px;background:var(--kite-surface);font-size:12px;color:var(--kite-muted)}
+    #kite-compact-preview .mouse-key svg{width:17px;height:17px}
+    #kite-compact-preview .mouse-key.is-down{background:var(--kite-tint);color:var(--kite-blue)}
+    #kite-compact-preview .wheel{border-left:1px solid var(--kite-line);border-right:1px solid var(--kite-line);cursor:ns-resize}
+    #kite-compact-preview .wheel svg{width:16px;height:22px}
+    #kite-compact-preview .keyboard-area{height:228px;border-top:1px solid var(--kite-line);padding:12px;display:flex;align-items:center;justify-content:center;gap:24px;color:var(--kite-muted);background:var(--kite-soft)}
+    #kite-compact-preview .keyboard-area span{font-size:14px}
+    #kite-compact-preview .nav{height:24px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--kite-bg)}
+    #kite-compact-preview .nav span{width:92px;height:4px;border-radius:3px;background:var(--kite-muted);opacity:.4}
+    #kite-compact-preview .rail{display:none;position:absolute;right:4px;top:28px;bottom:28px;width:48px;flex-direction:column;justify-content:space-between;z-index:4;color:var(--kite-on-dark)}
+    #kite-compact-preview .rail .ctl{color:var(--kite-on-dark);background:var(--kite-dark)}
+    #kite-compact-preview .mouse-float{position:absolute;z-index:5;left:70%;top:55%;touch-action:none}
+    #kite-compact-preview .mouse-entry{position:relative;width:48px;height:48px;background:transparent;border-radius:24px;display:grid;place-items:center;cursor:grab}
+    #kite-compact-preview .mouse-entry span{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--kite-dark);color:var(--kite-on-dark)}
+    #kite-compact-preview .mouse-entry svg{width:18px;height:18px}
+    #kite-compact-preview .mouse-body{width:144px;height:112px;overflow:hidden;border-radius:40px 40px 28px 28px;background:var(--kite-soft);border:1px solid var(--kite-line)}
+    #kite-compact-preview .mouse-top{display:grid;grid-template-columns:48px 48px 48px;height:48px;border-bottom:1px solid var(--kite-line)}
+    #kite-compact-preview .mouse-top .mouse-key{height:48px}
+    #kite-compact-preview .float-pad{width:144px;height:64px;background:var(--kite-soft);display:grid;place-items:center;padding-right:40px;color:var(--kite-muted)}
+    #kite-compact-preview .float-pad svg{width:20px;height:20px;opacity:.55}
+    #kite-compact-preview .float-handle{position:absolute;right:4px;bottom:8px;cursor:grab}
+    #kite-compact-preview .float-collapse{position:absolute;left:-48px;top:0;background:var(--kite-dark);color:var(--kite-on-dark)}
+    #kite-compact-preview .popover{position:absolute;z-index:10;right:8px;bottom:80px;width:240px;padding:14px;background:var(--kite-surface);border:1px solid var(--kite-line);border-radius:14px;box-shadow:0 8px 24px #00000026}
+    #kite-compact-preview .popover label{display:block;font-size:12px;color:var(--kite-muted);margin-bottom:8px}
+    #kite-compact-preview .popover select{display:block;width:100%;min-height:44px;border:1px solid var(--kite-line);border-radius:6px;background:var(--kite-surface);padding:6px;font:inherit;color:var(--kite-ink)}
+    #kite-compact-preview .is-fullscreen .status,#kite-compact-preview .is-fullscreen .appbar,#kite-compact-preview .is-fullscreen .divider,#kite-compact-preview .is-fullscreen .chat,#kite-compact-preview .is-fullscreen .composer,#kite-compact-preview .is-fullscreen .bottom,#kite-compact-preview .is-fullscreen .nav{display:none}
+    #kite-compact-preview .is-fullscreen .main{height:100%}
+    #kite-compact-preview .is-fullscreen .video{flex:1;height:auto!important}
+    #kite-compact-preview .is-fullscreen .rail{display:flex}
+    #kite-compact-preview .is-fullscreen .popover{bottom:16px;right:64px}
+    #kite-compact-preview .is-fullscreen.keyboard-visible .bottom{display:block}
+    #kite-compact-preview .is-fullscreen.keyboard-visible .rail{display:none}
+    #kite-compact-preview .feedback{position:absolute;pointer-events:none;z-index:7;left:50%;top:10px;transform:translateX(-50%);background:var(--kite-dark);color:var(--kite-on-dark);padding:5px 10px;border-radius:10px;font-size:11px}
+    #kite-compact-preview .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+    @media(prefers-reduced-motion:no-preference){#kite-compact-preview .bottom{transition:height 180ms ease-out}#kite-compact-preview .login{transition:transform 180ms ease-out}}
+  </style>
+  <section class="device" aria-label="Kite 分屏与底部触控板交互草案">
+    <div class="status"><span>9:41</span><span>Kite · 交互预览</span></div>
+    <header class="appbar">
+      <button type="button" class="ctl cursor-interaction" aria-label="会话列表"><i data-lucide="menu" aria-hidden="true"></i></button>
+      <div class="session"><span>codex · web-app</span><b class="dot"></b></div>
+      <button type="button" class="ctl mode cursor-interaction" data-action="mode" aria-label="切换只看或操作"><span>操作</span></button>
+      <button type="button" class="ctl cursor-interaction" data-action="more" aria-label="更多设置"><i data-lucide="ellipsis" aria-hidden="true"></i></button>
+    </header>
+    <main class="main">
+      <div class="video" aria-label="远程桌面预览">
+        <div class="plane">
+          <div class="browserbar"><b></b><b></b><b></b><div class="address"></div></div>
+          <div class="login"><div class="remote-heading"></div><div class="field"></div><div class="field"></div><span class="remote-submit"></span></div>
+          <span class="remote-cursor"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i></span>
+          <div class="context" hidden>右键菜单</div>
+        </div>
+      </div>
+      <div class="divider">
+        <button type="button" class="ctl grip" aria-label="调整桌面与聊天的分隔"><span></span></button>
+        <div class="live"><b class="dot"></b><span>LIVE</span></div>
+        <button type="button" class="ctl pad-toggle cursor-interaction is-active" data-action="pad" aria-pressed="true"><i data-lucide="touchpad" aria-hidden="true"></i><span>触控板</span></button>
+        <button type="button" class="ctl cursor-interaction" data-action="keyboard" aria-label="打开键盘"><i data-lucide="keyboard" aria-hidden="true"></i></button>
+        <button type="button" class="ctl cursor-interaction" data-action="fullscreen" aria-label="全屏桌面"><i data-lucide="expand" aria-hidden="true"></i></button>
+      </div>
+      <div class="chat" aria-label="聊天">
+        <div class="message user">帮我测试登录流程。</div>
+        <button type="button" class="tool cursor-interaction" aria-expanded="false"><i data-lucide="check" aria-hidden="true"></i><span>2 次工具调用</span><i data-lucide="chevron-down" aria-hidden="true"></i></button>
+        <div class="tool-detail" hidden>打开浏览器 · 检查登录页面</div>
+        <div class="message">页面已打开，正在检查。<br>你也可以<strong>直接点桌面</strong>，或用下方触控板操作。</div>
+      </div>
+      <div class="composer">
+        <button type="button" class="ctl cursor-interaction" data-action="attach" aria-label="添加附件"><i data-lucide="plus" aria-hidden="true"></i></button>
+        <button type="button" class="ctl cursor-interaction" data-action="model" aria-label="模型与思考强度"><i data-lucide="sliders-horizontal" aria-hidden="true"></i></button>
+        <label class="input-shell"><span class="model-label">Sol · 深入</span><input readonly inputmode="none" placeholder="发消息给 agent" aria-label="聊天输入预览"></label>
+        <button type="button" class="ctl cursor-interaction" data-action="voice" aria-label="语音输入"><i data-lucide="mic" aria-hidden="true"></i></button>
+      </div>
+      <div class="bottom">
+        <div class="trackpad">
+          <button type="button" class="pad-area" aria-label="触控板移动区"><span class="pad-label">触控板</span><span class="pad-mark"><i data-lucide="move" aria-hidden="true"></i></span></button>
+          <button type="button" class="ctl pad-close cursor-interaction" data-action="close-pad" aria-label="收起触控板"><i data-lucide="chevron-down" aria-hidden="true"></i></button>
+          <div class="pad-buttons">
+            <button type="button" class="mouse-key" data-mouse="left"><i data-lucide="mouse" aria-hidden="true"></i><span>左键</span></button>
+            <button type="button" class="mouse-key wheel" aria-label="中间滚轮"><i data-lucide="chevrons-up-down" aria-hidden="true"></i></button>
+            <button type="button" class="mouse-key" data-mouse="right"><i data-lucide="mouse" aria-hidden="true"></i><span>右键</span></button>
+          </div>
+        </div>
+        <div class="keyboard-area" hidden><span>键盘</span><button type="button" class="ctl cursor-interaction" data-action="hide-keyboard" aria-label="收起键盘"><i data-lucide="chevron-down" aria-hidden="true"></i></button></div>
+      </div>
+    </main>
+    <div class="nav"><span></span></div>
+    <div class="rail" aria-label="横屏工具">
+      <button type="button" class="ctl cursor-interaction" data-action="mode" aria-label="切换只看或操作"><i data-lucide="hand" aria-hidden="true"></i></button>
+      <button type="button" class="ctl cursor-interaction" data-action="keyboard" aria-label="打开键盘"><i data-lucide="keyboard" aria-hidden="true"></i></button>
+      <button type="button" class="ctl cursor-interaction" data-action="fullscreen" aria-label="返回分屏"><i data-lucide="messages-square" aria-hidden="true"></i></button>
+    </div>
+    <div class="mouse-float" hidden>
+      <button type="button" class="mouse-entry" aria-label="展开鼠标，可拖动"><span><i data-lucide="mouse" aria-hidden="true"></i></span></button>
+      <div class="mouse-body" hidden>
+        <div class="mouse-top"><button type="button" class="mouse-key" data-mouse="left" aria-label="左键">左</button><button type="button" class="mouse-key wheel" aria-label="鼠标滚轮"><i data-lucide="chevrons-up-down" aria-hidden="true"></i></button><button type="button" class="mouse-key" data-mouse="right" aria-label="右键">右</button></div>
+        <button type="button" class="float-pad" aria-label="鼠标相对移动区"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i></button>
+        <button type="button" class="ctl float-handle" aria-label="拖动鼠标位置"><i data-lucide="grip-horizontal" aria-hidden="true"></i></button>
+        <button type="button" class="ctl float-collapse cursor-interaction" data-action="collapse-mouse" aria-label="收起鼠标"><i data-lucide="x" aria-hidden="true"></i></button>
+      </div>
+    </div>
+    <div class="popover" hidden></div>
+    <div class="feedback" hidden></div>
+    <div class="sr" role="status" aria-live="polite"></div>
+  </section>
+  <script>
+    (() => {
+      const root=document.getElementById("kite-compact-preview");
+      const q=s=>root.querySelector(s);
+      const device=q(".device"),video=q(".video"),plane=q(".plane"),bottom=q(".bottom"),trackpad=q(".trackpad"),keyboard=q(".keyboard-area"),floating=q(".mouse-float"),entry=q(".mouse-entry"),body=q(".mouse-body"),popover=q(".popover");
+      const config={width:360,height:780,padHeight:176};
+      const state={surface:"pad",operate:true,fullscreen:false,expanded:false,cursor:{x:.62,y:.58},position:{x:.72,y:.58},held:new Map(),resize:0,scroll:0};
+      let toastTimer;
+      const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+      function announce(text){q('[role="status"]').textContent=text;}
+      function save(){
+        if(window.openai&&window.openai.setWidgetState)window.openai.setWidgetState({modelContent:{proposal:"底部独立触控板",surface:state.surface,fullscreen:state.fullscreen,operate:state.operate},privateContent:{position:state.position,expanded:state.expanded}}).catch(()=>{});
+      }
+      function restore(value){
+        if(!value)return;
+        const a=value.modelContent||{},b=value.privateContent||{};
+        if(["pad","none","keyboard"].includes(a.surface))state.surface=a.surface;
+        if(typeof a.operate==="boolean")state.operate=a.operate;
+        if(typeof a.fullscreen==="boolean")state.fullscreen=a.fullscreen;
+        if(b.position&&Number.isFinite(b.position.x)&&Number.isFinite(b.position.y))state.position={x:clamp(b.position.x,0,1),y:clamp(b.position.y,0,1)};
+        if(typeof b.expanded==="boolean")state.expanded=b.expanded;
+      }
+      function toast(text){clearTimeout(toastTimer);q(".feedback").textContent=text;q(".feedback").hidden=false;toastTimer=setTimeout(()=>{q(".feedback").hidden=true;},1300);announce(text);}
+      function release(){state.held.clear();root.querySelectorAll(".is-down").forEach(el=>el.classList.remove("is-down"));}
+      function setSurface(next){release();state.surface=next;popover.hidden=true;render();save();}
+      function drawCursor(){q(".remote-cursor").style.left=(state.cursor.x*100)+"%";q(".remote-cursor").style.top=(state.cursor.y*100)+"%";}
+      function fitPlane(){
+        const r=video.getBoundingClientRect(),w=Math.min(r.width,r.height*16/9);
+        plane.style.width=w+"px";plane.style.height=(w*9/16)+"px";drawCursor();
+      }
+      function moveFloat(){
+        const w=state.expanded?144:48,h=state.expanded?112:48;
+        const mx=Math.max(0,device.clientWidth-w-16),my=Math.max(0,device.clientHeight-h-16);
+        const left=8+state.position.x*mx;
+        floating.style.left=left+"px";floating.style.top=(8+state.position.y*my)+"px";
+        q(".float-collapse").style.left=left>=56?"-48px":"144px";
+      }
+      function render(){
+        root.style.setProperty("--kite-device-width",config.width+"px");root.style.setProperty("--kite-device-height",config.height+"px");
+        device.classList.toggle("is-fullscreen",state.fullscreen);
+        device.classList.toggle("keyboard-visible",state.surface==="keyboard");
+        const padHeight=config.height<720?Math.min(144,config.padHeight):config.padHeight;
+        root.style.setProperty("--kite-pad-height",padHeight+"px");
+        const surface=state.surface;
+        trackpad.hidden=surface!=="pad";keyboard.hidden=surface!=="keyboard";
+        bottom.style.height=(state.fullscreen?(surface==="keyboard"?228:0):surface==="pad"?padHeight:surface==="keyboard"?228:0)+"px";
+        q(".pad-toggle").classList.toggle("is-active",surface==="pad");q(".pad-toggle").setAttribute("aria-pressed",String(surface==="pad"));
+        q(".mode span").textContent=state.operate?"操作":"只看";
+        const max=state.surface==="keyboard"?72:device.clientWidth*9/16;
+        const available=device.clientHeight-200-(surface==="pad"?padHeight:surface==="keyboard"?228:0)-144;
+        video.style.height=clamp(max+state.resize,Math.min(96,max),Math.max(Math.min(96,max),Math.min(max+80,available)))+"px";
+        floating.hidden=!state.fullscreen||!state.operate;entry.hidden=state.expanded;body.hidden=!state.expanded;
+        moveFloat();requestAnimationFrame(fitPlane);
+      }
+      function relative(dx,dy){if(!state.operate)return;state.cursor.x=clamp(state.cursor.x+dx*2.6/1920,.01,.98);state.cursor.y=clamp(state.cursor.y+dy*2.6/1080,.02,.96);q(".context").hidden=true;drawCursor();}
+      function click(button){
+        if(!state.operate)return;
+        if(button==="right"){q(".context").hidden=false;announce("右键菜单");}
+        else{q(".context").hidden=true;plane.classList.toggle("clicked");announce("左键点击");}
+      }
+      function bindPad(el){
+        let pointer=null,last=null,down=null,moved=false;
+        el.addEventListener("pointerdown",e=>{if(!state.operate)return;e.preventDefault();pointer=e.pointerId;last={x:e.clientX,y:e.clientY};down={x:e.clientX,y:e.clientY,time:performance.now()};moved=false;el.setPointerCapture(pointer);});
+        el.addEventListener("pointermove",e=>{if(e.pointerId!==pointer)return;const dx=e.clientX-last.x,dy=e.clientY-last.y;relative(dx,dy);moved=moved||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5;last={x:e.clientX,y:e.clientY};});
+        el.addEventListener("pointerup",e=>{if(e.pointerId!==pointer)return;if(!moved&&performance.now()-down.time<280&&!state.held.size)click("left");pointer=null;});
+        el.addEventListener("pointercancel",()=>{pointer=null;release();});
+        el.addEventListener("keydown",e=>{const d={ArrowLeft:[-16,0],ArrowRight:[16,0],ArrowUp:[0,-16],ArrowDown:[0,16]}[e.key];if(d){e.preventDefault();relative(d[0],d[1]);}});
+      }
+      root.querySelectorAll(".pad-area,.float-pad").forEach(bindPad);
+      root.querySelectorAll("[data-mouse]").forEach(el=>{
+        el.addEventListener("pointerdown",e=>{if(!state.operate)return;e.preventDefault();el.setPointerCapture(e.pointerId);state.held.set(e.pointerId,el.dataset.mouse);el.classList.add("is-down");announce(el.dataset.mouse==="left"?"左键按下":"右键按下");});
+        el.addEventListener("pointerup",e=>{if(!state.held.has(e.pointerId))return;const key=state.held.get(e.pointerId);state.held.delete(e.pointerId);el.classList.remove("is-down");click(key);});
+        el.addEventListener("pointercancel",release);
+        el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();click(el.dataset.mouse);}});
+      });
+      root.querySelectorAll(".wheel").forEach(el=>{
+        let pointer=null,last=0;
+        function scroll(dy){if(!state.operate)return;state.scroll+=dy;plane.classList.toggle("scrolled",Math.abs(state.scroll)%180>40);announce("滚轮滚动");}
+        el.addEventListener("pointerdown",e=>{if(!state.operate)return;e.preventDefault();pointer=e.pointerId;last=e.clientY;el.classList.add("is-down");el.setPointerCapture(pointer);});
+        el.addEventListener("pointermove",e=>{if(e.pointerId!==pointer)return;scroll(e.clientY-last);last=e.clientY;});
+        for(const end of ["pointerup","pointercancel"])el.addEventListener(end,()=>{pointer=null;el.classList.remove("is-down");});
+        el.addEventListener("wheel",e=>{e.preventDefault();scroll(e.deltaY);},{passive:false});
+        el.addEventListener("keydown",e=>{if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();scroll(e.key==="ArrowDown"?40:-40);}});
+      });
+      function bindDrag(el,toggle){
+        let p=null,start=null,moved=false;
+        el.addEventListener("pointerdown",e=>{e.preventDefault();p=e.pointerId;start={x:e.clientX,y:e.clientY,px:floating.offsetLeft,py:floating.offsetTop};moved=false;el.setPointerCapture(p);});
+        el.addEventListener("pointermove",e=>{if(e.pointerId!==p)return;const dx=e.clientX-start.x,dy=e.clientY-start.y;moved=moved||Math.hypot(dx,dy)>5;const w=state.expanded?144:48,h=state.expanded?112:48;const mx=Math.max(1,device.clientWidth-w-16),my=Math.max(1,device.clientHeight-h-16);state.position={x:clamp((start.px-8+dx)/mx,0,1),y:clamp((start.py-8+dy)/my,0,1)};moveFloat();});
+        el.addEventListener("pointerup",e=>{if(e.pointerId!==p)return;p=null;if(toggle&&!moved){release();state.expanded=!state.expanded;}render();save();});
+        el.addEventListener("pointercancel",()=>{p=null;release();});
+      }
+      bindDrag(entry,true);bindDrag(q(".float-handle"),false);
+      const grip=q(".grip");let resizePointer=null,resizeStart=null;
+      grip.addEventListener("pointerdown",e=>{e.preventDefault();resizePointer=e.pointerId;resizeStart={y:e.clientY,value:state.resize};grip.setPointerCapture(e.pointerId);});
+      grip.addEventListener("pointermove",e=>{if(e.pointerId===resizePointer){state.resize=clamp(resizeStart.value+e.clientY-resizeStart.y,-96,80);render();}});
+      grip.addEventListener("pointerup",()=>{resizePointer=null;});
+      grip.addEventListener("keydown",e=>{if(e.key==="ArrowUp"||e.key==="ArrowDown"){e.preventDefault();state.resize+=e.key==="ArrowDown"?16:-16;render();}});
+      video.addEventListener("pointerdown",e=>{if(!state.operate)return;const r=plane.getBoundingClientRect();state.cursor={x:clamp((e.clientX-r.left)/r.width,0,1),y:clamp((e.clientY-r.top)/r.height,0,1)};drawCursor();if(!state.held.size)click("left");});
+      root.querySelectorAll("[data-action]").forEach(el=>el.addEventListener("click",()=>{
+        const action=el.dataset.action;
+        if(action==="pad"){if(!state.operate){toast("先切换到操作");return;}setSurface(state.surface==="pad"?"none":"pad");}
+        else if(action==="close-pad"||action==="hide-keyboard")setSurface("none");
+        else if(action==="keyboard")setSurface(state.surface==="keyboard"?"none":"keyboard");
+        else if(action==="mode"){release();state.operate=!state.operate;if(!state.operate)state.surface="none";render();save();}
+        else if(action==="fullscreen"){release();state.fullscreen=!state.fullscreen;popover.hidden=true;render();save();}
+        else if(action==="collapse-mouse"){release();state.expanded=false;render();save();}
+        else if(action==="model"||action==="more"){popover.hidden=!popover.hidden;if(!popover.hidden){popover.innerHTML='<label>模型<select aria-label="模型"><option>GPT-6.1-Sol</option><option>GPT-6-Luna</option></select></label><label>思考强度<select aria-label="思考强度"><option>深入</option><option>适中</option></select></label>';}}
+        else if(action==="attach")toast("图片 · 文件 · 音频");
+        else if(action==="voice")toast("语音输入");
+      }));
+      q(".input-shell input").addEventListener("focus",()=>setSurface("keyboard"));
+      popover.addEventListener("change",()=>{const fields=popover.querySelectorAll("select");if(fields.length===2)q(".model-label").textContent=(fields[0].value.includes("Sol")?"Sol":"Luna")+" · "+fields[1].value;});
+      q(".tool").addEventListener("click",()=>{const open=q(".tool-detail").hidden;q(".tool-detail").hidden=!open;q(".tool").setAttribute("aria-expanded",String(open));});
+      window.addEventListener("blur",release);document.addEventListener("visibilitychange",()=>{if(document.hidden)release();});
+      if(window.openai)restore(window.openai.widgetState);
+      window.addEventListener("openai:set_globals",e=>{if(e.detail&&e.detail.globals&&e.detail.globals.widgetState){restore(e.detail.globals.widgetState);release();render();}});
+      new ResizeObserver(()=>{render();}).observe(root);
+      render();
+      if(globalThis.Tweak){const t=new Tweak({container:root,onChange:()=>{release();render();}});t.addSlider(config,"width",{label:"手机宽度",min:320,max:411,unit:"dp"});t.addSlider(config,"height",{label:"手机高度",min:640,max:880,unit:"dp"});t.addSlider(config,"padHeight",{label:"触控板高度",min:144,max:208,unit:"dp"});}
+    })();
+  </script>
+</div>

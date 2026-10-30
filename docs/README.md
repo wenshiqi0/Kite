@@ -11,6 +11,7 @@
 
 ## Delivery and evaluation records
 
+- [Compact controls proposal](product/2026-10-30/compact-controls/README.md): separate bottom trackpad in portrait split view and compact fullscreen mouse; interactive design only, pending native implementation.
 - [Alpha 11 interaction acceptance](product/2026-10-30/hybrid-input/acceptance.md): automatic text clipboard, hybrid mouse/touch, rich text and sidebar fixes; includes public APK verification and upgrade results.
 - [herdr-core restoration evaluation](product/2026-10-30/herdr-core-migration.md): same-thread recovery with the existing provider and after a fresh provider process restart; remaining migration requirements.
 - [Alpha 10 installation investigation](product/2026-10-30/install-signatures/acceptance.md): signing checks, emulator update and subsequent user-reported handset installation success.

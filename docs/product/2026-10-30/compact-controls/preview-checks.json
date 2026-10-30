@@ -1,0 +1,152 @@
+{
+  "scope": "Interactive design prototype only; not APK or physical-device acceptance",
+  "checks": [
+    {
+      "name": "bottom-panel-does-not-overlay-chat",
+      "status": "PASS",
+      "detail": {
+        "pad": {
+          "x": 261,
+          "y": 611,
+          "width": 358,
+          "height": 176
+        },
+        "composer": {
+          "x": 261,
+          "y": 555,
+          "width": 358,
+          "height": 56
+        }
+      }
+    },
+    {
+      "name": "video-is-clear-above-chat",
+      "status": "PASS",
+      "detail": {
+        "video": {
+          "x": 261,
+          "y": 105,
+          "width": 358,
+          "height": 201.375
+        },
+        "chat": {
+          "x": 261,
+          "y": 354.375,
+          "width": 358,
+          "height": 200.625
+        }
+      }
+    },
+    {
+      "name": "closing-panel-returns-space",
+      "status": "PASS",
+      "detail": {
+        "before": 200.625,
+        "after": 376.625
+      }
+    },
+    {
+      "name": "closing-panel-preserves-operation-mode",
+      "status": "PASS"
+    },
+    {
+      "name": "trackpad-moves-remote-cursor",
+      "status": "PASS",
+      "detail": {
+        "before": 62,
+        "after": 75.5417
+      }
+    },
+    {
+      "name": "held-left-survives-moving-finger-lift",
+      "status": "PASS"
+    },
+    {
+      "name": "held-left-releases",
+      "status": "PASS"
+    },
+    {
+      "name": "center-wheel-scrolls",
+      "status": "PASS"
+    },
+    {
+      "name": "keyboard-and-trackpad-are-exclusive",
+      "status": "PASS"
+    },
+    {
+      "name": "small-visual-icon-keeps-touch-target",
+      "status": "PASS",
+      "detail": {
+        "hit": 48,
+        "visual": 32
+      }
+    },
+    {
+      "name": "collapsed-icon-drags-into-workspace-margin",
+      "status": "PASS",
+      "detail": {
+        "device": {
+          "x": 50,
+          "y": 32,
+          "width": 780,
+          "height": 360
+        },
+        "entry": {
+          "x": 59,
+          "y": 41,
+          "width": 48,
+          "height": 48
+        },
+        "plane": {
+          "x": 121.78125,
+          "y": 33,
+          "width": 636.4375,
+          "height": 358
+        }
+      }
+    },
+    {
+      "name": "dragging-does-not-change-layout",
+      "status": "PASS"
+    },
+    {
+      "name": "icon-expands-mouse",
+      "status": "PASS"
+    },
+    {
+      "name": "collapse-action-stays-onscreen-at-edge",
+      "status": "PASS",
+      "detail": {
+        "collapse": {
+          "x": 203,
+          "y": 41,
+          "width": 48,
+          "height": 48
+        },
+        "device": {
+          "x": 50,
+          "y": 32,
+          "width": 780,
+          "height": 360
+        }
+      }
+    },
+    {
+      "name": "short-window-preserves-chat-and-pad",
+      "status": "PASS",
+      "detail": {
+        "chat": 144,
+        "pad": 144
+      }
+    },
+    {
+      "name": "narrow-host-has-no-page-overflow",
+      "status": "PASS"
+    },
+    {
+      "name": "preview-has-no-script-errors",
+      "status": "PASS",
+      "detail": []
+    }
+  ]
+}
