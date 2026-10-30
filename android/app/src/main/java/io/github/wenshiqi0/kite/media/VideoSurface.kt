@@ -7,7 +7,6 @@ import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewConfiguration
-import android.view.Gravity
 import android.widget.FrameLayout
 import io.github.wenshiqi0.kite.R
 import kotlin.math.abs
@@ -36,7 +35,8 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         set(value) { if (abs(value - viewport.zoom) > .001f) { viewport.zoomAt(value); applyViewport() } }
     fun setSourceSize(w: Int, h: Int) {
         if (w > 0 && h > 0 && (viewport.sourceWidth != w.toFloat() || viewport.sourceHeight != h.toFloat())) {
-            viewport.resize(width.toFloat(), height.toFloat(), w.toFloat(), h.toFloat()); applyViewport()
+            viewport.resize(width.toFloat(), height.toFloat(), w.toFloat(), h.toFloat())
+            requestLayout()
         }
     }
     private enum class Multi { Pending, Zoom, Scroll, Pan }
@@ -62,28 +62,47 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         clipChildren = true; clipToPadding = true; keepScreenOn = true; isFocusableInTouchMode = true
         contentDescription = context.getString(R.string.desktop_surface)
         video.holder.addCallback(this)
-        addView(video, LayoutParams(1, 1, Gravity.CENTER))
+        addView(video, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
     override fun onInterceptTouchEvent(event: MotionEvent) = true
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        viewport.resize(w.toFloat(), h.toFloat()); applyViewport()
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(
+            resolveSize(MeasureSpec.getSize(widthMeasureSpec), widthMeasureSpec),
+            resolveSize(MeasureSpec.getSize(heightMeasureSpec), heightMeasureSpec),
+        )
+        viewport.resize(measuredWidth.toFloat(), measuredHeight.toFloat())
+        // Measure the plane in this pass. A requestLayout from onSizeChanged can
+        // otherwise leave a Compose-hosted Surface at its previous (initially 1px) size.
+        val w = (viewport.sourceWidth * viewport.fitScale).roundToInt().coerceAtLeast(1)
+        val h = (viewport.sourceHeight * viewport.fitScale).roundToInt().coerceAtLeast(1)
+        video.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+    }
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val x = (width - video.measuredWidth) / 2
+        val y = (height - video.measuredHeight) / 2
+        video.layout(x, y, x + video.measuredWidth, y + video.measuredHeight)
+        applyViewport()
     }
     private fun applyViewport() {
-        val baseW = (viewport.sourceWidth * viewport.fitScale).roundToInt().coerceAtLeast(1)
-        val baseH = (viewport.sourceHeight * viewport.fitScale).roundToInt().coerceAtLeast(1)
-        val params = video.layoutParams as LayoutParams
-        if (params.width != baseW || params.height != baseH) { params.width = baseW; params.height = baseH; video.layoutParams = params }
+        if (video.width <= 0 || video.height <= 0) return
         val scale = if (pip) viewport.fitScale else viewport.scale
-        video.pivotX = baseW / 2f; video.pivotY = baseH / 2f
-        video.scaleX = viewport.sourceWidth * scale / baseW
-        video.scaleY = viewport.sourceHeight * scale / baseH
-        video.translationX = if (pip) 0f else (viewport.sourceWidth / 2 - viewport.centerX) * scale
-        video.translationY = if (pip) 0f else (viewport.sourceHeight / 2 - viewport.centerY) * scale
+        val cx = if (pip) viewport.sourceWidth / 2 else viewport.centerX
+        val cy = if (pip) viewport.sourceHeight / 2 else viewport.centerY
+        video.pivotX = 0f; video.pivotY = 0f
+        video.scaleX = viewport.sourceWidth * scale / video.width
+        video.scaleY = viewport.sourceHeight * scale / video.height
+        video.translationX = viewport.width / 2 - cx * scale - video.left
+        video.translationY = viewport.height / 2 - cy * scale - video.top
         onZoomChanged(viewport.zoom)
     }
-    override fun surfaceCreated(holder: SurfaceHolder) { renderer = VideoRenderer(holder.surface).also { ready(it.id) } }
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+    override fun surfaceCreated(holder: SurfaceHolder) = Unit
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        // Creation precedes the first size callback. Start only when the plane is
+        // usable; keep the same renderer through subsequent split/zoom changes.
+        if (renderer == null && width > 1 && height > 1 && holder.surface.isValid) {
+            renderer = VideoRenderer(holder.surface).also { ready(it.id) }
+        }
+    }
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         cancelGesture(); renderer?.let { gone(it.id); it.release() }; renderer = null
     }

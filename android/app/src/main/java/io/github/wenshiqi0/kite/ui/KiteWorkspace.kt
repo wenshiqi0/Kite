@@ -471,11 +471,23 @@ private fun agentTitle(a: AgentInfo): String {
 }
 @Composable private fun MessageCard(message: MessageInfo) {
     val user = message.kind == MessageKind.USER
+    val context = LocalContext.current
+    val copyLabel = stringResource(R.string.copy_reply)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) Color(0xFFE2EEFC) else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
                 MessageAttachments(message.attachments)
-                if (message.text.isNotBlank()) SelectionContainer { Text(message.text, color = if (user) Color(0xFF2269AA) else Ink, fontSize = 16.sp, lineHeight = 25.sp) }
+                if (message.text.isNotBlank()) {
+                    if (user) SelectionContainer { Text(message.text, color = Color(0xFF2269AA), fontSize = 16.sp, lineHeight = 25.sp) }
+                    else {
+                        MarkdownMessage(message.text)
+                        IconButton(onClick = {
+                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(copyLabel, message.text))
+                        }, modifier = Modifier.align(Alignment.End).size(40.dp).semantics { contentDescription = copyLabel }) {
+                            ProductIcon(Mark.Clipboard, Muted, Modifier.size(17.dp))
+                        }
+                    }
+                }
             }
         }
     }

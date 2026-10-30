@@ -21,6 +21,8 @@
 
 会话、归档、模型提问和响应阶段按 [RFC 0007](docs/rfcs/0007-sessions-and-interactions.md) 管理：Rust 持有持久记录、提供方、选中会话、回答关联和运行阶段；主机会话索引使用原子修订号写入，辅助程序承担单会话恢复租约及 Linux 终端启动。原始 provider 历史不移动，逻辑归档不停止后台任务。Android 负责工作过程折叠、题目输入及阶段动画，Claude 未连接时明确显示待连接状态。
 
+模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
+
 ## 2. 仓库布局
 
 ```

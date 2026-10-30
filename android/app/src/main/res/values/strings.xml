@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="copy_reply">复制完整回复</string>
     <string name="app_name">kite</string>
     <string name="cancel">取消</string>
 
