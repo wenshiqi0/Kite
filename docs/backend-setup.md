@@ -105,14 +105,14 @@ sunshine_name = My development desktop
 capture = x11
 output_name = DP-1
 address_family = ipv4
-bind_address = 192.168.1.50
+bind_address = 0.0.0.0
 port = 47989
 upnp = disabled
 origin_web_ui_allowed = lan
 dd_configuration_option = disabled
 ```
 
-Replace `DP-1` with the output shown by `xrandr`, and `192.168.1.50` with the host's reachable private address. A numeric output index is also supported, but a connector name makes the selection clearer. See [Sunshine's configuration reference](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2configuration.html) for these options and GPU-specific encoders. On a VAAPI-capable AMD / Intel host, `encoder = vaapi` and a valid `adapter_name`, such as `/dev/dri/renderD128`, can select hardware encoding; use a device your desktop user can access.
+Replace `DP-1` with the output shown by `xrandr`. `bind_address = 0.0.0.0` keeps IPv4 available on both LAN and Tailscale interfaces; binding a specific LAN address would exclude the Tailscale address. A numeric output index is also supported, but a connector name makes the selection clearer. See [Sunshine's configuration reference](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2configuration.html) for these options and GPU-specific encoders. On a VAAPI-capable AMD / Intel host, `encoder = vaapi` and a valid `adapter_name`, such as `/dev/dri/renderD128`, can select hardware encoding; use a device your desktop user can access.
 
 Start Sunshine as that desktop user:
 
@@ -183,6 +183,14 @@ Use mode `600`. This is a **Kite convenience file**, not Sunshine's hashed crede
 
 Use a LAN or a private VPN such as Tailscale. Both SSH control and the direct video path must be reachable from the phone. A working SSH connection does not prove UDP video connectivity.
 
+### Tailscale and short hostnames
+
+Connect the phone's Tailscale client to the same tailnet, enable its Tailscale DNS settings and keep Kite included in the VPN. With [MagicDNS](https://tailscale.com/docs/features/magicdns) enabled, enter the device's machine name, such as `my-desktop`, in Kite's host field. The full form, such as `my-desktop.example-tail.ts.net`, also works. Use the name shown by Tailscale; an alias from a laptop's `~/.ssh/config` is not transferred to Android.
+
+The SSH host field accepts the short name directly. Keep SSH port `22` separate from that name. Sunshine defaults to the same host; if a separate **stream host** was saved in advanced settings, change it to the reachable Tailscale name or address too. A previously saved LAN IP is not reachable from cellular data without a subnet route.
+
+For simultaneous LAN and Tailscale access, retain the all-IPv4 bind in the example above, UPnP disabled and the intended private-network firewall policy. Do not change `origin_web_ui_allowed` to `wan` just to make video work. Short-name resolution and `/serverinfo` verify discovery/control only; also validate actual video and input from the phone before treating the VPN desktop path as accepted.
+
 With the default Sunshine base port, the relevant services are:
 
 | Port | Protocol | Purpose in Kite |
@@ -193,7 +201,7 @@ With the default Sunshine base port, the relevant services are:
 | 48010 | TCP | Direct RTSP session setup |
 | 47998 / 47999 / 48000 | UDP | Sunshine media and real-time control transport |
 
-Changing the base port shifts the Sunshine port family. The current app does not play audio even though the protocol establishes its transport. Keep UPnP disabled and restrict host firewall access to the intended private network. If using Tailscale, bind Sunshine to the host's reachable Tailscale address, or configure the relevant private interfaces and firewall deliberately; a LAN-only bind does not also listen on the Tailscale address.
+Changing the base port shifts the Sunshine port family. The current app does not play audio even though the protocol establishes its transport. Keep UPnP disabled and restrict host firewall access to the intended private network. A Tailscale-only bind excludes LAN clients; use the all-IPv4 bind when both paths are needed. A LAN-only bind does not also listen on the Tailscale address.
 
 ## Resolution and responsiveness
 
