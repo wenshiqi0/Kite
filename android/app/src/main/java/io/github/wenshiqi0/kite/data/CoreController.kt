@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import io.github.wenshiqi0.kite.ConnectionService
 import io.github.wenshiqi0.kite.R
@@ -23,6 +25,11 @@ import java.io.File
 
 /** One process-wide Core and observer; no Activity-owned domain state. */
 class CoreController(private val context: Context) {
+    private val clipboardPreferences = context.getSharedPreferences("clipboard-bridge", Context.MODE_PRIVATE)
+    var clipboardSyncEnabled by androidx.compose.runtime.mutableStateOf(clipboardPreferences.getBoolean("enabled",false))
+        private set
+    var clipboardProblem by androidx.compose.runtime.mutableStateOf<String?>(null)
+    fun setClipboardSync(enabled: Boolean) {clipboardSyncEnabled=enabled;clipboardPreferences.edit().putBoolean("enabled",enabled).apply();clipboardProblem=null}
     private val main = Handler(Looper.getMainLooper())
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val current = MutableStateFlow<CoreSnapshot?>(null)

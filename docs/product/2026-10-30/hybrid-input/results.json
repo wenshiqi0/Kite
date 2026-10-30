@@ -1,0 +1,110 @@
+{
+  "device": "emulator-5558",
+  "android_api": 36,
+  "abi": "arm64-v8a",
+  "host": "Linux X11, isolated 1920x1080 display and Sunshine instance",
+  "tests": [
+    {
+      "name": "drawer-dismiss-close-button",
+      "status": "PASS",
+      "detail": "Drawer closes without selecting a session or exiting the workspace."
+    },
+    {
+      "name": "drawer-dismiss-scrim",
+      "status": "PASS",
+      "detail": "Drawer closes without selecting a session or exiting the workspace."
+    },
+    {
+      "name": "drawer-dismiss-back",
+      "status": "PASS",
+      "detail": "Drawer closes without selecting a session or exiting the workspace."
+    },
+    {
+      "name": "closed-drawer-edge-swipe-disabled",
+      "status": "PASS",
+      "detail": "Swiping from the left edge does not open the drawer."
+    },
+    {
+      "name": "relative-input-isolated-to-owned-display",
+      "status": "PASS",
+      "detail": "Virtual mouse moves DISPLAY=:21 while production DISPLAY=:10 stays unchanged."
+    },
+    {
+      "name": "virtual-mouse-left-balanced",
+      "status": "PASS",
+      "detail": "Real desktop received one matching down and up."
+    },
+    {
+      "name": "virtual-mouse-right-balanced",
+      "status": "PASS",
+      "detail": "Real desktop received one matching down and up."
+    },
+    {
+      "name": "continuous-virtual-wheel",
+      "status": "PASS",
+      "detail": "Continuous wheel gesture reaches remote scroll handler."
+    },
+    {
+      "name": "held-relative-left",
+      "status": "PASS",
+      "detail": "A held virtual button and a separate movement finger produce remote drag events and release."
+    },
+    {
+      "name": "held-relative-right",
+      "status": "PASS",
+      "detail": "A held virtual button and a separate movement finger produce remote drag events and release."
+    },
+    {
+      "name": "automatic-phone-to-desktop-clipboard",
+      "status": "PASS",
+      "detail": "A system clipboard change synchronizes over the live SSH bridge without a send/fetch action."
+    },
+    {
+      "name": "automatic-desktop-to-phone-clipboard",
+      "status": "PASS",
+      "detail": "Remote Chinese clipboard imports into Android automatically and pastes into a local draft. The draft is never sent to a model."
+    },
+    {
+      "name": "watch-mode-pauses-clipboard",
+      "status": "PASS",
+      "detail": "A remote copy while in Watch does not overwrite Android clipboard."
+    },
+    {
+      "name": "automatic-clipboard-remote-paste",
+      "status": "PASS",
+      "detail": "Native Ctrl+V transfers and pastes the exact Unicode token in the remote GTK entry."
+    },
+    {
+      "name": "hybrid-zoom-source-coordinate-mapping",
+      "status": "PASS",
+      "detail": "An off-center touch after 250% zoom maps back to the source desktop pixel, within three pixels."
+    },
+    {
+      "name": "held-virtual-left-with-direct-touch",
+      "status": "PASS",
+      "detail": "Held virtual button plus direct canvas movement produces a real drag without an extra click."
+    },
+    {
+      "name": "held-virtual-right-with-direct-touch",
+      "status": "PASS",
+      "detail": "Held virtual button plus direct canvas movement produces a real drag without an extra click."
+    },
+    {
+      "name": "single-clipboard-setting-switch",
+      "status": "PASS",
+      "detail": "Clipboard sync has one persistent setting and no manual transfer actions."
+    },
+    {
+      "name": "clipboard-off-stops-outgoing-sync",
+      "status": "PASS",
+      "detail": "A fresh Android system clipboard copy is not sent after switching sync off."
+    },
+    {
+      "name": "held-button-survives-canvas-finger-lift",
+      "status": "PASS",
+      "detail": "Lifting the canvas finger keeps the virtual left button down until the button finger releases."
+    }
+  ],
+  "build": "0.2.0-alpha.11 candidate, versionCode 13",
+  "physicalPhoneValidated": false
+}

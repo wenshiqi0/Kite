@@ -7,10 +7,23 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.util.TypedValue
 import android.widget.TextView
+import android.text.style.StrikethroughSpan
+import android.text.style.URLSpan
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
@@ -19,6 +32,9 @@ import io.noties.markwon.MarkwonSpansFactory
 import io.noties.markwon.core.CoreProps
 import io.noties.markwon.core.MarkwonTheme
 import io.noties.markwon.core.spans.LinkSpan
+import io.noties.markwon.core.spans.StrongEmphasisSpan
+import io.noties.markwon.core.spans.EmphasisSpan
+import io.noties.markwon.core.spans.CodeSpan
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TableAwareMovementMethod
 import io.noties.markwon.ext.tables.TablePlugin
@@ -26,20 +42,48 @@ import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.movement.MovementMethodPlugin
 import java.util.Locale
 import org.commonmark.node.Link
+import org.commonmark.node.Paragraph
 
 /** Presentation only: original Markdown remains in the shared message history. */
 @Composable
-fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = Color(0xFF161715), size: Float = 16f) {
+fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = Color(0xFF161715), size: Float = 16f, streaming: Boolean = false) {
     AndroidView(
         factory = { MarkdownTextView(it) },
-        update = { it.setTextColor(color.toArgb()); it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size); it.bind(text) },
+        update = { it.setTextColor(color.toArgb()); it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size); it.bind(text,streaming) },
         modifier = modifier,
     )
+}
+
+/** Styled control labels keep their parent's selection action and original wire value. */
+@Composable
+fun MarkdownLabel(text: String, modifier: Modifier = Modifier, color: Color = Color(0xFF161715), size: Float = 13f) {
+    val context = LocalContext.current
+    val label = remember(text, context) { markdownLabel(context, text) }
+    Text(label, modifier = modifier, color = color, fontSize = size.sp)
+}
+
+fun markdownLabel(context: Context, source: String): AnnotatedString {
+    val text = MarkdownRenderer.get(context).toMarkdown(source)
+    return buildAnnotatedString {
+        append(text.toString())
+        for (span in text.getSpans(0, text.length, Any::class.java)) {
+            val style = when (span) {
+                is StrongEmphasisSpan -> SpanStyle(fontWeight = FontWeight.Bold)
+                is EmphasisSpan -> SpanStyle(fontStyle = FontStyle.Italic)
+                is CodeSpan -> SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFFE7E8E2))
+                is StrikethroughSpan -> SpanStyle(textDecoration = TextDecoration.LineThrough)
+                is URLSpan -> SpanStyle(textDecoration = TextDecoration.Underline)
+                else -> continue
+            }
+            addStyle(style, text.getSpanStart(span), text.getSpanEnd(span))
+        }
+    }
 }
 
 class MarkdownTextView(context: Context) : TextView(context) {
     private val markdown = MarkdownRenderer.get(context)
     private var source: String? = null
+    private var streaming = false
     init {
         setPadding(0, 0, 0, 0)
         includeFontPadding = false
@@ -48,10 +92,15 @@ class MarkdownTextView(context: Context) : TextView(context) {
         setTextColor(0xFF161715.toInt())
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
     }
-    fun bind(value: String) {
-        if (source == value) return
+    fun bind(value: String, inProgress: Boolean = false) {
+        if (source == value && streaming == inProgress) return
         source = value
-        markdown.setMarkdown(this, value)
+        streaming = inProgress
+        val tail=value.substringAfterLast("\n\n")
+        // Stabilize a leading strong span during delivery. Code blocks and
+        // escaped/literal markers keep their original CommonMark behavior.
+        val partialStrong=inProgress && tail.startsWith("**") && tail.length>2 && !tail[2].isWhitespace() && tail.indexOf("**",2)<0 && markdown.parse(value).lastChild is Paragraph
+        markdown.setMarkdown(this,if(partialStrong)value+"**" else value)
     }
 }
 

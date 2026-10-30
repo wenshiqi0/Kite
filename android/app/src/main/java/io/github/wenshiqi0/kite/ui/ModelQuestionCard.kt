@@ -50,7 +50,7 @@ fun ModelQuestionCard(vm: HostCheckViewModel, question: QuestionInfo, enabled: B
                             Surface(color = if (selected) Color(0xFFE0ECFC) else Color.White, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, Color(0xFF2D85D8)) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = enabled && !vm.answeringQuestion) { vm.setQuestionValue(question.id, field.id, option.label) }) {
                                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                     RadioButton(selected = selected, onClick = null, modifier = Modifier.size(26.dp))
-                                    Column(Modifier.weight(1f).padding(start = 8.dp)) { Text(option.label, fontSize = 13.sp); if (option.description.isNotBlank()) Text(option.description, fontSize = 11.sp, color = Color(0xFF777C84)) }
+                                    Column(Modifier.weight(1f).padding(start = 8.dp)) { MarkdownLabel(option.label); if (option.description.isNotBlank()) MarkdownLabel(option.description, size = 11f, color = Color(0xFF777C84)) }
                                 }
                             }
                         }

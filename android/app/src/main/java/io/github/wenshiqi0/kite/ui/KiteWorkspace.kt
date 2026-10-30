@@ -33,6 +33,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -83,6 +85,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val voiceDescription = stringResource(R.string.voice_input)
     val frameCounts = stringResource(R.string.video_frame_counts, state?.desktop?.receivedFrames?.toLong() ?: 0L, state?.desktop?.renderedFrames?.toLong() ?: 0L)
     val drawer = rememberDrawerState(DrawerValue.Closed)
+    val drawerActive = drawer.currentValue != DrawerValue.Closed || drawer.targetValue != DrawerValue.Closed
     val scope = rememberCoroutineScope()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var autoFullscreen by remember { mutableStateOf(false) }
@@ -137,6 +140,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         runCatching { attachments.launch(types) }.onFailure { vm.externalActivity = false; updatePip(); warning = it.message }
     }
     val hideChrome = vm.inPip || vm.pipTransition
+    ClipboardBridge(vm,blocked=hideChrome || vm.settingsVisible || drawerActive)
     LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false } }
     LaunchedEffect(landscape, vm.inPip) {
         if (vm.inPip) return@LaunchedEffect
@@ -155,9 +159,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             vm.showDesktop -> enterPip()
         }
     }
-    ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = false, drawerContent = {
-        ModalDrawerSheet(Modifier.width(310.dp), drawerContainerColor = Color.White) {
-            SessionDrawer(vm, state, open = { id -> vm.openSession(id); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.settingsVisible = true; scope.launch { drawer.close() } })
+    BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
+    ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
+        ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = Color.White) {
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { id -> vm.openSession(id); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.settingsVisible = true; scope.launch { drawer.close() } })
         }
     }) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else Color.White)) {
@@ -225,7 +230,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                     items(entries, key = { it.key }) { entry -> when (entry) {
-                        is ChatEntry.Message -> MessageCard(entry.message)
+                        is ChatEntry.Message -> MessageCard(entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == state?.conversation?.lastOrNull { it.kind == MessageKind.ASSISTANT }?.id)
                         is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", { followTail = false }, vm::openDesktop)
                     } }
                     if (state != null && agent != null && !state.conversationAvailable && !state.composer.ready && state.agentOutput.isNotBlank()) item {
@@ -320,12 +325,36 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 if (vm.layout == DesktopLayout.Floating && !vm.inPip && !docked) {
                     Box(Modifier.absoluteOffset(fx, fy).width(floatingWidth).height(floatingHeight).background(Paper, RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFB8B8B1), RoundedCornerShape(14.dp)))
                 }
-                Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper)) {
-                    AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone) }, update = { surface ->
+                val videoReference = remember { mutableStateOf<VideoSurface?>(null) }
+                var mouseBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+                val hybrid = takeover && !hideChrome && !docked && !drawerActive && vm.inputMode == DesktopInputMode.Hybrid
+                Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper).pointerInput(vm.target,hybrid) {
+                    if (!hybrid) return@pointerInput
+                    var canvasFinger: PointerId? = null
+                    try {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event=awaitPointerEvent(PointerEventPass.Initial)
+                                if(event.changes.any { it.pressed && !it.previousPressed && mouseBounds.contains(it.position) }) videoReference.value?.requestFocus()
+                                if (canvasFinger==null && vm.heldMouseButtons!=0) {
+                                    canvasFinger=event.changes.firstOrNull { it.pressed && !it.previousPressed && !mouseBounds.contains(it.position) }?.id
+                                }
+                                event.changes.firstOrNull { it.id==canvasFinger }?.let { finger ->
+                                    if (finger.pressed) videoReference.value?.bridgePointer(finger.position.x,finger.position.y)
+                                    else { videoReference.value?.finishBridgedPointer();canvasFinger=null }
+                                    finger.consume()
+                                }
+                            }
+                        }
+                    } finally { if(canvasFinger!=null)videoReference.value?.finishBridgedPointer() }
+                }) {
+                    AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone).also { surface -> videoReference.value=surface } }, update = { surface ->
                         surface.takeover = takeover && !docked
-                        surface.trackpad = vm.trackpad
+                        surface.trackpad = vm.inputMode == DesktopInputMode.Trackpad
+                        surface.externalMouseButtons = vm.heldMouseButtons
+                        surface.onPaste = if(vm.engine.clipboardSyncEnabled) vm::pasteSynchronized else null
                         surface.panMode = vm.panMode
-                        surface.gesturesEnabled = !hideChrome && !docked
+                        surface.gesturesEnabled = !hideChrome && !docked && !drawerActive
                         surface.pip = hideChrome
                         surface.setSourceSize(state.desktop.sourceWidth.toInt(), state.desktop.sourceHeight.toInt())
                         surface.onZoomChanged = { vm.zoom = it }
@@ -333,6 +362,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }, modifier = Modifier.fillMaxSize().onGloballyPositioned { p ->
                         val b = p.boundsInWindow(); vm.videoBounds = Rect(b.left.roundToInt(), b.top.roundToInt(), b.right.roundToInt(), b.bottom.roundToInt())
                     })
+                    if (hybrid) VirtualMouse(vm,frameW,frameH) { mouseBounds=it }
                     if (!docked && state.desktop.status != DesktopStatus.STREAMING && state.desktop.status != DesktopStatus.PAIRING) {
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (state.desktop.status == DesktopStatus.FAILED) TextButton(onClick = vm::retryDesktop) { Text(stringResource(R.string.retry)) }
@@ -393,11 +423,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     else -> Unit
                 }
                 if (takeover && !hideChrome && !vm.settingsVisible && vm.layout == DesktopLayout.Fullscreen) {
-                    DesktopToolbar(vm, availableWidth, Modifier.align(Alignment.BottomCenter), keyboard = { remoteKeyboard = !remoteKeyboard }, paste = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        val value = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
-                        vm.releaseModifiers(); if (value.toByteArray().size > 4096 || !vm.sendText(value)) warning = sendTextFailure
-                    }, help = { gestureHelp = true })
+                    DesktopToolbar(vm, availableWidth, Modifier.align(Alignment.BottomCenter), keyboard = { remoteKeyboard = !remoteKeyboard }, help = { gestureHelp = true })
                 }
             }
             if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = Color.White) { HostSetupScreen(vm) { vm.settingsVisible = false } }
@@ -480,7 +506,7 @@ private fun agentTitle(a: AgentInfo): String {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else Color(0xFF64645F), Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
     }
 }
-@Composable private fun MessageCard(message: MessageInfo) {
+@Composable private fun MessageCard(message: MessageInfo, streaming: Boolean = false) {
     val user = message.kind == MessageKind.USER
     val context = LocalContext.current
     val copyLabel = stringResource(R.string.copy_reply)
@@ -491,7 +517,7 @@ private fun agentTitle(a: AgentInfo): String {
                 if (message.text.isNotBlank()) {
                     if (user) SelectionContainer { Text(message.text, color = Color(0xFF2269AA), fontSize = 16.sp, lineHeight = 25.sp) }
                     else {
-                        MarkdownMessage(message.text)
+                        MarkdownMessage(message.text,streaming=streaming)
                         IconButton(onClick = {
                             (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(copyLabel, message.text))
                         }, modifier = Modifier.align(Alignment.End).size(40.dp).semantics { contentDescription = copyLabel }) {
@@ -508,7 +534,12 @@ private fun agentTitle(a: AgentInfo): String {
     Surface(color = Color(0xFFFFF2D0), shape = RoundedCornerShape(19.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE3BD50)), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.approval_title), fontWeight = FontWeight.SemiBold, color = Color(0xFF8C5D00))
-            Text(approval.prompt, color = Color(0xFF8C5D00), fontSize = 14.sp, modifier = Modifier.heightIn(max = 210.dp).verticalScroll(requestScroll))
+            Column(Modifier.heightIn(max = 250.dp).verticalScroll(requestScroll), verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                approval.explanation?.takeIf {it.isNotBlank()}?.let { MarkdownMessage(it,color=Color(0xFF8C5D00),size=14f) }
+                approval.workingDirectory?.takeIf {it.isNotBlank()}?.let { Text(it,fontFamily=FontFamily.Monospace,fontSize=12.sp,color=Color(0xFF8C5D00)) }
+                if(approval.command==null && approval.explanation!=null)Text(stringResource(R.string.approval_original),fontSize=11.sp,color=Color(0xFF8C5D00))
+                SelectionContainer { Text(approval.command ?: approval.prompt, color=Color(0xFF8C5D00),fontFamily=FontFamily.Monospace,fontSize=13.sp) }
+            }
             if (approval.choices.size == 2) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 approval.choices.forEachIndexed { index, choice ->
                     Button(onClick = { choose(index) }, enabled = enabled, modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = if (index == 0) Ink else Color.White, contentColor = if (index == 0) Color.White else Ink)) { Text(choiceLabel(choice.label)) }

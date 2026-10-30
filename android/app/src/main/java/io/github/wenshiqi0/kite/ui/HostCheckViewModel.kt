@@ -24,9 +24,12 @@ import io.github.wenshiqi0.kite.core.UploadInfo
 import io.github.wenshiqi0.kite.core.QuestionInfo
 import io.github.wenshiqi0.kite.core.QuestionAnswerInfo
 import io.github.wenshiqi0.kite.media.NativeMedia
+import io.github.wenshiqi0.kite.media.PointerMotion
+import io.github.wenshiqi0.kite.core.ClipboardPlatformInfo
 import kotlinx.coroutines.launch
 
 enum class DesktopLayout { Closed, Floating, Docked, Split, Fullscreen }
+enum class DesktopInputMode { Hybrid, Trackpad, Direct }
 
 class HostCheckViewModel(application: Application) : AndroidViewModel(application) {
     val engine = (application as KiteApplication).engine
@@ -49,7 +52,13 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var floatingX by mutableStateOf(.90f)
     var floatingY by mutableStateOf(.28f)
     var zoom by mutableStateOf(1f)
-    var trackpad by mutableStateOf(true)
+    var inputMode by mutableStateOf(DesktopInputMode.Hybrid)
+        private set
+    var heldMouseButtons by mutableIntStateOf(0)
+        private set
+    var clipboardBusy by mutableStateOf(false)
+        private set
+    private val pointerMotion = PointerMotion()
     var panMode by mutableStateOf(false)
     var orientationRequest by mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
         private set
@@ -112,7 +121,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                         draft = draftAgent?.let { agentDrafts[it] } ?: if (old == null) draft else ""
                         if (agentDrafts.size > 32) agentDrafts.remove(agentDrafts.keys.first())
                     }
-                    if (!state.desktop.takeover) { ctrlHeld = false; metaHeld = false }
+                    if (!state.desktop.takeover) { ctrlHeld = false; metaHeld = false; releaseMouseButtons() }
                     val status = state.agents.find { it.id == state.selectedAgent }?.status
                     if ((status == "blocked" && lastStatus != "blocked" || state.question != null) && layout == DesktopLayout.Floating) {
                         layout = DesktopLayout.Docked; autoDocked = true
@@ -131,6 +140,9 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateForm(value: HostForm) { form = value }
     fun chooseHost(host: HostRecord) { form = host.toForm() }
+    fun newHost() {
+        engine.command { engine.core.disconnect(); form=HostForm();settingsVisible=true }
+    }
     fun clearLocalError() { localError = null; engine.platformError.value = null }
     fun connect() {
         val f = form
@@ -252,6 +264,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if (value == DesktopLayout.Floating || value == DesktopLayout.Docked) exitTakeover()
         if (layout != value) {
             if (value == DesktopLayout.Fullscreen) beforeFullscreen = if (layout == DesktopLayout.Closed) DesktopLayout.Floating else layout
+            releaseMouseButtons()
             releaseModifiers()
             if (target != 0L) NativeMedia.releaseInput(target)
             panMode = false
@@ -267,6 +280,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun closeDesktop() { orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop() } }
     fun fitVideo() { zoom = 1f; panMode = false }
     fun exitTakeover() {
+        releaseMouseButtons()
         releaseModifiers()
         if (target != 0L) NativeMedia.releaseInput(target)
         if (engine.state.value?.desktop?.takeover == true) takeOver(false)
@@ -280,12 +294,12 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun preparePip() { pipTransition = true; exitTakeover() }
     fun cancelPip() { pipTransition = false }
     fun videoReady(id: Long) { target = id; if ((foreground || inPip) && showDesktop) retryDesktop() }
-    fun videoGone(id: Long) { if (target == id) { target = 0; engine.command { engine.core.stopDesktop() } } }
+    fun videoGone(id: Long) { if (target == id) { releaseMouseButtons(); target = 0; engine.command { engine.core.stopDesktop() } } }
     fun retryDesktop() {
         val id = target
         if (id != 0L) engine.command { engine.core.startDesktop(id.toULong()) }
     }
-    fun onBackground(keepVideo: Boolean = false) { foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop() } } }
+    fun onBackground(keepVideo: Boolean = false) { releaseMouseButtons(); foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop() } } }
     fun onForeground() { foreground = true; if (showDesktop && target != 0L && (videoSuspended || engine.state.value?.desktop?.status == DesktopStatus.IDLE)) { videoSuspended = false; retryDesktop() } }
     fun modifier(ctrl: Boolean) {
         if (target == 0L) return
@@ -300,6 +314,45 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         ctrlHeld = false; metaHeld = false
     }
     fun sendText(text: String): Boolean = target != 0L && NativeMedia.text(target, text)
+    fun pasteSynchronized(): Boolean {
+        if (!engine.clipboardSyncEnabled || clipboardBusy || !foreground || target == 0L || engine.state.value?.desktop?.takeover != true) return false
+        val clipboard=getApplication<Application>().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val text=clipboard.primaryClip?.takeIf {it.itemCount>0}?.getItemAt(0)?.text?.toString() ?: return false
+        if(text.toByteArray().size>256*1024)return false
+        val host = engine.state.value?.selectedHost ?: return false
+        val destination = target
+        clipboardBusy = true
+        engine.command { try {
+            val platform = engine.core.writeClipboard(host, text)
+            if (foreground && engine.clipboardSyncEnabled && target == destination && engine.state.value?.selectedHost == host && engine.state.value?.desktop?.takeover == true) {
+                releaseModifiers()
+                val modifier = if (platform == ClipboardPlatformInfo.MACOS) 91 else 162
+                NativeMedia.key(destination, modifier, true, 0)
+                NativeMedia.key(destination, 86, true, if (modifier == 91) 8 else 2)
+                NativeMedia.key(destination, 86, false, if (modifier == 91) 8 else 2)
+                NativeMedia.key(destination, modifier, false, 0)
+            }
+        } finally { clipboardBusy = false } }
+        return true
+    }
+    fun chooseInputMode(mode: DesktopInputMode) { releaseMouseButtons(); releaseModifiers(); inputMode = mode; panMode = false; pointerMotion.reset() }
+    fun mouseButton(button: Int, down: Boolean) {
+        if (down && (!foreground || engine.state.value?.desktop?.takeover != true)) return
+        val mask = 1 shl button
+        if (target != 0L) NativeMedia.mouseButton(target, button, down)
+        heldMouseButtons = if (down) heldMouseButtons or mask else heldMouseButtons and mask.inv()
+    }
+    fun releaseMouseButtons() { for (button in listOf(1, 2, 3)) if (heldMouseButtons and (1 shl button) != 0) mouseButton(button, false); pointerMotion.reset() }
+    fun moveMouse(dx: Float, dy: Float, density: Float) {
+        if (target == 0L || engine.state.value?.desktop?.takeover != true) return
+        val d = pointerMotion.move(dx, dy, density)
+        if (d.x != 0 || d.y != 0) NativeMedia.mouseMove(target, d.x, d.y)
+    }
+    fun wheelMouse(dy: Float, density: Float) {
+        if (target == 0L || engine.state.value?.desktop?.takeover != true) return
+        val amount = pointerMotion.scroll(dy, density)
+        if (amount != 0) NativeMedia.scroll(target, 0, amount)
+    }
     fun leftClick() { if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
     fun rightClick() { if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
     fun scroll(vertical: Int) { if (target != 0L) NativeMedia.scroll(target, 0, vertical) }

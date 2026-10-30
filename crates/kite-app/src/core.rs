@@ -31,6 +31,7 @@ use tokio::{
     sync::{Mutex as AsyncMutex, watch},
     task::JoinHandle,
 };
+pub mod clipboard;
 mod sessions;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 use sessions::SessionBook;
@@ -274,6 +275,8 @@ pub struct AppCore {
     chat_failures: Mutex<BTreeSet<String>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
     session_book: Mutex<SessionBook>,
+    clipboard_mirrors: Mutex<BTreeMap<String, clipboard::Mirror>>,
+    clipboard_operations: AsyncMutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -324,6 +327,8 @@ impl AppCore {
             chat_failures: Mutex::new(BTreeSet::new()),
             uploads: Mutex::new(BTreeMap::new()),
             session_book: Mutex::new(SessionBook::default()),
+            clipboard_mirrors: Mutex::new(BTreeMap::new()),
+            clipboard_operations: AsyncMutex::new(()),
         })
     }
     pub fn snapshot(&self) -> Snapshot {

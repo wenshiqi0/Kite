@@ -8,6 +8,7 @@
 use kite_ssh::Session;
 
 pub mod core;
+pub use core::clipboard::{ClipboardPlatform, RemoteClipboard};
 pub use core::*;
 pub use kite_agent::composer::split_attachments as split_chat_attachments;
 pub use kite_agent::composer::{

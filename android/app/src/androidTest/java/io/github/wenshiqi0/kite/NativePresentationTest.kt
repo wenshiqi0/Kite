@@ -14,6 +14,9 @@ import io.github.wenshiqi0.kite.media.DesktopViewport
 import io.github.wenshiqi0.kite.media.VideoSurface
 import io.github.wenshiqi0.kite.ui.MarkdownRenderer
 import io.github.wenshiqi0.kite.ui.MarkdownTextView
+import io.github.wenshiqi0.kite.ui.markdownLabel
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
@@ -175,5 +178,24 @@ class NativePresentationTest {
     private fun measureText(view: View, width: Int) {
         view.measure(exact(width), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
+    }
+
+    @Test fun choiceLabelsRenderEmphasisAndPreserveLiteralCode() = onMain {
+        val raw = "**推荐** · *快速* · `a*b` · [文档](https://example.com)"
+        val label = markdownLabel(instrumentation.targetContext, raw)
+        assertEquals("推荐 · 快速 · a*b · 文档", label.text.replace("\u00a0",""))
+        assertTrue(label.spanStyles.any { it.item.fontWeight == FontWeight.Bold && label.text.substring(it.start,it.end)=="推荐" })
+        assertTrue(label.spanStyles.any { it.item.fontFamily == FontFamily.Monospace && label.text.substring(it.start,it.end).trim()=="a*b" })
+        assertEquals("**原样**", markdownLabel(instrumentation.targetContext, "\\*\\*原样\\*\\*").text)
+    }
+    @Test fun streamingStrongTextDoesNotExposeItsLeadingMarkerOrAlterCode() = onMain {
+        val view=MarkdownTextView(instrumentation.targetContext)
+        FrameLayout(instrumentation.targetContext).addView(view,FrameLayout.LayoutParams(-1,-2))
+        view.bind("**正在输出",true)
+        assertEquals("正在输出",view.text.toString())
+        assertTrue((view.text as Spanned).getSpans(0,view.text.length,Any::class.java).any {it.javaClass.simpleName.contains("StrongEmphasis")})
+        view.bind("**正在输出**",false);assertEquals("正在输出",view.text.toString())
+        view.bind("```\n**原样",true);assertTrue(view.text.toString().contains("**原样"))
+        view.bind("\\*\\*原样",true);assertEquals("**原样",view.text.toString())
     }
 }

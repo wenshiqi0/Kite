@@ -60,7 +60,7 @@ private val ControlBlue = Color(0xFF2D85D8)
     }
 }
 
-@Composable fun DesktopToolbar(vm: HostCheckViewModel, width: Dp, modifier: Modifier, keyboard: () -> Unit, paste: () -> Unit, help: () -> Unit) {
+@Composable fun DesktopToolbar(vm: HostCheckViewModel, width: Dp, modifier: Modifier, keyboard: () -> Unit, help: () -> Unit) {
     var inputs by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     val narrow = width < 620.dp
@@ -72,16 +72,15 @@ private val ControlBlue = Color(0xFF2D85D8)
                 if (width >= 700.dp) ControlButton(text = stringResource(R.string.shortcut_tab)) { vm.shortcut(9) }
                 ControlButton(text = stringResource(R.string.key_ctrl), active = vm.ctrlHeld) { vm.modifier(true) }
                 if (width >= 800.dp) ControlButton(text = stringResource(R.string.key_cmd), active = vm.metaHeld) { vm.modifier(false) }
-                ControlButton(mark = Mark.Clipboard, label = R.string.paste_desktop, action = paste)
             }
         }
         if (!narrow) Spacer(Modifier.weight(1f)) else Spacer(Modifier.width(8.dp))
         ZoomControl(vm)
         Box {
-            ControlButton(text = stringResource(if (vm.trackpad) R.string.trackpad else R.string.direct_touch), mark = if (vm.trackpad) Mark.Touchpad else Mark.Pointer) { inputs = true }
+            ControlButton(text = stringResource(inputModeLabel(vm.inputMode)), mark = if (vm.inputMode == DesktopInputMode.Trackpad) Mark.Touchpad else Mark.Pointer) { inputs = true }
             DropdownMenu(inputs, { inputs = false }) {
-                listOf(true, false).forEach { trackpad ->
-                    DropdownMenuItem(text = { Text(stringResource(if (trackpad) R.string.trackpad else R.string.direct_touch)) }, leadingIcon = { ProductIcon(if (trackpad) Mark.Touchpad else Mark.Pointer) }, trailingIcon = { if (vm.trackpad == trackpad) ProductIcon(Mark.Check, ControlBlue) }, onClick = { inputs = false; vm.trackpad = trackpad })
+                DesktopInputMode.entries.forEach { mode ->
+                    DropdownMenuItem(text = { Text(stringResource(inputModeLabel(mode))) }, leadingIcon = { ProductIcon(if (mode == DesktopInputMode.Trackpad) Mark.Touchpad else Mark.Pointer) }, trailingIcon = { if (vm.inputMode == mode) ProductIcon(Mark.Check, ControlBlue) }, onClick = { inputs = false; vm.chooseInputMode(mode) })
                 }
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text(stringResource(R.string.mouse_left)) }, onClick = { vm.leftClick() })
@@ -105,4 +104,10 @@ private val ControlBlue = Color(0xFF2D85D8)
             }
         }
     }
+}
+
+private fun inputModeLabel(mode: DesktopInputMode): Int = when(mode) {
+    DesktopInputMode.Hybrid -> R.string.hybrid_touch
+    DesktopInputMode.Trackpad -> R.string.trackpad
+    DesktopInputMode.Direct -> R.string.direct_touch
 }

@@ -57,7 +57,7 @@ fun ToolGroupCard(group: ChatEntry.Work, working: Boolean, inspect: () -> Unit, 
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), contentPadding = PaddingValues(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(group.messages, key = { it.id }) { message ->
                         val tool = message.tool
-                        if (tool == null) MarkdownMessage(message.text, color = Color(0xFF888982), size = 12f, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                        if (tool == null) MarkdownMessage(message.text, color = Color(0xFF888982), size = 12f, streaming = working && message.id == group.messages.lastOrNull()?.id, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                         else Row(Modifier.fillMaxWidth().clickable { inspect(); selectedCall = message.id }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             ProductIcon(if (tool.computer) Mark.Monitor else Mark.Terminal, if (tool.failed) MaterialTheme.colorScheme.error else Color(0xFF888982), Modifier.size(16.dp))
                             Text(tool.label + tool.summary.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), fontSize = 12.sp, color = Color(0xFF545750), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 8.dp))

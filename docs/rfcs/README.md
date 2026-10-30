@@ -19,6 +19,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0007](0007-sessions-and-interactions.md) | 会话记录、模型提问与工作过程 | 已实现（Android Alpha 7） |
 | [0008](0008-native-markdown-and-video-layout.md) | 原生富文本回复与稳定视频布局 | 已实现（Android Alpha 8） |
 | [0009](0009-async-questions-in-chat.md) | 聊天中的异步问题 | 已实现（Android Alpha 9） |
+| [0010](0010-hybrid-input-and-clipboard.md) | 混合鼠标、双向剪贴板与聊天入口 | 已采纳 |
 
 ## 什么时候写 RFC
 

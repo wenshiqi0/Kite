@@ -1,6 +1,25 @@
 use crate::KiteError;
 use std::{path::PathBuf, sync::Arc};
 
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum ClipboardPlatformInfo {
+    Linux,
+    Macos,
+}
+impl From<kite_app::ClipboardPlatform> for ClipboardPlatformInfo {
+    fn from(value: kite_app::ClipboardPlatform) -> Self {
+        match value {
+            kite_app::ClipboardPlatform::Linux => Self::Linux,
+            kite_app::ClipboardPlatform::Macos => Self::Macos,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RemoteClipboardInfo {
+    pub text: String,
+    pub platform: ClipboardPlatformInfo,
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct HostRecord {
     pub id: String,
@@ -242,6 +261,9 @@ pub struct ApprovalChoice {
 pub struct ApprovalInfo {
     pub id: String,
     pub prompt: String,
+    pub explanation: Option<String>,
+    pub command: Option<String>,
+    pub working_directory: Option<String>,
     pub choices: Vec<ApprovalChoice>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
@@ -492,6 +514,9 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             approval: s.approval.map(|a| ApprovalInfo {
                 id: a.id,
                 prompt: a.prompt,
+                explanation: a.explanation,
+                command: a.command,
+                working_directory: a.working_directory,
                 choices: a
                     .choices
                     .into_iter()
@@ -782,6 +807,30 @@ impl KiteCore {
     }
     pub async fn stop_desktop(&self) -> Result<(), KiteError> {
         self.inner.stop_desktop().await.map_err(Into::into)
+    }
+    pub async fn read_clipboard(&self, host_id: String) -> Result<RemoteClipboardInfo, KiteError> {
+        let value = self.inner.read_clipboard(host_id).await?;
+        Ok(RemoteClipboardInfo {
+            text: value.text,
+            platform: value.platform.into(),
+        })
+    }
+    pub async fn write_clipboard(
+        &self,
+        host_id: String,
+        text: String,
+    ) -> Result<ClipboardPlatformInfo, KiteError> {
+        Ok(self.inner.write_clipboard(host_id, text).await?.into())
+    }
+    pub async fn synchronize_clipboard(
+        &self,
+        host_id: String,
+        local: Option<String>,
+    ) -> Result<Option<String>, KiteError> {
+        self.inner
+            .synchronize_clipboard(host_id, local)
+            .await
+            .map_err(Into::into)
     }
 }
 fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {

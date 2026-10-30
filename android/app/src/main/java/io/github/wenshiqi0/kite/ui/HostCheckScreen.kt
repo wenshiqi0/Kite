@@ -39,6 +39,7 @@ fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
             } else {
                 val connected = state.connection == ConnectionStatus.CONNECTED
                 val running = state.connection == ConnectionStatus.CONNECTING
+                TextButton(onClick=viewModel::newHost,enabled=!running) { ProductIcon(Mark.Plus);Spacer(Modifier.width(8.dp));Text(stringResource(R.string.add_host)) }
                 if (state.hosts.size > 1) Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         Text(stringResource(R.string.saved_hosts), style = MaterialTheme.typography.titleMedium)
@@ -49,6 +50,7 @@ fun HostSetupScreen(viewModel: HostCheckViewModel, onBack: () -> Unit) {
                 state.failure?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
                 HostFormCard(viewModel, enabled = !connected && !running && state.pendingHostKey == null, running = running, connected = connected)
                 state.deviceKey?.let { DeviceKeyCard(it) }
+                ClipboardSyncSetting(viewModel)
                 if (running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (connected) {
                     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {

@@ -411,6 +411,9 @@ pub struct Choice {
 pub struct Approval {
     pub id: String,
     pub prompt: String,
+    pub explanation: Option<String>,
+    pub command: Option<String>,
+    pub working_directory: Option<String>,
     pub choices: Vec<Choice>,
 }
 
@@ -469,6 +472,9 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
     Some(Approval {
         id: fingerprint(text),
         prompt: text.into(),
+        explanation: None,
+        command: None,
+        working_directory: None,
         choices,
     })
 }

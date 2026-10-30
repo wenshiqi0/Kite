@@ -25,10 +25,14 @@ import io.github.wenshiqi0.kite.core.*
 @Composable fun sessionTitle(session: SessionInfo): String = session.title.ifBlank { providerLabel(session.provider) + " · " + stringResource(R.string.new_session_short) }
 
 @Composable
-fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, open: (String) -> Unit, create: () -> Unit, settings: () -> Unit) {
+fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String) -> Unit, create: () -> Unit, settings: () -> Unit) {
     var archived by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxHeight().width(310.dp)) {
-        Text(stringResource(R.string.app_name), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 12.dp))
+        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.app_name), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            val description = stringResource(R.string.close_navigation)
+            IconButton(onClick = close, modifier = Modifier.semantics { contentDescription = description }) { ProductIcon(Mark.Close) }
+        }
         TextButton(onClick = create, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent, modifier = Modifier.padding(horizontal = 14.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(false, true).forEach { filter ->

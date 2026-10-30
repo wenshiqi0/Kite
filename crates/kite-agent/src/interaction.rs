@@ -196,6 +196,9 @@ impl RuntimeState {
                     approval: Approval {
                         id: format!("rpc-{}", fingerprint(&value.to_string())),
                         prompt,
+                        explanation: p["reason"].as_str().map(str::to_owned),
+                        command: p["command"].as_str().map(str::to_owned),
+                        working_directory: p["cwd"].as_str().map(str::to_owned),
                         choices: decisions
                             .iter()
                             .map(|d| Choice {

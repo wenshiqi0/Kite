@@ -48,6 +48,10 @@ The phone usability fixes have dedicated source-pixel viewport tests, plus real 
 
 The herdr SSH fixture also checks workspace creation followed by `agent.start` in the returned public pane, preservation of project-directory text and reporting a failed create once without starting an agent. Provider `interactive_ready` is a **managed-launch** flag; it is not a gate for ordinary agents started directly in herdr.
 
+## Alpha 11 hybrid input and clipboard
+
+The [Alpha 11 acceptance record](product/2026-10-30/hybrid-input/acceptance.md) covers one-switch automatic text clipboard sharing, direct touch combined with held virtual mouse buttons, wheel events, zoomed source-pixel targeting, sidebar dismissal and richer Markdown control labels. The herdr-core restoration experiment is [recorded separately](product/2026-10-30/herdr-core-migration.md); it does not establish a production migration or desktop-client completion.
+
 ## Optional integration tools
 
 | Tool | Scope |

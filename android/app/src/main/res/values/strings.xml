@@ -36,6 +36,7 @@
     <string name="connection_notification_title">Kite 主机连接</string>
     <string name="connection_notification_text">SSH 会话保持中，点此返回 Kite。</string>
     <string name="saved_hosts">已保存的主机</string>
+    <string name="add_host">添加主机</string>
     <string name="advanced_settings">高级设置</string>
     <string name="stream_address">Sunshine 地址（可选）</string>
     <string name="stream_address_hint">留空使用主机地址；视频须通过局域网或 Tailscale 等私有网络直连。</string>
@@ -115,6 +116,16 @@
     <string name="agent_idle">等待消息</string>
     <string name="approval_title">需要你的确认</string>
     <string name="navigation_menu">会话列表</string>
+    <string name="close_navigation">关闭会话列表</string>
+    <string name="hybrid_touch">混合触控</string>
+    <string name="virtual_mouse">仿真鼠标</string>
+    <string name="mouse_wheel">鼠标滚轮</string>
+    <string name="mouse_move_area">鼠标移动区</string>
+    <string name="move_mouse">滑动移动</string>
+    <string name="clipboard_sync">同步剪贴板</string>
+    <string name="clipboard_sync_description">操作远端桌面时，在本机与当前主机之间自动同步复制的文本。</string>
+    <string name="clipboard_sync_unavailable">剪贴板暂不可用，恢复连接后会自动重试。</string>
+    <string name="approval_original">请求原文</string>
     <string name="more_actions">更多操作</string>
     <string name="compose_add">桌面与更多</string>
     <string name="voice_input">语音转文字</string>
@@ -140,6 +151,7 @@
     <string name="direct_touch">直接触控</string>
     <string name="gesture_help">手势说明</string>
     <string name="gesture_help_text">只看：单指平移，双指缩放。
+操作 · 混合触控：直接点按画面，也可用仿真鼠标移动、左右键和滚轮。按住鼠标键，另一根手指在移动区或画面拖动；拖动鼠标标题可调整位置。
 操作 · 触控板：单指移动鼠标，轻点左键，双击后拖动；双指轻点右键、滑动滚动、捏合缩放。
 操作 · 直接触控：点按或拖动远端目标，双指缩放和平移。
 也可点“移画面”后单指移动视口。缩放不会改变主机分辨率。</string>

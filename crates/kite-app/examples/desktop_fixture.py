@@ -20,9 +20,11 @@ from gi.repository import Gtk, Gdk, GLib
 parser = argparse.ArgumentParser()
 parser.add_argument('--state', required=True)
 parser.add_argument('--seconds', type=int, default=180)
+parser.add_argument('--width', type=int, default=700)
+parser.add_argument('--height', type=int, default=1000)
 args = parser.parse_args()
 state_path = Path(args.state)
-state = dict(frame=0, left=0, right=0, scroll=0, keys=0, f8=False, text_matched=False, alive=True)
+state = dict(frame=0, left=0, right=0, left_up=0, right_up=0, held_motion=0, scroll=0, keys=0, f8=False, text_matched=False, alive=True)
 started = time.monotonic()
 stopping = False
 x = C.CDLL('libX11.so.6')
@@ -36,7 +38,7 @@ old_focus, old_revert = C.c_ulong(), C.c_int()
 if display: x.XGetInputFocus(display, C.byref(old_focus), C.byref(old_revert))
 
 window = Gtk.Window(title='Kite remote desktop validation')
-window.set_default_size(700, 1000)
+window.set_default_size(args.width, args.height)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
 window.add(box)
 heading = Gtk.Label()
@@ -44,7 +46,7 @@ heading.set_markup('<span font_desc="Sans 28" foreground="#2563eb">KITE · LIVE 
 box.pack_start(heading, False, False, 16)
 canvas = Gtk.DrawingArea()
 canvas.set_hexpand(True); canvas.set_vexpand(True)
-canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK)
+canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.SCROLL_MASK)
 box.pack_start(canvas, True, True, 0)
 entry = Gtk.Entry()
 entry.set_placeholder_text('Type test text here')
@@ -90,6 +92,20 @@ def scroll(_, event):
     state['scroll'] += 1; save(); return False
 
 
+def release(_, event):
+    if event.button == 1: state['left_up'] += 1
+    if event.button == 3: state['right_up'] += 1
+    save(); return False
+
+
+def motion(_, event):
+    if event.state & (Gdk.ModifierType.BUTTON1_MASK | Gdk.ModifierType.BUTTON3_MASK):
+        state['held_motion'] += 1
+        state['last_drag_x'], state['last_drag_y'] = round(event.x_root, 2), round(event.y_root, 2)
+        save()
+    return False
+
+
 def key(_, event):
     state['keys'] += 1
     if event.keyval == Gdk.KEY_F8: state['f8'] = True
@@ -120,6 +136,7 @@ def request_stop(*_):
     stopping = True
 
 canvas.connect('draw', draw); canvas.connect('button-press-event', button); canvas.connect('scroll-event', scroll)
+canvas.connect('button-release-event', release); canvas.connect('motion-notify-event', motion)
 window.connect('key-press-event', key); window.connect('destroy', stop); entry.connect('changed', changed)
 signal.signal(signal.SIGTERM, request_stop); signal.signal(signal.SIGINT, request_stop)
 window.show_all(); window.fullscreen(); window.present(); entry.grab_focus()
