@@ -44,7 +44,7 @@ pub struct Answer {
 }
 #[derive(Clone)]
 struct PendingQuestion {
-    raw_id: Value,
+    raw_id: Option<Value>,
     turn: String,
     prompt: QuestionPrompt,
 }
@@ -61,10 +61,15 @@ pub struct RuntimeState {
     pub error: Option<String>,
     questions: Vec<PendingQuestion>,
     approval: Option<PendingApproval>,
+    answered_async: Vec<String>,
 }
 impl RuntimeState {
     pub fn question(&self) -> Option<QuestionPrompt> {
-        self.questions.first().map(|q| q.prompt.clone())
+        self.questions
+            .iter()
+            .find(|q| q.prompt.blocking)
+            .or(self.questions.first())
+            .map(|q| q.prompt.clone())
     }
     pub fn approval(&self) -> Option<Approval> {
         self.approval.as_ref().map(|a| a.approval.clone())
@@ -103,7 +108,8 @@ impl RuntimeState {
             if p.get("threadId").is_some() && p["threadId"] != thread {
                 return;
             }
-            self.questions.retain(|q| q.raw_id != p["requestId"]);
+            self.questions
+                .retain(|q| q.raw_id.as_ref() != Some(&p["requestId"]));
             if self
                 .approval
                 .as_ref()
@@ -114,6 +120,19 @@ impl RuntimeState {
             return;
         }
         if p["threadId"] != thread {
+            return;
+        }
+        if matches!(method, "item/started" | "item/completed")
+            && let Some(pending) = crate::async_input::from_item(
+                thread,
+                p["turnId"].as_str().unwrap_or_default(),
+                &p["item"],
+            )
+        {
+            self.reconcile_async(&crate::async_input::History {
+                pending: vec![pending],
+                answered: vec![],
+            });
             return;
         }
         match method {
@@ -131,7 +150,7 @@ impl RuntimeState {
                 let identity = json!({"thread":p["threadId"],"turn":p["turnId"],"item":p["itemId"],"questions":p["questions"]});
                 let id = format!("question-{}", fingerprint(&identity.to_string()));
                 let pending = PendingQuestion {
-                    raw_id: value["id"].clone(),
+                    raw_id: Some(value["id"].clone()),
                     turn: p["turnId"].as_str().unwrap_or_default().into(),
                     prompt: QuestionPrompt {
                         id: id.clone(),
@@ -196,8 +215,11 @@ impl RuntimeState {
                 let turn = p["turn"]["id"].as_str().unwrap_or_default();
                 let terminal_failure =
                     p["turn"]["status"] == "failed" || p["turn"]["status"] == "interrupted";
-                self.questions
-                    .retain(|q| q.turn != turn || (!q.prompt.blocking && !terminal_failure));
+                self.questions.retain(|q| {
+                    q.raw_id.is_none()
+                        || q.turn != turn
+                        || (!q.prompt.blocking && !terminal_failure)
+                });
                 if self.approval.as_ref().is_some_and(|a| a.turn == turn) {
                     self.approval = None;
                 }
@@ -233,6 +255,7 @@ impl RuntimeState {
                         .into(),
                 );
             }
+            _ if value.get("id").is_some() => self.activity = Activity::Waiting,
             _ => {}
         }
     }
@@ -242,6 +265,86 @@ impl RuntimeState {
             .iter()
             .find(|q| q.prompt.id == id)
             .ok_or(Error::Invalid("question expired"))?;
+        let raw_id = pending
+            .raw_id
+            .as_ref()
+            .ok_or(Error::Invalid("asynchronous question requires a follow-up"))?;
+        let values = Self::answer_values(pending, answers)?;
+        Ok(json!({"id":raw_id,"result":{"answers":values}}))
+    }
+
+    pub fn async_reply(&self, id: &str, answers: &[Answer]) -> Result<Option<String>, Error> {
+        let pending = self
+            .questions
+            .iter()
+            .find(|q| q.prompt.id == id)
+            .ok_or(Error::Invalid("question expired"))?;
+        if pending.raw_id.is_some() {
+            return Ok(None);
+        }
+        let values = Self::answer_values(pending, answers)?;
+        let replies: Vec<_> = pending
+            .prompt
+            .questions
+            .iter()
+            .map(|question| {
+                json!({
+                    "questionItemId":question.id, "question":question.question,
+                    "answer":values[&question.id]["answers"][0],
+                })
+            })
+            .collect();
+        Ok(Some(format!(
+            "<send_user_message_question_reply>\n{}\n</send_user_message_question_reply>",
+            serde_json::to_string(&replies)?
+        )))
+    }
+
+    pub fn reconcile_async(&mut self, history: &crate::async_input::History) {
+        for id in &history.answered {
+            if !self.answered_async.contains(id) {
+                self.answered_async.push(id.clone());
+            }
+        }
+        if self.answered_async.len() > 2048 {
+            self.answered_async
+                .drain(..self.answered_async.len() - 2048);
+        }
+        for q in self.questions.iter_mut().filter(|q| q.raw_id.is_none()) {
+            q.prompt
+                .questions
+                .retain(|f| !self.answered_async.contains(&f.id));
+        }
+        self.questions.retain(|q| !q.prompt.questions.is_empty());
+        for source in &history.pending {
+            let mut prompt = source.prompt.clone();
+            prompt
+                .questions
+                .retain(|f| !self.answered_async.contains(&f.id));
+            if prompt.questions.is_empty() {
+                continue;
+            }
+            let pending = PendingQuestion {
+                raw_id: None,
+                turn: source.turn.clone(),
+                prompt,
+            };
+            if let Some(previous) = self
+                .questions
+                .iter_mut()
+                .find(|q| q.prompt.id == pending.prompt.id)
+            {
+                *previous = pending;
+            } else if self.questions.len() < 8 {
+                self.questions.push(pending);
+            }
+        }
+    }
+
+    fn answer_values(
+        pending: &PendingQuestion,
+        answers: &[Answer],
+    ) -> Result<serde_json::Map<String, Value>, Error> {
         if answers.len() != pending.prompt.questions.len() {
             return Err(Error::Invalid("answer every question"));
         }
@@ -271,7 +374,7 @@ impl RuntimeState {
             }
             values.insert(question.id.clone(), json!({"answers":[answer]}));
         }
-        Ok(json!({"id":pending.raw_id,"result":{"answers":values}}))
+        Ok(values)
     }
     pub fn approval_reply(&self, id: &str, choice: u32) -> Result<Value, Error> {
         let pending = self
@@ -286,6 +389,17 @@ impl RuntimeState {
         Ok(json!({"id":pending.raw_id,"result":{"decision":decision}}))
     }
     pub fn answered(&mut self, id: &str) {
+        if let Some(pending) = self
+            .questions
+            .iter()
+            .find(|q| q.prompt.id == id && q.raw_id.is_none())
+        {
+            for field in &pending.prompt.questions {
+                if !self.answered_async.contains(&field.id) {
+                    self.answered_async.push(field.id.clone());
+                }
+            }
+        }
         self.questions.retain(|q| q.prompt.id != id);
         if self.approval.as_ref().is_some_and(|a| a.approval.id == id) {
             self.approval = None;
@@ -301,6 +415,16 @@ mod tests {
     use super::*;
     fn request() -> Value {
         json!({"id":7,"method":"item/tool/requestUserInput","params":{"threadId":"t","turnId":"turn","isBlocking":true,"questions":[{"id":"colour","header":"Colour","question":"Which colour?","isOther":true,"options":[{"label":"Blue","description":"Blue"},{"label":"Green","description":"Green"}]}]}})
+    }
+    #[test]
+    fn unknown_server_requests_stop_the_processing_indicator_without_inventing_options() {
+        let mut state = RuntimeState::default();
+        state.begin();
+        state.accepted();
+        state.ingest(&json!({"id":99,"method":"mcpServer/elicitation/request","params":{"threadId":"t","message":"External interaction"}}),"t");
+        assert_eq!(state.phase(), Activity::Waiting);
+        assert!(state.question().is_none());
+        assert!(state.approval().is_none());
     }
     #[test]
     fn model_questions_accept_choices_or_free_text_and_expire_on_resolution() {

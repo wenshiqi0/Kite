@@ -288,6 +288,9 @@ impl Client {
     pub fn runtime(&self) -> RuntimeState {
         lock(&self.runtime).clone()
     }
+    pub fn reconcile_async(&self, history: &crate::async_input::History) {
+        lock(&self.runtime).reconcile_async(history);
+    }
     pub fn is_observing(&self) -> bool {
         self.subscribed.load(Ordering::SeqCst)
     }
@@ -319,8 +322,15 @@ impl Client {
         }
     }
     pub async fn answer(&self, id: &str, answers: &[Answer]) -> Result<(), Error> {
-        let reply = lock(&self.runtime).question_reply(id, answers)?;
-        self.write(reply).await?;
+        let follow_up = lock(&self.runtime).async_reply(id, answers)?;
+        if let Some(text) = follow_up {
+            let turns = self.request("thread/turns/list", json!({"threadId":self.thread,"limit":1,"itemsView":"notLoaded","sortDirection":"desc"})).await?;
+            let (method, params) = follow_up_request(&self.thread, &text, &turns)?;
+            self.request(method, params).await?;
+        } else {
+            let reply = lock(&self.runtime).question_reply(id, answers)?;
+            self.write(reply).await?;
+        }
         lock(&self.runtime).answered(id);
         Ok(())
     }
@@ -411,6 +421,34 @@ impl Client {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         Ok(text)
+    }
+}
+
+fn follow_up_request(
+    thread: &str,
+    text: &str,
+    turns: &Value,
+) -> Result<(&'static str, Value), Error> {
+    let latest = turns["data"]
+        .as_array()
+        .and_then(|v| v.first())
+        .ok_or(Error::Invalid("question thread state unavailable"))?;
+    let input = json!([{"type":"text","text":text}]);
+    match latest["status"].as_str() {
+        Some("inProgress") => {
+            let turn = latest["id"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or(Error::Invalid("active turn identity unavailable"))?;
+            Ok((
+                "turn/steer",
+                json!({"threadId":thread,"expectedTurnId":turn,"input":input}),
+            ))
+        }
+        Some("completed" | "failed" | "interrupted") => {
+            Ok(("turn/start", json!({"threadId":thread,"input":input})))
+        }
+        _ => Err(Error::Invalid("question thread state unavailable")),
     }
 }
 
@@ -593,4 +631,33 @@ mod tests {
         assert_eq!(split_attachments(&text), ("Look at this".into(), files));
         assert!(split_attachments("<kite_attachments>broken").1.is_empty());
     }
+}
+#[test]
+fn asynchronous_answers_steer_the_current_turn_and_start_only_after_completion() {
+    let (method, params) = follow_up_request(
+        "thread",
+        "answer",
+        &json!({"data":[{"id":"active","status":"inProgress"}]}),
+    )
+    .unwrap();
+    assert_eq!(method, "turn/steer");
+    assert_eq!(params["expectedTurnId"], "active");
+    assert_eq!(params["threadId"], "thread");
+    let (method, params) = follow_up_request(
+        "thread",
+        "answer",
+        &json!({"data":[{"id":"done","status":"completed"}]}),
+    )
+    .unwrap();
+    assert_eq!(method, "turn/start");
+    assert!(params.get("expectedTurnId").is_none());
+    assert!(follow_up_request("thread", "answer", &json!({"data":[]})).is_err());
+    assert!(
+        follow_up_request(
+            "thread",
+            "answer",
+            &json!({"data":[{"status":"inProgress"}]})
+        )
+        .is_err()
+    );
 }

@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod async_input;
 pub mod composer;
 pub mod history;
 pub mod interaction;
@@ -302,6 +303,19 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                             _ => continue,
                         };
                         let text = codex_message_text(&p["content"]);
+                        let text = if role == Role::User {
+                            async_input::replies(&text)
+                                .map(|replies| {
+                                    replies
+                                        .into_iter()
+                                        .map(|r| format!("{}\n{}", r.question, r.answer))
+                                        .collect::<Vec<_>>()
+                                        .join("\n\n")
+                                })
+                                .unwrap_or(text)
+                        } else {
+                            text
+                        };
                         if text.starts_with("<environment_context>")
                             || text.starts_with("<turn_aborted>")
                         {

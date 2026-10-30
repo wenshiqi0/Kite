@@ -843,6 +843,20 @@ impl AppCore {
             .await
             .get(&chat_key(c, &agent))
             .cloned();
+        let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
+            return;
+        };
+        let cached = lock(&self.history).clone();
+        let history = if let Some(reference) = &agent.agent_session {
+            history::read(&c.ssh, reference, cached).await
+        } else {
+            history::History::default()
+        };
+        if history.available
+            && let Some(client) = &client
+        {
+            client.reconcile_async(&history.async_input);
+        }
         let runtime = client.as_ref().map(|c| c.runtime());
         let question = runtime.as_ref().and_then(|r| r.question());
         let activity = runtime.as_ref().map(|r| r.phase()).unwrap_or_else(|| {
@@ -854,15 +868,6 @@ impl AppCore {
                 ResponseActivity::Idle
             }
         });
-        let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
-            return;
-        };
-        let cached = lock(&self.history).clone();
-        let history = if let Some(reference) = &agent.agent_session {
-            history::read(&c.ssh, reference, cached).await
-        } else {
-            history::History::default()
-        };
         let provider = agent
             .agent_session
             .as_ref()

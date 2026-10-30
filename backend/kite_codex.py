@@ -553,8 +553,127 @@ def proxy(pane):
                             fragments.clear()
 
 
+def control_line(stream, limit):
+    """Read one source record with image strings removed and bounded memory."""
+    pattern = re.compile(rb'"image_url"\s*:\s*"')
+    result = bytearray()
+    carry = b""
+    skipping = escaped = complete = False
+    def emit(data):
+        result.extend(data[:max(0, limit + 1 - len(result))])
+    while True:
+        chunk = stream.readline(65536)
+        if not chunk:
+            break
+        complete = chunk.endswith(b"\n")
+        data = carry + chunk
+        carry = b""
+        while data:
+            if skipping:
+                position = data.find(b'"')
+                while position >= 0:
+                    back = position - 1
+                    while back >= 0 and data[back] == 92:
+                        back -= 1
+                    odd = (position - back - 1) % 2 == 1
+                    if back < 0:
+                        odd ^= escaped
+                    if not odd:
+                        break
+                    position = data.find(b'"', position + 1)
+                if position < 0:
+                    back = len(data) - 1
+                    while back >= 0 and data[back] == 92:
+                        back -= 1
+                    escaped = (len(data) - back - 1) % 2 == 1
+                    data = b""
+                    continue
+                data = data[position+1:]
+                skipping = escaped = False
+            else:
+                match = pattern.search(data)
+                if match:
+                    emit(data[:match.start()] + b'"image_url":""')
+                    data = data[match.end():]
+                    skipping = True
+                else:
+                    if len(data) > 64:
+                        emit(data[:-64])
+                    carry = data[-64:]
+                    break
+        if complete:
+            break
+    emit(carry)
+    return (bytes(result) if len(result) <= limit else None), complete
+
+
+def question_records(file):
+    """Index raw control facts, not pending/resolved business state, across the full log."""
+    source = Path(file)
+    directory = private_dir(state_dir() / "history")
+    cache = directory / (hashlib.sha256(str(source.resolve()).encode()).hexdigest() + ".json")
+    limit = 2 * 1024 * 1024
+    with file_lock(cache.with_suffix(".lock")), source.open("rb") as stream:
+        info = os.fstat(stream.fileno())
+        index = {"version": 2, "device": info.st_dev, "inode": info.st_ino, "offset": 0, "rows": []}
+        try:
+            saved = json.loads(cache.read_text())
+            if saved["version"] == 2 and saved["device"] == info.st_dev and saved["inode"] == info.st_ino and 0 <= saved["offset"] <= info.st_size:
+                index = saved
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        calls = {row["payload"]["call_id"] for row in index["rows"] if row["payload"].get("type") == "function_call"}
+        stream.seek(index["offset"])
+        changed = False
+        while True:
+            start = stream.tell()
+            line, complete = control_line(stream, limit)
+            if not complete:
+                # Retry a partially written source record on the next snapshot.
+                stream.seek(start)
+                break
+            index["offset"] = stream.tell()
+            changed = True
+            if line is None or not any(token in line for token in (b'"function_call"', b'"function_call_output"', b'"user"')):
+                continue
+            try:
+                record = json.loads(line)
+                if not isinstance(record, dict) or record.get("type") != "response_item" or not isinstance(record.get("payload"), dict):
+                    continue
+                payload = record["payload"]
+                kind = payload.get("type")
+                keep = False
+                if kind == "function_call" and payload.get("name") == "request_user_input_async" and payload.get("call_id"):
+                    calls.add(payload["call_id"])
+                    keep = True
+                elif kind == "function_call_output" and payload.get("call_id") in calls:
+                    keep = True
+                elif kind == "message" and payload.get("role") == "user":
+                    # Preserve the user-input boundary without copying ordinary
+                    # message bodies or image data into the control index.
+                    content = payload.get("content", [])
+                    text = [part for part in content if isinstance(part, dict) and isinstance(part.get("text"), str)] if isinstance(content, list) else []
+                    if not any("<send_user_message_question_reply>" in part["text"] for part in text):
+                        marker = next((tag for tag in ("<environment_context>", "<turn_aborted>") if text and text[0]["text"].startswith(tag)), None)
+                        text = [{"type":"input_text","text":marker}] if marker else []
+                    record = {"type":"response_item","payload":{"type":"message","role":"user","content":text}}
+                    keep = True
+                if keep:
+                    index["rows"].append(record)
+            except (ValueError, KeyError, TypeError):
+                continue
+        records = b"".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode() + b"\n" for row in index["rows"])
+        if len(records) > 1024 * 1024:
+            raise ValueError("question history index exceeds transport capacity")
+        if changed or not cache.exists():
+            atomic_json(cache, index)
+        return records
+
+
 def history_projection(file, output):
     """Keep textual JSONL history bounded without transporting inline image data."""
+    controls = question_records(file)
+    budget = 2097152 - len(controls) - 64
     process = subprocess.Popen(["tail", "-n", "4096", "--", file], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     pattern = re.compile(rb'"image_url"\s*:\s*"')
     carry = b""
@@ -563,8 +682,8 @@ def history_projection(file, output):
     result = bytearray()
     def emit(data):
         result.extend(data)
-        if len(result) > 2097152:
-            del result[:-2097152]
+        if len(result) > budget:
+            del result[:-budget]
     try:
         while True:
             chunk = process.stdout.read(65536)
@@ -609,7 +728,7 @@ def history_projection(file, output):
         emit(carry)
         if process.wait(timeout=5) != 0:
             raise RuntimeError("history read failed")
-        output.write(result)
+        output.write(b"kite-codex-history-v2\n" + str(len(controls)).encode() + b"\n" + controls + result)
     finally:
         process.stdout.close()
         if process.poll() is None:

@@ -38,12 +38,13 @@ fun ModelQuestionCard(vm: HostCheckViewModel, question: QuestionInfo, enabled: B
                 Text(stringResource(R.string.model_question_title), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.weight(1f))
                 if (question.fields.size > 1) Text(stringResource(R.string.question_progress, page + 1, question.fields.size), color = Color(0xFF777C84), fontSize = 12.sp)
             }
+            if (!question.blocking) Text(stringResource(R.string.question_async_hint), fontSize = 12.sp, color = Color(0xFF777C84))
             key(field.id) {
             Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 listOf(field).forEach { field ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (question.fields.size > 1) Text(field.header, color = Color(0xFF777C84), fontSize = 12.sp)
-                        Text(field.text, fontSize = 14.sp)
+                        MarkdownMessage(field.text, size = 14f)
                         field.options.forEach { option ->
                             val selected = values[field.id] == option.label
                             Surface(color = if (selected) Color(0xFFE0ECFC) else Color.White, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, Color(0xFF2D85D8)) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = enabled && !vm.answeringQuestion) { vm.setQuestionValue(question.id, field.id, option.label) }) {

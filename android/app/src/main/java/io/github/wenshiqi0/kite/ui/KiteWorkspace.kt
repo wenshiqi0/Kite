@@ -68,6 +68,7 @@ private val Amber = Color(0xFFF5C847)
 fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () -> Unit) {
     val current by vm.engine.state.collectAsState()
     val state = current
+    val responseInProgress = state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING)
     val currentSession = state?.sessions?.find { it.id == state.selectedSession }
     val context = LocalContext.current
     val voiceUnavailable = stringResource(R.string.voice_unavailable)
@@ -95,6 +96,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var remoteText by remember { mutableStateOf("") }
     var terminal by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
+    var answerRequest by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state?.question?.id) { if (answerRequest != state?.question?.id) answerRequest = null }
     var arrows by remember { mutableStateOf(false) }
     var warning by remember { mutableStateOf<String?>(null) }
     val entries = remember(state?.conversation) { chatEntries(state?.conversation.orEmpty()) }
@@ -170,7 +173,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 Row(Modifier.fillMaxWidth().height(56.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.semantics { contentDescription = menuDescription }) { ProductIcon(Mark.Menu) }
                     Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else agent.status); Spacer(Modifier.width(6.dp)); Text(if (state.question != null) stringResource(R.string.awaiting_answer) else statusLabel(agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
+                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)); Text(if (state.question != null) stringResource(if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_short) else statusLabel(if (responseInProgress) "working" else agent.status, state.agentPause, agent.launchPending), color = Muted, fontSize = 13.sp) }
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
@@ -236,7 +239,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
                     if (state?.connection == ConnectionStatus.CONNECTED && (vm.sending || state.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.FAILED))) item(key = "response-feedback") { ResponseFeedback(state.responsePhase, vm.sending) }
-                    if (agent?.status == "blocked" && state?.approval == null && state?.question == null) item {
+                    if (agent?.status == "blocked" && state?.approval == null && state?.question == null && !responseInProgress) item {
                         TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.agent_waiting_open_terminal), color = Color(0xFF946307)) }
                     }
                     item { Spacer(Modifier.height(8.dp)) }
@@ -256,14 +259,14 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     agent.launchPending -> R.string.composer_starting
                     agent.agent == "codex" && !state.composer.ready -> R.string.composer_backend_unavailable
                     state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
-                    state.question?.blocking == true -> R.string.awaiting_answer
-                    agent.status == "blocked" && state.question == null -> R.string.composer_blocked_hint
+                    state.question != null -> if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_hint
+                    agent.status == "blocked" && state.question == null && !responseInProgress -> R.string.composer_blocked_hint
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
                 if (composeReason != null && composeReason != R.string.composer_backend_unavailable && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    if (state?.question?.blocking == true) TextButton(onClick = { followTail = true; scope.launch { chatScroll.animateScrollToItem((chatScroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)) } }) { Text(stringResource(R.string.go_answer)) }
+                    if (state?.question != null) TextButton(onClick = { answerRequest = state.question?.id }) { Text(stringResource(R.string.go_answer)) }
                     else if (agent != null && agent.launchPending) TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.terminal_output)) }
                 }
                 if (state?.question?.blocking != true) {
@@ -419,6 +422,14 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }, confirmButton = { TextButton(onClick = { vm.createSession(provider, project, sessionName); newSession = false; sessionName = "" }, enabled = !vm.creatingAgent) { Text(stringResource(if (provider == "claude") R.string.save_session else R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
     if (gestureHelp && !hideChrome) AlertDialog(onDismissRequest = { gestureHelp = false }, title = { Text(stringResource(R.string.gesture_help)) }, text = { Text(stringResource(R.string.gesture_help_text)) }, confirmButton = { TextButton(onClick = { gestureHelp = false }) { Text(stringResource(R.string.dismiss)) } })
+    state?.question?.takeIf { it.id == answerRequest && !hideChrome }?.let { question ->
+        ModalBottomSheet(onDismissRequest = { answerRequest = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .8f).dp).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).navigationBarsPadding().imePadding()) {
+                ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING)
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
     if (remoteKeyboard && !hideChrome) AlertDialog(onDismissRequest = { remoteKeyboard = false }, title = { Text(stringResource(R.string.remote_text)) }, text = {
         OutlinedTextField(remoteText, { remoteText = it }, label = { Text(stringResource(R.string.remote_text)) })
     }, confirmButton = { TextButton(onClick = { vm.releaseModifiers(); if (remoteText.toByteArray().size <= 4096 && vm.sendText(remoteText)) { remoteText = ""; remoteKeyboard = false } else warning = sendTextFailure }) { Text(stringResource(R.string.send_text)) } })

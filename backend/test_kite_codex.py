@@ -15,6 +15,15 @@ import kite_codex as backend
 
 
 class BackendTests(unittest.TestCase):
+    def projection(self, file):
+        output = io.BytesIO()
+        backend.history_projection(str(file), output)
+        marker, size, body = output.getvalue().split(b"\n", 2)
+        self.assertEqual(marker, b"kite-codex-history-v2")
+        size = int(size)
+        self.assertLessEqual(len(output.getvalue()), 2097152)
+        return body[:size], body[size:]
+
     def test_catalog_cas_prevents_archive_and_provider_from_being_overwritten(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
             first = backend.catalog_read()
@@ -31,19 +40,58 @@ class BackendTests(unittest.TestCase):
             self.assertEqual((Path(temporary) / ".local/share/kite/sessions.json").stat().st_mode & 0o777, 0o600)
 
     def test_large_inline_image_preserves_user_text_and_attachment_history(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
             file = Path(temporary) / "history.jsonl"
             original = {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": 'literal {"image_url":"keep this text"} and attachment manifest'}, {"type": "input_image", "image_url": "data:image/png;base64," + "A" * (3 * 1024 * 1024)}]}}
             file.write_text(json.dumps(original) + "\n" + '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[]}}\n')
-            output = io.BytesIO()
-            backend.history_projection(str(file), output)
-            lines = output.getvalue().splitlines()
+            controls, recent = self.projection(file)
+            self.assertEqual(json.loads(controls)["payload"]["content"], [])
+            self.assertNotIn(b"image_url", controls)
+            lines = recent.splitlines()
             self.assertEqual(len(lines), 2)
             projected = json.loads(lines[0])
             self.assertEqual(projected["payload"]["content"][0], original["payload"]["content"][0])
             self.assertEqual(projected["payload"]["content"][1]["image_url"], "")
-            self.assertLess(len(output.getvalue()), 1000)
+            self.assertLess(len(recent), 1000)
             self.assertGreater(file.stat().st_size, 3 * 1024 * 1024)
+
+    def test_old_questions_and_answers_survive_the_recent_history_window(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            file = Path(temporary) / "history.jsonl"
+            call = {"type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","call_id":"old-question","arguments":json.dumps({"questions":[{"title":"Choose","options":["A","B"]}]})}}
+            accepted = {"type":"response_item","payload":{"type":"function_call_output","call_id":"old-question","output":"{\"accepted\":true}"}}
+            noise = json.dumps({"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"unrelated","output":"x"*600}})+"\n"
+            file.write_text(json.dumps(call)+"\n"+json.dumps(accepted)+"\n"+noise*5000)
+            controls, recent = self.projection(file)
+            self.assertEqual(len(controls.splitlines()), 2)
+            self.assertIn(b"old-question", controls)
+            self.assertNotIn(b"old-question", recent)
+            self.assertEqual(self.projection(file)[0], controls)
+            answer = {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<send_user_message_question_reply>\n[]\n</send_user_message_question_reply>"}]}}
+            with file.open("a") as f: f.write(json.dumps(answer)+"\n")
+            controls, _ = self.projection(file)
+            self.assertEqual(len(controls.splitlines()), 3)
+            cache = next((Path(temporary)/".local/state/kite/codex/history").glob("*.json"))
+            self.assertEqual(cache.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(cache.read_text())["offset"], file.stat().st_size)
+            # An atomic replacement must invalidate the old index even at the same path.
+            replacement = file.with_suffix(".replacement")
+            replacement.write_text(noise)
+            replacement.replace(file)
+            self.assertEqual(self.projection(file)[0], b"")
+
+    def test_partial_control_lines_are_retried_and_truncation_rebuilds_index(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            file = Path(temporary)/"history.jsonl"
+            call = json.dumps({"type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","call_id":"partial","arguments":"{}"}})+"\n"
+            file.write_text(call[:30])
+            self.assertEqual(self.projection(file)[0], b"")
+            with file.open("a") as f: f.write(call[30:])
+            controls, _ = self.projection(file)
+            self.assertEqual(len(controls.splitlines()),1)
+            self.assertIn(b"partial",controls)
+            file.write_text("{}\n")
+            self.assertEqual(self.projection(file)[0],b"")
 
     def test_upload_is_private_verified_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):

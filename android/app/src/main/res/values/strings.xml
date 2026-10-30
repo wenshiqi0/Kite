@@ -92,7 +92,7 @@
     <string name="pause_agent">暂停 agent 进程</string>
     <string name="resume_agent">恢复 / 核对 agent</string>
     <string name="connection_diagnostics">连接诊断</string>
-    <string name="agent_waiting_open_terminal">agent 正在等待输入 · 查看终端</string>
+    <string name="agent_waiting_open_terminal">需要处理其他交互 · 查看终端</string>
     <string name="composer_blocked">补充说明…</string>
     <string name="composer_hint">发消息给 agent</string>
     <string name="voice_unavailable">当前设备没有可用的语音识别服务。</string>
@@ -245,7 +245,10 @@
     <string name="response_tools">正在使用工具…</string>
     <string name="response_replying">正在回复…</string>
     <string name="response_failed">请求未完成，请查看详情</string>
-    <string name="go_answer">去回答</string>
+    <string name="go_answer">回答问题</string>
+    <string name="question_pending_short">待回答</string>
+    <string name="question_pending_hint">有问题需要你回答</string>
+    <string name="question_async_hint">选择选项或填写回答。agent 会继续工作。</string>
     <string name="question_field_description">回答：%1$s</string>
     <string name="question_progress">%1$d / %2$d</string>
     <string name="question_previous">上一个</string>

@@ -10,6 +10,7 @@ pub struct History {
     pub stamp: String,
     pub available: bool,
     pub messages: Vec<Message>,
+    pub async_input: crate::async_input::History,
 }
 
 pub fn key(reference: &AgentSession) -> String {
@@ -96,10 +97,60 @@ fi
     {
         return previous;
     }
+    let bytes = lines.next().unwrap_or_default();
+    let (controls, bytes) = if reference.agent == "codex" {
+        let Some(parts) = codex_projection(bytes) else {
+            return History::default();
+        };
+        parts
+    } else {
+        (&b""[..], bytes)
+    };
     History {
         key: cache_key,
         stamp: stamp.into(),
         available: true,
-        messages: parse_history(&reference.agent, lines.next().unwrap_or_default()),
+        messages: parse_history(&reference.agent, bytes),
+        async_input: if reference.agent == "codex" {
+            crate::async_input::history(&reference.value, controls)
+        } else {
+            Default::default()
+        },
+    }
+}
+
+fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+    let mut parts = bytes.splitn(3, |b| *b == b'\n');
+    if parts.next()? != b"kite-codex-history-v2" {
+        return None;
+    }
+    let size = std::str::from_utf8(parts.next()?)
+        .ok()?
+        .parse::<usize>()
+        .ok()?;
+    let body = parts.next()?;
+    if size > 1024 * 1024 || size > body.len() {
+        return None;
+    }
+    Some(body.split_at(size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn control_history_is_separate_from_the_bounded_display_and_frames_are_checked() {
+        let data = b"kite-codex-history-v2\n8\ncontrol\nrecent-chat";
+        let (control, display) = codex_projection(data).unwrap();
+        assert_eq!(control, b"control\n");
+        assert_eq!(display, b"recent-chat");
+        for invalid in [
+            b"old unframed history".as_slice(),
+            b"kite-codex-history-v2\n99\nx",
+            b"kite-codex-history-v2\n2000000\nx",
+            b"kite-codex-history-v2\nno\nx",
+        ] {
+            assert!(codex_projection(invalid).is_none());
+        }
     }
 }
