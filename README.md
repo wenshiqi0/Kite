@@ -28,6 +28,7 @@ The Android app is in Alpha and currently uses a Chinese interface. Codex is con
 ## Documentation
 
 - [Host setup and troubleshooting](docs/backend-setup.md)
+- [Implementation status and next stages](docs/implementation-plan.md)
 - [Build and development](docs/development.md)
 - [Testing](docs/testing.md)
 - [Alpha releases and CI](docs/releases.md)

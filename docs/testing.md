@@ -27,7 +27,7 @@ A host check, a listening Sunshine service or receipt of encoded packets is insu
 - Closing the desktop retains SSH; background and foreground transitions pause and resume video correctly.
 - Disconnects and repeated connection failures do not crash the foreground service.
 
-The most recent development acceptance used an ARM64 Android API 36 emulator, a Linux X11 desktop, herdr 0.9.5 and Sunshine v2026.914.233613 over LAN. A 1920×1080 source was decoded at 1920×1080, with a 60fps request; the host refreshed at 50Hz and a SurfaceFlinger sample showed approximately 50 presented frames per second. These are emulator observations, not physical-phone or WAN acceptance. Source changes, build checks, host state and user-perceived latency are separate evidence.
+The earlier desktop baseline used an ARM64 Android API 36 emulator, a Linux X11 desktop, herdr 0.9.5 and Sunshine v2026.914.233613 over LAN. A 1920×1080 source was decoded at 1920×1080, with a 60fps request; the host refreshed at 50Hz and a SurfaceFlinger sample showed approximately 50 presented frames per second. This is a historical emulator measurement, not a fresh Alpha 11 frame-rate result or physical-phone/WAN acceptance. Source changes, build checks, host state and user-perceived latency are separate evidence. The later Alpha 11 interaction and released-APK checks are recorded below.
 
 ## Chat and desktop workspace acceptance
 
@@ -51,6 +51,8 @@ The herdr SSH fixture also checks workspace creation followed by `agent.start` i
 ## Alpha 11 hybrid input and clipboard
 
 The [Alpha 11 acceptance record](product/2026-10-30/hybrid-input/acceptance.md) covers one-switch automatic text clipboard sharing, direct touch combined with held virtual mouse buttons, wheel events, zoomed source-pixel targeting, sidebar dismissal and richer Markdown control labels. The herdr-core restoration experiment is [recorded separately](product/2026-10-30/herdr-core-migration.md); it does not establish a production migration or desktop-client completion.
+
+This delivery passed 60 Rust tests, 10 host-adapter tests, 4 publisher tests, 13 Android JVM tests and 6 native API 36 tests. The [23 recorded runtime cases](product/2026-10-30/hybrid-input/results.json) include checks on the exact public Release APK, with [source/checksum/CI evidence](product/2026-10-30/hybrid-input/published-release.json). Its emulator update retained SSH identity, desktop pairing and the clipboard preference; the released bytes passed automatic clipboard sharing in both directions. Alpha 11 physical-phone responsiveness and WAN performance remain pending.
 
 ## Optional integration tools
 

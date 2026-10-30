@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-10-30
+
+[0.2.0-alpha.11](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.11) / versionCode **13** was published from source `1bd806f15b0c49842f857b5128151a028fca052d`. Both main and tagged CI passed. The public attachment was downloaded, matched against its manifest, independently verified for v1/v2/v3 signatures and 16 KiB alignment, and installed as an update on the Android 16 emulator. Reconnection reused the existing SSH identity and desktop pairing, and automatic text clipboard sharing passed in both directions. See the [acceptance record](product/2026-10-30/hybrid-input/acceptance.md) and [machine-readable evidence](product/2026-10-30/hybrid-input/published-release.json) for exact bytes, checksum, certificate and CI links. Physical-phone acceptance of Alpha 11 is still pending.
+
 ## Version and signing identity
 
 `android/version.properties` is the Android version source. Increment both the Alpha suffix and `versionCode` for each new delivery. The initial CI release is `0.2.0-alpha.1` / `3`. APK metadata must match the tag exactly.
@@ -20,6 +24,8 @@ Only tagged builds publish a user-facing GitHub Release. They are always prerele
 Alpha uses the same signing identity as the earlier test APKs so existing installations can upgrade without replacing their device SSH key, hosts or trust records. The keystore remains outside Git. CI receives it through an encrypted Actions secret; it is never an artifact.
 
 Alpha 10 explicitly enables APK signing schemes v1, v2 and v3 with this same key. The publisher requires all three schemes to verify and checks 16 KiB ZIP alignment before creating the release manifest. These checks cover the reported `-103` certificate-collection failure path; a handset's downloaded bytes and installer behavior still require device verification. Signature schemes and ZIP alignment are recorded in the manifest.
+
+The user subsequently reported that Alpha 10 installed successfully on their Android 16 phone. This is recorded as user-reported installation success in the [Alpha 10 investigation](product/2026-10-30/install-signatures/acceptance.md); the exact earlier handset failure was not reproduced from device logs.
 
 The JAR/v1 check runs separately with the verifier constrained to API 23, because the normal minimum-API-26 verification can skip the v1 path even when it is present. Both verification passes must report the same certificate. This does not lower the app's minimum supported Android version.
 
