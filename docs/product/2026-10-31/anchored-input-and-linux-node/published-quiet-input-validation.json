@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "publicReleaseApk": true,
+  "gestureDurationMs": 1400,
+  "eventsBefore": 134,
+  "eventsDuring": [
+    134,
+    134
+  ],
+  "eventsAfter": 135,
+  "deliveredFinalMotions": 1,
+  "quietWindowMs": 200
+}

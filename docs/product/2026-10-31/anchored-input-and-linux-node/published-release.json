@@ -1,0 +1,235 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.17",
+  "apkUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.17/kite-0.2.0-alpha.17-arm64-v8a.apk",
+  "prerelease": true,
+  "draft": false,
+  "sourceCommit": "051816b0f6837c6f11879b206c69e3f4f78c277a",
+  "versionName": "0.2.0-alpha.17",
+  "versionCode": 19,
+  "apkBytes": 21393370,
+  "apkSha256": "3633308a3a0a70b507b912927d4da4e5f1c880782162e838e9e28572b6bfb226",
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "zipAlignmentKiB": 16,
+  "checksums": "passed",
+  "variant": "release",
+  "debuggable": false,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "linuxHostNode": {
+    "asset": "kite-host-0.2.0-alpha.17-linux-x86_64.tar.gz",
+    "bytes": 810520,
+    "sha256": "45e2efa4006d69421fbd25465c0abbdf477e6bd3a64208f2f5e44491b479cdaf",
+    "target": "x86_64-unknown-linux-gnu",
+    "nodeApi": 1,
+    "backendProtocol": 5,
+    "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.17/kite-host-0.2.0-alpha.17-linux-x86_64.tar.gz"
+  },
+  "ciRuns": [
+    {
+      "ref": "main",
+      "id": 41189148161,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41189148161"
+    },
+    {
+      "ref": "v0.2.0-alpha.17",
+      "id": 41189329316,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41189329316"
+    }
+  ],
+  "checks": {
+    "rustTests": 85,
+    "releaseJvmTests": 41,
+    "backendTests": 15,
+    "publisherTests": 4,
+    "linuxPackageTests": 1,
+    "releaseLint": "passed",
+    "rustFmt": "passed",
+    "rustClippy": "passed"
+  },
+  "upgrade": {
+    "status": "PASS",
+    "inPlaceInstall": true,
+    "versionName": "0.2.0-alpha.17",
+    "versionCode": 19,
+    "sourceCommit": "051816b0f6837c6f11879b206c69e3f4f78c277a",
+    "hostProfilesRetained": 4,
+    "deviceIdentityRetained": true,
+    "encryptedDeviceKeyRetained": true,
+    "sshTrustRetained": true,
+    "pairingsRetained": true,
+    "sessionCatalogueUnchangedBeforeLaunch": true,
+    "completeCacheFilesByteIdenticalBeforeLaunch": 14
+  },
+  "linuxDeployment": {
+    "status": "PASS",
+    "officialBinaryRunning": true,
+    "binarySha256": "7071a89ecec4b77c55bab8b677c1b37efcfcfffa18656f7cc4e5fdedfc4ffe06",
+    "sourceCommit": "051816b0f6837c6f11879b206c69e3f4f78c277a",
+    "nodePid": 1517894,
+    "nodeIdRetained": true,
+    "existingServicesAndAdaptersRetained": true,
+    "ownedProviderOwnerSurvivedNodeUpdate": true,
+    "services": [
+      {
+        "active": true,
+        "name": "Herdr",
+        "ownership": "external",
+        "pid": 36173,
+        "unit": "herdr.service"
+      },
+      {
+        "active": true,
+        "name": "Sunshine",
+        "ownership": "external",
+        "pid": 775016,
+        "unit": "app-dev.lizardbyte.app.Sunshine.service"
+      }
+    ]
+  },
+  "mcp": {
+    "status": "PASS",
+    "protocol": "2025-11-25",
+    "tools": [
+      "kite_host_status",
+      "kite_sessions_list"
+    ],
+    "hostQuery": true,
+    "sessionQuery": true
+  },
+  "controlledContext": {
+    "sessionId": "e586fd555ddf7f6da1fb89b72a877a0c",
+    "cwd": "/home/wenshiqi/.cache/kite-alpha17-qa-20261031/model-project",
+    "owned": true,
+    "turnSubmitted": true,
+    "model": "gpt-6-luna",
+    "effort": "low",
+    "status": "PASS",
+    "reply": "KITE_NODE_ALPHA17_OWNED_OK",
+    "previousContextRecalled": true
+  },
+  "quietInput": {
+    "status": "PASS",
+    "publicReleaseApk": true,
+    "gestureDurationMs": 1400,
+    "eventsBefore": 134,
+    "eventsDuring": [
+      134,
+      134
+    ],
+    "eventsAfter": 135,
+    "deliveredFinalMotions": 1,
+    "quietWindowMs": 200
+  },
+  "coordinateInput": {
+    "mouseBodyDp": [
+      104,
+      112
+    ],
+    "wheelTapDirections": [
+      "up",
+      "down"
+    ],
+    "status": "PASS",
+    "environment": "Owned ARM64 API 36 emulator and isolated X11 Sunshine desktop",
+    "source": [
+      1920,
+      1080
+    ],
+    "buttonPresses": 5,
+    "buttonReleases": 5,
+    "wheelEvents": 3,
+    "heldMotionEvents": 1,
+    "maxAllowedErrorSourcePixels": 2,
+    "targets": [
+      {
+        "action": "left-down",
+        "pointer": [
+          1282,
+          527
+        ],
+        "received": [
+          1282.0,
+          526.0
+        ],
+        "errorPixels": 1.0
+      },
+      {
+        "action": "right-down",
+        "pointer": [
+          1282,
+          527
+        ],
+        "received": [
+          1282.0,
+          526.0
+        ],
+        "errorPixels": 1.0
+      },
+      {
+        "action": "moved-left-down",
+        "pointer": [
+          1162,
+          493
+        ],
+        "received": [
+          1162.0,
+          492.0
+        ],
+        "errorPixels": 1.0
+      },
+      {
+        "action": "drag-down",
+        "pointer": [
+          1162,
+          493
+        ],
+        "received": [
+          1162.0,
+          492.0
+        ],
+        "errorPixels": 1.0
+      },
+      {
+        "action": "zoom-pan-left-down",
+        "pointer": [
+          966,
+          476.5
+        ],
+        "received": [
+          966.0,
+          476.0
+        ],
+        "errorPixels": 0.5
+      }
+    ]
+  },
+  "cleanup": {
+    "ownedModelWorkspaceClosed": true,
+    "ownedProviderStopped": true,
+    "ownedCatalogueEntryRemoved": true,
+    "productionNodeRetained": true,
+    "ownedServiceStopped": true,
+    "ownedDisplayStopped": true,
+    "ownedHistoryRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Unchanged": true,
+    "backendV4Retained": true,
+    "ownedRelaysStopped": true,
+    "ownedEmulatorStopped": true,
+    "originalClipboardPreferenceRestored": true,
+    "installedPublicApkRetained": true,
+    "productionKiteNodeRetained": true,
+    "productionKitePanelRetained": true
+  }
+}

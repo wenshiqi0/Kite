@@ -1,6 +1,6 @@
 # RFC 0014：Linux Kite 桌面主机节点
 
-> 状态：已采纳 · 2026-10-31
+> 状态：已实现（Alpha 17） · 2026-10-31
 
 用户要求开始在 Linux 后端启用 Kite 桌面端。沿用已确认的历史、设备身份、SSH 信任、主机与 Sunshine 配对保留要求；APK 与后端同步升级。herdr-core 仍处于隔离评估，现有生产 Herdr TUI/provider owner 不迁移、不重启。
 

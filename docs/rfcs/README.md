@@ -23,7 +23,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0011](0011-compact-desktop-controls.md) | 桌面下方触控板与紧凑鼠标控件 | 已实现 |
 | [0012](0012-history-pagination.md) | 长会话历史分页与浏览位置保护 | 已被 0013 取代 |
 | [0013](0013-complete-transcript-and-dark-workspace.md) | 完整数据、虚拟渲染与深色工作区 | 已实现（Alpha 13） |
-| [0014](0014-linux-host-node.md) | Linux 桌面主机节点、私有桥接与 MCP | 已采纳 |
+| [0014](0014-linux-host-node.md) | Linux 桌面主机节点、私有桥接与 MCP | 已实现（Alpha 17） |
 
 ## 什么时候写 RFC
 

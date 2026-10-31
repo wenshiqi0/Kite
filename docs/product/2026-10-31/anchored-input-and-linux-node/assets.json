@@ -10,6 +10,26 @@
     "sha256": "b86dc10d8aeed6e03ba5b4fcc5f2013c30f41742161be03e8b6681b56940190c"
   },
   {
+    "file": "release-after-motion.png",
+    "bytes": 145422,
+    "sha256": "99678626568d9010ca984f884a9c7cc8cd0cb655847563b8ff9a484c4baef401"
+  },
+  {
+    "file": "release-anchored-mouse.png",
+    "bytes": 132549,
+    "sha256": "0b476724575e57ec4d4c8003f0c6f696b6861a34d3347de0e95463be3d041a58"
+  },
+  {
+    "file": "release-linux-host-panel.png",
+    "bytes": 41545,
+    "sha256": "b86dc10d8aeed6e03ba5b4fcc5f2013c30f41742161be03e8b6681b56940190c"
+  },
+  {
+    "file": "release-zoomed-anchored-mouse.png",
+    "bytes": 100612,
+    "sha256": "44e1980c431817c1b9e28a9c8800ee5ffa24066bf134ae669ca1c5edbeb1ffd3"
+  },
+  {
     "file": "zoomed-anchored-mouse.png",
     "bytes": 87060,
     "sha256": "02830c72cba3479934d22ff02d0fe8e0c3707ee4393324c14511061319d30d36"

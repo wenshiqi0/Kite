@@ -15,5 +15,12 @@
     "kite_host_status",
     "kite_sessions_list"
   ],
-  "releaseLint": "passed"
+  "releaseLint": "passed",
+  "releaseJvmTests": 41,
+  "trustedTagCiRun": 41189329316,
+  "publicApkControlTests": 2,
+  "publicApkAnchoredMouse": "passed",
+  "publicApkQuietInput": "passed",
+  "officialLinuxBinary": "running",
+  "ownedContextRecalledAfterNodeUpdate": true
 }

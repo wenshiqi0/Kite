@@ -1,0 +1,1 @@
+{"status": "PASS", "protocol": "2025-11-25", "tools": ["kite_host_status", "kite_sessions_list"], "hostQuery": true, "sessionQuery": true}
