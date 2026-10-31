@@ -380,10 +380,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             listOf(R.string.attach_image to "image/*", R.string.attach_file to "*/*", R.string.attach_audio to "audio/*").forEach { (label, type) ->
                                 DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { ProductIcon(when (label) { R.string.attach_image -> Mark.Image; R.string.attach_audio -> Mark.Audio; else -> Mark.File }) }, onClick = { plus = false; pickAttachments(arrayOf(type)) }, enabled = state?.composer?.ready == true && !vm.sending && !vm.copyingAttachments && state.composer.uploads.size < 5)
                             }
-                            HorizontalDivider()
-                            DropdownMenuItem(text = { Text(stringResource(R.string.mode_floating)) }, onClick = { plus = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
-                            DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, onClick = { plus = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
-                            DropdownMenuItem(text = { Text(stringResource(R.string.mode_fullscreen)) }, onClick = { plus = false; vm.changeLayout(DesktopLayout.Fullscreen) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                         }
                     }
                     IconButton(onClick={modelSettings=true},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
