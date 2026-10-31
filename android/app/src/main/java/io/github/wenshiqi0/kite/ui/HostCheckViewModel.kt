@@ -384,7 +384,11 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun leftClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
     fun rightClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
-    fun scroll(vertical: Int) { if (target != 0L) NativeMedia.scroll(target, 0, vertical) }
+    fun scroll(vertical: Int): Boolean {
+        if (target == 0L || !foreground || engine.state.value?.desktop?.takeover != true) return false
+        flushRemoteText?.invoke()
+        return NativeMedia.scroll(target, 0, vertical)
+    }
     fun desktopChord(modifierKey:Int,key:Int,mask:Int) {
         flushRemoteText?.invoke()
         if(target==0L||engine.state.value?.desktop?.takeover!=true)return

@@ -88,6 +88,9 @@ class NativePresentationTest {
         val density = cursor.resources.displayMetrics.density
         assertEquals(android.graphics.Color.WHITE, bitmap.getPixel((260 + 4 * density).toInt(), (180 + 9 * density).toInt()))
         assertEquals(0, bitmap.getPixel(200, 150))
+        val ink = mutableListOf<Int>()
+        for (x in 250..340) for (y in 170..290) if (android.graphics.Color.alpha(bitmap.getPixel(x, y)) > 100) ink.add(x)
+        assertTrue("Arrow must stay compact at phone density", ink.max() - ink.min() <= 17 * density)
         bitmap.recycle()
         parent.zoom = 2f
         assertNotNull(parent.virtualPointerSource)

@@ -1,0 +1,83 @@
+{
+  "mouseBodyDp": [
+    104,
+    112
+  ],
+  "wheelTapDirections": [
+    "up",
+    "down"
+  ],
+  "status": "PASS",
+  "environment": "Owned ARM64 API 36 emulator and isolated X11 Sunshine desktop",
+  "source": [
+    1920,
+    1080
+  ],
+  "buttonPresses": 5,
+  "buttonReleases": 5,
+  "wheelEvents": 11,
+  "heldMotionEvents": 9,
+  "maxAllowedErrorSourcePixels": 2,
+  "targets": [
+    {
+      "action": "left-down",
+      "pointer": [
+        1270.6199951171875,
+        526.9199829101562
+      ],
+      "received": [
+        1271.0,
+        526.0
+      ],
+      "errorPixels": 0.91998291015625
+    },
+    {
+      "action": "right-down",
+      "pointer": [
+        1270.6199951171875,
+        526.9199829101562
+      ],
+      "received": [
+        1271.0,
+        526.0
+      ],
+      "errorPixels": 0.91998291015625
+    },
+    {
+      "action": "moved-left-down",
+      "pointer": [
+        1150.81201171875,
+        492.68914794921875
+      ],
+      "received": [
+        1151.0,
+        492.0
+      ],
+      "errorPixels": 0.68914794921875
+    },
+    {
+      "action": "drag-down",
+      "pointer": [
+        1150.81201171875,
+        492.68914794921875
+      ],
+      "received": [
+        1151.0,
+        492.0
+      ],
+      "errorPixels": 0.68914794921875
+    },
+    {
+      "action": "zoom-pan-left-down",
+      "pointer": [
+        1050.81201171875,
+        452.68914794921875
+      ],
+      "received": [
+        1051.0,
+        452.0
+      ],
+      "errorPixels": 0.68914794921875
+    }
+  ]
+}

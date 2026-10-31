@@ -43,7 +43,8 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
             val point = desktopPointer.view ?: return
             canvas.save()
             canvas.translate(point.x, point.y)
-            canvas.scale(resources.displayMetrics.density, resources.displayMetrics.density)
+            val scale = resources.displayMetrics.density * 20f / 28f
+            canvas.scale(scale, scale)
             canvas.drawPath(arrow, fill); canvas.drawPath(arrow, outline)
             canvas.restore()
         }

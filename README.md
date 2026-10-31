@@ -12,7 +12,7 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 - Read compact, collapsible tool activity; answer model questions with choices or text and see live response feedback.
 - Choose a Codex model and reasoning effort, and send images, files and audio attachments.
 - Keep the live desktop in a draggable window, dock it to the edge, use split view or fullscreen, and continue watching in Android picture-in-picture.
-- Switch between Watch and Operate. Zoom and pan, type with the system keyboard, and use a collapsible split-view trackpad or fullscreen mouse with a visible arrow pointer. Drag the mouse to move the pointer; buttons and scrolling stay aligned as you zoom and pan. Pause or resume an agent separately when needed.
+- Switch between Watch and Operate. Zoom and pan, type with the system keyboard, and use a collapsible split-view trackpad or compact fullscreen mouse with a visible arrow pointer. Buttons and scrolling stay aligned as you zoom and pan, with visual and tactile wheel feedback. Pause or resume an agent separately when needed.
 - Enable automatic text clipboard sharing with one switch in settings, then copy and paste normally between phone and desktop.
 - Fit the full desktop to your phone while preserving its source resolution, with responsiveness as the priority.
 

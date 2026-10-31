@@ -139,7 +139,7 @@ internal fun FailureCard(failure: FailureInfo, onForget: (() -> Unit)?) {
         FailureKind.AGENT_START -> stringResource(R.string.agent_start_failed)
         FailureKind.INVALID_CONFIGURATION -> stringResource(R.string.error_action)
     }
-    var details by remember(failure.details) { mutableStateOf(true) }
+    var details by remember(failure.details) { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
         Column(Modifier.padding(16.dp)) {
             Text(title)

@@ -5,7 +5,6 @@ import io.github.wenshiqi0.kite.ui.theme.KiteColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -13,9 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -47,7 +47,6 @@ fun TouchpadPanel(vm:HostCheckViewModel,height:Dp,enabled:Boolean,close:()->Unit
         }
     }
 }
-
 @Composable
 fun RelativeMouseArea(vm:HostCheckViewModel,enabled:Boolean,modifier:Modifier=Modifier) {
     val density=LocalDensity.current.density
@@ -96,25 +95,16 @@ fun RelativeMouseArea(vm:HostCheckViewModel,enabled:Boolean,modifier:Modifier=Mo
 fun RemoteMouseButton(vm:HostCheckViewModel,button:Int,enabled:Boolean,modifier:Modifier=Modifier,compact:Boolean=false) {
     val label=stringResource(if(button==1)R.string.mouse_left else R.string.mouse_right)
     val down=vm.heldMouseButtons and (1 shl button)!=0
+    val view=LocalView.current
     Box(modifier.height(48.dp).background(if(down)KiteColors.AccentSurface else KiteColors.Surface).semantics {
         contentDescription=label;role=Role.Button
-        onClick {if(enabled){if(button==1)vm.leftClick()else vm.rightClick()};enabled}
+        onClick {if(enabled){view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);if(button==1)vm.leftClick()else vm.rightClick()};enabled}
     }.pointerInput(vm.target,button,enabled) {
-        if(enabled)detectTapGestures(onPress={vm.mouseButton(button,true);try{tryAwaitRelease()}finally{vm.mouseButton(button,false)}})
+        if(enabled)detectTapGestures(onPress={view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);vm.mouseButton(button,true);try{tryAwaitRelease()}finally{vm.mouseButton(button,false)}})
     },contentAlignment=Alignment.Center) {
         Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             if(!compact)ProductIcon(Mark.Mouse,modifier=Modifier.size(16.dp))
             Text(if(compact)if(button==1)"左" else "右" else label,fontSize=12.sp,color=KiteColors.Muted)
         }
     }
-}
-
-@Composable
-fun MouseWheel(vm:HostCheckViewModel,enabled:Boolean,modifier:Modifier=Modifier,showIcon:Boolean=true,beforeScroll:()->Boolean={true}) {
-    val density=LocalDensity.current.density
-    val label=stringResource(R.string.mouse_wheel)
-    val currentBeforeScroll by rememberUpdatedState(beforeScroll)
-    Box(modifier.background(KiteColors.Raised).semantics{contentDescription=label}.pointerInput(vm.target,enabled) {
-        if(enabled)detectDragGestures {change,amount->change.consume();if(currentBeforeScroll())vm.wheelMouse(amount.y,density)}
-    },contentAlignment=Alignment.Center) {if(showIcon)ProductIcon(Mark.Wheel,modifier=Modifier.size(20.dp))}
 }

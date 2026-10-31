@@ -272,4 +272,22 @@
     <string name="expand_virtual_mouse">展开鼠标</string>
     <string name="collapse_virtual_mouse">收起鼠标</string>
     <string name="move_virtual_mouse">移动虚拟指针</string>
+    <string name="wheel_up">向上滚动</string>
+    <string name="wheel_down">向下滚动</string>
+    <string name="wheel_pressed">已按下</string>
+    <string name="wheel_ready">点上半部向上滚动，下半部向下滚动，拖动连续滚动</string>
+    <string name="hosts_title">主机</string>
+    <string name="host_back">返回工作区</string>
+    <string name="connection_settings">连接设置</string>
+    <string name="hosts_empty">添加一台主机，连接你的 agent 与桌面。</string>
+    <string name="host_operation_issue">操作未完成，查看原因</string>
+    <string name="host_online">已连接</string>
+    <string name="host_connecting">连接中…</string>
+    <string name="host_confirm">需要确认</string>
+    <string name="host_failed">连接失败</string>
+    <string name="host_not_connected">未连接</string>
+    <string name="host_connect">连接</string>
+    <string name="host_enter">进入</string>
+    <string name="host_edit_named">编辑主机 %1$s</string>
+    <string name="host_open_named">打开主机 %1$s</string>
 </resources>

@@ -1,0 +1,22 @@
+[
+  {
+    "file": "fullscreen-compact-mouse.png",
+    "bytes": 155186,
+    "sha256": "3e3bb7251d1e4455b8183fbe1f16847672d13b849df45bcfaa2638c3ae66ad49"
+  },
+  {
+    "file": "host-card-states.png",
+    "bytes": 89162,
+    "sha256": "cd403643954bb8327e54aabd2b753c56a95c6b8fc516cd38244ef3a4b59ceb41"
+  },
+  {
+    "file": "wheel-pressed.png",
+    "bytes": 25085,
+    "sha256": "172bf9cefccc1e63569e8f2c2c638dbef633cc2baf612b2c502128a64e74259b"
+  },
+  {
+    "file": "zoomed-compact-mouse.png",
+    "bytes": 103540,
+    "sha256": "f809dd1db13dc097b29091c62e9e64f776c06b720eea2245ce462c96bb993e25"
+  }
+]

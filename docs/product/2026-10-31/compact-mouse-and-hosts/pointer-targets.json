@@ -1,0 +1,62 @@
+{
+  "sourceWidth": 1920,
+  "sourceHeight": 1080,
+  "mouseBodyWidthDp": 104,
+  "mouseHeightDp": 112,
+  "records": [
+    {
+      "action": "left-down",
+      "sourceX": 1270.6199951171875,
+      "sourceY": 526.9199829101562,
+      "zoom": 1
+    },
+    {
+      "action": "right-down",
+      "sourceX": 1270.6199951171875,
+      "sourceY": 526.9199829101562,
+      "zoom": 1
+    },
+    {
+      "action": "wheel-tap-up",
+      "sourceX": 1270.6199951171875,
+      "sourceY": 526.9199829101562,
+      "zoom": 1
+    },
+    {
+      "action": "wheel-tap-down",
+      "sourceX": 1270.6199951171875,
+      "sourceY": 526.9199829101562,
+      "zoom": 1
+    },
+    {
+      "action": "wheel",
+      "sourceX": 1270.6199951171875,
+      "sourceY": 526.9199829101562,
+      "zoom": 1
+    },
+    {
+      "action": "moved-left-down",
+      "sourceX": 1150.81201171875,
+      "sourceY": 492.68914794921875,
+      "zoom": 1
+    },
+    {
+      "action": "drag-down",
+      "sourceX": 1150.81201171875,
+      "sourceY": 492.68914794921875,
+      "zoom": 1
+    },
+    {
+      "action": "drag-up",
+      "sourceX": 1050.81201171875,
+      "sourceY": 452.68914794921875,
+      "zoom": 1
+    },
+    {
+      "action": "zoom-pan-left-down",
+      "sourceX": 1050.81201171875,
+      "sourceY": 452.68914794921875,
+      "zoom": 2
+    }
+  ]
+}

@@ -15,6 +15,8 @@ Android JVM tests now cover the pure source-to-viewport transform, inverse touch
 
 Fullscreen pointer regressions are recorded in the [Alpha 14 acceptance](product/2026-10-31/virtual-pointer/acceptance.md). `DesktopPointerTest` checks the shared hotspot under zoom/pan, source and viewport edges, source-resolution changes and target clearing. `NativePresentationTest` draws the actual cursor view. `LiveVirtualMouseTest` is explicitly opt-in (`qa_live=true`, `qa_session=kite-qa-history-...`) and rejects a host other than `10.0.2.2:22223` / Sunshine `48200`; compare its exported source coordinates with the isolated host's button, release and wheel log. Refresh accessibility bounds after moving the control so the test cannot tap an obsolete button location.
 
+The [Alpha 15 acceptance](product/2026-10-31/compact-mouse-and-hosts/acceptance.md) adds `ControlsPresentationTest` for real wheel tap/drag/cancel gestures, press state, feedback requests and host-card affordances. `WheelDetentsTest` checks accumulation, reversal, cancellation reset and rate limiting. The guarded live test also verifies upper/lower wheel taps and actual compact-control dimensions. Platform vibrator-manager history can confirm real system haptic dispatch; callback assertions and emulator motor emulation are not physical-phone tactile acceptance.
+
 ## Desktop acceptance
 
 A host check, a listening Sunshine service or receipt of encoded packets is insufficient. Validate all of these on the same build and host:

@@ -108,7 +108,10 @@ class LiveVirtualMouseTest {
         }
         record("left-down"); touch(node(activity.getString(R.string.mouse_left)))
         record("right-down"); touch(node(activity.getString(R.string.mouse_right)))
-        record("wheel"); touch(node(activity.getString(R.string.mouse_wheel)), dy = -70f)
+        val wheelBounds = node(activity.getString(R.string.mouse_wheel))
+        record("wheel-tap-up"); touch(Rect(wheelBounds.left, wheelBounds.top, wheelBounds.right, wheelBounds.centerY()))
+        record("wheel-tap-down"); touch(Rect(wheelBounds.left, wheelBounds.centerY(), wheelBounds.right, wheelBounds.bottom))
+        record("wheel"); touch(node(activity.getString(R.string.mouse_wheel)), dy = -140f)
         screenshot("virtual-mouse-expanded.png")
         val before = video.virtualPointerSource!!
         touch(node(activity.getString(R.string.move_virtual_mouse)), dx = -140f, dy = -40f)
@@ -126,7 +129,12 @@ class LiveVirtualMouseTest {
         record("zoom-pan-left-down"); touch(node(activity.getString(R.string.mouse_left)))
         assertEquals(0, vm.heldMouseButtons)
         assertTrue(test.uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText(activity.getString(R.string.mouse_move_area)).isEmpty())
-        File(output, "virtual-mouse-validation.json").writeText(JSONObject().put("sourceWidth", 1920).put("sourceHeight", 1080).put("records", records).toString(2))
+        val density = activity.resources.displayMetrics.density
+        val mouseWidth = node(activity.getString(R.string.move_virtual_mouse)).width() / density
+        val mouseHeight = node(activity.getString(R.string.virtual_mouse)).height() / density
+        assertEquals(104f, mouseWidth, 1f); assertEquals(112f, mouseHeight, 1f)
+        File(output, "virtual-mouse-validation.json").writeText(JSONObject().put("sourceWidth", 1920).put("sourceHeight", 1080)
+            .put("mouseBodyWidthDp", mouseWidth.toDouble()).put("mouseHeightDp", mouseHeight.toDouble()).put("records", records).toString(2))
         screenshot("virtual-mouse-validation.png")
         touch(node(activity.getString(R.string.collapse_virtual_mouse)))
         assertEquals(View.INVISIBLE, video.getChildAt(1).visibility)

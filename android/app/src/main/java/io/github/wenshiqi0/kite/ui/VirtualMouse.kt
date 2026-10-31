@@ -21,6 +21,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -43,12 +45,12 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
     var expanded by rememberSaveable{mutableStateOf(false)}
     var x by rememberSaveable{mutableFloatStateOf(.82f)}
     var y by rememberSaveable{mutableFloatStateOf(.68f)}
-    val full=expanded&&width>=192.dp&&height-safeTop-safeBottom>=160.dp
-    val w=if(full)176.dp else 48.dp
-    val h=if(full)144.dp else 48.dp
+    val full=expanded&&width>=168.dp&&height-safeTop-safeBottom>=128.dp
+    val w=if(full)152.dp else 48.dp
+    val h=if(full)112.dp else 48.dp
     // Reserve the close target on the right, leaving the arrow clear of the body.
     val bodyX=0.dp
-    val closeX=128.dp
+    val closeX=104.dp
     val rangeX=(width-w-16.dp).coerceAtLeast(0.dp)
     val rangeY=(height-safeTop-safeBottom-h-16.dp).coerceAtLeast(0.dp)
     val move:(Offset)->Unit={amount->
@@ -72,7 +74,7 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
         val b=it.boundsInParent()
         if(full){
             val bx=with(density){bodyX.toPx()};val cx=with(density){closeX.toPx()}
-            bounds(listOf(Rect(b.left+bx,b.top,b.left+bx+with(density){128.dp.toPx()},b.bottom),Rect(b.left+cx,b.top,b.left+cx+with(density){48.dp.toPx()},b.top+with(density){48.dp.toPx()})))
+            bounds(listOf(Rect(b.left+bx,b.top,b.left+bx+with(density){104.dp.toPx()},b.bottom),Rect(b.left+cx,b.top,b.left+cx+with(density){48.dp.toPx()},b.top+with(density){48.dp.toPx()})))
         }else bounds(listOf(b))
     }.semantics{contentDescription=label}){
         if(!full){
@@ -80,15 +82,12 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
                 Box(Modifier.size(28.dp).background(KiteColors.Background,CircleShape).border(1.dp,KiteColors.Line,CircleShape),contentAlignment=Alignment.Center){ProductIcon(Mark.Mouse,KiteColors.Text,Modifier.size(16.dp))}
             }
         }else{
-            val shape=RoundedCornerShape(topStart=48.dp,topEnd=48.dp,bottomStart=36.dp,bottomEnd=36.dp)
-            Column(Modifier.absoluteOffset(bodyX,0.dp).size(128.dp,144.dp).clip(shape).background(KiteColors.Mouse).border(1.dp,KiteColors.MouseLine,shape)){
-                Row(Modifier.fillMaxWidth().height(76.dp)){
-                    FullMouseButton(vm,surface,1,enabled,move,Modifier.width(44.dp).fillMaxHeight())
-                    Box(Modifier.width(40.dp).fillMaxHeight().border(.5.dp,KiteColors.MouseLine),contentAlignment=Alignment.Center){
-                        MouseWheel(vm,enabled,Modifier.fillMaxSize(),showIcon=false,beforeScroll={surface?.prepareVirtualMouse()==true})
-                        Box(Modifier.width(24.dp).height(44.dp).border(1.dp,KiteColors.MouseLine,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){ProductIcon(Mark.Wheel,KiteColors.Text,Modifier.size(16.dp))}
-                    }
-                    FullMouseButton(vm,surface,3,enabled,move,Modifier.width(44.dp).fillMaxHeight())
+            val shape=RoundedCornerShape(topStart=36.dp,topEnd=36.dp,bottomStart=28.dp,bottomEnd=28.dp)
+            Column(Modifier.absoluteOffset(bodyX,0.dp).size(104.dp,112.dp).clip(shape).background(KiteColors.Mouse).border(1.dp,KiteColors.MouseLine,shape)){
+                Row(Modifier.fillMaxWidth().height(64.dp)){
+                    FullMouseButton(vm,surface,1,enabled,move,Modifier.width(36.dp).fillMaxHeight())
+                    MouseWheel(vm,enabled,Modifier.width(32.dp).fillMaxHeight().border(.5.dp,KiteColors.MouseLine),beforeScroll={surface?.prepareVirtualMouse()==true})
+                    FullMouseButton(vm,surface,3,enabled,move,Modifier.width(36.dp).fillMaxHeight())
                 }
                 HorizontalDivider(color=KiteColors.MouseLine,thickness=1.dp)
                 Box(Modifier.fillMaxWidth().weight(1f).then(drag).semantics{contentDescription=moveLabel},contentAlignment=Alignment.Center){
@@ -108,13 +107,15 @@ private fun FullMouseButton(vm:HostCheckViewModel,surface:VideoSurface?,button:I
     val label=stringResource(if(button==1)R.string.mouse_left else R.string.mouse_right)
     val down=vm.heldMouseButtons and (1 shl button)!=0
     val currentMove by rememberUpdatedState(move)
-    Box(modifier.background(if(down)KiteColors.AccentSurface else KiteColors.Mouse).semantics{
-        contentDescription=label;onClick{if(enabled&&surface?.prepareVirtualMouse()==true){if(button==1)vm.leftClick()else vm.rightClick();true}else false}
+    val view=LocalView.current
+    Box(modifier.background(if(down)KiteColors.Accent.copy(alpha=.30f) else KiteColors.Mouse).semantics{
+        contentDescription=label;onClick{if(enabled&&surface?.prepareVirtualMouse()==true){view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);if(button==1)vm.leftClick()else vm.rightClick();true}else false}
     }.pointerInput(vm.target,surface,button,enabled){
         if(enabled)awaitEachGesture{
             val first=awaitFirstDown(requireUnconsumed=false)
             first.consume()
             if(surface?.prepareVirtualMouse()!=true)return@awaitEachGesture
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             vm.mouseButton(button,true)
             try{
                 var pending=Offset.Zero

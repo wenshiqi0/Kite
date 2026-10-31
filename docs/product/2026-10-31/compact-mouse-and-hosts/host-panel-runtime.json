@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "listHidesUsernamePortsAndFingerprints": true,
+  "actualConnectedStatusDisplayed": true,
+  "settingsPanelOpens": true,
+  "clipboardPublicKeyAndDiagnosticsAccessible": true,
+  "devicePublicKeyDialogOpens": true
+}

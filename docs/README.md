@@ -11,6 +11,7 @@
 
 ## Delivery and evaluation records
 
+- [Compact mouse, tactile wheel and simple host cards](product/2026-10-31/compact-mouse-and-hosts/acceptance.md): smaller controls, bidirectional wheel taps, actual system haptic dispatch and connection-only card presentation.
 - [Fullscreen virtual pointer](product/2026-10-31/virtual-pointer/acceptance.md): explicit arrow, source-coordinate mouse buttons/wheel, held dragging and real host event comparisons.
 - [Complete transcript and dark workspace](product/2026-10-31/complete-transcript/acceptance.md): 10,000-record data/cache checks, real native view counts, independent scrolling and mouse-reference fullscreen.
 

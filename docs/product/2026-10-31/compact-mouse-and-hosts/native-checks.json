@@ -1,0 +1,9 @@
+{
+  "environment": "Owned ARM64 API 36 emulator; synthetic card UI and isolated Linux X11 desktop",
+  "nativePresentationAndControlTests": 11,
+  "controlledLiveMouseTests": 1,
+  "standalonePointerAndDetentTests": 19,
+  "releaseLint": "passed",
+  "physicalMotorStrengthVerified": false,
+  "normalReleaseJvmGate": "required in trusted tagged CI"
+}
