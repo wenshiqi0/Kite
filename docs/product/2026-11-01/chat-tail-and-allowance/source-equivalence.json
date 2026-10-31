@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "validatedNativeTag": "v0.2.0-alpha.21",
+  "finalTag": "v0.2.0-alpha.22",
+  "finalSource": "1d5fe46eed861be576426862cdefcc9c4af81bc7",
+  "productionSourcesIdentical": true,
+  "comparedPaths": [
+    "android/app/src/main",
+    "crates",
+    "backend",
+    "desktop"
+  ],
+  "changes": "version/source metadata, test harness and documentation"
+}

@@ -5,6 +5,11 @@
     "sha256": "3d052dfca06da4c664c647f5941131a2be87c0a10f0d8b4b1d9836d740ef2a8f"
   },
   {
+    "file": "final-linux-panel.png",
+    "bytes": 40274,
+    "sha256": "2672b59b442ac1dae640175c4efb52064cd73a586de74f35eeea39b737726b3a"
+  },
+  {
     "file": "linux-panel.png",
     "bytes": 40310,
     "sha256": "c3fc2a20e05db661275df32712cc69ca6a9f7d7306fda6c2daed0ef07787913e"

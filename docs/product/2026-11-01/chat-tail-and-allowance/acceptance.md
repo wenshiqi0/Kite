@@ -18,6 +18,14 @@ Public packages, native interaction results and live quota/disconnect checks are
 
 The first Alpha 20 public package passed signature/alignment checks and an in-place install with 20 byte-identical private files and four profiles before launch. The initial native harness attempted to activate a description-only accessibility node. The final harness uses actionable ancestors or real touch. Alpha 21 also adds an explicit jump action and a growing-message distance lower bound; its regression grows a visible reply while a separate trailing row lies outside the viewport.
 
+## Final delivery — Alpha 22
+
+[Alpha 22](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.22), Android versionCode **24**, is the final delivery from **1d5fe46eed861be576426862cdefcc9c4af81bc7**. [Main CI](https://github.com/wenshiqi0/Kite/actions/runs/41228422220) and [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41228665069) passed all existing gates, including 91 Rust tests, Release JVM/lint and native Linux checks. The **21,612,370-byte** APK has SHA-256 **03b52a46b39299d23565a199d177d0a8aaa23bac1a201add5a64d5a8bec0ae86** and passed independent stable v1/v2/v3 signing and 16KiB alignment verification.
+
+[Source comparison](source-equivalence.json) confirms the Android production, Rust, backend and desktop feature sources match the Alpha 21 native/live acceptance below. Every Android native library in the public APK is also byte-identical. Alpha 22 advances version/source metadata and includes the corrected test harness and complete records. The device install/native/live tests were performed on Alpha 21; they were not repeated for this metadata-only final package. [Final publication evidence](final-release.json) preserves that boundary explicitly.
+
+The matching final Linux package was installed from the public archive, with the running executable digest verified. [Final deployment](final-linux-deployment.json) retained the node identity, 12 private configuration/identity/catalogue/registry files and the original Herdr/Sunshine PIDs. The status UI remains active on version 22. [Installed panel](final-linux-panel.png). Temporary authorization and owned validation processes remain removed.
+
 ## Published Alpha 21 and native acceptance
 
 [Alpha 21](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.21), Android versionCode **23**, was published from **9d2f948b3dc8a8a2c5e2659069eb2d5a4f71b73f**. [Main CI](https://github.com/wenshiqi0/Kite/actions/runs/41225731674) and [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41225827015) passed. The [publication record](published-release.json) includes exact bytes/checksums, independent stable v1/v2/v3 signing and 16KiB alignment verification, and in-place installation with **22 byte-identical private files and four profiles** before launch. Device identity, SSH trust and pairings were retained.

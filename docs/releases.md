@@ -15,6 +15,8 @@ Only tagged builds publish a user-facing GitHub Release. They are always prerele
 
 ## Verified delivery — 2026-11-01
 
+[0.2.0-alpha.22](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.22) / versionCode **24** is the final package from `1d5fe46eed861be576426862cdefcc9c4af81bc7`. Main/tag CI and independent public-package verification passed. Production feature sources and all Android native libraries match the Alpha 21 acceptance below; version/source metadata, test harness and documentation advance. The matching Linux package is installed with identity/configuration and external services retained. Alpha 22 did not repeat device installation or native/live interaction checks. [Final publication record](product/2026-11-01/chat-tail-and-allowance/final-release.json).
+
 [0.2.0-alpha.21](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.21) / versionCode **23** was published from `9d2f948b3dc8a8a2c5e2659069eb2d5a4f71b73f`. Main/tag CI passed. The public APK passed independent stable v1/v2/v3 signing and 16KiB alignment checks, in-place data retention, two native presentation tests and a live allowance/setup-disconnect test. The matching Linux package was installed with the existing node identity and original Herdr/Sunshine processes retained. See [acceptance](product/2026-11-01/chat-tail-and-allowance/acceptance.md) and [exact publication evidence](product/2026-11-01/chat-tail-and-allowance/published-release.json). Active-video-frame and physical-phone ergonomics were not repeated in this delivery.
 
 ## Verified delivery — 2026-10-31
