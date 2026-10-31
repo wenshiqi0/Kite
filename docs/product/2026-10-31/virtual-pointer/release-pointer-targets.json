@@ -1,0 +1,48 @@
+{
+  "sourceWidth": 1920,
+  "sourceHeight": 1080,
+  "records": [
+    {
+      "action": "left-down",
+      "sourceX": 1218.9599609375,
+      "sourceY": 469.79998779296875,
+      "zoom": 1
+    },
+    {
+      "action": "right-down",
+      "sourceX": 1218.9599609375,
+      "sourceY": 469.79998779296875,
+      "zoom": 1
+    },
+    {
+      "action": "wheel",
+      "sourceX": 1218.9599609375,
+      "sourceY": 469.79998779296875,
+      "zoom": 1
+    },
+    {
+      "action": "moved-left-down",
+      "sourceX": 1099.1519775390625,
+      "sourceY": 435.5691223144531,
+      "zoom": 1
+    },
+    {
+      "action": "drag-down",
+      "sourceX": 1099.1519775390625,
+      "sourceY": 435.5691223144531,
+      "zoom": 1
+    },
+    {
+      "action": "drag-up",
+      "sourceX": 999.1519775390625,
+      "sourceY": 395.5691223144531,
+      "zoom": 1
+    },
+    {
+      "action": "zoom-pan-left-down",
+      "sourceX": 999.1519775390625,
+      "sourceY": 395.5691223144531,
+      "zoom": 2
+    }
+  ]
+}

@@ -5,5 +5,8 @@
   "liveMouseTests": 1,
   "standalonePointerViewportAndMotionTests": 15,
   "releaseLint": "passed",
-  "note": "The local Gradle JVM worker bootstrap is unavailable; the normal Release JVM gate runs in trusted CI. No checks are disabled."
+  "note": "Trusted tagged CI passed the standard Release/JVM/lint checks. The local Gradle worker bootstrap issue did not disable any gate.",
+  "releaseJvmTests": 28,
+  "releaseJvmGate": "passed",
+  "trustedTagCiRun": 41156550200
 }

@@ -1,0 +1,78 @@
+{
+  "status": "PASS",
+  "environment": "Owned ARM64 API 36 emulator and isolated X11 Sunshine desktop",
+  "source": [
+    1920,
+    1080
+  ],
+  "buttonPresses": 5,
+  "buttonReleases": 5,
+  "wheelEvents": 7,
+  "heldMotionEvents": 8,
+  "maxAllowedErrorSourcePixels": 2,
+  "targets": [
+    {
+      "action": "left-down",
+      "pointer": [
+        1218.9599609375,
+        469.79998779296875
+      ],
+      "received": [
+        1219.0,
+        469.0
+      ],
+      "errorPixels": 0.79998779296875
+    },
+    {
+      "action": "right-down",
+      "pointer": [
+        1218.9599609375,
+        469.79998779296875
+      ],
+      "received": [
+        1219.0,
+        469.0
+      ],
+      "errorPixels": 0.79998779296875
+    },
+    {
+      "action": "moved-left-down",
+      "pointer": [
+        1099.1519775390625,
+        435.5691223144531
+      ],
+      "received": [
+        1099.0,
+        435.0
+      ],
+      "errorPixels": 0.569122314453125
+    },
+    {
+      "action": "drag-down",
+      "pointer": [
+        1099.1519775390625,
+        435.5691223144531
+      ],
+      "received": [
+        1099.0,
+        435.0
+      ],
+      "errorPixels": 0.569122314453125
+    },
+    {
+      "action": "zoom-pan-left-down",
+      "pointer": [
+        999.1519775390625,
+        395.5691223144531
+      ],
+      "received": [
+        999.0,
+        395.0
+      ],
+      "errorPixels": 0.569122314453125
+    }
+  ],
+  "apkSha256": "3a80dfcc23659a2ed5b2a5b6b8a29b5cde029fa17e2e5270d4b7d85cb991b856",
+  "publicReleaseApk": true,
+  "pairingReusedWithoutNewPin": true
+}

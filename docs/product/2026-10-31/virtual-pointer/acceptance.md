@@ -26,4 +26,12 @@ The first controlled pass exposed stale accessibility bounds in the test driver 
 
 The runtime is an owned ARM64 API 36 emulator and an isolated Linux X11/Sunshine desktop. These results establish rendering, coordinate alignment and button lifecycle on that setup. Physical-phone latency and third-party input methods are separate acceptance work. Screenshots contain only the synthetic fixture; the user's reference screenshots and conversations are not published.
 
-The immutable public APK, signing/installation checks and cleanup results are recorded after publication.
+## Published APK verification
+
+[Alpha 14](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.14) is a prerelease from source **13caf402e8bbdc80698d6b6b27f8248b7e32f12b**. The [publication record](published-release.json) identifies the successful main/tag CI runs, **21,386,788-byte** APK and SHA-256 **3a80dfcc23659a2ed5b2a5b6b8a29b5cde029fa17e2e5270d4b7d85cb991b856**. The downloaded public asset passed non-debuggable ARM64 Release, versionCode 16, stable v1/v2/v3 signing, checksums and 16KiB alignment. Hosted CI passed 75 Rust tests, 15 backend tests, 4 publisher tests, the standard 28-test Release JVM gate, Release lint, Rust formatting and Clippy.
+
+An in-place install retained all four host profiles, device identity and encrypted SSH key, trust, pairings and the saved session catalogue. All **10 complete cache files** were byte-identical before the upgraded app was opened. The installed package's SHA-256 matched the public attachment exactly.
+
+The same opt-in UI test then passed against that official APK without a new pairing PIN. Its [separate coordinate comparison](published-coordinate-validation.json), [pointer targets](release-pointer-targets.json) and [received events](release-host-input-events.json) confirm 5 presses/releases, 7 wheel events and 8 held movements, with the same two-source-pixel tolerance. The [published fullscreen view](release-fullscreen-pointer.png) and [zoomed view](release-zoomed-pointer.png) are screenshots from that run.
+
+Cleanup stopped and removed the owned Sunshine/Xvfb/GTK instances, fake provider record, temporary authorization and relays. The original two phone keys, production Sunshine and existing backend-v2/v3 files remain; backend-v4 remains installed. The emulator retains the official public APK and its original clipboard preference. Physical-phone and WAN response remain outside this controlled validation.

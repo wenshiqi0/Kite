@@ -1,0 +1,87 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.14",
+  "apkUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.14/kite-0.2.0-alpha.14-arm64-v8a.apk",
+  "prerelease": true,
+  "draft": false,
+  "sourceCommit": "13caf402e8bbdc80698d6b6b27f8248b7e32f12b",
+  "versionName": "0.2.0-alpha.14",
+  "versionCode": 16,
+  "apkBytes": 21386788,
+  "apkSha256": "3a80dfcc23659a2ed5b2a5b6b8a29b5cde029fa17e2e5270d4b7d85cb991b856",
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "zipAlignmentKiB": 16,
+  "checksums": "passed",
+  "variant": "release",
+  "debuggable": false,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "ciRuns": [
+    {
+      "ref": "main",
+      "id": 41156479522,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41156479522"
+    },
+    {
+      "ref": "v0.2.0-alpha.14",
+      "id": 41156550200,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41156550200"
+    }
+  ],
+  "checks": {
+    "rustTests": 75,
+    "backendTests": 15,
+    "publisherTests": 4,
+    "releaseJvmGate": "passed",
+    "releaseLint": "passed",
+    "rustClippy": "passed",
+    "rustFmt": "passed",
+    "releaseJvmTests": 28
+  },
+  "upgrade": {
+    "status": "PASS",
+    "inPlaceInstall": true,
+    "versionName": "0.2.0-alpha.14",
+    "versionCode": 16,
+    "sourceCommit": "13caf402e8bbdc80698d6b6b27f8248b7e32f12b",
+    "hostProfilesRetained": 4,
+    "deviceIdentityRetained": true,
+    "encryptedDeviceKeyRetained": true,
+    "sshTrustRetained": true,
+    "pairingsRetained": true,
+    "sessionCatalogueUnchangedBeforeLaunch": true,
+    "completeCacheFilesByteIdenticalBeforeLaunch": 10
+  },
+  "cleanup": {
+    "ownedServiceStopped": true,
+    "ownedDisplayStopped": true,
+    "ownedHistoryRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Unchanged": true,
+    "backendV4Retained": true,
+    "ownedRelaysStopped": true,
+    "ownedReversePortsRemoved": true,
+    "ownedEmulatorStopped": true,
+    "clipboardPreferenceRestored": true,
+    "installedPublicApkRetained": true
+  },
+  "publicApkMouseTest": {
+    "status": "PASS",
+    "pairingReusedWithoutNewPin": true,
+    "coordinates": "published-coordinate-validation.json",
+    "source": [
+      1920,
+      1080
+    ]
+  }
+}
