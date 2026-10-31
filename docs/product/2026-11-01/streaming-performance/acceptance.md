@@ -26,4 +26,31 @@ The existing diagnostics display bounded numeric receive/submit/render FPS, queu
 - Thirteen focused JVM tests pass, including continuous 16ms motion windows, fixed 200ms text, click/key ordering, cancellation, overflow, retry/recovery timing and bounded statistics.
 - Public Alpha 22 baseline on the owned Android API 36 ARM64 emulator and isolated 1080p moving test scene: received 56.5fps, rendered 54.7fps; UI-frame interval P95 16.67ms, maximum 16.67ms. The server used software H.264 on a separate Xvfb display, with no user desktop content or model prompt. The same harness sent 60 pointer samples across 1338ms; the host observed only one final sweep motion, after the old quiet window. Initialization center resets are excluded. See [baseline numbers](baseline.json). This is a controlled local baseline, not a Tailscale measurement.
 
-The final public-package comparison, installation retention and matching Linux deployment are recorded after publication. Physical-phone Tailscale responsiveness remains a separate acceptance boundary.
+## Public APK comparison
+
+The public [Alpha 23 APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.23/kite-0.2.0-alpha.23-arm64-v8a.apk) was downloaded completely and independently verified: source `4227128550b2aba748cc757157beafbe885910b5`, versionCode 25, 21,628,490 bytes, SHA-256 `6e4045f5a71a03e9b470811efe1932d9fd213d7d09278303094ff3d59a2840e4`. Stable v1/v2/v3 signatures and 16KiB ZIP alignment pass. [Publication/CI evidence](published-release.json).
+
+In-place installation on the same API 36 ARM64 emulator retained all 23 recorded private files byte-for-byte before launch: four host profiles, SSH identity/trust and pairings. [Upgrade evidence](android-upgrade.json). Both A/B runs used the same guarded instrumentation APK, owned animated scene, software H.264 server, relays and warmup. No model prompt was submitted.
+
+| Measurement | Public Alpha 22 | Public Alpha 23 |
+| --- | ---: | ---: |
+| Source / video pixels | 1920×1080 | 1920×1080 |
+| Requested FPS | 60 | 60 |
+| Received FPS, roughly 14-second sample | 56.50 | 56.67 |
+| Actual rendered FPS | 54.65 | 54.60 |
+| UI-frame interval P95 | 16.67ms | 16.67ms |
+| Maximum sampled UI-frame interval | 16.67ms | 33.33ms |
+| Continuous View pointer samples | 60 in 1338ms | 60 in 1317ms |
+| Independently observed host sweep motions | 1 final motion | 48 across 1382.83ms |
+
+Video throughput is effectively unchanged in this controlled case; it is not evidence that the reported WAN video stutter is eliminated. Continuous pointer delivery during the gesture is directly demonstrated, replacing final-position-only delivery. The final mapped host coordinate matches between versions. Initialization center resets, more than 20 seconds earlier, are excluded from sweep counts.
+
+The new decoder sample reports `c2.goldfish.h264.decoder`, hardware flag true in the emulator, queue P95 7.6ms, receive-to-render P95 12.1ms, callback delay P95 1.4ms, zero input-slot waits/timeouts/rejections and zero explicit decoder IDR requests. Eight superseded decoded outputs were skipped. These local codec statistics do not include capture, encoding or WAN transit latency and do not establish the physical phone's decoder behavior. The recent two-second FPS diagnostics and the longer core-counter average use different windows. [Exact results](results.json).
+
+## Matching Linux deployment and cleanup
+
+The matching public Linux archive was verified and installed on wen.linux. The running node binary matches its source-pinned manifest, node identity and all 12 recorded private files are retained, and health is `ready`. The native taskbar icon is visible; opening the existing panel and hiding it back to the tray leaves the node running. The SSH shell's default Python lacked GI during the first tray-verification attempt; the system `/usr/bin/python3` completed verification. Herdr PID 36173 and the original Sunshine service PID 775016 remain unchanged. [Deployment evidence](official-deployment.json).
+
+Cleanup removed only the owned Xvfb scene, temporary Sunshine instance, guest/Mac relays, three ADB reverses, test APK and emulator. The original QA server pairing and rotation were restored; the updated public app and its data remain installed in that AVD. Temporary SSH authorization was removed and original authorized-key bytes restored. Five pre-existing dirty files in the primary checkout are unchanged. [Local cleanup](local-cleanup.json), [host cleanup](remote-cleanup.json).
+
+Physical-phone Tailscale responsiveness remains a separate acceptance boundary. The phone was offline during this investigation, so its direct/relay path, active throughput and touch-to-photon latency could not be measured. This release directly fixes the reproduced continuous-input stall and adds video buffering/network mitigations with diagnostics; it does not claim a verified WAN video recovery.

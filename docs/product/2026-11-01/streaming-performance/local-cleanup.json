@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "originalQaPairingRestored": true,
+  "hostProfilesRetained": 4,
+  "identityAndTrustRetained": true,
+  "rotationRestored": true,
+  "ownedGuestRelayStopped": true,
+  "ownedAdbReversesRemoved": 3,
+  "ownedTestApkRemoved": true,
+  "mainPublicApkAndDataRetained": true,
+  "ownedMacRelayStopped": true,
+  "ownedEmulatorStopped": true,
+  "primaryDirtyFilesPreserved": 5
+}

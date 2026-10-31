@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "ownedSunshineStopped": true,
+  "ownedSceneAndDisplayStopped": true,
+  "temporaryAuthorizationRemoved": true,
+  "originalAuthorizationBytesRestored": true,
+  "productionNodeRetained": true,
+  "services": [
+    {
+      "active": true,
+      "name": "Herdr",
+      "ownership": "external",
+      "pid": 36173,
+      "unit": "herdr.service"
+    },
+    {
+      "active": true,
+      "name": "Sunshine",
+      "ownership": "external",
+      "pid": 775016,
+      "unit": "app-dev.lizardbyte.app.Sunshine.service"
+    }
+  ],
+  "modelPromptSubmitted": false
+}
