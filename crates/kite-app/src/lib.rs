@@ -21,6 +21,10 @@ pub use kite_agent::interaction::{
     Activity as ResponseActivity, Answer as QuestionAnswer, OptionItem as QuestionOption, Question,
     QuestionPrompt,
 };
+pub use kite_agent::usage::{
+    AccountUsage, Bucket as UsageBucket, Credits as UsageCredits, Status as UsageStatus,
+    Unavailable as UsageUnavailable, Window as UsageWindow,
+};
 pub use kite_agent::{
     Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,
 };

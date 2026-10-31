@@ -8,6 +8,7 @@ pub mod history;
 pub mod interaction;
 pub mod process;
 pub mod sessions;
+pub mod usage;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {

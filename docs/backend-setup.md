@@ -1,5 +1,7 @@
 # Host setup
 
+Codex plan allowance uses the selected conversation’s existing app-server owner. With Codex 0.164.0 and a ChatGPT account, no additional credential or service is needed. API-key-only or unavailable allowance receives an explicit explanation. See [Plan allowance](account-usage.md) for the left-hand model-picker entry and refresh behavior.
+
 Kite connects to the [Linux desktop host node](linux-desktop.md). SSH authenticates the phone and carries requests into Kite Node, which forwards Herdr API, Codex chat, sessions/history and attachments. Node installs its matching private adapter as `~/.local/lib/kite/backend-v5.py`. Sunshine sends video/input over the private network, with its control requests carried by SSH. Codex shares the session's existing private app-server owner. The desktop panel can close while Node and agents continue. No public API port or global Codex daemon change is required.
 
 This guide covers the current Android Alpha's supported host path: **Linux with an active X11 desktop**, with SSH, herdr and Sunshine running as the same user. Automatic capture-size discovery currently requires Linux `/proc`, `ss` and `xrandr`. Wayland, Windows and macOS host discovery are not implemented in this Alpha, even where upstream herdr or Sunshine support them.

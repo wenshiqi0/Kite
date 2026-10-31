@@ -38,6 +38,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -110,6 +113,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var sessionName by remember { mutableStateOf("") }
     var remoteKeyboard by remember { mutableStateOf(false) }
     var modelSettings by remember { mutableStateOf(false) }
+    var usageDialog by remember { mutableStateOf(false) }
     val videoReference=remember { mutableStateOf<VideoSurface?>(null) }
     var videoArea by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var mouseBounds by remember { mutableStateOf(emptyList<androidx.compose.ui.geometry.Rect>()) }
@@ -132,13 +136,32 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val cacheWindow=remember{LazyLayoutCacheWindow(1f,.5f)}
     val chatScroll=rememberLazyListState(cacheWindow=cacheWindow)
     var followTail by remember(conversationContext){mutableStateOf(true)}
+    val tailMargin=remember(conversationContext){ChatTailMargin()}
+    var latestVisible by remember(conversationContext){mutableStateOf(false)}
+    val historyScroll=remember(conversationContext,inputDensity.density){object:NestedScrollConnection{
+        override fun onPostScroll(consumed:Offset,available:Offset,source:NestedScrollSource):Offset{
+            if(consumed.y>0)followTail=false
+            if(!followTail){tailMargin.scrolled(consumed.y/inputDensity.density);latestVisible=tailMargin.visible}
+            return Offset.Zero
+        }
+    }}
     var chatHeight by remember{mutableIntStateOf(0)}
     val draggingHistory by chatScroll.interactionSource.collectIsDraggedAsState()
     fun pauseHistory(){followTail=false}
     LaunchedEffect(draggingHistory){if(draggingHistory)followTail=false}
     LaunchedEffect(conversationContext,chatScroll){
-        snapshotFlow{chatScroll.isScrollInProgress to chatScroll.canScrollForward}.collectLatest{(scrolling,canForward)->
-            if(!scrolling&&!canForward&&entries.isNotEmpty())followTail=true
+        snapshotFlow{
+            val layout=chatScroll.layoutInfo
+            val last=layout.visibleItemsInfo.lastOrNull()
+            val gap=if(last!=null&&last.index>=layout.totalItemsCount-2){
+                val trailing=if(last.index==layout.totalItemsCount-2)with(inputDensity){16.dp.roundToPx()}else 0
+                (last.offset+last.size+trailing+layout.afterContentPadding-layout.viewportEndOffset).coerceAtLeast(0)/inputDensity.density
+            }else null
+            Triple(chatScroll.isScrollInProgress,chatScroll.canScrollForward,gap)
+        }.collectLatest{(scrolling,canForward,gap)->
+            if(gap!=null)tailMargin.observe(gap)
+            if(!scrolling&&!canForward&&entries.isNotEmpty()){followTail=true;tailMargin.reset()}
+            latestVisible=tailMargin.visible
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
@@ -182,7 +205,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     LaunchedEffect(imeVisible){if(imeVisible)vm.hideTouchpad()else if(remoteKeyboard){videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false}}
     LaunchedEffect(bridgeActive){if(!bridgeActive){videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false;vm.releaseMouseButtons()}}
     ClipboardBridge(vm,blocked=hideChrome || vm.settingsVisible || drawerActive)
-    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false } }
+    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false; usageDialog = false } }
     LaunchedEffect(landscape, vm.inPip) {
         if (vm.inPip) return@LaunchedEffect
         if (landscape && vm.layout == DesktopLayout.Split) { autoFullscreen = true; vm.changeLayout(DesktopLayout.Fullscreen, rotate = false) }
@@ -253,6 +276,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent)
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
+                            if(vm.showDesktop||state?.desktop?.status in listOf(DesktopStatus.STARTING,DesktopStatus.STREAMING,DesktopStatus.PAIRING))DropdownMenuItem(text={Text(stringResource(R.string.desktop_disconnect))},leadingIcon={ProductIcon(Mark.Close)},onClick={tools=false;videoReference.value?.closeRemoteKeyboard();softwareKeyboard?.hide();focusManager.clearFocus();vm.closeDesktop();updatePip()})
                             currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(if (session.archived) R.string.restore_session else R.string.archive_session)) }, onClick = { tools = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = agent != null)
@@ -285,7 +309,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
-                LazyColumn(Modifier.fillMaxSize().semantics { contentDescription="聊天记录" }.pointerInput(conversationContext) {
+                LazyColumn(Modifier.fillMaxSize().nestedScroll(historyScroll).semantics { contentDescription="聊天记录" }.pointerInput(conversationContext) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
                         followTail=false
@@ -340,7 +364,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         if(state.history.failed)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试")}
                     }
                 }
-                if(!followTail&&entries.isNotEmpty())Surface(onClick={followTail=true},color=KiteColors.AccentSurface,shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics{contentDescription="回到最新消息"}){
+                if(!followTail&&latestVisible&&entries.isNotEmpty())Surface(onClick={tailMargin.reset();latestVisible=false;followTail=true},color=KiteColors.AccentSurface,shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics{contentDescription="回到最新消息"}){
                     Row(Modifier.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){ProductIcon(Mark.Chevron,Blue,Modifier.size(18.dp));Text(stringResource(R.string.history_latest),color=Blue,fontSize=12.sp)}
                 }
                 }
@@ -372,7 +396,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty())
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.widthIn(max=680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(horizontal=10.dp,vertical=6.dp).padding(bottom=6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }
                         IconButton(onClick = { plus = true }, modifier = Modifier.semantics { contentDescription = addDescription }) { ProductIcon(Mark.Plus) }
@@ -382,10 +406,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             }
                         }
                     }
-                    IconButton(onClick={modelSettings=true},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
-                    OutlinedTextField(vm.draft, { vm.draft = it }, modifier = Modifier.weight(1f).onFocusChanged{if(it.isFocused){vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()}}, shape = RoundedCornerShape(20.dp), maxLines = 5,
-                        label={state?.composer?.takeIf{it.ready}?.let{composer->Text((composer.models.find{it.model==composer.model}?.name?:composer.model)+" · "+effortLabel(composer.effort),fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}},
-                        placeholder = { Text(stringResource(if (agent?.status == "blocked") R.string.composer_blocked else R.string.composer_hint), color = Muted, fontSize = 15.sp) })
+                    IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
+                    ChatDraftField(vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()})
                     if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
                         if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, Blue)
                     } else IconButton(onClick = {
@@ -523,7 +545,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             }
         }
     }
-    if(modelSettings&&!hideChrome)AlertDialog(onDismissRequest={modelSettings=false},title={Text("模型与思考强度")},text={ComposerSettings(vm,state?.agents?.find{it.id==state.selectedAgent},state?.composer)},confirmButton={TextButton(onClick={modelSettings=false}){Text(stringResource(R.string.dismiss))}})
+    if(modelSettings&&!hideChrome)AlertDialog(onDismissRequest={modelSettings=false},title={Text(stringResource(R.string.chat_model_settings))},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        ComposerSettings(vm,state?.agents?.find{it.id==state.selectedAgent},state?.composer)
+        AccountUsageAccess(state?.composer?.usage){modelSettings=false;usageDialog=true;vm.refreshUsage()}
+    }},confirmButton={TextButton(onClick={modelSettings=false}){Text(stringResource(R.string.dismiss))}})
+    if(usageDialog&&!hideChrome)AccountUsageDialog(state?.composer?.usage,currentSession?.provider?:state?.agents?.find{it.id==state.selectedAgent}?.agent,state?.connection==ConnectionStatus.CONNECTED&&state.composer.ready,vm::refreshUsage){usageDialog=false}
     if ((terminal || diagnostics) && !hideChrome) AlertDialog(onDismissRequest = { terminal = false; diagnostics = false }, title = { Text(stringResource(if (terminal) R.string.terminal_output else R.string.connection_diagnostics)) }, text = {
         Column {
         if (terminal && state?.selectedAgent != null) {

@@ -1,5 +1,6 @@
 //! Codex app-server v2 over an authenticated SSH exec channel. One host owner per pane.
 use crate::interaction::{Answer, RuntimeState};
+use crate::usage::{self, AccountUsage};
 use kite_ssh::{ByteStream, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -149,24 +150,72 @@ pub struct Composer {
     pub models: Vec<Model>,
     pub selection: Selection,
     pub uploads: Vec<Upload>,
+    pub usage: AccountUsage,
 }
 
 type Replies = Arc<Mutex<BTreeMap<String, oneshot::Sender<Result<Value, String>>>>>;
-pub struct Client {
+struct Rpc {
     writer: Arc<AsyncMutex<WriteHalf<ByteStream>>>,
     replies: Replies,
     sequence: AtomicU64,
     closed: Arc<AtomicBool>,
+}
+pub struct Client {
+    rpc: Arc<Rpc>,
     reader: JoinHandle<()>,
     runtime: Arc<Mutex<RuntimeState>>,
+    usage: Arc<Mutex<usage::Tracker>>,
+    usage_job: Mutex<Option<JoinHandle<()>>>,
     subscribed: AtomicBool,
     pub thread: String,
     pub models: Vec<Model>,
     pub initial: Selection,
 }
+impl Rpc {
+    async fn write(&self, value: Value) -> Result<(), Error> {
+        let mut bytes = serde_json::to_vec(&value)?;
+        if bytes.len() > MAX_LINE {
+            return Err(Error::Invalid("request too large"));
+        }
+        bytes.push(b'\n');
+        tokio::time::timeout(DEADLINE, async {
+            let mut w = self.writer.lock().await;
+            w.write_all(&bytes).await?;
+            w.flush().await
+        })
+        .await
+        .map_err(|_| Error::Timeout)??;
+        Ok(())
+    }
+    pub async fn request(&self, method: &str, params: Value) -> Result<Value, Error> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(Error::Remote("backend disconnected".into()));
+        }
+        let id = format!("kite-{}", self.sequence.fetch_add(1, Ordering::Relaxed));
+        let (tx, rx) = oneshot::channel();
+        lock(&self.replies).insert(id.clone(), tx);
+        if let Err(e) = self
+            .write(json!({"id":id,"method":method,"params":params}))
+            .await
+        {
+            lock(&self.replies).remove(&id);
+            return Err(e);
+        }
+        let response = tokio::time::timeout(DEADLINE, rx).await;
+        lock(&self.replies).remove(&id);
+        response
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Remote("backend disconnected".into()))?
+            .map_err(Error::Remote)
+    }
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         self.reader.abort();
+        if let Some(job) = lock(&self.usage_job).take() {
+            job.abort();
+        }
     }
 }
 
@@ -184,6 +233,8 @@ impl Client {
         let replies: Replies = Arc::new(Mutex::new(BTreeMap::new()));
         let closed = Arc::new(AtomicBool::new(false));
         let runtime = Arc::new(Mutex::new(RuntimeState::default()));
+        let usage = Arc::new(Mutex::new(usage::Tracker::default()));
+        let rx_usage = usage.clone();
         let (rx_replies, rx_closed, rx_runtime, rx_thread) = (
             replies.clone(),
             closed.clone(),
@@ -194,6 +245,7 @@ impl Client {
             let mut reader = BufReader::new(reader);
             while let Ok(value) = read_json(&mut reader).await {
                 lock(&rx_runtime).ingest(&value, &rx_thread);
+                lock(&rx_usage).ingest(&value, usage::now_ms());
                 if value.get("method").is_none()
                     && let Some(id) = value["id"].as_str()
                     && let Some(reply) = lock(&rx_replies).remove(id)
@@ -219,12 +271,16 @@ impl Client {
             }
         });
         let mut client = Self {
-            writer,
-            replies,
-            sequence: AtomicU64::new(1),
-            closed,
+            rpc: Arc::new(Rpc {
+                writer,
+                replies,
+                sequence: AtomicU64::new(1),
+                closed,
+            }),
             reader,
             runtime,
+            usage,
+            usage_job: Mutex::new(None),
             subscribed: AtomicBool::new(false),
             thread: thread.into(),
             models: vec![],
@@ -283,6 +339,42 @@ impl Client {
     pub fn runtime(&self) -> RuntimeState {
         lock(&self.runtime).clone()
     }
+    pub fn usage(&self) -> AccountUsage {
+        lock(&self.usage).snapshot(usage::now_ms())
+    }
+    pub fn refresh_usage(&self, force: bool) {
+        let mut job = lock(&self.usage_job);
+        if job.as_ref().is_some_and(|task| !task.is_finished()) {
+            return;
+        }
+        let Some(refresh) = lock(&self.usage).begin(force, std::time::Instant::now()) else {
+            return;
+        };
+        let rpc = self.rpc.clone();
+        let usage = self.usage.clone();
+        // The worker owns only the request transport, never the Client itself.
+        // Dropping the Client can immediately cancel it alongside the reader.
+        *job = Some(tokio::spawn(async move {
+            let result = async {
+                let account = rpc
+                    .request("account/read", json!({"refreshToken":false}))
+                    .await
+                    .map_err(|_| "account read failed")?;
+                let limits = if account["account"]["type"] == "chatgpt" {
+                    Some(
+                        rpc.request("account/rateLimits/read", json!({}))
+                            .await
+                            .map_err(|_| "quota read failed")?,
+                    )
+                } else {
+                    None
+                };
+                usage::decode(&account, limits.as_ref(), usage::now_ms())
+            }
+            .await;
+            lock(&usage).finish(refresh, result);
+        }));
+    }
     pub fn reconcile_async(&self, history: &crate::async_input::History) {
         lock(&self.runtime).reconcile_async(history);
     }
@@ -336,43 +428,13 @@ impl Client {
         Ok(())
     }
     pub fn is_closed(&self) -> bool {
-        self.closed.load(Ordering::SeqCst)
+        self.rpc.closed.load(Ordering::SeqCst)
     }
     async fn write(&self, value: Value) -> Result<(), Error> {
-        let mut bytes = serde_json::to_vec(&value)?;
-        if bytes.len() > MAX_LINE {
-            return Err(Error::Invalid("request too large"));
-        }
-        bytes.push(b'\n');
-        tokio::time::timeout(DEADLINE, async {
-            let mut w = self.writer.lock().await;
-            w.write_all(&bytes).await?;
-            w.flush().await
-        })
-        .await
-        .map_err(|_| Error::Timeout)??;
-        Ok(())
+        self.rpc.write(value).await
     }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, Error> {
-        if self.is_closed() {
-            return Err(Error::Remote("backend disconnected".into()));
-        }
-        let id = format!("kite-{}", self.sequence.fetch_add(1, Ordering::Relaxed));
-        let (tx, rx) = oneshot::channel();
-        lock(&self.replies).insert(id.clone(), tx);
-        if let Err(e) = self
-            .write(json!({"id":id,"method":method,"params":params}))
-            .await
-        {
-            lock(&self.replies).remove(&id);
-            return Err(e);
-        }
-        let response = tokio::time::timeout(DEADLINE, rx).await;
-        lock(&self.replies).remove(&id);
-        response
-            .map_err(|_| Error::Timeout)?
-            .map_err(|_| Error::Remote("backend disconnected".into()))?
-            .map_err(Error::Remote)
+        self.rpc.request(method, params).await
     }
     pub async fn send(
         &self,

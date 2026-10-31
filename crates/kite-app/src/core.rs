@@ -1071,6 +1071,7 @@ impl AppCore {
             return;
         };
         drop(clients);
+        client.refresh_usage(false);
         let _ = client.observe_thread().await;
         let stored = lock(&self.store)
             .as_ref()
@@ -1086,12 +1087,17 @@ impl AppCore {
         let uploads = lock(&self.uploads).get(&key).cloned().unwrap_or_default();
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| {
-                if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
+                if s.selected_agent.as_deref() == Some(&agent.terminal_id)
+                    && s.agents
+                        .iter()
+                        .any(|a| a.terminal_id == agent.terminal_id && chat_key(c, a) == key)
+                {
                     s.composer = Composer {
                         ready: true,
                         models: client.models.clone(),
                         selection: selected,
                         uploads,
+                        usage: client.usage(),
                         ..Composer::default()
                     };
                 }
@@ -1107,6 +1113,43 @@ impl AppCore {
             if let Some(id) = core.snapshot().selected_agent {
                 core.refresh_agent(&c, &id, core.generation.load(Ordering::SeqCst))
                     .await;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn refresh_account_usage(self: &Arc<Self>) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let c = core.connection()?;
+            let generation = core.generation.load(Ordering::SeqCst);
+            let snapshot = core.snapshot();
+            let agent = snapshot
+                .agents
+                .iter()
+                .find(|a| Some(&a.terminal_id) == snapshot.selected_agent.as_ref())
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            let key = chat_key(&c, agent);
+            let client = core
+                .chat_clients
+                .lock()
+                .await
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| AppError::State("chat backend unavailable".into()))?;
+            client.refresh_usage(true);
+            if core.generation.load(Ordering::SeqCst) == generation {
+                core.update(|s| {
+                    if s.selected_host.as_deref() == Some(&c.host.id)
+                        && s.selected_agent.as_deref() == Some(&agent.terminal_id)
+                        && s.agents
+                            .iter()
+                            .any(|a| a.terminal_id == agent.terminal_id && chat_key(&c, a) == key)
+                    {
+                        s.composer.usage = client.usage();
+                    }
+                });
             }
             Ok(())
         })

@@ -234,6 +234,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
     fun reloadComposer() = engine.command { engine.core.reloadComposer() }
+    fun refreshUsage() { if (engine.state.value?.composer?.ready == true) engine.command { engine.core.refreshAccountUsage() } }
     fun attachFiles(uris: List<Uri>) {
         val id = engine.state.value?.selectedAgent ?: return
         if (copyingAttachments || sending || uris.isEmpty()) return

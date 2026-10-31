@@ -198,6 +198,102 @@ pub struct UploadInfo {
     pub local_path: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct UsageWindowInfo {
+    pub remaining_percent: u32,
+    pub duration_mins: Option<u64>,
+    pub resets_at: Option<i64>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct UsageCreditsInfo {
+    pub has_credits: bool,
+    pub unlimited: bool,
+    pub balance: Option<String>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct UsageBucketInfo {
+    pub id: String,
+    pub name: Option<String>,
+    pub primary: Option<UsageWindowInfo>,
+    pub secondary: Option<UsageWindowInfo>,
+    pub credits: Option<UsageCreditsInfo>,
+    pub limit_reached: bool,
+    pub spend_control_reached: bool,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum UsageStatus {
+    NotLoaded,
+    Ready,
+    Unavailable,
+    Failed,
+}
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum UsageUnavailable {
+    None,
+    NoAccount,
+    UnsupportedAuth,
+    NoData,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AccountUsageInfo {
+    pub status: UsageStatus,
+    pub unavailable: UsageUnavailable,
+    pub loading: bool,
+    pub stale: bool,
+    pub plan: Option<String>,
+    pub buckets: Vec<UsageBucketInfo>,
+    pub ordinary_usage_allowed: Option<bool>,
+    pub updated_ms: Option<i64>,
+}
+impl From<kite_app::UsageWindow> for UsageWindowInfo {
+    fn from(w: kite_app::UsageWindow) -> Self {
+        Self {
+            remaining_percent: w.remaining_percent,
+            duration_mins: w.duration_mins,
+            resets_at: w.resets_at,
+        }
+    }
+}
+impl From<kite_app::AccountUsage> for AccountUsageInfo {
+    fn from(u: kite_app::AccountUsage) -> Self {
+        Self {
+            status: match u.status {
+                kite_app::UsageStatus::NotLoaded => UsageStatus::NotLoaded,
+                kite_app::UsageStatus::Ready => UsageStatus::Ready,
+                kite_app::UsageStatus::Unavailable => UsageStatus::Unavailable,
+                kite_app::UsageStatus::Failed => UsageStatus::Failed,
+            },
+            unavailable: match u.unavailable {
+                kite_app::UsageUnavailable::None => UsageUnavailable::None,
+                kite_app::UsageUnavailable::NoAccount => UsageUnavailable::NoAccount,
+                kite_app::UsageUnavailable::UnsupportedAuth => UsageUnavailable::UnsupportedAuth,
+                kite_app::UsageUnavailable::NoData => UsageUnavailable::NoData,
+            },
+            loading: u.loading,
+            stale: u.stale,
+            plan: u.plan,
+            ordinary_usage_allowed: u.ordinary_usage_allowed,
+            updated_ms: u.updated_ms,
+            buckets: u
+                .buckets
+                .into_iter()
+                .map(|b| UsageBucketInfo {
+                    id: b.id,
+                    name: b.name,
+                    primary: b.primary.map(Into::into),
+                    secondary: b.secondary.map(Into::into),
+                    credits: b.credits.map(|c| UsageCreditsInfo {
+                        has_credits: c.has_credits,
+                        unlimited: c.unlimited,
+                        balance: c.balance,
+                    }),
+                    limit_reached: b.limit_reached,
+                    spend_control_reached: b.spend_control_reached,
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct ComposerInfo {
     pub ready: bool,
     pub loading: bool,
@@ -206,6 +302,7 @@ pub struct ComposerInfo {
     pub model: String,
     pub effort: String,
     pub uploads: Vec<UploadInfo>,
+    pub usage: AccountUsageInfo,
 }
 impl From<kite_app::Composer> for ComposerInfo {
     fn from(c: kite_app::Composer) -> Self {
@@ -213,6 +310,7 @@ impl From<kite_app::Composer> for ComposerInfo {
             ready: c.ready,
             loading: c.loading,
             details: c.details,
+            usage: c.usage.into(),
             model: c.selection.model,
             effort: c.selection.effort,
             models: c
@@ -747,6 +845,9 @@ impl KiteCore {
     }
     pub async fn reload_composer(&self) -> Result<(), KiteError> {
         self.inner.reload_composer().await.map_err(Into::into)
+    }
+    pub async fn refresh_account_usage(&self) -> Result<(), KiteError> {
+        self.inner.refresh_account_usage().await.map_err(Into::into)
     }
     pub async fn set_chat_model(
         &self,

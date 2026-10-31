@@ -1,5 +1,11 @@
 # Testing
 
+## Chat allowance and input refinements
+
+`ChatTailMarginTest` checks native scroll thresholds. Rust `usage` tests cover provider facts, missing data, account/notification races and stale results. `WorkspaceRefinementPresentationTest` renders synthetic allowance cards and checks the real workspace's scroll affordance, editor bounds and native text changes; its history case requires `qa_native_history=true`, injects only a native display mirror and restores it from Rust afterward.
+
+`LiveQuotaAndDesktopTest` is opt-in (`qa_live_quota=true`). It requires the owned `10.0.2.2:22223` / Sunshine `48200` profile and a cwd under `/home/wenshiqi/.cache/kite-alpha20-qa-20261101/`. It creates an owned empty Codex session, reads quota, checks model-picker placement and stops desktop setup from the workspace menu while retaining chat. Set `qa_video_required=true` only with an isolated paired Sunshine fixture to additionally require actual frames. Records distinguish setup cancellation from active-video acceptance. No model turn is submitted. The guarded `qa_phase=public-key` phase exports only the validation device's public key; temporary authorization stays outside the repository and is removed afterward.
+
 ## Linux status UI
 
 On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:
