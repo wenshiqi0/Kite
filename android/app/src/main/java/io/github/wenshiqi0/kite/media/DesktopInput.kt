@@ -3,7 +3,7 @@ package io.github.wenshiqi0.kite.media
 import android.os.Handler
 import android.os.Looper
 
-/** One ordered media input path. Fullscreen enables the quiet-window sampler. */
+/** One ordered media path with bounded pointer/text sampling in every control layout. */
 object DesktopInput {
     private val handler = Handler(Looper.getMainLooper())
     private var target = 0L
@@ -22,7 +22,6 @@ object DesktopInput {
         }
     }
     @Synchronized fun buffered(id: Long) = id != 0L && id == target && buffer != null
-    @Synchronized fun activity(id: Long) { if (id == target) buffer?.activity() }
     @Synchronized private fun submit(id: Long, event: DesktopEvent): Boolean {
         if (id == 0L) return false
         return if (id == target && buffer != null) buffer!!.append(event) else dispatch(id, event)

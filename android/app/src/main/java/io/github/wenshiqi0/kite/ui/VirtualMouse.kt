@@ -59,7 +59,6 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
         x=(x+amount.x/with(density){rangeX.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
         y=(y+amount.y/with(density){rangeY.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
         if(full&&enabled)with(density){
-            surface?.virtualMouseActivity()
             val extraX=amount.x-(x-beforeX)*rangeX.toPx()
             val extraY=amount.y-(y-beforeY)*rangeY.toPx()
             if(kotlin.math.abs(extraX)>.01f||kotlin.math.abs(extraY)>.01f)surface?.panVirtualMouse(-extraX,-extraY)
@@ -130,7 +129,6 @@ private fun FullMouseButton(vm:HostCheckViewModel,surface:VideoSurface?,button:I
                 var moved=false
                 do{
                     val event=awaitPointerEvent()
-                    surface?.virtualMouseActivity()
                     val point=event.changes.firstOrNull{it.id==first.id}?:break
                     // Compose transforms both positions into the current local space.
                     // A saved prior position would subtract the widget's own movement.

@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0-alpha.22",
+  "video": {
+    "status": "PASS",
+    "modelPromptSubmitted": false,
+    "sourceWidth": 1920,
+    "sourceHeight": 1080,
+    "width": 1920,
+    "height": 1080,
+    "targetFps": 60,
+    "seconds": 14.052358923,
+    "receivedFps": 56.50296895707892,
+    "renderedFps": 54.652745792237546,
+    "uiFrameP95Ms": 16.666666,
+    "uiFrameMaxMs": 16.666666,
+    "decoderMetrics": null
+  },
+  "pointer": {
+    "samples": 60,
+    "gestureMs": 1338,
+    "layout": "fullscreen",
+    "path": "VideoSurface hover -> DesktopInput -> JNI -> owned Sunshine",
+    "hostSweepEvents": 1,
+    "hostSweepSpanMs": 0.0,
+    "finalSourceX": 1518.0,
+    "finalSourceY": 308.0
+  },
+  "scope": "Owned Android API 36 ARM64 emulator, isolated 1080p Xvfb animated scene, local relays; no model turn or user desktop"
+}

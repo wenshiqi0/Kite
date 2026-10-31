@@ -183,6 +183,7 @@ impl NativeSession {
         config: StreamConfig,
         sink: Arc<dyn MediaSink>,
     ) -> Result<Self, StreamError> {
+        let config = config.for_address(&launch.address);
         config.validate()?;
         let strings = [
             launch.address,

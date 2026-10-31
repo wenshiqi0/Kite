@@ -568,6 +568,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         SelectionContainer { Text(if (terminal) state?.agentOutput.orEmpty() else buildString {
             append(state?.let(::connectionDiagnostics).orEmpty()); append("\n${state?.desktop?.sourceWidth}×${state?.desktop?.sourceHeight} → ${state?.desktop?.width}×${state?.desktop?.height} @${state?.desktop?.fps}\n")
             append(frameCounts); state?.failure?.let { append("\n${it.details}") }; state?.composer?.details?.takeIf { it.isNotBlank() }?.let { append("\n$it") }
+            videoReference.value?.performance?.let{append("\n\n");append(it.diagnostics())}
         }, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) }
         }
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })

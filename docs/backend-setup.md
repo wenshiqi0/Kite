@@ -231,6 +231,10 @@ Changing the base port shifts the Sunshine port family. The current app does not
 
 A 1920×1080 host desktop is a practical starting point. Kite preserves that source size and aspect-fits it on the phone; rotating the phone does not request a different desktop mode. It prefers a 60fps video request, permits a small proportional reduction to maintain decoder frame-rate support, and falls back to 30fps when needed. Requested FPS is separate from host refresh rate and measured presentation rate. Network-driven dynamic resolution switching is not implemented yet.
 
+Alpha 23 caps the initial compressed-video budget at 6Mbps when the resolved streaming address is in Tailscale's IPv4 or IPv6 range, retaining the negotiated dimensions and FPS. Pointer and wheel input are coalesced in fixed 16ms windows; committed text retains a fixed 200ms buffer. Continuous input does not postpone delivery until a gesture stops. Click/key transitions preserve ordering.
+
+For stutter, open connection diagnostics while video is active and record actual receive/submit/render FPS, decoder hardware selection, queue/render/callback P95, input timeouts and recovery counts. Compare this with Sunshine's active-session encoder logs and the phone's Tailscale direct/relay path. A working SSH session or an idle host is insufficient evidence. Host `tailscale status` / `tailscale ping <phone>` can identify the path only while that phone is online. The 6Mbps budget is conservative initial configuration, not automatic congestion control or a guarantee for DERP paths.
+
 Set the host mode using its desktop settings, or an available mode from `xrandr`:
 
 ```bash

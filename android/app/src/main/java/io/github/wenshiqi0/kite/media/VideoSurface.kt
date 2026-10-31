@@ -52,7 +52,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     val virtualPointerSource: DesktopViewport.Point? get() = desktopPointer.source
     val virtualPointerView: DesktopViewport.Point? get() = desktopPointer.view
     var fullscreenInput = false
-        set(value) { field = value; updateInputRoute() }
+        set(value) { if(field!=value){field=value;updateInputRoute()} }
     private val pointerMotion = PointerMotion()
     var externalMouseButtons = 0
     var onPaste: (() -> Boolean)? = null
@@ -73,6 +73,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         {onTextFailure()},
     )
     val target: Long get() = renderer?.id ?: 0L
+    val performance: VideoPerformance.Snapshot? get() = renderer?.performance?.snapshot()
     var takeover = false
         set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value; updateInputRoute(); refreshCursor() } }
     var trackpad = true
@@ -156,9 +157,9 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         onZoomChanged(viewport.zoom)
     }
     private fun updateInputRoute() {
-        val enabled = fullscreenInput && takeover && gesturesEnabled && !pip
+        val enabled = takeover && gesturesEnabled && !pip
         DesktopInput.configure(target, enabled) { onTextFailure() }
-        if (viewport.inputGutter(if (enabled) resources.displayMetrics.density * 176 else 0f)) applyViewport()
+        if (viewport.inputGutter(if (enabled&&fullscreenInput) resources.displayMetrics.density * 176 else 0f)) applyViewport()
     }
     private fun refreshCursor() {
         cursor.visibility = if (virtualMouseVisible && takeover && gesturesEnabled && !pip) VISIBLE else INVISIBLE
@@ -180,7 +181,6 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         viewport.pan(dx, dy); applyViewport()
     }
     fun closeVirtualMouse() { virtualMouseVisible = false; refreshCursor() }
-    fun virtualMouseActivity() { DesktopInput.activity(target) }
     fun moveVirtualMouse(dx: Float, dy: Float) {
         if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip) return
         desktopPointer.move(dx, dy)
@@ -220,7 +220,6 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
      * The shared parent routes only the separate canvas finger through here. */
     fun bridgePointer(x: Float, y: Float) {
         if (!takeover || !gesturesEnabled || target == 0L) return
-        DesktopInput.activity(target)
         removeCallbacks(longPress)
         val first=!bridgedPointer
         if(first){requestFocus();bridgedX=x;bridgedY=y}
@@ -245,7 +244,6 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private fun span(event: MotionEvent): Float = if (event.pointerCount > 1) hypot(event.getX(1) - event.getX(0), event.getY(1) - event.getY(0)).coerceAtLeast(1f) else 1f
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!gesturesEnabled || pip) return true
-        DesktopInput.activity(target)
         if(event.actionMasked==MotionEvent.ACTION_DOWN)flushRemoteText()
         if (bridgedPointer) return true
         if (takeover && target != 0L && event.isFromSource(InputDevice.SOURCE_MOUSE)) { mouse(event); return true }

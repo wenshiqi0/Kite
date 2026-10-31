@@ -1,6 +1,6 @@
 package io.github.wenshiqi0.kite.media
 
-/** Fullscreen input waits for a quiet 200ms. Barriers retain click/drag/key ordering. */
+/** Pointer sampling has a fixed frame deadline; text has a fixed 200ms deadline. */
 sealed interface DesktopEvent {
     data class Position(val x: Int, val y: Int, val width: Int, val height: Int) : DesktopEvent
     data class Move(val x: Int, val y: Int) : DesktopEvent
@@ -15,10 +15,12 @@ class RemoteInputBuffer(
     private val send: (DesktopEvent) -> Boolean,
     private val release: () -> Unit,
     private val failure: () -> Unit,
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val pending = mutableListOf<DesktopEvent>()
     private var cancelTask: (() -> Unit)? = null
     private var generation = 0L
+    private var due: Long? = null
 
     @Synchronized fun append(event: DesktopEvent): Boolean {
         val last = pending.lastOrNull()
@@ -40,26 +42,28 @@ class RemoteInputBuffer(
         if (pending.size > 512 || pending.sumOf { if (it is DesktopEvent.Text) it.text.toByteArray().size else 24 } > 256 * 1024) {
             cancel(); failure(); return false
         }
-        arm()
+        if (event is DesktopEvent.Button || event is DesktopEvent.Key) return flush()
+        arm(if (event is DesktopEvent.Text) 200 else 16)
         return true
     }
 
-    private fun arm() {
+    private fun arm(delay: Long) {
+        val deadline = now() + delay
+        if (due?.let { it <= deadline } == true) return
         cancelTask?.invoke()
+        due = deadline
         val token = ++generation
-        cancelTask = schedule(200) { synchronized(this) { if (token == generation) flush() } }
+        cancelTask = schedule(delay) { synchronized(this) { if (token == generation) flush() } }
     }
 
-    @Synchronized fun activity() { if (pending.isNotEmpty()) arm() }
-
     @Synchronized fun flush(): Boolean {
-        cancelTask?.invoke(); cancelTask = null; generation++
+        cancelTask?.invoke(); cancelTask = null; due = null; generation++
         val events = pending.toList(); pending.clear()
         for (event in events) if (!send(event)) { release(); failure(); return false }
         return true
     }
 
     @Synchronized fun cancel() {
-        cancelTask?.invoke(); cancelTask = null; generation++; pending.clear(); release()
+        cancelTask?.invoke(); cancelTask = null; due = null; generation++; pending.clear(); release()
     }
 }

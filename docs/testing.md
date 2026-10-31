@@ -6,6 +6,10 @@
 
 `LiveQuotaAndDesktopTest` is opt-in (`qa_live_quota=true`). It requires the owned `10.0.2.2:22223` / Sunshine `48200` profile and a cwd under `/home/wenshiqi/.cache/kite-alpha20-qa-20261101/`. It creates an owned empty Codex session, reads quota, checks model-picker placement and stops desktop setup from the workspace menu while retaining chat. Set `qa_video_required=true` only with an isolated paired Sunshine fixture to additionally require actual frames. Records distinguish setup cancellation from active-video acceptance. No model turn is submitted. The guarded `qa_phase=public-key` phase exports only the validation device's public key; temporary authorization stays outside the repository and is removed afterward.
 
+## Sustained video and continuous input
+
+`StreamingCadenceTest` is opt-in (`qa_stream_perf=true`, `qa_seconds=12`, range 10–30). It requires the owned `10.0.2.2:22223` / Sunshine `48200` host and an isolated 1920×1080 moving scene. It requires actual presented frames, warms the decoder, samples receive/render counters across fresh core statistics, and records UI-frame cadence plus available decoder metrics. It then sends a 60-sample continuous fullscreen pointer sweep through VideoSurface → DesktopInput → JNI; compare the independently recorded host motion count and span to detect delivery delayed until gesture end. It submits no model prompt and closes its desktop on success. Keep fixture routing, scene, public APKs and warmup identical for A/B results; the old APK has no new decoder metrics. Test View dispatch and host arrival timing are not physical finger-to-photon latency. See [performance acceptance](product/2026-11-01/streaming-performance/acceptance.md).
+
 ## Linux status UI
 
 On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:

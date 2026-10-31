@@ -109,6 +109,21 @@ pub struct StreamConfig {
 }
 
 impl StreamConfig {
+    /// Overlay links may traverse a relay. Preserve pixels/fps and bound the
+    /// initial compressed-video budget instead of assuming LAN throughput.
+    pub fn for_address(mut self, address: &str) -> Self {
+        let overlay = match address.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => {
+                ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1])
+            }
+            Ok(std::net::IpAddr::V6(ip)) => ip.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
+            Err(_) => true,
+        };
+        if overlay {
+            self.bitrate = self.bitrate.min(6000);
+        }
+        self
+    }
     /// Keep the captured desktop at native size whenever the decoder supports it.
     /// H.264 needs even dimensions; only capability limits permit a small reduction.
     pub fn for_desktop(
@@ -167,6 +182,31 @@ impl StreamConfig {
 mod resolution_tests {
     use super::*;
     use display::DesktopSize;
+
+    #[test]
+    fn overlay_budget_preserves_native_pixels_and_frame_rate() {
+        let source = StreamConfig {
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            bitrate: 15552,
+        };
+        for address in ["100.113.51.30", "fd7a:115c:a1e0::1234"] {
+            let tuned = source.for_address(address);
+            assert_eq!((tuned.width, tuned.height, tuned.fps), (1920, 1080, 60));
+            assert_eq!(tuned.bitrate, 6000);
+        }
+        assert_eq!(source.for_address("192.168.0.114").bitrate, 15552);
+        assert_eq!(
+            StreamConfig {
+                bitrate: 3000,
+                ..source
+            }
+            .for_address("100.64.0.1")
+            .bitrate,
+            3000
+        );
+    }
 
     #[test]
     fn native_desktop_is_preserved_in_both_orientations() {
