@@ -11,6 +11,7 @@
 
 ## Delivery and evaluation records
 
+- [Fullscreen virtual pointer](product/2026-10-31/virtual-pointer/acceptance.md): explicit arrow, source-coordinate mouse buttons/wheel, held dragging and real host event comparisons.
 - [Complete transcript and dark workspace](product/2026-10-31/complete-transcript/acceptance.md): 10,000-record data/cache checks, real native view counts, independent scrolling and mouse-reference fullscreen.
 
 - [Alpha 12 native controls and history](product/2026-10-31/compact-controls/acceptance.md): collapsible portrait trackpad, compact fullscreen mouse, direct system IME, host cards and paged virtual history; includes published APK verification and retention checks.

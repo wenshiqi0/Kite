@@ -1,0 +1,9 @@
+{
+  "androidApi": 36,
+  "abi": "arm64-v8a",
+  "nativePresentationTests": 9,
+  "liveMouseTests": 1,
+  "standalonePointerViewportAndMotionTests": 15,
+  "releaseLint": "passed",
+  "note": "The local Gradle JVM worker bootstrap is unavailable; the normal Release JVM gate runs in trusted CI. No checks are disabled."
+}

@@ -110,10 +110,11 @@ fun RemoteMouseButton(vm:HostCheckViewModel,button:Int,enabled:Boolean,modifier:
 }
 
 @Composable
-fun MouseWheel(vm:HostCheckViewModel,enabled:Boolean,modifier:Modifier=Modifier,showIcon:Boolean=true) {
+fun MouseWheel(vm:HostCheckViewModel,enabled:Boolean,modifier:Modifier=Modifier,showIcon:Boolean=true,beforeScroll:()->Boolean={true}) {
     val density=LocalDensity.current.density
     val label=stringResource(R.string.mouse_wheel)
+    val currentBeforeScroll by rememberUpdatedState(beforeScroll)
     Box(modifier.background(KiteColors.Raised).semantics{contentDescription=label}.pointerInput(vm.target,enabled) {
-        if(enabled)detectDragGestures {change,amount->change.consume();vm.wheelMouse(amount.y,density)}
+        if(enabled)detectDragGestures {change,amount->change.consume();if(currentBeforeScroll())vm.wheelMouse(amount.y,density)}
     },contentAlignment=Alignment.Center) {if(showIcon)ProductIcon(Mark.Wheel,modifier=Modifier.size(20.dp))}
 }

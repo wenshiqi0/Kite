@@ -493,7 +493,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 if(takeover&&!hideChrome&&!vm.settingsVisible&&vm.layout==DesktopLayout.Fullscreen&&imeVisible){
                     RemoteKeyStrip(vm,Modifier.align(Alignment.BottomStart).imePadding().onGloballyPositioned{chromeBounds["toolbar"]=it.boundsInWindow()})
                 }
-                if(vm.layout==DesktopLayout.Fullscreen&&takeover&&!hideChrome&&!docked&&!drawerActive)VirtualMouse(vm,desktopWidth,availableHeight,safeTop,safeBottom,bridgeActive){mouseBounds=it}
+                if(vm.layout==DesktopLayout.Fullscreen&&takeover&&!hideChrome&&!docked&&!drawerActive)VirtualMouse(vm,videoReference.value,desktopWidth,availableHeight,safeTop,safeBottom,bridgeActive){mouseBounds=it}
 
             }
             if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = KiteColors.OnAccent) { HostSetupScreen(vm) { vm.settingsVisible = false } }

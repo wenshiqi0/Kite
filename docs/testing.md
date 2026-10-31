@@ -13,6 +13,8 @@ cargo fmt --all --check
 
 Android JVM tests now cover the pure source-to-viewport transform, inverse touch mapping, letterbox rejection, pinch focus, pan limits and orientation preservation. CI runs `:app:testReleaseUnitTest` with Release assembly and lint. A future `NO-SOURCE` result must not be counted as a passing test suite.
 
+Fullscreen pointer regressions are recorded in the [Alpha 14 acceptance](product/2026-10-31/virtual-pointer/acceptance.md). `DesktopPointerTest` checks the shared hotspot under zoom/pan, source and viewport edges, source-resolution changes and target clearing. `NativePresentationTest` draws the actual cursor view. `LiveVirtualMouseTest` is explicitly opt-in (`qa_live=true`, `qa_session=kite-qa-history-...`) and rejects a host other than `10.0.2.2:22223` / Sunshine `48200`; compare its exported source coordinates with the isolated host's button, release and wheel log. Refresh accessibility bounds after moving the control so the test cannot tap an obsolete button location.
+
 ## Desktop acceptance
 
 A host check, a listening Sunshine service or receipt of encoded packets is insufficient. Validate all of these on the same build and host:

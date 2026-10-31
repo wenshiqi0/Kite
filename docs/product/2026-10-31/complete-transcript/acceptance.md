@@ -15,6 +15,8 @@ Alpha 12 mixed a cropped data window with virtual rendering. This revision keeps
 
 ## Interaction and colour
 
+The mouse behavior in this section describes Alpha 13. [Alpha 14](../virtual-pointer/acceptance.md) corrects the missing visible pointer and changes the expanded grip to move both the control and its source-coordinate hotspot.
+
 [Fullscreen mouse](fullscreen-mouse.png) follows the supplied mouse reference: left/right buttons, center wheel and a lower positioning grip, with a right-hand operation rail. It has no relative trackpad area. The [collapsed icon](fullscreen-icon.png) is draggable. Edge expansion keeps close reachable and moving the control does not send remote input.
 
 The [portrait split trackpad](split-trackpad.png) is below the desktop and above Chat. Both held mouse buttons, paired release and wheel input reached the owned GTK canvas. Closing the 176dp panel returned that space to Chat while the composer bottom stayed fixed.

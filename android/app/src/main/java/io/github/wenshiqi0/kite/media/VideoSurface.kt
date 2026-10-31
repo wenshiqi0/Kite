@@ -1,12 +1,17 @@
 package io.github.wenshiqi0.kite.media
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewConfiguration
+import android.view.View
 import android.widget.FrameLayout
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +29,26 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private val video = SurfaceView(context)
     private var renderer: VideoRenderer? = null
     private val viewport = DesktopViewport()
+    private val desktopPointer = DesktopPointer(viewport)
+    private var virtualMouseVisible = false
+    private val cursor = object : View(context) {
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF111316.toInt(); style = Paint.Style.STROKE; strokeWidth = 2f; strokeJoin = Paint.Join.ROUND }
+        private val arrow = Path().apply {
+            moveTo(0f, 0f); lineTo(1f, 23f); lineTo(7f, 18f); lineTo(12f, 28f)
+            lineTo(17f, 25f); lineTo(12f, 16f); lineTo(20f, 15f); close()
+        }
+        init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = INVISIBLE }
+        override fun onDraw(canvas: Canvas) {
+            val point = desktopPointer.view ?: return
+            canvas.save()
+            canvas.translate(point.x, point.y)
+            canvas.scale(resources.displayMetrics.density, resources.displayMetrics.density)
+            canvas.drawPath(arrow, fill); canvas.drawPath(arrow, outline)
+            canvas.restore()
+        }
+    }
+    val virtualPointerSource: DesktopViewport.Point? get() = desktopPointer.source
     private val pointerMotion = PointerMotion()
     var externalMouseButtons = 0
     var onPaste: (() -> Boolean)? = null
@@ -45,13 +70,13 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     )
     val target: Long get() = renderer?.id ?: 0L
     var takeover = false
-        set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value } }
+        set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value; refreshCursor() } }
     var trackpad = true
         set(value) { if (field != value) { cancelGesture(); field = value } }
     var panMode = false
         set(value) { if (field != value) { cancelGesture(); field = value } }
     var gesturesEnabled = true
-        set(value) { if (field != value) { cancelGesture(); field = value } }
+        set(value) { if (field != value) { cancelGesture(); field = value; refreshCursor() } }
     var pip = false
         set(value) { if (field != value) { field = value; applyViewport() } }
     var onZoomChanged: (Float) -> Unit = {}
@@ -88,6 +113,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         contentDescription = context.getString(R.string.desktop_surface)
         video.holder.addCallback(this)
         addView(video, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(cursor, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
     override fun onInterceptTouchEvent(event: MotionEvent) = true
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -101,11 +127,13 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         val w = (viewport.sourceWidth * viewport.fitScale).roundToInt().coerceAtLeast(1)
         val h = (viewport.sourceHeight * viewport.fitScale).roundToInt().coerceAtLeast(1)
         video.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+        cursor.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY))
     }
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         val x = (width - video.measuredWidth) / 2
         val y = (height - video.measuredHeight) / 2
         video.layout(x, y, x + video.measuredWidth, y + video.measuredHeight)
+        cursor.layout(0, 0, width, height)
         applyViewport()
     }
     private fun applyViewport() {
@@ -118,7 +146,39 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         video.scaleY = viewport.sourceHeight * scale / video.height
         video.translationX = viewport.width / 2 - cx * scale - video.left
         video.translationY = viewport.height / 2 - cy * scale - video.top
+        if (virtualMouseVisible) desktopPointer.keepVisible()
+        refreshCursor()
         onZoomChanged(viewport.zoom)
+    }
+    private fun refreshCursor() {
+        cursor.visibility = if (virtualMouseVisible && takeover && gesturesEnabled && !pip) VISIBLE else INVISIBLE
+        cursor.invalidate()
+    }
+    fun openVirtualMouse(x: Float, y: Float) {
+        virtualMouseVisible = true
+        desktopPointer.place(x, y, clamp = true)
+        desktopPointer.keepVisible()
+        refreshCursor()
+        prepareVirtualMouse()
+    }
+    fun closeVirtualMouse() { virtualMouseVisible = false; refreshCursor() }
+    fun moveVirtualMouse(dx: Float, dy: Float) {
+        if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip) return
+        desktopPointer.move(dx, dy)
+        refreshCursor()
+        sendPointer()
+    }
+    /** Resend the visible hotspot before every button/wheel, never the widget/finger position. */
+    fun prepareVirtualMouse(): Boolean {
+        if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip || target == 0L) return false
+        flushRemoteText()
+        desktopPointer.keepVisible()
+        refreshCursor()
+        return sendPointer()
+    }
+    private fun sendPointer(): Boolean {
+        val p = desktopPointer.source ?: return false
+        return target != 0L && NativeMedia.mousePosition(target, p.x.roundToInt(), p.y.roundToInt(), viewport.sourceWidth.toInt(), viewport.sourceHeight.toInt())
     }
     override fun surfaceCreated(holder: SurfaceHolder) = Unit
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -129,7 +189,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         }
     }
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        closeRemoteKeyboard();cancelGesture(); renderer?.let { gone(it.id); it.release() }; renderer = null
+        closeRemoteKeyboard();cancelGesture();closeVirtualMouse();desktopPointer.clear(); renderer?.let { gone(it.id); it.release() }; renderer = null
     }
     private fun cancelGesture() {
         removeCallbacks(longPress)
@@ -152,8 +212,9 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     }
     fun finishBridgedPointer() { bridgedPointer = false; externalGesture = true; moved = true }
     private fun position(x: Float, y: Float, clamp: Boolean = false): Boolean {
-        val p = viewport.sourceAt(x, y, clamp) ?: return false
-        return NativeMedia.mousePosition(target, p.x.roundToInt(), p.y.roundToInt(), viewport.sourceWidth.toInt(), viewport.sourceHeight.toInt())
+        desktopPointer.place(x, y, clamp) ?: return false
+        refreshCursor()
+        return sendPointer()
     }
     private fun click(button: Int) { NativeMedia.mouseButton(target, button, true); NativeMedia.mouseButton(target, button, false) }
     private fun focus(event: MotionEvent): DesktopViewport.Point {

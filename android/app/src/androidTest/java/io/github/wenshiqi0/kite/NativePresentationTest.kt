@@ -71,6 +71,33 @@ class NativePresentationTest {
         assertEquals(430, child.width)
     }
 
+    @Test fun expandedMouseDrawsAndMovesItsOwnHotspotOverTheVideoPlane() = onMain {
+        val parent = VideoSurface(instrumentation.targetContext, { fail("Unattached view") }, {})
+        layout(parent, 960, 540); parent.takeover = true
+        val cursor = parent.getChildAt(1)
+        assertEquals(View.INVISIBLE, cursor.visibility)
+        parent.openVirtualMouse(200f, 150f)
+        assertEquals(View.VISIBLE, cursor.visibility)
+        assertEquals(400f, parent.virtualPointerSource!!.x, .001f)
+        assertEquals(300f, parent.virtualPointerSource!!.y, .001f)
+        parent.moveVirtualMouse(60f, 30f)
+        assertEquals(520f, parent.virtualPointerSource!!.x, .001f)
+        assertEquals(360f, parent.virtualPointerSource!!.y, .001f)
+        val bitmap = Bitmap.createBitmap(960, 540, Bitmap.Config.ARGB_8888)
+        cursor.draw(Canvas(bitmap))
+        val density = cursor.resources.displayMetrics.density
+        assertEquals(android.graphics.Color.WHITE, bitmap.getPixel((260 + 4 * density).toInt(), (180 + 9 * density).toInt()))
+        assertEquals(0, bitmap.getPixel(200, 150))
+        bitmap.recycle()
+        parent.zoom = 2f
+        assertNotNull(parent.virtualPointerSource)
+        parent.pip = true; assertEquals(View.INVISIBLE, cursor.visibility)
+        parent.pip = false; assertEquals(View.VISIBLE, cursor.visibility)
+        parent.gesturesEnabled = false; assertEquals(View.INVISIBLE, cursor.visibility)
+        parent.gesturesEnabled = true; assertEquals(View.VISIBLE, cursor.visibility)
+        parent.closeVirtualMouse(); assertEquals(View.INVISIBLE, cursor.visibility)
+    }
+
     @Test fun markdownCreatesRichSpansAndRemeasuresStreamingText() = onMain {
         val view = MarkdownTextView(instrumentation.targetContext)
         FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))

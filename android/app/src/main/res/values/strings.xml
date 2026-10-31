@@ -156,10 +156,9 @@
     <string name="direct_touch">直接触控</string>
     <string name="gesture_help">手势说明</string>
     <string name="gesture_help_text">只看：单指平移，双指缩放。
-操作 · 混合触控：直接点按画面，也可用仿真鼠标移动、左右键和滚轮。按住鼠标键，另一根手指在移动区或画面拖动；拖动鼠标标题可调整位置。
-操作 · 触控板：单指移动鼠标，轻点左键，双击后拖动；双指轻点右键、滑动滚动、捏合缩放。
-操作 · 直接触控：轻点点击；放大后单指拖动画面，长按或按住鼠标键后拖动远端目标。双指缩放和平移。
-也可点“移画面”后单指移动视口。缩放不会改变主机分辨率。</string>
+全屏鼠标：点小鼠标展开后，拖动下方手柄移动箭头。左右键和滚轮都作用在箭头尖端；按住鼠标键拖动也可移动目标。收起后，拖动图标只调整入口位置。
+上下分屏：触控板在桌面下方，单指移动、轻点左键，双指轻点右键或滑动滚动；下方另有左右键和滚轮。
+画面触控：轻点点击；放大后单指移画面，长按或按住鼠标键后拖动远端目标。双指缩放和平移，缩放不会改变主机分辨率。</string>
     <string name="mouse_left">左键</string>
     <string name="mouse_right">右键</string>
     <string name="new_session">新建会话</string>
@@ -270,4 +269,7 @@
     <string name="question_progress">%1$d / %2$d</string>
     <string name="question_previous">上一个</string>
     <string name="question_next">下一个</string>
+    <string name="expand_virtual_mouse">展开鼠标</string>
+    <string name="collapse_virtual_mouse">收起鼠标</string>
+    <string name="move_virtual_mouse">移动虚拟指针</string>
 </resources>
