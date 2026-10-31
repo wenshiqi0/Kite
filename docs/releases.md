@@ -6,12 +6,16 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 | Event | Build | Delivery |
 | --- | --- | --- |
-| Relevant changes on `main` | Signed Release APK, Rust checks and Android lint | Verified workflow artifact |
-| Pull request to `main` | Unsigned Release APK, Rust checks and Android lint | Unsigned PR artifact; no signing secrets |
-| Annotated `vX.Y.Z-alpha.N` tag | Signed Release APK with the tag's source commit | GitHub prerelease with APK, Linux host archive, checksums and manifest |
+| Relevant changes on `main` | Signed APK and Linux host archive, Rust/native UI checks and Android lint | Verified workflow artifact |
+| Pull request to `main` | Unsigned APK, Rust/native UI checks and Android lint | Unsigned PR artifact; no signing secrets |
+| Annotated `vX.Y.Z-alpha.N` tag | Signed APK and Linux host archive from the tag's source commit | GitHub prerelease with APK, Linux host archive, checksums and manifest |
 | Manual workflow dispatch | Signed Release APK | Verified workflow artifact |
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
+
+## Verified delivery — 2026-10-31
+
+[0.2.0-alpha.19](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.19) / Android versionCode **21** was published from `a17510096ad4d7e31845d49878273ab48e7dda5c`. Main/tag CI passed. Both public packages matched their checksums; the APK passed independent stable v1/v2/v3 signing and 16KiB alignment checks. The matching Linux node and native taskbar UI were installed on wen.linux, with existing service processes and private identity/configuration records retained. This delivery did not repeat an Android device installation. See [taskbar acceptance](product/2026-10-31/linux-taskbar/acceptance.md) and its [publication record](product/2026-10-31/linux-taskbar/published-release.json).
 
 ## Verified delivery — 2026-10-30
 

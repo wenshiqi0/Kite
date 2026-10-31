@@ -5,6 +5,16 @@
     "sha256": "f81be09b228b4b4d8da95f28dcbad150c24a8c0be758ada72e655ee4e5059f7f"
   },
   {
+    "file": "official-panel.png",
+    "bytes": 40496,
+    "sha256": "1ea6ce0c966a9e31ddd61d0759e763a92796a044f5932e573d256ab881421121"
+  },
+  {
+    "file": "official-tray.png",
+    "bytes": 952,
+    "sha256": "be3b1c1b3c9aaa5972f0f557db2acf9eb0cb5161a2b9ea564739ceab73386dd6"
+  },
+  {
     "file": "offline.png",
     "bytes": 35166,
     "sha256": "e41a99d216c49d504dc038fb99322fbc1efd727124397e8b9aa8c29e9e5f5a5c"

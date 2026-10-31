@@ -7,8 +7,8 @@ Kite's Linux desktop host includes a persistent Rust **Kite Node** and a native 
 Download the Linux x86_64 archive from the same [Alpha release](https://github.com/wenshiqi0/Kite/releases) as Android and check it against `SHA256SUMS`. The package targets GNU/Linux x86_64, built on Ubuntu 24.04. Python 3, GTK 3, a systemd user manager, Herdr and Sunshine must already be installed. Linux X11 is the current supported capture path.
 
 ```sh
-tar -xzf kite-host-0.2.0-alpha.17-linux-x86_64.tar.gz
-cd kite-host-0.2.0-alpha.17-linux-x86_64
+tar -xzf kite-host-0.2.0-alpha.19-linux-x86_64.tar.gz
+cd kite-host-0.2.0-alpha.19-linux-x86_64
 python3 install.py --enable
 ~/.local/bin/kite-node status
 ~/.local/bin/kite-desktop

@@ -1,0 +1,40 @@
+{
+  "status": "PASS",
+  "version": "0.2.0-alpha.19",
+  "sourceCommit": "a17510096ad4d7e31845d49878273ab48e7dda5c",
+  "archiveSha256": "8b4f0c138bee9a381013cfde1f51cafa54ab69c23f60737c570f19967967817b",
+  "binarySha256": "01f08cc2b626dcbfe7a0dea4631847cd116fa38a0f916a628af52043d644c2c9",
+  "nodePid": 1550094,
+  "nodeIdRetained": true,
+  "health": "ready",
+  "services": [
+    {
+      "active": true,
+      "name": "Herdr",
+      "ownership": "external",
+      "pid": 36173,
+      "unit": "herdr.service"
+    },
+    {
+      "active": true,
+      "name": "Sunshine",
+      "ownership": "external",
+      "pid": 775016,
+      "unit": "app-dev.lizardbyte.app.Sunshine.service"
+    }
+  ],
+  "existingPrivateFilesUnchanged": 12,
+  "autostartInstalled": true,
+  "userAutostartPreferencesRetained": true,
+  "desktopEntriesValidated": true,
+  "trayService": "kite-desktop-status.service",
+  "trayPid": 1550143,
+  "ownedTrayWindowVisible": true,
+  "trayPixels": [
+    22,
+    22
+  ],
+  "panelOpenedThroughExistingInstance": true,
+  "panelHiddenToTray": true,
+  "nodeSurvivedPanelClose": true
+}

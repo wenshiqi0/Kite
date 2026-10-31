@@ -1,0 +1,109 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.19",
+  "prerelease": true,
+  "draft": false,
+  "manifest": {
+    "versionName": "0.2.0-alpha.19",
+    "versionCode": 21,
+    "sourceCommit": "a17510096ad4d7e31845d49878273ab48e7dda5c",
+    "variant": "release",
+    "debuggable": false,
+    "abis": [
+      "arm64-v8a"
+    ],
+    "apk": "kite-0.2.0-alpha.19-arm64-v8a.apk",
+    "bytes": 21393373,
+    "sha256": "76dfe009ced9305a9b90acab5eb589b8478701d2a0cc3c86844d0697fca9ba55",
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "zipAlignmentKiB": 16,
+    "androidLint": "passed",
+    "linuxHostNode": {
+      "asset": "kite-host-0.2.0-alpha.19-linux-x86_64.tar.gz",
+      "bytes": 826475,
+      "sha256": "8b4f0c138bee9a381013cfde1f51cafa54ab69c23f60737c570f19967967817b",
+      "target": "x86_64-unknown-linux-gnu",
+      "nodeApi": 1,
+      "backendProtocol": 5
+    }
+  },
+  "checksums": "PASS",
+  "independentApkVerification": {
+    "status": "PASS",
+    "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "alignmentKiB": 16
+  },
+  "checks": {
+    "rustTests": 86,
+    "releaseJvmTests": "PASS",
+    "releaseLint": "PASS",
+    "nativeGtk": "PASS",
+    "nativeGtkExternalImageModulesDisabled": true,
+    "backendTests": 15,
+    "publisherTests": 4,
+    "packageTests": 1
+  },
+  "ciRuns": [
+    {
+      "ref": "main",
+      "id": 41194619428,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41194619428"
+    },
+    {
+      "ref": "v0.2.0-alpha.19",
+      "id": 41194716541,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41194716541"
+    }
+  ],
+  "deployment": {
+    "status": "PASS",
+    "version": "0.2.0-alpha.19",
+    "sourceCommit": "a17510096ad4d7e31845d49878273ab48e7dda5c",
+    "archiveSha256": "8b4f0c138bee9a381013cfde1f51cafa54ab69c23f60737c570f19967967817b",
+    "binarySha256": "01f08cc2b626dcbfe7a0dea4631847cd116fa38a0f916a628af52043d644c2c9",
+    "nodePid": 1550094,
+    "nodeIdRetained": true,
+    "health": "ready",
+    "services": [
+      {
+        "active": true,
+        "name": "Herdr",
+        "ownership": "external",
+        "pid": 36173,
+        "unit": "herdr.service"
+      },
+      {
+        "active": true,
+        "name": "Sunshine",
+        "ownership": "external",
+        "pid": 775016,
+        "unit": "app-dev.lizardbyte.app.Sunshine.service"
+      }
+    ],
+    "existingPrivateFilesUnchanged": 12,
+    "autostartInstalled": true,
+    "userAutostartPreferencesRetained": true,
+    "desktopEntriesValidated": true,
+    "trayService": "kite-desktop-status.service",
+    "trayPid": 1550143,
+    "ownedTrayWindowVisible": true,
+    "trayPixels": [
+      22,
+      22
+    ],
+    "panelOpenedThroughExistingInstance": true,
+    "panelHiddenToTray": true,
+    "nodeSurvivedPanelClose": true
+  }
+}
