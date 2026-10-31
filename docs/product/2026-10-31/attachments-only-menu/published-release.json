@@ -1,0 +1,76 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.16",
+  "apkUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.16/kite-0.2.0-alpha.16-arm64-v8a.apk",
+  "prerelease": true,
+  "draft": false,
+  "sourceCommit": "68716ae7043b27465c9c3f8b5a602fca5010cb27",
+  "versionName": "0.2.0-alpha.16",
+  "versionCode": 18,
+  "apkBytes": 21410474,
+  "apkSha256": "38efc82ac22a7b6fe2c38ad23f0eeac93b1832e8c85c860c2b6d21626b15b621",
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "zipAlignmentKiB": 16,
+  "checksums": "passed",
+  "variant": "release",
+  "debuggable": false,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "upgrade": {
+    "status": "PASS",
+    "inPlaceInstall": true,
+    "versionName": "0.2.0-alpha.16",
+    "versionCode": 18,
+    "sourceCommit": "68716ae7043b27465c9c3f8b5a602fca5010cb27",
+    "hostProfilesRetained": 4,
+    "deviceIdentityRetained": true,
+    "encryptedDeviceKeyRetained": true,
+    "sshTrustRetained": true,
+    "pairingsRetained": true,
+    "sessionCatalogueUnchangedBeforeLaunch": true,
+    "completeCacheFilesByteIdenticalBeforeLaunch": 12
+  },
+  "cleanup": {
+    "ownedHistoryAndCatalogueRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Unchanged": true,
+    "backendV4Unchanged": true,
+    "ownedSshRelayStopped": true,
+    "ownedEmulatorStopped": true,
+    "originalClipboardPreferenceRestored": true,
+    "installedPublicApkRetained": true
+  },
+  "ciRuns": [
+    {
+      "ref": "main",
+      "id": 41174010231,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41174010231"
+    },
+    {
+      "ref": "v0.2.0-alpha.16",
+      "id": 41174042427,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41174042427"
+    }
+  ],
+  "checks": {
+    "rustTests": 75,
+    "backendTests": 15,
+    "publisherTests": 4,
+    "releaseJvmTests": 32,
+    "releaseJvmGate": "passed",
+    "releaseLint": "passed",
+    "rustFmt": "passed",
+    "rustClippy": "passed",
+    "publicApkMenu": "passed"
+  }
+}

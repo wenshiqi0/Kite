@@ -1,0 +1,13 @@
+# Attachment-only composer menu
+
+Date: 2026-10-31. Delivery: **0.2.0-alpha.16**, Android versionCode **18**.
+
+The composer add button is labelled **Add attachment** (添加附件) and contains exactly **Image, File and Audio**. Floating, split and fullscreen desktop entries have been removed from that menu. The header still offers desktop entry and split view; the desktop surface retains its layout controls. Attachment MIME types, upload limits, file selection and sending are unchanged.
+
+The [public APK menu check](menu-validation.json) verified those three resource entries, the absence of desktop modes in the add menu and the retained header entries. Screenshots show the [attachment menu](published-attachments-menu.png) and [desktop entry menu](published-desktop-entries.png). They use a read-only synthetic provider history, so attachment entries are intentionally disabled without a live agent. This verifies menu organization; it is not a new upload or model-call acceptance test. No user files were uploaded and no model prompts were sent.
+
+Kite currently has **no explicit skill catalogue or picker**. The [composer menu](../../../../android/app/src/main/java/io/github/wenshiqi0/kite/ui/KiteWorkspace.kt) offers attachments and separate model/effort settings; the [Codex send path](../../../../crates/kite-agent/src/composer.rs) constructs text, local images and supported local audio, without a structured skill selection. Remote-runtime automatic skill behavior is outside this client capability statement. This change does not implement a skill selector.
+
+The [publication record](published-release.json) identifies source **68716ae7043b27465c9c3f8b5a602fca5010cb27**, successful main/tag CI, the **21,410,474-byte** public APK and SHA-256 **38efc82ac22a7b6fe2c38ad23f0eeac93b1832e8c85c860c2b6d21626b15b621**. It passed non-debuggable ARM64 Release, stable v1/v2/v3 signing, checksum and 16KiB alignment checks. Trusted CI passed 75 Rust tests, 15 backend tests, 4 publisher tests, the 32-test Release JVM gate, lint, formatting and Clippy.
+
+In-place installation retained four host profiles, device identity and encrypted SSH key, trust, pairings, catalogue and **12 byte-identical complete cache files** before launch. The installed APK hash matched the public attachment. The owned history/catalogue/control-cache entry, temporary authorization, SSH relay and emulator were cleaned up; the original clipboard preference was restored. Both phone keys, production Sunshine and backend-v2/v3/v4 remain unchanged. No desktop service or production agent was started or replaced for this check.

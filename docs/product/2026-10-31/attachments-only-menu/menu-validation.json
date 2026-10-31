@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "publicReleaseApk": true,
+  "apkSha256": "38efc82ac22a7b6fe2c38ad23f0eeac93b1832e8c85c860c2b6d21626b15b621",
+  "addLabel": "添加附件",
+  "attachmentItems": [
+    "图片",
+    "文件",
+    "音频"
+  ],
+  "desktopItemsAbsentFromComposer": true,
+  "desktopEntryAndSplitAvailableInHeader": true,
+  "fixture": "Read-only synthetic provider history; attachment entries are disabled without a live agent"
+}
