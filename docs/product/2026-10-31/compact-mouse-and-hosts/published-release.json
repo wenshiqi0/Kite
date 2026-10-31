@@ -1,0 +1,143 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.15",
+  "apkUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.15/kite-0.2.0-alpha.15-arm64-v8a.apk",
+  "prerelease": true,
+  "draft": false,
+  "sourceCommit": "3e0459eecab880ca9b8d6ae91b834b7380366387",
+  "versionName": "0.2.0-alpha.15",
+  "versionCode": 17,
+  "apkBytes": 21410480,
+  "apkSha256": "693a4643b6ab3db874f7e607faee7084312e5829387c9e8a4fd277889826442e",
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "zipAlignmentKiB": 16,
+  "checksums": "passed",
+  "variant": "release",
+  "debuggable": false,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "ciRuns": [
+    {
+      "ref": "main",
+      "id": 41171110835,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41171110835"
+    },
+    {
+      "ref": "v0.2.0-alpha.15",
+      "id": 41171156501,
+      "status": "success",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41171156501"
+    }
+  ],
+  "checks": {
+    "rustTests": 75,
+    "backendTests": 15,
+    "publisherTests": 4,
+    "releaseJvmTests": 32,
+    "releaseJvmGate": "passed",
+    "releaseLint": "passed",
+    "rustFmt": "passed",
+    "rustClippy": "passed"
+  },
+  "upgrade": {
+    "status": "PASS",
+    "inPlaceInstall": true,
+    "versionName": "0.2.0-alpha.15",
+    "versionCode": 17,
+    "sourceCommit": "3e0459eecab880ca9b8d6ae91b834b7380366387",
+    "hostProfilesRetained": 4,
+    "deviceIdentityRetained": true,
+    "encryptedDeviceKeyRetained": true,
+    "sshTrustRetained": true,
+    "pairingsRetained": true,
+    "sessionCatalogueUnchangedBeforeLaunch": true,
+    "completeCacheFilesByteIdenticalBeforeLaunch": 11
+  },
+  "publicApkControlTests": 2,
+  "publicApkLiveMouseTest": "passed",
+  "cleanup": {
+    "ownedServiceStopped": true,
+    "ownedDisplayStopped": true,
+    "ownedHistoryRemoved": true,
+    "temporaryAuthorizationRemoved": true,
+    "phoneKeysRetained": true,
+    "productionSunshineRunning": true,
+    "backendV2Unchanged": true,
+    "backendV3Unchanged": true,
+    "backendV4Retained": true,
+    "ownedRelaysStopped": true,
+    "ownedReversePortsRemoved": true,
+    "ownedEmulatorStopped": true,
+    "clipboardPreferenceRestored": true,
+    "installedPublicApkRetained": true
+  },
+  "publicApkHaptics": {
+    "status": "PASS",
+    "environment": "Android API 36 emulator vibrator-manager history",
+    "pressRequests": 8,
+    "detentRequests": 1,
+    "events": [
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "CLOCK_TICK",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      },
+      {
+        "effect": "VIRTUAL_KEY",
+        "systemUsageTouch": true,
+        "finished": true,
+        "source": "ViewRootImpl#performHapticFeedback"
+      }
+    ],
+    "physicalMotorStrengthVerified": false
+  }
+}

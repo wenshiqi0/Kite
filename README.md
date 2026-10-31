@@ -6,7 +6,7 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 
 ## What you can do
 
-- Manage your machines as host cards, edit their connection settings, and connect over SSH.
+- See connection status on simple host cards, connect or enter a workspace, and edit settings separately.
 - Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
 - Keep complete synchronized conversation history, continue saved sessions, and archive them while their tasks keep running.
 - Read compact, collapsible tool activity; answer model questions with choices or text and see live response feedback.

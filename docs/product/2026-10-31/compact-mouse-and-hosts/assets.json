@@ -10,6 +10,26 @@
     "sha256": "cd403643954bb8327e54aabd2b753c56a95c6b8fc516cd38244ef3a4b59ceb41"
   },
   {
+    "file": "release-fullscreen-mouse.png",
+    "bytes": 133187,
+    "sha256": "c9265a3e84f4db25828018fff775be3694301ee9a6a25b476c4be3be60874789"
+  },
+  {
+    "file": "release-host-card-states.png",
+    "bytes": 88637,
+    "sha256": "3812d2928d1d7ea229a351c8dd680f95ccaf062bdb1c5f8f17f6647ffe55de04"
+  },
+  {
+    "file": "release-wheel-pressed.png",
+    "bytes": 24492,
+    "sha256": "c64910a825d2c234f6a6ae069a39df776ad443892c370f23828fbfec3a43edcb"
+  },
+  {
+    "file": "release-zoomed-mouse.png",
+    "bytes": 89803,
+    "sha256": "d37f1214946a3a6d989247cfdb2a9b5dc75d010eca7906323213873f3a305fe3"
+  },
+  {
     "file": "wheel-pressed.png",
     "bytes": 25085,
     "sha256": "172bf9cefccc1e63569e8f2c2c638dbef633cc2baf612b2c502128a64e74259b"

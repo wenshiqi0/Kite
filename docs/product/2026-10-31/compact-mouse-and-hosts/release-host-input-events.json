@@ -1,0 +1,331 @@
+{
+  "events": [
+    {
+      "kind": "motion-notify",
+      "x": 1052.0,
+      "y": 453.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1051.0,
+      "y": 452.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "button-press",
+      "x": 1271.0,
+      "y": 526.0,
+      "button": 1
+    },
+    {
+      "kind": "button-release",
+      "x": 1271.0,
+      "y": 526.0,
+      "button": 1
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "button-press",
+      "x": 1271.0,
+      "y": 526.0,
+      "button": 3
+    },
+    {
+      "kind": "button-release",
+      "x": 1271.0,
+      "y": 526.0,
+      "button": 3
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "down"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1271.0,
+      "y": 526.0,
+      "held": false
+    },
+    {
+      "kind": "scroll",
+      "x": 1271.0,
+      "y": 526.0,
+      "direction": "up"
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1263.0,
+      "y": 524.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1249.0,
+      "y": 520.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1235.0,
+      "y": 516.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1221.0,
+      "y": 512.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1207.0,
+      "y": 508.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1193.0,
+      "y": 504.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1151.0,
+      "y": 492.0,
+      "held": false
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1151.0,
+      "y": 492.0,
+      "held": false
+    },
+    {
+      "kind": "button-press",
+      "x": 1151.0,
+      "y": 492.0,
+      "button": 1
+    },
+    {
+      "kind": "button-release",
+      "x": 1151.0,
+      "y": 492.0,
+      "button": 1
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1151.0,
+      "y": 492.0,
+      "held": false
+    },
+    {
+      "kind": "button-press",
+      "x": 1151.0,
+      "y": 492.0,
+      "button": 1
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1131.0,
+      "y": 484.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1121.0,
+      "y": 480.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1111.0,
+      "y": 476.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1081.0,
+      "y": 464.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1071.0,
+      "y": 460.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1061.0,
+      "y": 456.0,
+      "held": true
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1051.0,
+      "y": 452.0,
+      "held": true
+    },
+    {
+      "kind": "button-release",
+      "x": 1051.0,
+      "y": 452.0,
+      "button": 1
+    },
+    {
+      "kind": "motion-notify",
+      "x": 1051.0,
+      "y": 452.0,
+      "held": false
+    },
+    {
+      "kind": "button-press",
+      "x": 1051.0,
+      "y": 452.0,
+      "button": 1
+    },
+    {
+      "kind": "button-release",
+      "x": 1051.0,
+      "y": 452.0,
+      "button": 1
+    }
+  ],
+  "frame": 6379,
+  "width": 1920,
+  "height": 1080
+}

@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "environment": "Android API 36 emulator vibrator-manager history",
+  "pressRequests": 8,
+  "detentRequests": 1,
+  "events": [
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "CLOCK_TICK",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    },
+    {
+      "effect": "VIRTUAL_KEY",
+      "systemUsageTouch": true,
+      "finished": true,
+      "source": "ViewRootImpl#performHapticFeedback"
+    }
+  ],
+  "physicalMotorStrengthVerified": false
+}

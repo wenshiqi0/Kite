@@ -5,5 +5,9 @@
   "standalonePointerAndDetentTests": 19,
   "releaseLint": "passed",
   "physicalMotorStrengthVerified": false,
-  "normalReleaseJvmGate": "required in trusted tagged CI"
+  "normalReleaseJvmGate": "passed",
+  "releaseJvmTests": 32,
+  "trustedTagCiRun": 41171156501,
+  "publicApkControlTests": 2,
+  "publicApkLiveMouseTest": "passed"
 }

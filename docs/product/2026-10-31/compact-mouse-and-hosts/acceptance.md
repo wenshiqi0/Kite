@@ -22,4 +22,14 @@ Android's vibrator-manager history independently recorded **8 VIRTUAL_KEY press 
 
 Haptics follow the [Android platform API](https://developer.android.com/develop/ui/views/haptics/haptics-apis), respect system touch-feedback settings and add no vibration permission. Phone-specific strength and WAN response remain outside this emulator/X11 validation. The supplied UU screenshots and private host/session content are not published; screenshots here contain only synthetic fixtures.
 
-Normal Release JVM/lint/signing checks and public-attachment installation are recorded after the trusted Alpha publication. Local dependency resolution uses the same pinned public artifacts via the existing temporary read-only mirror; no project dependency versions or CI gates are changed.
+The tagged Release gates and public-attachment installation results are recorded below. Local dependency resolution uses the same pinned public artifacts via the existing temporary read-only mirror; no project dependency versions or CI gates are changed.
+
+## Published APK
+
+[Alpha 15](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.15) was published from source **3e0459eecab880ca9b8d6ae91b834b7380366387**. The [publication record](published-release.json) identifies successful main/tag CI, versionCode 17 and the exact **21,410,480-byte** public APK. SHA-256: **693a4643b6ab3db874f7e607faee7084312e5829387c9e8a4fd277889826442e**. The attachment passed stable v1/v2/v3 signing, ARM64 non-debuggable Release, checksums and 16KiB alignment. Trusted CI passed **75 Rust tests, 15 backend tests, 4 publisher tests and the standard 32-test Release JVM gate**, plus lint, formatting and Clippy.
+
+An in-place install preserved all four host profiles, device identity and encrypted SSH key, trust, pairings, session catalogue and **11 byte-identical complete cache files** before launch. The installed `base.apk` hash matched the public attachment.
+
+That exact package passed both native control/card tests and the controlled live mouse test without a new pairing PIN. The [public-APK coordinates](published-coordinate-validation.json), [targets](release-pointer-targets.json) and [received events](release-host-input-events.json) confirm 104×112 dp controls, bidirectional wheel taps, 5 presses/releases, 11 wheel events and 7 held movements, with the same two-source-pixel tolerance. Its [system haptic record](published-haptics-validation.json) confirms 8 tactile press requests and 1 detent request. Public-APK screenshots show the [compact mouse](release-fullscreen-mouse.png), [zoomed mouse](release-zoomed-mouse.png), [synthetic host-state preview](release-host-card-states.png) and [pressed wheel](release-wheel-pressed.png).
+
+Cleanup stopped the owned Sunshine/Xvfb/GTK instances, removed the fake history/catalogue/control-cache entry and temporary SSH authorization, stopped the relays and emulator, and restored the emulator's original clipboard preference. Production Sunshine, both phone keys and existing backend-v2/v3 remain; backend-v4 remains installed. The emulator retains the official APK. Physical-phone motor strength and WAN latency remain unverified.
