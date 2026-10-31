@@ -1,0 +1,22 @@
+[
+  {
+    "file": "composer-empty.png",
+    "bytes": 18532,
+    "sha256": "3d052dfca06da4c664c647f5941131a2be87c0a10f0d8b4b1d9836d740ef2a8f"
+  },
+  {
+    "file": "linux-panel.png",
+    "bytes": 40310,
+    "sha256": "c3fc2a20e05db661275df32712cc69ca6a9f7d7306fda6c2daed0ef07787913e"
+  },
+  {
+    "file": "quota-unavailable.png",
+    "bytes": 92129,
+    "sha256": "8788e575b63df4b6a1ae4a9662a8561d1c505f16b0e6fb17f7016e7ba6e0af2a"
+  },
+  {
+    "file": "quota-windows.png",
+    "bytes": 109876,
+    "sha256": "4b5d79150f5c589fae2f045ab8f2f6e523f88a70155e298de485aed4163dc734"
+  }
+]

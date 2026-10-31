@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-11-01
+
+[0.2.0-alpha.21](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.21) / versionCode **23** was published from `9d2f948b3dc8a8a2c5e2659069eb2d5a4f71b73f`. Main/tag CI passed. The public APK passed independent stable v1/v2/v3 signing and 16KiB alignment checks, in-place data retention, two native presentation tests and a live allowance/setup-disconnect test. The matching Linux package was installed with the existing node identity and original Herdr/Sunshine processes retained. See [acceptance](product/2026-11-01/chat-tail-and-allowance/acceptance.md) and [exact publication evidence](product/2026-11-01/chat-tail-and-allowance/published-release.json). Active-video-frame and physical-phone ergonomics were not repeated in this delivery.
+
 ## Verified delivery — 2026-10-31
 
 [0.2.0-alpha.19](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.19) / Android versionCode **21** was published from `a17510096ad4d7e31845d49878273ab48e7dda5c`. Main/tag CI passed. Both public packages matched their checksums; the APK passed independent stable v1/v2/v3 signing and 16KiB alignment checks. The matching Linux node and native taskbar UI were installed on wen.linux, with existing service processes and private identity/configuration records retained. This delivery did not repeat an Android device installation. See [taskbar acceptance](product/2026-10-31/linux-taskbar/acceptance.md) and its [publication record](product/2026-10-31/linux-taskbar/published-release.json).

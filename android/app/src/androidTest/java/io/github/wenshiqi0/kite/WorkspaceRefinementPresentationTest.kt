@@ -44,6 +44,11 @@ class WorkspaceRefinementPresentationTest {
         return walk(test.uiAutomation.rootInActiveWindow)
     }
     private fun bounds(description:String)=Rect().also{requireNotNull(find(description=description)).getBoundsInScreen(it)}
+    private fun actionNode(node:AccessibilityNodeInfo,action:Int):AccessibilityNodeInfo {
+        var current:AccessibilityNodeInfo?=node
+        while(current!=null){if(current.actionList.any{it.id==action})return current;current=current.parent}
+        error("No actionable ancestor for ${node.contentDescription}: $action")
+    }
     private fun gesture(rect:Rect,dy:Float){
         val t=SystemClock.uptimeMillis();val start=rect.exactCenterY()-dy/2
         fun send(action:Int,y:Float){val event=MotionEvent.obtain(t,SystemClock.uptimeMillis(),action,rect.exactCenterX(),y,0);event.source=InputDevice.SOURCE_TOUCHSCREEN;try{assertTrue(test.uiAutomation.injectInputEvent(event,true))}finally{event.recycle()}}
@@ -103,7 +108,7 @@ class WorkspaceRefinementPresentationTest {
             waitFor("History visible"){find(description="聊天记录")!=null&&find(description="消息输入框")!=null}
             test.waitForIdleSync();SystemClock.sleep(800)
             val density=test.targetContext.resources.displayMetrics.density
-            val field=bounds("消息输入框");val metrics=test.targetContext.resources.displayMetrics
+            val field=Rect().also{actionNode(requireNotNull(find(description="消息输入框")),AccessibilityNodeInfo.ACTION_SET_TEXT).getBoundsInScreen(it)};val metrics=test.targetContext.resources.displayMetrics
             assertTrue("Empty input too tall: $field",field.height()/density<=58f)
             assertTrue("Composer touches display bottom: $field",metrics.heightPixels-field.bottom>=10*density)
             screenshot("composer-owned-empty.png",Rect(0,(field.top-8*density).toInt().coerceAtLeast(0),metrics.widthPixels,metrics.heightPixels))
@@ -114,16 +119,16 @@ class WorkspaceRefinementPresentationTest {
             val grown=messages[499].copy(text=messages[499].text+"\n\n"+(1..12).joinToString("\n\n"){"Owned streamed paragraph $it grows while reading."})
             main{vm.engine.timeline.apply(ConversationDeltaInfo(context,100001uL,false,listOf(ConversationEditInfo(499uL,1uL,listOf(grown)))))}
             waitFor("Latest after a paused reply grows beyond the viewport"){find(description="回到最新消息")!=null}
-            assertTrue(requireNotNull(find(description="回到最新消息")).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            assertTrue(actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Latest hidden after streamed update"){find(description="回到最新消息")==null}
             test.waitForIdleSync();SystemClock.sleep(400)
             gesture(chat,170*density)
             waitFor("Latest button after meaningful drag"){find(description="回到最新消息")!=null}
-            val latest=requireNotNull(find(description="回到最新消息"));assertTrue(latest.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            val latest=actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK);assertTrue(latest.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Latest hidden after returning"){find(description="回到最新消息")==null}
             assertEquals(501,vm.engine.timeline.messages.size)
             val longDraft=(1..9).joinToString("\n"){"Owned editable draft line $it"}
-            val node=requireNotNull(find(description="消息输入框"))
+            val node=actionNode(requireNotNull(find(description="消息输入框")),AccessibilityNodeInfo.ACTION_SET_TEXT)
             assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply{putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,longDraft)}))
             waitFor("Direct editor updates draft"){vm.draft==longDraft}
             assertTrue(bounds("消息输入框").height()/density<=134f)

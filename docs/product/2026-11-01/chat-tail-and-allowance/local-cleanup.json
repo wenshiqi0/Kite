@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "rotationRestored": true,
+  "publicKeyExportRemoved": true,
+  "testHarnessRemoved": true,
+  "ownedSshForwardStopped": true,
+  "ownedEmulatorStopped": true,
+  "publicApkAndDataRetained": true
+}
