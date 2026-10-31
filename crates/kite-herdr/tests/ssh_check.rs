@@ -143,7 +143,7 @@ impl server::Handler for ShellHost {
         let mut request = None;
         if let Some((command, stdin)) = self.channels.get_mut(&channel) {
             stdin.extend_from_slice(data);
-            if command.ends_with(" remote-api-bridge") && stdin.ends_with(b"\n") {
+            if command.contains("kite-node\" herdr-api --herdr ") && stdin.ends_with(b"\n") {
                 request = Some(serde_json::from_slice::<serde_json::Value>(stdin).unwrap());
             }
         }

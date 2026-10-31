@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -148,10 +149,12 @@ def main():
         return
     output = ROOT / "android/release-output" / tag
     apk = output / f"kite-{version}-arm64-v8a.apk"
+    linux_host = output / f"kite-host-{version}-linux-x86_64.tar.gz"
     manifest_file = output / "release-manifest.json"
     sums = output / "SHA256SUMS"
-    assets = [apk, manifest_file, sums]
+    assets = [apk, linux_host, manifest_file, sums]
     if args.build_only:
+        require(sys.platform == "linux", "The synchronized Android/Linux Alpha build must run on Linux; launch trusted CI.")
         keystore = Path(os.environ.get("KITE_ALPHA_KEYSTORE", "~/.config/kite/signing/android-alpha.keystore")).expanduser()
         require(keystore.is_file(), "Configure the existing Alpha signing keystore outside the repository.")
         sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))
@@ -176,6 +179,13 @@ def main():
         require(built.is_file(), "Signed release APK was not produced.")
         output.mkdir(parents=True, exist_ok=True)
         shutil.copy2(built, apk)
+        run("cargo", "build", "--release", "--locked", "-p", "kite-node", capture=False)
+        target = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
+        host_binary = target / "release/kite-node"
+        require(host_binary.is_file(), "Linux host binary was not produced.")
+        run("python3", str(ROOT / "desktop/linux/package.py"), "--binary", str(host_binary),
+            "--output", str(linux_host), "--version", version, "--commit", head)
+        clean_tree()
         abis, certificate = inspect_apk(apk, tools, version, code)
         require(abis == ["arm64-v8a"], "Update asset naming before publishing other ABIs.")
         manifest = {"versionName": version, "versionCode": code, "sourceCommit": head,
@@ -183,8 +193,10 @@ def main():
                     "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
                     "signingCertificateSha256": certificate, "signingSchemes": [1, 2, 3],
                     "zipAlignmentKiB": 16, "androidLint": "passed"}
+        manifest["linuxHostNode"] = {"asset": linux_host.name, "bytes": linux_host.stat().st_size,
+            "sha256": digest(linux_host), "target": "x86_64-unknown-linux-gnu", "nodeApi": 1, "backendProtocol": 5}
         manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
-        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]))
+        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, linux_host, manifest_file]))
         print(str(output), flush=True)
         return
     require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF_TYPE") == "tag",
@@ -196,7 +208,10 @@ def main():
             and manifest["versionCode"] == code and manifest["sha256"] == digest(apk)
             and manifest["variant"] == "release" and manifest["debuggable"] is False,
             "Artifact provenance does not match this source tag.")
-    require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in [apk, manifest_file]),
+    require(manifest["linuxHostNode"]["sha256"] == digest(linux_host)
+            and manifest["linuxHostNode"]["asset"] == linux_host.name,
+            "Linux host artifact provenance does not match this source tag.")
+    require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in [apk, linux_host, manifest_file]),
             "Artifact checksums do not match.")
     release = release_info(repo, tag)
     if release is None:

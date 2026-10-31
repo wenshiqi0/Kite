@@ -1,0 +1,19 @@
+{
+  "rustTests": 85,
+  "backendTests": 15,
+  "publisherTests": 4,
+  "linuxPackageTests": 1,
+  "standalonePointerAndInputTests": 28,
+  "nativeUiTests": 11,
+  "liveAnchoredMouse": "passed",
+  "controlledNodeChat": "passed",
+  "linuxPanelCloseKeepsService": true,
+  "longLivedCodexProxy": true,
+  "binaryUploadBytes": 1048576,
+  "compressedHistoryBridge": true,
+  "mcpTools": [
+    "kite_host_status",
+    "kite_sessions_list"
+  ],
+  "releaseLint": "passed"
+}

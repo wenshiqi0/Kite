@@ -1,10 +1,12 @@
 # Host setup
 
-Kite connects to services on your own machine. SSH carries herdr, Codex chat and Sunshine control requests; Sunshine sends desktop video and input over your private network. Rich Codex chat uses a private, persistent app-server shared with the session’s herdr terminal; continuing a saved conversation reuses its owner. The APK installs a small Python host adapter in `~/.local/lib/kite/backend-v4.py`; it does not expose another TCP port or change the global Codex daemon.
+Kite connects to the [Linux desktop host node](linux-desktop.md). SSH authenticates the phone and carries requests into Kite Node, which forwards Herdr API, Codex chat, sessions/history and attachments. Node installs its matching private adapter as `~/.local/lib/kite/backend-v5.py`. Sunshine sends video/input over the private network, with its control requests carried by SSH. Codex shares the session's existing private app-server owner. The desktop panel can close while Node and agents continue. No public API port or global Codex daemon change is required.
 
 This guide covers the current Android Alpha's supported host path: **Linux with an active X11 desktop**, with SSH, herdr and Sunshine running as the same user. Automatic capture-size discovery currently requires Linux `/proc`, `ss` and `xrandr`. Wayland, Windows and macOS host discovery are not implemented in this Alpha, even where upstream herdr or Sunshine support them.
 
 ## First connection from your phone
+
+For Alpha 17+, install and enable the matching [Linux host package](linux-desktop.md) first. Existing keys, trust, profiles, pairing and provider records are retained. A missing Node is reported explicitly; the APK does not fall back to an earlier adapter.
 
 1. Open **Host settings** (主机设置), choose **Add host** (添加主机), and enter an IP / hostname reachable **from the phone**, the SSH port and your host username. A laptop SSH alias such as `wen.linux` is not automatically available on Android. Keep the phone on the host LAN, or configure a reachable private VPN path.
 2. Copy the phone's public key and authorize it on the host as described below. Each phone has its own device key.
@@ -17,10 +19,10 @@ This guide covers the current Android Alpha's supported host path: **Linux with 
 
 Install **Codex CLI 0.164.0 or newer** and **Python 3** under the SSH user, and sign in to Codex on the host. [Codex's app-server transport](https://learn.chatgpt.com/docs/app-server) is experimental; Kite currently ships this integration as Alpha. The host adapter uses the documented Unix WebSocket transport through SSH. Socket directories are private to the host user, and no API key or authentication token is copied to the phone.
 
-New Kite Codex panes are prepared automatically. To upgrade a pane created by an older Alpha, first connect the new APK so its matching host adapter is installed. Find the pane ID using `herdr agent list`; when the agent is idle, run:
+New Kite Codex panes are prepared automatically. To upgrade a pane created by an older Alpha, first enable the matching Linux host node and connect the new APK. Find the pane ID using `herdr agent list`; when the agent is idle, run:
 
 ```bash
-python3 ~/.local/lib/kite/backend-v2.py upgrade \
+~/.local/bin/kite-node backend upgrade \
   --pane YOUR_PANE_ID --herdr "$(command -v herdr)"
 ```
 

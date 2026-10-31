@@ -111,7 +111,7 @@ stamp=$(stat -c '%d:%i:%s:%y' "$file")
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
 if test "$provider" = codex; then
-  python3 "$HOME/.local/lib/kite/backend-v4.py" history --compressed --file "$file"{page_args}
+  "$HOME/.local/bin/kite-node" backend history --compressed --file "$file"{page_args}
 else
   tail -c 2097152 "$file"
 fi

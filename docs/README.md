@@ -1,6 +1,7 @@
 # Documentation
 
 - [Host setup](backend-setup.md): SSH, herdr, Sunshine, pairing and troubleshooting.
+- [Linux desktop host](linux-desktop.md): install Kite Node and the native control panel, reuse services and expose MCP queries.
 - [Implementation status and next stages](implementation-plan.md): delivered Android features, herdr-core evaluation, desktop nodes and multi-machine MCP.
 - [Development](development.md): source layout, Android / iOS builds and generated bindings.
 - [Testing](testing.md): offline checks, integration fixtures and acceptance boundaries.
@@ -11,6 +12,7 @@
 
 ## Delivery and evaluation records
 
+- [Anchored fullscreen input and Linux node](product/2026-10-31/anchored-input-and-linux-node/acceptance.md): fixed control-relative hotspot, real quiet-window timing, persistent host/panel/MCP and owned provider chat.
 - [Attachment-only composer menu](product/2026-10-31/attachments-only-menu/acceptance.md): three resource entries, retained desktop navigation, current skill-picker support and public APK verification.
 - [Compact mouse, tactile wheel and simple host cards](product/2026-10-31/compact-mouse-and-hosts/acceptance.md): smaller controls, bidirectional wheel taps, actual system haptic dispatch and connection-only card presentation.
 - [Fullscreen virtual pointer](product/2026-10-31/virtual-pointer/acceptance.md): explicit arrow, source-coordinate mouse buttons/wheel, held dragging and real host event comparisons.

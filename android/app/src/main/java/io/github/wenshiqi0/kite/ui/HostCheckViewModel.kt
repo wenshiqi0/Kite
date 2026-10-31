@@ -24,7 +24,7 @@ import io.github.wenshiqi0.kite.data.cacheAttachment
 import io.github.wenshiqi0.kite.core.UploadInfo
 import io.github.wenshiqi0.kite.core.QuestionInfo
 import io.github.wenshiqi0.kite.core.QuestionAnswerInfo
-import io.github.wenshiqi0.kite.media.NativeMedia
+import io.github.wenshiqi0.kite.media.DesktopInput
 import io.github.wenshiqi0.kite.media.PointerMotion
 import io.github.wenshiqi0.kite.core.ClipboardPlatformInfo
 import kotlinx.coroutines.launch
@@ -287,7 +287,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             if (value == DesktopLayout.Fullscreen) beforeFullscreen = if (layout == DesktopLayout.Closed) DesktopLayout.Floating else layout
             releaseMouseButtons()
             releaseModifiers()
-            if (target != 0L) NativeMedia.releaseInput(target)
+            if (target != 0L) DesktopInput.releaseInput(target)
             panMode = false
         }
         layout = value; autoDocked = false
@@ -305,7 +305,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         hideTouchpad()
         releaseMouseButtons()
         releaseModifiers()
-        if (target != 0L) NativeMedia.releaseInput(target)
+        if (target != 0L) DesktopInput.releaseInput(target)
         if (engine.state.value?.desktop?.takeover == true) takeOver(false)
     }
     fun setPip(active: Boolean) {
@@ -327,17 +327,17 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun modifier(ctrl: Boolean) {
         flushRemoteText?.invoke()
         if (target == 0L) return
-        if (ctrl) { ctrlHeld = !ctrlHeld; NativeMedia.key(target, 162, ctrlHeld, 0) }
-        else { metaHeld = !metaHeld; NativeMedia.key(target, 91, metaHeld, 0) }
+        if (ctrl) { ctrlHeld = !ctrlHeld; DesktopInput.key(target, 162, ctrlHeld, 0) }
+        else { metaHeld = !metaHeld; DesktopInput.key(target, 91, metaHeld, 0) }
     }
     fun releaseModifiers() {
         if (target != 0L) {
-            if (ctrlHeld) NativeMedia.key(target, 162, false, 0)
-            if (metaHeld) NativeMedia.key(target, 91, false, 0)
+            if (ctrlHeld) DesktopInput.key(target, 162, false, 0)
+            if (metaHeld) DesktopInput.key(target, 91, false, 0)
         }
         ctrlHeld = false; metaHeld = false
     }
-    fun sendText(text: String): Boolean = target != 0L && NativeMedia.text(target, text)
+    fun sendText(text: String): Boolean = target != 0L && DesktopInput.text(target, text)
     fun pasteSynchronized(): Boolean {
         if (!engine.clipboardSyncEnabled || clipboardBusy || !foreground || target == 0L || engine.state.value?.desktop?.takeover != true) return false
         val clipboard=getApplication<Application>().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -351,10 +351,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             if (foreground && engine.clipboardSyncEnabled && target == destination && engine.state.value?.selectedHost == host && engine.state.value?.desktop?.takeover == true) {
                 releaseModifiers()
                 val modifier = if (platform == ClipboardPlatformInfo.MACOS) 91 else 162
-                NativeMedia.key(destination, modifier, true, 0)
-                NativeMedia.key(destination, 86, true, if (modifier == 91) 8 else 2)
-                NativeMedia.key(destination, 86, false, if (modifier == 91) 8 else 2)
-                NativeMedia.key(destination, modifier, false, 0)
+                DesktopInput.key(destination, modifier, true, 0)
+                DesktopInput.key(destination, 86, true, if (modifier == 91) 8 else 2)
+                DesktopInput.key(destination, 86, false, if (modifier == 91) 8 else 2)
+                DesktopInput.key(destination, modifier, false, 0)
             }
         } finally { clipboardBusy = false } }
         return true
@@ -368,43 +368,43 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if(down)flushRemoteText?.invoke()
         if (down && (!foreground || engine.state.value?.desktop?.takeover != true)) return
         val mask = 1 shl button
-        if (target != 0L) NativeMedia.mouseButton(target, button, down)
+        if (target != 0L) DesktopInput.mouseButton(target, button, down)
         heldMouseButtons = if (down) heldMouseButtons or mask else heldMouseButtons and mask.inv()
     }
     fun releaseMouseButtons() { for (button in listOf(1, 2, 3)) if (heldMouseButtons and (1 shl button) != 0) mouseButton(button, false); pointerMotion.reset() }
     fun moveMouse(dx: Float, dy: Float, density: Float) {
         if (target == 0L || engine.state.value?.desktop?.takeover != true) return
         val d = pointerMotion.move(dx, dy, density)
-        if (d.x != 0 || d.y != 0) NativeMedia.mouseMove(target, d.x, d.y)
+        if (d.x != 0 || d.y != 0) DesktopInput.mouseMove(target, d.x, d.y)
     }
     fun wheelMouse(dy: Float, density: Float) {
         if (target == 0L || engine.state.value?.desktop?.takeover != true) return
         val amount = pointerMotion.scroll(dy, density)
-        if (amount != 0) NativeMedia.scroll(target, 0, amount)
+        if (amount != 0) DesktopInput.scroll(target, 0, amount)
     }
-    fun leftClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 1, true); NativeMedia.mouseButton(target, 1, false) } }
-    fun rightClick() { flushRemoteText?.invoke();if (target != 0L) { NativeMedia.mouseButton(target, 3, true); NativeMedia.mouseButton(target, 3, false) } }
+    fun leftClick() { flushRemoteText?.invoke();if (target != 0L) { DesktopInput.mouseButton(target, 1, true); DesktopInput.mouseButton(target, 1, false) } }
+    fun rightClick() { flushRemoteText?.invoke();if (target != 0L) { DesktopInput.mouseButton(target, 3, true); DesktopInput.mouseButton(target, 3, false) } }
     fun scroll(vertical: Int): Boolean {
         if (target == 0L || !foreground || engine.state.value?.desktop?.takeover != true) return false
         flushRemoteText?.invoke()
-        return NativeMedia.scroll(target, 0, vertical)
+        return DesktopInput.scroll(target, 0, vertical)
     }
     fun desktopChord(modifierKey:Int,key:Int,mask:Int) {
         flushRemoteText?.invoke()
         if(target==0L||engine.state.value?.desktop?.takeover!=true)return
-        NativeMedia.key(target,modifierKey,true,0)
-        NativeMedia.key(target,key,true,mask);NativeMedia.key(target,key,false,mask)
-        NativeMedia.key(target,modifierKey,false,0)
+        DesktopInput.key(target,modifierKey,true,0)
+        DesktopInput.key(target,key,true,mask);DesktopInput.key(target,key,false,mask)
+        DesktopInput.key(target,modifierKey,false,0)
     }
     fun shortcut(key: Int, ctrl: Boolean = false) {
         flushRemoteText?.invoke()
         if (target == 0L) return
-        if (ctrl || ctrlHeld) NativeMedia.key(target, 162, true, 0)
-        if (metaHeld) NativeMedia.key(target, 91, true, 0)
+        if (ctrl || ctrlHeld) DesktopInput.key(target, 162, true, 0)
+        if (metaHeld) DesktopInput.key(target, 91, true, 0)
         val modifiers = (if (ctrl || ctrlHeld) 2 else 0) or (if (metaHeld) 8 else 0)
-        NativeMedia.key(target, key, true, modifiers)
-        NativeMedia.key(target, key, false, modifiers)
-        if (ctrl) NativeMedia.key(target, 162, false, 0)
+        DesktopInput.key(target, key, true, modifiers)
+        DesktopInput.key(target, key, false, modifiers)
+        if (ctrl) DesktopInput.key(target, 162, false, 0)
         releaseModifiers()
     }
 }

@@ -29,19 +29,20 @@ import androidx.compose.ui.semantics.semantics
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.media.PointerMotion
 import io.github.wenshiqi0.kite.media.WheelDetents
+import io.github.wenshiqi0.kite.media.DesktopInput
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 import kotlinx.coroutines.delay
 
 @Composable
 fun MouseWheel(vm: HostCheckViewModel, enabled: Boolean, modifier: Modifier = Modifier, beforeScroll: () -> Boolean = { true }) {
-    WheelControl(vm.target, enabled, vm::scroll, modifier, beforeScroll)
+    WheelControl(vm.target, enabled, vm::scroll, modifier, beforeScroll, activity = { DesktopInput.activity(vm.target) })
 }
 
 /** Tap either half for a notch, or drag for continuous scroll. No pointer button is synthesized. */
 @Composable
 internal fun WheelControl(
     target: Long, enabled: Boolean, scroll: (Int) -> Boolean, modifier: Modifier = Modifier,
-    beforeScroll: () -> Boolean = { true }, feedback: ((Int) -> Unit)? = null,
+    beforeScroll: () -> Boolean = { true }, feedback: ((Int) -> Unit)? = null, activity: () -> Unit = {},
 ) {
     val view = LocalView.current
     val density = LocalDensity.current.density
@@ -53,6 +54,7 @@ internal fun WheelControl(
     val currentScroll by rememberUpdatedState(scroll)
     val currentBefore by rememberUpdatedState(beforeScroll)
     val currentFeedback by rememberUpdatedState(feedback)
+    val currentActivity by rememberUpdatedState(activity)
     val motion = remember(target) { PointerMotion() }
     val detents = remember(target) { WheelDetents() }
     var pressed by remember(target) { mutableStateOf(false) }
@@ -79,6 +81,7 @@ internal fun WheelControl(
         if (!enabled) return@pointerInput
         awaitEachGesture {
             val first = awaitFirstDown(requireUnconsumed = false)
+            currentActivity()
             first.consume()
             pressed = true
             direction = if (first.position.y < size.height / 2f) 1 else -1
@@ -90,6 +93,7 @@ internal fun WheelControl(
             try {
                 do {
                     val event = awaitPointerEvent()
+                    currentActivity()
                     val point = event.changes.firstOrNull { it.id == first.id } ?: break
                     if (point.isConsumed) break
                     val released = point.changedToUp()

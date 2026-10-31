@@ -13,6 +13,7 @@ class DesktopViewport {
     var zoom = 1f; private set
     var centerX = sourceWidth / 2; private set
     var centerY = sourceHeight / 2; private set
+    private var inputGutter = 0f
     val fitScale: Float get() = min(width / sourceWidth, height / sourceHeight)
     val scale: Float get() = fitScale * zoom
     val left: Float get() = width / 2 - centerX * scale
@@ -53,10 +54,16 @@ class DesktopViewport {
     }
 
     fun fit() { zoom = 1f; centerX = sourceWidth / 2; centerY = sourceHeight / 2 }
+    fun inputGutter(pixels: Float): Boolean {
+        val next = pixels.coerceAtLeast(0f)
+        if (next == inputGutter) return false
+        inputGutter = next; clampCenter(); return true
+    }
     private fun clampCenter() {
         val halfW = min(sourceWidth / 2, width / (2 * scale))
         val halfH = min(sourceHeight / 2, height / (2 * scale))
-        centerX = centerX.coerceIn(halfW, sourceWidth - halfW)
-        centerY = centerY.coerceIn(halfH, sourceHeight - halfH)
+        val gutter = inputGutter / scale
+        centerX = centerX.coerceIn(halfW - gutter, sourceWidth - halfW + gutter)
+        centerY = centerY.coerceIn(halfH - gutter, sourceHeight - halfH + gutter)
     }
 }

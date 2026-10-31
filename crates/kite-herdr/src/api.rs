@@ -70,7 +70,7 @@ impl Api {
         let quoted = format!("'{}'", herdr_path.replace('\'', "'\\''"));
         Self {
             session,
-            command: format!("{quoted} remote-api-bridge"),
+            command: format!("\"$HOME/.local/bin/kite-node\" herdr-api --herdr {quoted}"),
             sequence: AtomicU64::new(1),
         }
     }

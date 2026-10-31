@@ -107,6 +107,7 @@ pub enum DesktopStatus {
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum FailureKind {
     Connection,
+    HostNode,
     Authentication,
     HostKeyChanged,
     HerdrMissing,
@@ -584,6 +585,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             failure: s.failure.map(|f| FailureInfo {
                 kind: match f.code {
                     F::Connection => FailureKind::Connection,
+                    F::HostNode => FailureKind::HostNode,
                     F::Authentication => FailureKind::Authentication,
                     F::HostKeyChanged => FailureKind::HostKeyChanged,
                     F::HerdrMissing => FailureKind::HerdrMissing,

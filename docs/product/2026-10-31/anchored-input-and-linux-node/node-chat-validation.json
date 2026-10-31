@@ -1,0 +1,10 @@
+{
+  "sessionId": "e586fd555ddf7f6da1fb89b72a877a0c",
+  "cwd": "\/home\/wenshiqi\/.cache\/kite-alpha17-qa-20261031\/model-project",
+  "owned": true,
+  "turnSubmitted": true,
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "status": "PASS",
+  "reply": "KITE_NODE_ALPHA17_OWNED_OK"
+}

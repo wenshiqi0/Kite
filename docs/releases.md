@@ -1,4 +1,4 @@
-# Android Alpha releases
+# Android and Linux Alpha releases
 
 The GitHub Actions workflow is [Android Release](../.github/workflows/android-release.yml).
 
@@ -8,7 +8,7 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 | --- | --- | --- |
 | Relevant changes on `main` | Signed Release APK, Rust checks and Android lint | Verified workflow artifact |
 | Pull request to `main` | Unsigned Release APK, Rust checks and Android lint | Unsigned PR artifact; no signing secrets |
-| Annotated `vX.Y.Z-alpha.N` tag | Signed Release APK with the tag's source commit | GitHub prerelease with APK, checksums and manifest |
+| Annotated `vX.Y.Z-alpha.N` tag | Signed Release APK with the tag's source commit | GitHub prerelease with APK, Linux host archive, checksums and manifest |
 | Manual workflow dispatch | Signed Release APK | Verified workflow artifact |
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
@@ -56,6 +56,10 @@ The command pushes the source branch and annotated tag, waits for the tag workfl
 The build verifies the APK's version, non-debuggable Release variant, ABI, signature and pinned certificate. The publish job checks the source commit and checksums, uploads a draft prerelease, downloads every asset to verify its bytes, and then publishes it. An existing tag cannot move to another commit, and existing release assets cannot be replaced with different bytes.
 
 If a publish step is interrupted, rerun that failed job from GitHub Actions so it reuses the same verified build artifact. If source or artifact content changes, use a new Alpha version.
+
+## Synchronized Linux host package
+
+Alpha 17+ packages the Linux x86_64 host from the same commit as Android. Trusted CI builds `kite-node`, packages only the binary/native panel/installer/license/host manifest, and records its checksum in the release manifest. Both artifacts are uploaded and verified before the prerelease becomes public. Install the matching [Linux host](linux-desktop.md) before updating Android. Local `--build-only` runs on Linux; macOS development can use the Gradle debug tasks and launch trusted CI for a distribution.
 
 ## Local preflight
 

@@ -106,6 +106,17 @@ class LiveVirtualMouseTest {
                 records.put(JSONObject().put("action", name).put("sourceX", p.x.toDouble()).put("sourceY", p.y.toDouble()).put("zoom", vm.zoom.toDouble()))
             }
         }
+        fun assertAnchored() {
+            val grip = node(activity.getString(R.string.move_virtual_mouse))
+            val body = node(activity.getString(R.string.virtual_mouse))
+            test.runOnMainSync {
+                val p = requireNotNull(video.virtualPointerView)
+                val density = activity.resources.displayMetrics.density
+                assertEquals(grip.left - 24 * density, p.x + vm.videoBounds.left, 2f)
+                assertEquals(body.top.toFloat(), p.y + vm.videoBounds.top, 2f)
+            }
+        }
+        assertAnchored()
         record("left-down"); touch(node(activity.getString(R.string.mouse_left)))
         record("right-down"); touch(node(activity.getString(R.string.mouse_right)))
         val wheelBounds = node(activity.getString(R.string.mouse_wheel))
@@ -125,7 +136,9 @@ class LiveVirtualMouseTest {
         assertEquals(dragStart.y - 40f / scale, video.virtualPointerSource!!.y, 3f)
         test.runOnMainSync { vm.zoom = 2f }
         SystemClock.sleep(300)
+        assertAnchored()
         touch(Rect(vm.videoBounds.centerX() - 10, 150, vm.videoBounds.centerX() + 10, 170), dx = 90f, dy = 40f)
+        assertAnchored()
         record("zoom-pan-left-down"); touch(node(activity.getString(R.string.mouse_left)))
         assertEquals(0, vm.heldMouseButtons)
         assertTrue(test.uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText(activity.getString(R.string.mouse_move_area)).isEmpty())

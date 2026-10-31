@@ -1,0 +1,17 @@
+[
+  {
+    "file": "anchored-mouse.png",
+    "bytes": 133028,
+    "sha256": "f620cada98a0ffaac921b7abb75a50b10bd154fdff3e4d978026f93952ddb989"
+  },
+  {
+    "file": "linux-host-panel.png",
+    "bytes": 41545,
+    "sha256": "b86dc10d8aeed6e03ba5b4fcc5f2013c30f41742161be03e8b6681b56940190c"
+  },
+  {
+    "file": "zoomed-anchored-mouse.png",
+    "bytes": 87060,
+    "sha256": "02830c72cba3479934d22ff02d0fe8e0c3707ee4393324c14511061319d30d36"
+  }
+]

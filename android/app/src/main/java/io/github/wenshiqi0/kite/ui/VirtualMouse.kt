@@ -45,19 +45,26 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
     var expanded by rememberSaveable{mutableStateOf(false)}
     var x by rememberSaveable{mutableFloatStateOf(.82f)}
     var y by rememberSaveable{mutableFloatStateOf(.68f)}
-    val full=expanded&&width>=168.dp&&height-safeTop-safeBottom>=128.dp
+    val full=expanded&&width>=192.dp&&height-safeTop-safeBottom>=128.dp
     val w=if(full)152.dp else 48.dp
     val h=if(full)112.dp else 48.dp
     // Reserve the close target on the right, leaving the arrow clear of the body.
     val bodyX=0.dp
     val closeX=104.dp
-    val rangeX=(width-w-16.dp).coerceAtLeast(0.dp)
+    val leftInset=if(full)32.dp else 8.dp
+    val rangeX=(width-w-leftInset-8.dp).coerceAtLeast(0.dp)
     val rangeY=(height-safeTop-safeBottom-h-16.dp).coerceAtLeast(0.dp)
     val move:(Offset)->Unit={amount->
+        val beforeX=x;val beforeY=y
         x=(x+amount.x/with(density){rangeX.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
         y=(y+amount.y/with(density){rangeY.toPx().coerceAtLeast(1f)}).coerceIn(0f,1f)
-        // The control can stop at an edge; repeated swipes still reach every source pixel.
-        if(full&&enabled)surface?.moveVirtualMouse(amount.x,amount.y)
+        if(full&&enabled)with(density){
+            surface?.virtualMouseActivity()
+            val extraX=amount.x-(x-beforeX)*rangeX.toPx()
+            val extraY=amount.y-(y-beforeY)*rangeY.toPx()
+            if(kotlin.math.abs(extraX)>.01f||kotlin.math.abs(extraY)>.01f)surface?.panVirtualMouse(-extraX,-extraY)
+            surface?.anchorVirtualMouse((leftInset+rangeX*x-24.dp).toPx(),(safeTop+8.dp+rangeY*y).toPx())
+        }
     }
     val drag=Modifier.pointerInput(vm.target,rangeX,rangeY,full,enabled){
         detectDragGestures{change,amount->
@@ -66,13 +73,14 @@ fun VirtualMouse(vm:HostCheckViewModel,surface:VideoSurface?,width:Dp,height:Dp,
         }
     }
     DisposableEffect(full,vm.target,surface){
-        if(full)with(density){surface?.openVirtualMouse((8.dp+rangeX*x+bodyX-24.dp).toPx(),(safeTop+8.dp+rangeY*y).toPx())}
+        if(full)with(density){surface?.openVirtualMouse((leftInset+rangeX*x+bodyX-24.dp).toPx(),(safeTop+8.dp+rangeY*y).toPx())}
         onDispose{vm.releaseMouseButtons();surface?.closeVirtualMouse()}
     }
     DisposableEffect(vm.target){onDispose{vm.releaseMouseButtons();bounds(emptyList())}}
-    Box(Modifier.absoluteOffset{IntOffset(with(density){(8.dp+rangeX*x).roundToPx()},with(density){(safeTop+8.dp+rangeY*y).roundToPx()})}.size(w,h).onGloballyPositioned{
+    Box(Modifier.absoluteOffset{IntOffset(with(density){(leftInset+rangeX*x).roundToPx()},with(density){(safeTop+8.dp+rangeY*y).roundToPx()})}.size(w,h).onGloballyPositioned{
         val b=it.boundsInParent()
         if(full){
+            surface?.anchorVirtualMouse(b.left-with(density){24.dp.toPx()},b.top)
             val bx=with(density){bodyX.toPx()};val cx=with(density){closeX.toPx()}
             bounds(listOf(Rect(b.left+bx,b.top,b.left+bx+with(density){104.dp.toPx()},b.bottom),Rect(b.left+cx,b.top,b.left+cx+with(density){48.dp.toPx()},b.top+with(density){48.dp.toPx()})))
         }else bounds(listOf(b))
@@ -122,6 +130,7 @@ private fun FullMouseButton(vm:HostCheckViewModel,surface:VideoSurface?,button:I
                 var moved=false
                 do{
                     val event=awaitPointerEvent()
+                    surface?.virtualMouseActivity()
                     val point=event.changes.firstOrNull{it.id==first.id}?:break
                     // Compose transforms both positions into the current local space.
                     // A saved prior position would subtract the widget's own movement.

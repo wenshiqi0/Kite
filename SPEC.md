@@ -31,7 +31,7 @@ Android 混合输入和双向文本剪贴板按 [RFC 0010](docs/rfcs/0010-hybrid
 
 长会话按 [RFC 0013](docs/rfcs/0013-complete-transcript-and-dark-workspace.md) 独立同步并保留完整数据。Rust 管理完整消息、持久缓存与同步，状态快照不携带正文，原生通过版本增量维护展示镜像。原生只管理虚拟渲染窗口、滚动和跟随最新，滚动不得触发历史网络请求或淘汰逻辑消息。全屏保留鼠标形状控件与右侧操作栏，触控板只用于上下分屏；界面使用统一深色配色。
 
-全屏鼠标展开后绘制独立箭头热点，以源桌面像素保存。手柄及按住按钮拖动都移动该热点；鼠标按键与滚轮先同步热点再发送，显示与输入共用 DesktopViewport 变换。该状态及绘制属于原生输入和几何，后端协议不变。
+全屏鼠标展开后，箭头与左右键控件保持固定的屏幕相对位置，缩放和平移不改变这个偏移；每次操作使用 DesktopViewport 反算源桌面像素。全屏输入在连续动作停止 200ms 后合并提交，位置合并但按键、拖动起止、滚轮和键盘事件保持顺序；切回只看、失焦、后台或串流销毁立即取消待发并释放已按状态。原生绘制、手势及采样不改变媒体协议。
 
 ## 2. 仓库布局
 
@@ -39,6 +39,7 @@ Android 混合输入和双向文本剪贴板按 [RFC 0010](docs/rfcs/0010-hybrid
 SPEC.md                  本规范
 Cargo.toml, Cargo.lock   Rust workspace 根，成员是 crates/*
 crates/<crate>/          每个 crate 一个目录，目录名就是 crate 名
+desktop/linux/           Linux 原生主机控制面板与用户级安装入口
 target/                  构建输出，不提交
 android/                 Android 应用（Gradle 工程）
 ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
@@ -79,6 +80,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | 已有持久会话、快照、任务取消和原生 SecretStore 回调 |
 | `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | 已有 Core/observer/SecretStore 导出及 Android JNI 媒体通道 |
 | `uniffi-bindgen` | 工具 | 从编译好的库生成 Kotlin / Swift 绑定 | M1 已有 |
+| `kite-node` | 可执行入口 | Linux 主机节点 CLI；调用应用层主机运行时，桌面面板通过结构化 CLI 使用它 | RFC 0014 |
 
 ### 3.3 依赖规则
 
@@ -93,11 +95,14 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | `kite-stream` | `kite-ssh` |
 | `kite-app` | 以上全部 |
 | `kite-ffi` | `kite-app`（只能是它） |
+| `kite-node` | `kite-app`（只能是它） |
 
 - 依赖只能从上往下。表里没列出的内部依赖一律不允许，同层之间也一样。
 - `kite-ffi` 只依赖 `kite-app`。它需要的领域类型，由 `kite-app` 用 `pub use` 重新导出。
 - 领域层和基础层不得依赖 `uniffi`、`jni`、`android_logger` 或任何平台 SDK 的绑定。
 - 只有 `kite-ffi` 可以使用 `#[uniffi::export]`、`uniffi::Record` 这类 UniFFI 宏。
+
+Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-app::host_node` 可选运行时，统一私有 IPC、服务策略、主机适配器和 MCP；新 CLI 只处理参数和退出码。Linux GTK 面板属于原生展示层，只调用结构化 CLI，不实现服务领域逻辑。节点只复用或启动明确配置的服务，不停止外部拥有的 provider、Herdr 或 Sunshine。
 - 只有 `kite-ffi` 可以写 `cfg(target_os = "android")` 或 `cfg(target_os = "ios")` 分支。
 
 ### 3.4 crate 内部约定

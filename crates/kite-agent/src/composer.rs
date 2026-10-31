@@ -21,7 +21,7 @@ use tokio::{
 const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
-const HELPER: &str = "$HOME/.local/lib/kite/backend-v4.py";
+pub const BACKEND_SOURCE: &[u8] = include_bytes!("../../../backend/kite_codex.py");
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -41,6 +41,8 @@ pub enum Error {
     Invalid(&'static str),
     #[error("session catalog revision conflict")]
     Conflict,
+    #[error("host node unavailable: {0}")]
+    NodeUnavailable(&'static str),
 }
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -49,29 +51,22 @@ pub fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 pub fn helper_command(args: &str) -> String {
-    format!("python3 \"{HELPER}\" {args}")
+    format!("\"$HOME/.local/bin/kite-node\" backend {args}")
 }
 
-/// The versioned helper contains no keys or user-specific configuration.
-pub async fn install(ssh: &Session) -> Result<(), Error> {
-    let install = r#"import os,pathlib,sys,tempfile
-os.umask(0o077)
-p=pathlib.Path.home()/'.local/lib/kite'
-p.mkdir(parents=True,exist_ok=True,mode=0o700)
-s=sys.stdin.buffer.read(65537)
-assert 0<len(s)<=65536
-with tempfile.NamedTemporaryFile(dir=p,delete=False) as f:
-    f.write(s);f.flush();os.fsync(f.fileno());t=pathlib.Path(f.name)
-t.chmod(0o700);t.replace(p/'backend-v4.py')
-"#;
+/// Require the matching live host node; the desktop installation owns the adapter.
+pub async fn require_node(ssh: &Session) -> Result<(), Error> {
     let output = ssh
-        .exec(
-            &format!("python3 -c {}", quote(install)),
-            include_bytes!("../../../backend/kite_codex.py"),
-        )
+        .exec("\"$HOME/.local/bin/kite-node\" api-version", &[])
         .await?;
     if output.exit_status != Some(0) {
-        return Err(Error::Remote("backend helper installation failed".into()));
+        return Err(Error::NodeUnavailable(
+            "enable the Linux Kite desktop host service",
+        ));
+    }
+    let info: Value = serde_json::from_slice(&output.stdout)?;
+    if info["api"] != 1 || info["backendProtocol"] != 5 {
+        return Err(Error::NodeUnavailable("host node protocol mismatch"));
     }
     Ok(())
 }
@@ -177,7 +172,7 @@ impl Drop for Client {
 
 impl Client {
     pub async fn connect(ssh: &Session, pane: &str, thread: &str) -> Result<Self, Error> {
-        install(ssh).await?;
+        require_node(ssh).await?;
         if thread.len() != 36 || !thread.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
             return Err(Error::Invalid("thread ID"));
         }

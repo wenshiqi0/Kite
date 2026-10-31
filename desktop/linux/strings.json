@@ -1,0 +1,23 @@
+{
+  "title": "Kite · Linux 主机",
+  "heading": "Kite 主机服务",
+  "ready": "后台节点已连接",
+  "offline": "后台节点未启动",
+  "services": "主机服务",
+  "active": "运行中",
+  "inactive": "未运行",
+  "external": "复用现有服务",
+  "managed": "Kite 管理",
+  "ensure": "启动主机服务",
+  "sessions": "查看已保存会话",
+  "refresh": "刷新",
+  "close": "关闭面板",
+  "background": "关闭面板后，后台服务和 agent 继续运行。",
+  "details": "详情",
+  "busy": "正在处理…",
+  "unavailable": "请先启用 kite-node.service。",
+  "session_title": "已保存会话",
+  "session_count": "条会话记录",
+  "routing": "手机聊天与历史通过 Kite Node；桌面视频由 Sunshine 提供。",
+  "mcp": "MCP：kite-node mcp（主机状态与会话查询）"
+}

@@ -66,7 +66,7 @@ class VideoRenderer(private val surface: Surface) {
     fun release() {
         if (closed.compareAndSet(false, true)) {
             worker?.stopDecoder()
-            NativeMedia.releaseInput(id)
+            DesktopInput.releaseInput(id)
             NativeMedia.detach(id)
         }
     }

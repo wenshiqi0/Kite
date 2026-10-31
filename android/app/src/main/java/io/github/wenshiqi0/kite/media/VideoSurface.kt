@@ -50,6 +50,9 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         }
     }
     val virtualPointerSource: DesktopViewport.Point? get() = desktopPointer.source
+    val virtualPointerView: DesktopViewport.Point? get() = desktopPointer.view
+    var fullscreenInput = false
+        set(value) { field = value; updateInputRoute() }
     private val pointerMotion = PointerMotion()
     var externalMouseButtons = 0
     var onPaste: (() -> Boolean)? = null
@@ -66,20 +69,20 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private val inputHandler=Handler(Looper.getMainLooper())
     private val textBuffer=RemoteTextBuffer(
         ::sendCommittedText,
-        { task->inputHandler.postDelayed({task()},200) },
+        { task->inputHandler.postDelayed({task()},if(DesktopInput.buffered(target))0 else 200) },
         {onTextFailure()},
     )
     val target: Long get() = renderer?.id ?: 0L
     var takeover = false
-        set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value; refreshCursor() } }
+        set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value; updateInputRoute(); refreshCursor() } }
     var trackpad = true
         set(value) { if (field != value) { cancelGesture(); field = value } }
     var panMode = false
         set(value) { if (field != value) { cancelGesture(); field = value } }
     var gesturesEnabled = true
-        set(value) { if (field != value) { cancelGesture(); field = value; refreshCursor() } }
+        set(value) { if (field != value) { cancelGesture(); field = value; updateInputRoute(); refreshCursor() } }
     var pip = false
-        set(value) { if (field != value) { field = value; applyViewport() } }
+        set(value) { if (field != value) { field = value; updateInputRoute(); applyViewport() } }
     var onZoomChanged: (Float) -> Unit = {}
     var zoom: Float
         get() = viewport.zoom
@@ -106,7 +109,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private val doubleSlop = ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat()
     private val longPress = Runnable {
         if (takeover && gesturesEnabled && !multiple && !panMode && target != 0L && (trackpad || position(downX, downY))) {
-            NativeMedia.mouseButton(target, 1, true); dragging = true
+            DesktopInput.mouseButton(target, 1, true); dragging = true
         }
     }
     init {
@@ -139,6 +142,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     }
     private fun applyViewport() {
         if (video.width <= 0 || video.height <= 0) return
+        if (virtualMouseVisible && fullscreenInput && takeover && gesturesEnabled && !pip) desktopPointer.keepDesktopUnderHotspot()
         val scale = if (pip) viewport.fitScale else viewport.scale
         val cx = if (pip) viewport.sourceWidth / 2 else viewport.centerX
         val cy = if (pip) viewport.sourceHeight / 2 else viewport.centerY
@@ -147,9 +151,14 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         video.scaleY = viewport.sourceHeight * scale / video.height
         video.translationX = viewport.width / 2 - cx * scale - video.left
         video.translationY = viewport.height / 2 - cy * scale - video.top
-        if (virtualMouseVisible) desktopPointer.keepVisible()
         refreshCursor()
+        if (virtualMouseVisible && takeover && gesturesEnabled && !pip) sendPointer()
         onZoomChanged(viewport.zoom)
+    }
+    private fun updateInputRoute() {
+        val enabled = fullscreenInput && takeover && gesturesEnabled && !pip
+        DesktopInput.configure(target, enabled) { onTextFailure() }
+        if (viewport.inputGutter(if (enabled) resources.displayMetrics.density * 176 else 0f)) applyViewport()
     }
     private fun refreshCursor() {
         cursor.visibility = if (virtualMouseVisible && takeover && gesturesEnabled && !pip) VISIBLE else INVISIBLE
@@ -158,11 +167,20 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     fun openVirtualMouse(x: Float, y: Float) {
         virtualMouseVisible = true
         desktopPointer.place(x, y, clamp = true)
-        desktopPointer.keepVisible()
-        refreshCursor()
+        applyViewport()
         prepareVirtualMouse()
     }
+    fun anchorVirtualMouse(x: Float, y: Float) {
+        if (!virtualMouseVisible) return
+        desktopPointer.place(x, y, clamp = true)
+        applyViewport()
+    }
+    fun panVirtualMouse(dx: Float, dy: Float) {
+        if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip) return
+        viewport.pan(dx, dy); applyViewport()
+    }
     fun closeVirtualMouse() { virtualMouseVisible = false; refreshCursor() }
+    fun virtualMouseActivity() { DesktopInput.activity(target) }
     fun moveVirtualMouse(dx: Float, dy: Float) {
         if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip) return
         desktopPointer.move(dx, dy)
@@ -173,13 +191,12 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     fun prepareVirtualMouse(): Boolean {
         if (!virtualMouseVisible || !takeover || !gesturesEnabled || pip || target == 0L) return false
         flushRemoteText()
-        desktopPointer.keepVisible()
         refreshCursor()
         return sendPointer()
     }
     private fun sendPointer(): Boolean {
         val p = desktopPointer.source ?: return false
-        return target != 0L && NativeMedia.mousePosition(target, p.x.roundToInt(), p.y.roundToInt(), viewport.sourceWidth.toInt(), viewport.sourceHeight.toInt())
+        return target != 0L && DesktopInput.mousePosition(target, p.x.roundToInt(), p.y.roundToInt(), viewport.sourceWidth.toInt(), viewport.sourceHeight.toInt())
     }
     override fun surfaceCreated(holder: SurfaceHolder) = Unit
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -187,37 +204,39 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         // usable; keep the same renderer through subsequent split/zoom changes.
         if (renderer == null && width > 1 && height > 1 && holder.surface.isValid) {
             renderer = VideoRenderer(holder.surface).also { ready(it.id) }
+            updateInputRoute()
         }
     }
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         closeRemoteKeyboard();cancelGesture();closeVirtualMouse();desktopPointer.clear(); renderer?.let { gone(it.id); it.release() }; renderer = null
+        DesktopInput.configure(0, false) { onTextFailure() }
     }
     private fun cancelGesture() {
         removeCallbacks(longPress)
-        if (target != 0L) NativeMedia.releaseInput(target)
+        if (target != 0L) DesktopInput.releaseInput(target)
         dragging = false; buttons = 0; multiple = false; moved = false; lastTap = 0L; externalGesture = false; bridgedPointer = false; pasteKey = false; pointerMotion.reset()
     }
     /** A gesture starting on a Compose button has no DOWN in AndroidView.
      * The shared parent routes only the separate canvas finger through here. */
     fun bridgePointer(x: Float, y: Float) {
         if (!takeover || !gesturesEnabled || target == 0L) return
+        DesktopInput.activity(target)
         removeCallbacks(longPress)
         val first=!bridgedPointer
         if(first){requestFocus();bridgedX=x;bridgedY=y}
         bridgedPointer = true; externalGesture = true; moved = true
         if(trackpad) {
             val delta=pointerMotion.move(x-bridgedX,y-bridgedY,resources.displayMetrics.density)
-            if(delta.x!=0||delta.y!=0)NativeMedia.mouseMove(target,delta.x,delta.y)
+            if(delta.x!=0||delta.y!=0)DesktopInput.mouseMove(target,delta.x,delta.y)
         } else position(x, y, true)
         bridgedX=x;bridgedY=y
     }
     fun finishBridgedPointer() { bridgedPointer = false; externalGesture = true; moved = true }
     private fun position(x: Float, y: Float, clamp: Boolean = false): Boolean {
-        desktopPointer.place(x, y, clamp) ?: return false
-        refreshCursor()
-        return sendPointer()
+        val p = viewport.sourceAt(x, y, clamp) ?: return false
+        return DesktopInput.mousePosition(target, p.x.roundToInt(), p.y.roundToInt(), viewport.sourceWidth.toInt(), viewport.sourceHeight.toInt())
     }
-    private fun click(button: Int) { NativeMedia.mouseButton(target, button, true); NativeMedia.mouseButton(target, button, false) }
+    private fun click(button: Int) { DesktopInput.mouseButton(target, button, true); DesktopInput.mouseButton(target, button, false) }
     private fun focus(event: MotionEvent): DesktopViewport.Point {
         var x = 0f; var y = 0f
         for (index in 0 until event.pointerCount) { x += event.getX(index); y += event.getY(index) }
@@ -226,6 +245,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private fun span(event: MotionEvent): Float = if (event.pointerCount > 1) hypot(event.getX(1) - event.getX(0), event.getY(1) - event.getY(0)).coerceAtLeast(1f) else 1f
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!gesturesEnabled || pip) return true
+        DesktopInput.activity(target)
         if(event.actionMasked==MotionEvent.ACTION_DOWN)flushRemoteText()
         if (bridgedPointer) return true
         if (takeover && target != 0L && event.isFromSource(InputDevice.SOURCE_MOUSE)) { mouse(event); return true }
@@ -238,13 +258,13 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
                 if (takeover && target != 0L && !panMode) {
                     requestFocus()
                     val doubleTap = trackpad && event.eventTime - lastTap in 1..ViewConfiguration.getDoubleTapTimeout().toLong() && hypot(event.x - tapX, event.y - tapY) < doubleSlop
-                    if (doubleTap) { NativeMedia.mouseButton(target, 1, true); dragging = true; lastTap = 0L }
+                    if (doubleTap) { DesktopInput.mouseButton(target, 1, true); dragging = true; lastTap = 0L }
                     else postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 removeCallbacks(longPress)
-                if (dragging && target != 0L) NativeMedia.mouseButton(target, 1, false)
+                if (dragging && target != 0L) DesktopInput.mouseButton(target, 1, false)
                 dragging = false; multiple = true; rightTap = event.pointerCount == 2; multi = Multi.Pending
                 val f = focus(event); lastX = f.x; lastY = f.y; lastSpan = span(event)
             }
@@ -265,7 +285,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
                             wheelX += dx * 120 / (48 * resources.displayMetrics.density)
                             wheelY += dy * 120 / (48 * resources.displayMetrics.density)
                             val x = wheelX.toInt(); val y = wheelY.toInt()
-                            if (x != 0 || y != 0) { NativeMedia.scroll(target, x, y); wheelX -= x; wheelY -= y }
+                            if (x != 0 || y != 0) { DesktopInput.scroll(target, x, y); wheelX -= x; wheelY -= y }
                         }
                         else -> Unit
                     }
@@ -287,12 +307,12 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
                         val d = pointerMotion.move(if (moved) dx else event.x - downX, if (moved) dy else event.y - downY, resources.displayMetrics.density)
                         moved = true; relativeX += d.x; relativeY += d.y
                         val x = relativeX.toInt(); val y = relativeY.toInt()
-                        if (x != 0 || y != 0) { NativeMedia.mouseMove(target, x, y); relativeX -= x; relativeY -= y }
+                        if (x != 0 || y != 0) { DesktopInput.mouseMove(target, x, y); relativeX -= x; relativeY -= y }
                     }
                 } else if (target != 0L) {
                     if (!dragging && hypot(event.x - downX, event.y - downY) > slop) {
                         removeCallbacks(longPress)
-                        if (position(downX, downY)) { NativeMedia.mouseButton(target, 1, true); dragging = true }
+                        if (position(downX, downY)) { DesktopInput.mouseButton(target, 1, true); dragging = true }
                     }
                     if (dragging) { position(event.x, event.y, true); moved = true }
                 }
@@ -308,7 +328,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longPress)
                 if (takeover && !panMode && target != 0L && !externalGesture) {
-                    if (dragging) NativeMedia.mouseButton(target, 1, false)
+                    if (dragging) DesktopInput.mouseButton(target, 1, false)
                     else if (multiple) { if (rightTap && !moved && event.eventTime - event.downTime < 400 && (trackpad || position(lastX, lastY))) click(3) }
                     else if (!moved && (trackpad || position(event.x, event.y))) {
                         click(1); lastTap = event.eventTime; tapX = event.x; tapY = event.y
@@ -325,7 +345,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         val next = event.buttonState
         if(next and buttons.inv()!=0)flushRemoteText()
         for ((mask, button) in listOf(MotionEvent.BUTTON_PRIMARY to 1, MotionEvent.BUTTON_SECONDARY to 3, MotionEvent.BUTTON_TERTIARY to 2)) {
-            if ((next xor buttons) and mask != 0) NativeMedia.mouseButton(target, button, next and mask != 0)
+            if ((next xor buttons) and mask != 0) DesktopInput.mouseButton(target, button, next and mask != 0)
         }
         buttons = next
     }
@@ -336,7 +356,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         if (takeover && gesturesEnabled && target != 0L && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             mouse(event)
-            if (event.actionMasked == MotionEvent.ACTION_SCROLL) NativeMedia.scroll(target, (event.getAxisValue(MotionEvent.AXIS_HSCROLL) * 120).toInt(), (event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 120).toInt())
+            if (event.actionMasked == MotionEvent.ACTION_SCROLL) DesktopInput.scroll(target, (event.getAxisValue(MotionEvent.AXIS_HSCROLL) * 120).toInt(), (event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 120).toInt())
             return true
         }
         return super.onGenericMotionEvent(event)
@@ -353,9 +373,9 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         }
         val key = virtualKey(keyCode) ?: return false
         val modifiers = (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
-        return NativeMedia.key(target, key, down, modifiers)
+        return DesktopInput.key(target, key, down, modifiers)
     }
-    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) { super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); if (!gainFocus && target != 0L) {flushRemoteText();NativeMedia.releaseInput(target)} }
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) { super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); if (!gainFocus && target != 0L) {flushRemoteText();DesktopInput.releaseInput(target)} }
     override fun performClick(): Boolean = super.performClick()
 
     fun flushRemoteText(){textBuffer.flush()}
@@ -384,17 +404,17 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     }
     private fun editorKey(key:Int):Boolean {
         if(keyboardTarget!=target||!remoteEditor||!takeover||target==0L)return false
-        val down=NativeMedia.key(target,key,true,editorModifiers)
-        val up=NativeMedia.key(target,key,false,editorModifiers)
+        val down=DesktopInput.key(target,key,true,editorModifiers)
+        val up=DesktopInput.key(target,key,false,editorModifiers)
         return down&&up
     }
     private fun sendCommittedText(text:String):Boolean {
         if(keyboardTarget!=target||!remoteEditor||!takeover||target==0L)return false
-        if(editorModifiers==0)return NativeMedia.text(target,text)
+        if(editorModifiers==0)return DesktopInput.text(target,text)
         for(c in text) {
             val upper=c.uppercaseChar()
             if(upper in 'A'..'Z'||upper in '0'..'9') {if(!editorKey(upper.code))return false}
-            else if(!NativeMedia.text(target,c.toString()))return false
+            else if(!DesktopInput.text(target,c.toString()))return false
         }
         return true
     }

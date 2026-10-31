@@ -1,0 +1,9 @@
+[package]
+name = "kite-node"
+description = "Kite Linux desktop host entry point"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kite-app = { workspace = true, features = ["host-node"] }

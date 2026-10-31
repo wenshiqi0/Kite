@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+host-node = []
+
 [dependencies]
 kite-ssh.workspace = true
 kite-herdr.workspace = true

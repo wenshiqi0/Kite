@@ -8,6 +8,8 @@
 use kite_ssh::Session;
 
 pub mod core;
+#[cfg(feature = "host-node")]
+pub mod host_node;
 pub use core::clipboard::{ClipboardPlatform, RemoteClipboard};
 pub use core::*;
 pub use kite_agent::composer::split_attachments as split_chat_attachments;

@@ -2,7 +2,7 @@
 
 A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow your coding agents, open their desktop, and take over when they need a hand.
 
-[Download Android Alpha](https://github.com/wenshiqi0/Kite/releases) · [Set up your host](docs/backend-setup.md)
+[Download Alpha packages](https://github.com/wenshiqi0/Kite/releases) · [Set up your host](docs/backend-setup.md) · [Linux desktop host](docs/linux-desktop.md)
 
 ## What you can do
 
@@ -19,7 +19,7 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 ## Get started
 
 1. Install the ARM64 Android APK from [Releases](https://github.com/wenshiqi0/Kite/releases).
-2. Prepare a Linux X11 host with SSH, herdr and Sunshine using the [host setup guide](docs/backend-setup.md).
+2. Enable the matching [Linux desktop host](docs/linux-desktop.md) with SSH, herdr and Sunshine. Its native panel can close while the background node and agents continue.
 3. Add Kite's public key to your host, verify the host fingerprint, and connect. Kite reconnects to the host agent automatically, preparing a default Codex session when needed. Additional project sessions are optional.
 4. Open the desktop and pair with Sunshine when prompted. Use the fullscreen orientation button even when phone auto-rotation is off.
 

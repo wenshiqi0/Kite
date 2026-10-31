@@ -123,6 +123,7 @@ private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Bool
 @Composable
 internal fun FailureCard(failure: FailureInfo, onForget: (() -> Unit)?) {
     val title = when (failure.kind) {
+        FailureKind.HOST_NODE -> stringResource(R.string.error_host_node)
         FailureKind.AUTHENTICATION -> stringResource(R.string.error_auth_rejected, failure.username)
         FailureKind.HOST_KEY_CHANGED -> stringResource(R.string.error_host_key_changed, failure.trustedFingerprint, failure.presentedFingerprint)
         FailureKind.HERDR_MISSING -> stringResource(R.string.error_herdr_not_found)

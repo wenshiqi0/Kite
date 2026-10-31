@@ -92,7 +92,10 @@ class NativePresentationTest {
         for (x in 250..340) for (y in 170..290) if (android.graphics.Color.alpha(bitmap.getPixel(x, y)) > 100) ink.add(x)
         assertTrue("Arrow must stay compact at phone density", ink.max() - ink.min() <= 17 * density)
         bitmap.recycle()
+        val anchored = parent.virtualPointerView
         parent.zoom = 2f
+        assertEquals("Zoom must not move the widget's rendered hotspot", anchored, parent.virtualPointerView)
+        assertNotEquals("Source pixels are recomputed under the fixed screen hotspot", 520f, parent.virtualPointerSource!!.x)
         assertNotNull(parent.virtualPointerSource)
         parent.pip = true; assertEquals(View.INVISIBLE, cursor.visibility)
         parent.pip = false; assertEquals(View.VISIBLE, cursor.visibility)

@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "gestureDurationMs": 1400,
+  "eventsBefore": 44,
+  "eventsDuring": [
+    44,
+    44
+  ],
+  "eventsAfter": 45,
+  "deliveredFinalMotions": 1,
+  "quietWindowMs": 200,
+  "elapsedSeconds": 2.35
+}

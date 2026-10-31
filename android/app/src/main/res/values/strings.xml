@@ -290,4 +290,5 @@
     <string name="host_enter">进入</string>
     <string name="host_edit_named">编辑主机 %1$s</string>
     <string name="host_open_named">打开主机 %1$s</string>
+    <string name="error_host_node">请先在主机启用 Kite 桌面服务，再重新连接。</string>
 </resources>

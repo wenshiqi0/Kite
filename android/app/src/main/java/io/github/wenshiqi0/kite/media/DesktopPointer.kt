@@ -1,42 +1,30 @@
 package io.github.wenshiqi0.kite.media
 
-/** Local pointer hotspot in source pixels; the mouse widget is only an input control. */
+/** The arrow is fixed to the mouse controls in view pixels; source pixels are derived. */
 class DesktopPointer(private val viewport: DesktopViewport) {
-    var source: DesktopViewport.Point? = null
+    var view: DesktopViewport.Point? = null
         private set
-    private var sourceWidth = viewport.sourceWidth
-    private var sourceHeight = viewport.sourceHeight
-    val view: DesktopViewport.Point? get() = source?.let { viewport.viewAt(it.x, it.y) }
+    val source: DesktopViewport.Point? get() = view?.let { viewport.sourceAt(it.x, it.y, clamp = true) }
 
     fun place(x: Float, y: Float, clamp: Boolean = false): DesktopViewport.Point? {
-        resizeSource()
         val point = viewport.sourceAt(x, y, clamp) ?: return null
-        source = point
+        view = DesktopViewport.Point(x, y)
         return point
     }
 
     fun move(dx: Float, dy: Float): DesktopViewport.Point {
-        resizeSource()
         val start = view ?: DesktopViewport.Point(viewport.width / 2, viewport.height / 2)
         place(start.x + dx, start.y + dy, clamp = true)
-        keepVisible()
         return source!!
     }
-
-    /** Layout/zoom/pan can move the hotspot locally, but never send remote input. */
-    fun keepVisible() {
-        resizeSource()
-        view?.let { place(it.x.coerceIn(0f, viewport.width - .001f), it.y.coerceIn(0f, viewport.height - .001f), clamp = true) }
-    }
-
-    private fun resizeSource() {
-        if (sourceWidth == viewport.sourceWidth && sourceHeight == viewport.sourceHeight) return
-        source = source?.let {
-            DesktopViewport.Point(it.x / sourceWidth * viewport.sourceWidth, it.y / sourceHeight * viewport.sourceHeight)
+    /** Keep source edges reachable without separating the arrow from its controls. */
+    fun keepDesktopUnderHotspot() {
+        val anchor = view ?: return
+        val point = source ?: return
+        val projected = viewport.viewAt(point.x, point.y)
+        if (kotlin.math.abs(anchor.x - projected.x) > .01f || kotlin.math.abs(anchor.y - projected.y) > .01f) {
+            viewport.pan(anchor.x - projected.x, anchor.y - projected.y)
         }
-        sourceWidth = viewport.sourceWidth
-        sourceHeight = viewport.sourceHeight
     }
-
-    fun clear() { source = null }
+    fun clear() { view = null }
 }

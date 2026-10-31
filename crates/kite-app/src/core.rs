@@ -109,6 +109,7 @@ pub enum AgentPause {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailureCode {
     Connection,
+    HostNode,
     Authentication,
     HostKeyChanged,
     HerdrMissing,
@@ -664,14 +665,13 @@ impl AppCore {
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| s.connection_step = ConnectionStep::HerdrDiscovery);
         }
+        composer::require_node(&ssh).await?;
         let checked = check_api_bridge(&ssh, host.herdr_path.as_deref()).await?;
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| s.connection_step = ConnectionStep::HerdrApi);
         }
         let api = Arc::new(Api::new(ssh.clone(), &checked.herdr_path));
         let version = api.ping().await?;
-        // Desktop and SSH remain usable if the richer chat backend needs setup.
-        let _ = composer::install(&ssh).await;
         Ok(Connected {
             host: host.clone(),
             ssh,
@@ -2129,6 +2129,7 @@ fn describe(error: &AppError) -> Failure {
         presented: String::new(),
     };
     match error {
+        AppError::Composer(composer::Error::NodeUnavailable(_)) => f.code = FailureCode::HostNode,
         AppError::Ssh(SshError::HostKeyChanged { trusted, presented }) => {
             f.code = FailureCode::HostKeyChanged;
             f.trusted = trusted.clone();

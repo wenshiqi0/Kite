@@ -431,6 +431,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         vm.flushRemoteText={weak.get()?.flushRemoteText()}
                     } }, update = { surface ->
                         surface.takeover = takeover && !docked
+                        surface.fullscreenInput = vm.layout == DesktopLayout.Fullscreen
                         surface.trackpad = false
                         surface.externalMouseButtons = vm.heldMouseButtons
                         surface.onPaste = if(vm.engine.clipboardSyncEnabled) vm::pasteSynchronized else null
