@@ -1,6 +1,6 @@
 # Kite
 
-A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow your coding agents, open their desktop, and take over when they need a hand.
+A native workspace for local and remote coding agents, built around [herdr](https://github.com/herdrdev/herdr). Follow conversations, open a machine's desktop, and operate it when needed.
 
 [Download Alpha packages](https://github.com/wenshiqi0/Kite/releases) · [Set up your host](docs/backend-setup.md) · [Linux desktop host](docs/linux-desktop.md)
 
@@ -27,9 +27,12 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 
 The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Desktop audio playback is not available yet. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
 
+The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS, including connections to other desktop machines. The current Linux Alpha delivers the host node and management panel; desktop client functionality is the next stage.
+
 ## Documentation
 
 - [Host setup and troubleshooting](docs/backend-setup.md)
+- [Desktop client and host](docs/desktop.md)
 - [Implementation status and next stages](docs/implementation-plan.md)
 - [Build and development](docs/development.md)
 - [Testing](docs/testing.md)

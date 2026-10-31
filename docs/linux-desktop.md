@@ -1,6 +1,6 @@
 # Linux desktop host
 
-Kite's Linux desktop host includes a persistent Rust **Kite Node** and a native GTK control panel. Closing the panel leaves the node, agent owners and external services running. This is the desktop **host** stage; a desktop remote-viewing client and durable multi-machine messaging remain separate stages.
+Kite's Linux desktop host includes a persistent Rust **Kite Node** and a native GTK control panel. Closing the panel leaves the node, agent owners and external services running. This guide covers the delivered **host** stage. The [desktop product](desktop.md) also requires a client that connects to other desktop machines; that client is the next desktop stage. Durable multi-machine messaging is tracked separately.
 
 ## Install and enable
 

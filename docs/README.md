@@ -1,6 +1,7 @@
 # Documentation
 
 - [Host setup](backend-setup.md): SSH, herdr, Sunshine, pairing and troubleshooting.
+- [Desktop client and host](desktop.md): dual roles, connections to other machines and independent local-service lifetime; current delivery and pending client acceptance.
 - [Linux desktop host](linux-desktop.md): install Kite Node, its native panel and taskbar status, reuse services and expose MCP queries.
 - [Plan allowance](account-usage.md): view real Codex account windows and reset times from the left-hand model picker.
 - [Implementation status and next stages](implementation-plan.md): delivered Android features, herdr-core evaluation, desktop nodes and multi-machine MCP.
@@ -13,6 +14,7 @@
 
 ## Delivery and evaluation records
 
+- [Streaming performance](product/2026-11-01/streaming-performance/acceptance.md): continuous pointer delivery, fixed input windows, preserved 1080p, public APK comparison and matching Linux deployment.
 - [Chat tail, allowance and desktop disconnect](product/2026-11-01/chat-tail-and-allowance/acceptance.md): scroll margin, compact composer, allowance in the left-hand model picker and explicit media disconnect.
 - [Linux taskbar status](product/2026-10-31/linux-taskbar/acceptance.md): resident tray, shared service health, single-window lifecycle, disconnect/timeout recovery and missing-tray behavior.
 - [Anchored fullscreen input and Linux node](product/2026-10-31/anchored-input-and-linux-node/acceptance.md): fixed control-relative hotspot, real quiet-window timing, persistent host/panel/MCP and owned provider chat.

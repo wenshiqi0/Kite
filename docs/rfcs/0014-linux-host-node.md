@@ -2,6 +2,8 @@
 
 > 状态：已实现（主机 Alpha 17；托盘 Alpha 19） · 2026-10-31
 
+桌面产品同时包含客户端和主机角色；本 RFC 只记录已交付的主机阶段。连接其他机器的桌面客户端约束见 [RFC 0015](0015-desktop-client-and-host.md)。
+
 用户要求开始在 Linux 后端启用 Kite 桌面端。沿用已确认的历史、设备身份、SSH 信任、主机与 Sunshine 配对保留要求；APK 与后端同步升级。herdr-core 仍处于隔离评估，现有生产 Herdr TUI/provider owner 不迁移、不重启。
 
 ## 本阶段交付
