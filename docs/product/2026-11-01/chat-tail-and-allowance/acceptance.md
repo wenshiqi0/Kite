@@ -15,3 +15,5 @@ Quota reads use a separately owned task on the existing JSON-RPC transport; chat
 Locally, all 91 Rust tests, formatting, Clippy with warnings denied, Release Kotlin/test compilation and Release lint passed. FFI library and bindings were generated together. Existing host, history, identity, trust, pairing and settings formats are unchanged; no old RPC endpoint or FFI fallback was added.
 
 Public packages, native interaction results and live quota/disconnect checks are recorded after publication, with active-video streaming and setup cancellation reported separately.
+
+The first Alpha 20 public package passed signature/alignment checks and an in-place install with 20 byte-identical private files and four profiles before launch. Its native allowance presentation passed, and the real workspace kept the latest button hidden on touch/small drag and showed it after a larger drag. Native acceptance found that the described jump node did not expose its click action. Alpha 21 adds that action and a growing-message distance lower bound; the regression also grows a visible reply while a separate trailing row lies outside the viewport.

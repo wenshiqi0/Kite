@@ -97,7 +97,7 @@ class WorkspaceRefinementPresentationTest {
         test.waitForIdleSync();SystemClock.sleep(500)
         val delta=runBlocking{vm.engine.core.conversationSince("owned-native-refinement",0uL)}
         val context=requireNotNull(vm.engine.state.value).conversationContext
-        val messages=(0 until 500).map{i->MessageInfo(emptyList(),"owned-native-$i",MessageKind.ASSISTANT,if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else"Owned history row $i\nSecond line",false,null)}
+        val messages=(0 until 501).map{i->MessageInfo(emptyList(),"owned-native-$i",MessageKind.ASSISTANT,if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else if(i==500)"Owned tail status" else"Owned history row $i\nSecond line",false,null)}
         try{
             main{vm.engine.timeline.prepareContext(context);vm.engine.timeline.apply(ConversationDeltaInfo(context,100000uL,true,listOf(ConversationEditInfo(0uL,0uL,messages))))}
             waitFor("History visible"){find(description="聊天记录")!=null&&find(description="消息输入框")!=null}
@@ -111,17 +111,23 @@ class WorkspaceRefinementPresentationTest {
             val chat=bounds("聊天记录")
             gesture(chat,0f);assertNull(find(description="回到最新消息"))
             gesture(chat,36*density);assertNull(find(description="回到最新消息"))
+            val grown=messages[499].copy(text=messages[499].text+"\n\n"+(1..12).joinToString("\n\n"){"Owned streamed paragraph $it grows while reading."})
+            main{vm.engine.timeline.apply(ConversationDeltaInfo(context,100001uL,false,listOf(ConversationEditInfo(499uL,1uL,listOf(grown)))))}
+            waitFor("Latest after a paused reply grows beyond the viewport"){find(description="回到最新消息")!=null}
+            assertTrue(requireNotNull(find(description="回到最新消息")).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Latest hidden after streamed update"){find(description="回到最新消息")==null}
+            test.waitForIdleSync();SystemClock.sleep(400)
             gesture(chat,170*density)
             waitFor("Latest button after meaningful drag"){find(description="回到最新消息")!=null}
             val latest=requireNotNull(find(description="回到最新消息"));assertTrue(latest.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Latest hidden after returning"){find(description="回到最新消息")==null}
-            assertEquals(500,vm.engine.timeline.messages.size)
+            assertEquals(501,vm.engine.timeline.messages.size)
             val longDraft=(1..9).joinToString("\n"){"Owned editable draft line $it"}
             val node=requireNotNull(find(description="消息输入框"))
             assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply{putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,longDraft)}))
             waitFor("Direct editor updates draft"){vm.draft==longDraft}
             assertTrue(bounds("消息输入框").height()/density<=134f)
-            File(test.targetContext.filesDir,"workspace-refinement-validation.json").writeText("""{"records":500,"touchDoesNotShowLatest":true,"smallDragDoesNotShowLatest":true,"largeDragShowsLatest":true,"returnHidesLatest":true,"dataRetained":true,"emptyInputDp":${field.height()/density},"bottomGapDp":${(metrics.heightPixels-field.bottom)/density},"nativeDraftInput":true}""")
+            File(test.targetContext.filesDir,"workspace-refinement-validation.json").writeText("""{"records":501,"touchDoesNotShowLatest":true,"smallDragDoesNotShowLatest":true,"streamingGrowthShowsLatest":true,"largeDragShowsLatest":true,"returnHidesLatest":true,"dataRetained":true,"emptyInputDp":${field.height()/density},"bottomGapDp":${(metrics.heightPixels-field.bottom)/density},"nativeDraftInput":true}""")
         }finally{
             main{vm.draft="";vm.engine.timeline.prepareContext(delta.context);vm.engine.timeline.apply(delta);activity.finish()}
         }

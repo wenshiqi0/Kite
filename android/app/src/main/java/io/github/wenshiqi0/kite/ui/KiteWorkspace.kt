@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -148,15 +149,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var chatHeight by remember{mutableIntStateOf(0)}
     val draggingHistory by chatScroll.interactionSource.collectIsDraggedAsState()
     fun pauseHistory(){followTail=false}
+    fun jumpToLatest(){tailMargin.reset();latestVisible=false;followTail=true}
     LaunchedEffect(draggingHistory){if(draggingHistory)followTail=false}
     LaunchedEffect(conversationContext,chatScroll){
         snapshotFlow{
             val layout=chatScroll.layoutInfo
             val last=layout.visibleItemsInfo.lastOrNull()
-            val gap=if(last!=null&&last.index>=layout.totalItemsCount-2){
-                val trailing=if(last.index==layout.totalItemsCount-2)with(inputDensity){16.dp.roundToPx()}else 0
-                (last.offset+last.size+trailing+layout.afterContentPadding-layout.viewportEndOffset).coerceAtLeast(0)/inputDensity.density
-            }else null
+            val gap=last?.let{item->
+                val lower=(item.offset+item.size+layout.afterContentPadding-layout.viewportEndOffset)/inputDensity.density
+                if(item.index>=layout.totalItemsCount-2){
+                    val trailing=if(item.index==layout.totalItemsCount-2)16f else 0f
+                    (lower+trailing).coerceAtLeast(0f)
+                }else lower.takeIf{it>=ChatTailMargin.SHOW_DP}
+            }
             Triple(chatScroll.isScrollInProgress,chatScroll.canScrollForward,gap)
         }.collectLatest{(scrolling,canForward,gap)->
             if(gap!=null)tailMargin.observe(gap)
@@ -364,7 +369,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         if(state.history.failed)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试")}
                     }
                 }
-                if(!followTail&&latestVisible&&entries.isNotEmpty())Surface(onClick={tailMargin.reset();latestVisible=false;followTail=true},color=KiteColors.AccentSurface,shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics{contentDescription="回到最新消息"}){
+                if(!followTail&&latestVisible&&entries.isNotEmpty())Surface(onClick=::jumpToLatest,color=KiteColors.AccentSurface,shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics(mergeDescendants=true){contentDescription="回到最新消息";onClick{jumpToLatest();true}}){
                     Row(Modifier.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){ProductIcon(Mark.Chevron,Blue,Modifier.size(18.dp));Text(stringResource(R.string.history_latest),color=Blue,fontSize=12.sp)}
                 }
                 }
