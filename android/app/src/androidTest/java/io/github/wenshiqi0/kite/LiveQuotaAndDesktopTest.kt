@@ -1,9 +1,12 @@
 package io.github.wenshiqi0.kite
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.InputDevice
+import android.view.MotionEvent
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.core.*
@@ -33,6 +36,14 @@ class LiveQuotaAndDesktopTest {
             }
             if(Build.VERSION.SDK_INT>=33)test.uiAutomation.clearCache()
             return visit(test.uiAutomation.rootInActiveWindow)
+        }
+        fun tap(node:AccessibilityNodeInfo){
+            val rect=Rect();node.getBoundsInScreen(rect);val time=SystemClock.uptimeMillis()
+            for(action in listOf(MotionEvent.ACTION_DOWN,MotionEvent.ACTION_UP)){
+                val event=MotionEvent.obtain(time,SystemClock.uptimeMillis(),action,rect.exactCenterX(),rect.exactCenterY(),0);event.source=InputDevice.SOURCE_TOUCHSCREEN
+                try{assertTrue(test.uiAutomation.injectInputEvent(event,true))}finally{event.recycle()}
+            }
+            test.waitForIdleSync()
         }
         waitFor("Initialized"){vm.engine.state.value?.initialized==true}
         if(args.getString("qa_phase")=="public-key"){
@@ -69,16 +80,17 @@ class LiveQuotaAndDesktopTest {
         }
         val videoFrames=vm.engine.state.value?.desktop?.renderedFrames?:0uL
         waitFor("Workspace menu"){node(description=test.targetContext.getString(R.string.more_actions))!=null}
-        assertTrue(requireNotNull(node(description=test.targetContext.getString(R.string.more_actions))).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        tap(requireNotNull(node(description=test.targetContext.getString(R.string.more_actions))))
         waitFor("Disconnect action"){node(text=test.targetContext.getString(R.string.desktop_disconnect))!=null}
         assertNull("Quota belongs in the model picker",node(text=test.targetContext.getString(R.string.usage_title)))
-        assertTrue(requireNotNull(node(text=test.targetContext.getString(R.string.desktop_disconnect))).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        tap(requireNotNull(node(text=test.targetContext.getString(R.string.desktop_disconnect))))
         waitFor("Stream disconnected"){!vm.showDesktop&&vm.engine.state.value?.desktop?.status==DesktopStatus.IDLE}
         val after=requireNotNull(vm.engine.state.value)
         assertEquals(ConnectionStatus.CONNECTED,after.connection);assertEquals(selected,after.selectedSession);assertTrue(after.composer.ready)
+        val previousUpdate=after.composer.usage.updatedMs?:0
         test.runOnMainSync{vm.refreshUsage()}
-        waitFor("Quota after stopping media"){vm.engine.state.value?.composer?.usage?.let{it.status==UsageStatus.READY&&!it.loading}==true}
-        assertTrue(requireNotNull(node(description="模型与思考强度")).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        waitFor("Quota after stopping media"){vm.engine.state.value?.composer?.usage?.let{it.status==UsageStatus.READY&&!it.loading&&(it.updatedMs?:0)>previousUpdate}==true}
+        tap(requireNotNull(node(description="模型与思考强度")))
         waitFor("Model picker quota"){node(text=test.targetContext.getString(R.string.usage_title))!=null}
         File(test.targetContext.getExternalFilesDir(null),"live-quota-desktop-validation.json").writeText("""{"status":"PASS","ownedSession":"$selected","modelPromptSubmitted":false,"planProvided":true,"quotaBuckets":${initial.buckets.size},"quotaInsideModelPicker":true,"noQuotaInWorkspaceMenu":true,"realVideoFrames":${videoFrames>0uL},"cancelDuringSetup":${!requireVideo},"explicitDisconnect":true,"chatConnectionRetained":true,"sameSessionRetained":true,"quotaReadAfterDisconnect":true}""")
         pinFile.delete();test.runOnMainSync{activity.finish()}
