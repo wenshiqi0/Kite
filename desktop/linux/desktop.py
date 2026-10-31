@@ -21,7 +21,7 @@ class Window(Gtk.ApplicationWindow):
         super().__init__(application=app, title=TEXT['title'])
         self.set_default_size(620, 460)
         self.set_border_width(24)
-        self.set_icon_from_file(str(ROOT / 'icons/kite-ready.svg'))
+        self.set_icon_from_file(str(ROOT / 'icons/kite-ready.png'))
         self.connect('delete-event', lambda *_: app.close_panel())
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         self.add(box)
@@ -201,7 +201,7 @@ class Application(Gtk.Application):
 
     def resize_icon(self, size):
         self.tray.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(
-            str(ROOT / ('icons/kite-' + self.state + '.svg')), max(16, size), max(16, size), True))
+            str(ROOT / ('icons/kite-' + self.state + '.png')), max(16, size), max(16, size), True))
         return True
 
     def render(self):

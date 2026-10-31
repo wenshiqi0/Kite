@@ -10,7 +10,7 @@ def package(binary,destination,version,commit):
     files={'kite-node':(binary.read_bytes(),0o755),'host-manifest.json':((json.dumps(manifest,indent=2)+'\n').encode(),0o644),'LICENSE':((ROOT/'LICENSE').read_bytes(),0o644)}
     for name in ['desktop.py','strings.json','install.py']:files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o755 if name.endswith('.py') else 0o644)
     for state in ['ready','degraded','offline','busy']:
-        name='icons/kite-'+state+'.svg';files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o644)
+        name='icons/kite-'+state+'.png';files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o644)
     prefix='kite-host-'+version+'-linux-x86_64'
     with destination.open('wb') as raw:
         with gzip.GzipFile(filename='',mode='wb',fileobj=raw,mtime=0) as compressed:

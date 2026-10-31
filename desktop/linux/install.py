@@ -22,7 +22,7 @@ def main():
     atomic(release/'kite-node',binary.read_bytes(),0o700)
     for name in ['desktop.py','strings.json']:atomic(release/name,(ROOT/name).read_bytes(),0o700 if name.endswith('.py') else 0o600)
     for state in ['ready','degraded','offline','busy']:
-        name='icons/kite-'+state+'.svg';atomic(release/name,(ROOT/name).read_bytes(),0o644)
+        name='icons/kite-'+state+'.png';atomic(release/name,(ROOT/name).read_bytes(),0o644)
     link=home/'.local/bin/kite-node';link.parent.mkdir(parents=True,exist_ok=True)
     pending=link.with_name('kite-node.new');pending.unlink(missing_ok=True);pending.symlink_to(release/'kite-node');pending.replace(link)
     gui=home/'.local/bin/kite-desktop'
@@ -52,7 +52,7 @@ def main():
     atomic(unit,contents.encode())
     entry=home/'.local/share/applications/io.github.wenshiqi0.Kite.desktop'
     desktop_quote=lambda path:'"'+str(path).replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
-    desktop_entry='[Desktop Entry]\nType=Application\nName=Kite\nComment=Kite Linux host services\nExec='+desktop_quote(gui)+'\nIcon='+str(release/'icons/kite-ready.svg')+'\nTerminal=false\nCategories=Network;RemoteAccess;\n'
+    desktop_entry='[Desktop Entry]\nType=Application\nName=Kite\nComment=Kite Linux host services\nExec='+desktop_quote(gui)+'\nIcon='+str(release/'icons/kite-ready.png')+'\nTerminal=false\nCategories=Network;RemoteAccess;\n'
     atomic(entry,desktop_entry.encode(),0o644)
     autostart=home/'.config/autostart/io.github.wenshiqi0.Kite.desktop'
     # The launcher path is stable across upgrades. Preserve user opt-out/customization.

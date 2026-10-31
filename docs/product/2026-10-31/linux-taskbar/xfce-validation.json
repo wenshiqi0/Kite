@@ -8,5 +8,6 @@
   "recovered": true,
   "singleInstance": true,
   "sameWindowReopened": true,
-  "backgroundServicesUntouched": true
+  "backgroundServicesUntouched": true,
+  "externalPixbufModulesDisabled": true
 }

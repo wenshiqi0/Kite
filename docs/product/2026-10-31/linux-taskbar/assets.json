@@ -1,17 +1,17 @@
 [
   {
     "file": "degraded.png",
-    "bytes": 41768,
-    "sha256": "73521e45d289ec9e8bdbb1fb16b894f15192fd80c8392496e52fc295d3a41fe9"
+    "bytes": 41705,
+    "sha256": "f81be09b228b4b4d8da95f28dcbad150c24a8c0be758ada72e655ee4e5059f7f"
   },
   {
     "file": "offline.png",
-    "bytes": 35229,
-    "sha256": "5980e448e23742fc2f2ac5ffca47820347625897a8d4626e89bc4edcd3bf8b38"
+    "bytes": 35166,
+    "sha256": "e41a99d216c49d504dc038fb99322fbc1efd727124397e8b9aa8c29e9e5f5a5c"
   },
   {
     "file": "ready.png",
-    "bytes": 41220,
-    "sha256": "d5825256079dabe17e04f5bdc5db75a46e8f98a158712558ec416b52cc6abce0"
+    "bytes": 41157,
+    "sha256": "6be603ffcefd0e4e3a43bb492d9fd6ec94a8cbcdf41f193a394bc068e76bad48"
   }
 ]

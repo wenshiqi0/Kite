@@ -10,8 +10,10 @@ An isolated CLI fixture drove real GTK widgets on wen.linux's Xfce/X11 desktop. 
 
 Screenshots show [normal](ready.png), [one inactive service](degraded.png) and [disconnected](offline.png) states. They contain owned fixture data. [Image digests](assets.json) identify the captures.
 
-A separate owned Xvfb desktop had no notification area. [Its check](no-tray-validation.json) confirms the panel opened automatically and remained accessible, with the same state/timeout/recovery and single-instance checks. The native probe is also required in trusted CI.
+A separate owned Xvfb desktop had no notification area. [Its check](no-tray-validation.json) confirms the panel opened automatically and remained accessible, with the same state/timeout/recovery and single-instance checks. Both checks passed with external GdkPixbuf modules disabled. Runtime icons are bundled PNG files; editable SVG sources stay in the repository. The same native probe is required in trusted CI with external image modules disabled.
 
 The Rust node test changes a controlled service from inactive to active through private IPC and verifies aggregate health changes from `degraded` to `ready`. Host-node tests (11), packaging, formatting and Clippy passed locally. The application API and adapter protocol remain 1 / 5. This reports local process/service state, not phone connectivity or end-to-end model/media health.
 
 Current tray support covers Xfce/X11 using GTK 3's platform adapter. Wayland/GNOME notification-area integration and macOS status menus remain pending. Public package hashes, trusted CI and deployment results are added after publication.
+
+The first immutable Alpha 18 tag failed [native CI](https://github.com/wenshiqi0/Kite/actions/runs/41194252453) before APK packaging because the minimal Ubuntu image had no SVG decoder. It was not published. The corrected Alpha 19 source uses PNG resources and retains the failed tag unchanged.
