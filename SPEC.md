@@ -102,7 +102,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 - 领域层和基础层不得依赖 `uniffi`、`jni`、`android_logger` 或任何平台 SDK 的绑定。
 - 只有 `kite-ffi` 可以使用 `#[uniffi::export]`、`uniffi::Record` 这类 UniFFI 宏。
 
-Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-app::host_node` 可选运行时，统一私有 IPC、服务策略、主机适配器和 MCP；新 CLI 只处理参数和退出码。Linux GTK 面板属于原生展示层，只调用结构化 CLI，不实现服务领域逻辑。节点只复用或启动明确配置的服务，不停止外部拥有的 provider、Herdr 或 Sunshine。
+Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-app::host_node` 可选运行时，统一私有 IPC、服务策略、主机适配器和 MCP；新 CLI 只处理参数和退出码。Linux GTK 面板属于原生展示层，只调用结构化 CLI，不实现服务领域逻辑。 常驻托盘与窗口共用同一状态轮询器；节点给出结构化服务健康状态，原生负责图标、文案、单实例窗口和登录自启动。关闭面板或退出托盘不得停止后台服务。节点只复用或启动明确配置的服务，不停止外部拥有的 provider、Herdr 或 Sunshine。
 - 只有 `kite-ffi` 可以写 `cfg(target_os = "android")` 或 `cfg(target_os = "ios")` 分支。
 
 ### 3.4 crate 内部约定

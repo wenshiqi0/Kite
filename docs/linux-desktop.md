@@ -20,6 +20,16 @@ Default service references are `herdr.service` and `app-dev.lizardbyte.app.Sunsh
 
 Alpha 17+ requires the live node. There is no automatic Python-direct fallback. Keep the same phone key, host address/port, trust and Sunshine pairing. Node installs `~/.local/lib/kite/backend-v5.py` and continues using the existing session catalogue, provider references, histories, owner registry and recovery leases. Earlier adapter files are left unchanged. Production sessions are not migrated to herdr-core.
 
+## Taskbar status
+
+Alpha 18 adds a resident icon in the X11 notification area. Green/check means the node is reachable and every configured service is active; amber/exclamation means a service is inactive or could not be inspected; red/cross means the node could not be reached. A clock badge indicates startup or a pending action. Tooltip text and the context menu show individual service states. These report local service health, rather than an established phone connection or a successful model/streaming request.
+
+Left-click opens the existing management window. Right-click offers **Open panel**, **Start host services**, **Refresh** and **Exit status UI (keep background services)**. Closing the panel hides it into the tray. Both surfaces share a three-second poll with a three-second timeout; failure clears the previous healthy state. Relaunching Kite reuses the same GUI instance.
+
+The installer creates `~/.config/autostart/io.github.wenshiqi0.Kite.desktop`, running `kite-desktop --background` at graphical login. Disable it in the desktop's startup settings or set `Hidden=true` in that file. Existing autostart preferences are preserved on upgrade. `kite-node.service` is independent of the graphical login and icon. `kite-desktop --quit` exits only the status UI.
+
+Tray support currently targets Xfce/X11, using GTK 3's X11 notification-area adapter. Without a tray, the management window opens automatically; closing it exits the GUI and leaves Node running. Wayland/GNOME tray integration remains pending. [RFC 0014](rfcs/0014-linux-host-node.md) records the platform boundary.
+
 ## Connection paths
 
 ```mermaid

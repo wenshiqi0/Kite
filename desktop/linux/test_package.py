@@ -10,7 +10,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(a.read_bytes(),b.read_bytes())
             with tarfile.open(a) as archive:
                 names=[Path(m.name).name for m in archive.getmembers()]
-                self.assertEqual(set(names),{'kite-node','host-manifest.json','desktop.py','install.py','strings.json','LICENSE'})
+                self.assertEqual(set(names),{'kite-node','host-manifest.json','desktop.py','install.py','strings.json','LICENSE',*[f'kite-{state}.svg' for state in ['ready','degraded','offline','busy']]})
                 manifest=json.load(archive.extractfile(next(m for m in archive.getmembers() if m.name.endswith('/host-manifest.json'))))
                 self.assertEqual(manifest['sourceCommit'],'a'*40);self.assertEqual(manifest['nodeApi'],1)
                 self.assertTrue(all(m.uid==0 and m.mtime==0 for m in archive.getmembers()))

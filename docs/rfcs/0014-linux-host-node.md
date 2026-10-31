@@ -1,6 +1,6 @@
 # RFC 0014：Linux Kite 桌面主机节点
 
-> 状态：已实现（Alpha 17） · 2026-10-31
+> 状态：已实现（主机 Alpha 17；托盘 Alpha 18） · 2026-10-31
 
 用户要求开始在 Linux 后端启用 Kite 桌面端。沿用已确认的历史、设备身份、SSH 信任、主机与 Sunshine 配对保留要求；APK 与后端同步升级。herdr-core 仍处于隔离评估，现有生产 Herdr TUI/provider owner 不迁移、不重启。
 
@@ -20,6 +20,14 @@
 当前 Python 适配器由节点安装为 `backend-v5.py`，继续使用原会话目录、注册表、provider 引用及恢复租约。旧文件属于已有安装，保持原样；新版 APK 不使用它们。服务探测、provider owner 恢复和真实聊天必须分别验证，单纯进程存在不算手机已切换。
 
 MCP 按 [2025-11-25 stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) 和 [tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) 协议实现，stdout 仅输出 JSON-RPC。桌面 GUI 与 MCP 共享同一常驻节点。
+
+## X11 常驻状态入口
+
+控制面板增加常驻托盘入口，采用当前受支持的 Xfce/X11 桌面自带的 [GTK 3 StatusIcon](https://docs.gtk.org/gtk3/class.StatusIcon.html)。这是当前 X11 平台适配；该 API 已被上游废弃，不以它声明 Wayland/GNOME 托盘支持，也不增加其他托盘协议的兼容回退。没有可用托盘时显示控制面板，关闭该窗口退出 GUI，后台节点继续运行。
+
+节点的 `status` 返回结构化 `health`（`ready` / `degraded`）：所有配置服务运行时为 `ready`，任一未运行或探测失败为 `degraded`。这反映本机服务运行状态，不表示手机已连接或模型/串流端到端可用。原生层负责启动中、节点不可达、图标与文案展示，不能把一次旧的成功状态保留成正常。托盘与可见窗口共用一个异步轮询器，3 秒刷新，状态调用超时 3 秒；命令执行期间显示处理中，完成后重新读取状态。
+
+使用 [Gtk.Application / Gio.Application](https://docs.gtk.org/gio/class.Application.html) 保证同一桌面会话只保留一个 GUI 和托盘。关闭面板隐藏到可用托盘；显式“退出状态栏”只结束 GUI。安装 [XDG 登录自启动入口](https://specifications.freedesktop.org/autostart/latest/)，已有的用户自启动设置原样保留。GUI 自启动与节点 systemd 服务的生命周期分开。
 
 ## 验收
 

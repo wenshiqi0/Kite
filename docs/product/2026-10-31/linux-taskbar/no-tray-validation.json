@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "embedded": false,
+  "ready": true,
+  "degraded": true,
+  "offlineClearsStaleState": true,
+  "timeout": true,
+  "recovered": true,
+  "singleInstance": true,
+  "sameWindowReopened": true,
+  "backgroundServicesUntouched": true
+}

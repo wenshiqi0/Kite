@@ -6,7 +6,7 @@ A native mobile companion for [herdr](https://github.com/herdrdev/herdr). Follow
 
 ## What you can do
 
-- Run a Linux host node with a native control panel; agents and host services continue when the panel closes.
+- Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.
 - See connection status on simple host cards, connect or enter a workspace, and edit settings separately.
 - Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
 - Keep complete synchronized conversation history, continue saved sessions, and archive them while their tasks keep running.

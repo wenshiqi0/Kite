@@ -1,5 +1,17 @@
 # Testing
 
+## Linux status UI
+
+On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:
+
+```sh
+cargo test -p kite-app --features host-node host_node:: --locked
+python3 -m unittest discover -s desktop/linux -p 'test_*.py'
+xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
+```
+
+The native probe uses an isolated CLI fixture. It verifies health transitions, stale-state clearing, timeout/recovery, menu actions and repeated launches. Without a tray it requires an automatically accessible window. On a supported Xfce/X11 desktop, run the probe in a private session bus with `--require-tray --evidence /path/to/owned-output` to additionally require a real embedded icon, hide/reopen the same window and record fixture screenshots. The probe does not stop real Herdr or Sunshine services. Trusted CI runs the missing-tray probe; actual Xfce results are recorded in [taskbar acceptance](product/2026-10-31/linux-taskbar/acceptance.md).
+
 ## Offline checks
 
 The domain and foundation suites use in-process SSH / HTTP fixtures and do not require an external host:

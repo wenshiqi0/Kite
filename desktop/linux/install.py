@@ -21,6 +21,8 @@ def main():
     release=home/'.local/lib/kite-desktop'/version;release.mkdir(parents=True,exist_ok=True,mode=0o700)
     atomic(release/'kite-node',binary.read_bytes(),0o700)
     for name in ['desktop.py','strings.json']:atomic(release/name,(ROOT/name).read_bytes(),0o700 if name.endswith('.py') else 0o600)
+    for state in ['ready','degraded','offline','busy']:
+        name='icons/kite-'+state+'.svg';atomic(release/name,(ROOT/name).read_bytes(),0o644)
     link=home/'.local/bin/kite-node';link.parent.mkdir(parents=True,exist_ok=True)
     pending=link.with_name('kite-node.new');pending.unlink(missing_ok=True);pending.symlink_to(release/'kite-node');pending.replace(link)
     gui=home/'.local/bin/kite-desktop'
@@ -49,7 +51,13 @@ def main():
     contents='[Unit]\nDescription=Kite desktop host node\nAfter=network.target '+units+'\nWants='+units+'\n\n[Service]\nType=simple\nExecStart='+quote(link)+' serve --config '+quote(config_path)+'\nRestart=on-failure\nRestartSec=2\nUMask=0077\nKillMode=process\n\n[Install]\nWantedBy=default.target\n'
     atomic(unit,contents.encode())
     entry=home/'.local/share/applications/io.github.wenshiqi0.Kite.desktop'
-    atomic(entry,('[Desktop Entry]\nType=Application\nName=Kite\nComment=Kite Linux host services\nExec="'+str(gui)+'"\nIcon=computer\nTerminal=false\nCategories=Network;RemoteAccess;\n').encode(),0o644)
+    desktop_quote=lambda path:'"'+str(path).replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
+    desktop_entry='[Desktop Entry]\nType=Application\nName=Kite\nComment=Kite Linux host services\nExec='+desktop_quote(gui)+'\nIcon='+str(release/'icons/kite-ready.svg')+'\nTerminal=false\nCategories=Network;RemoteAccess;\n'
+    atomic(entry,desktop_entry.encode(),0o644)
+    autostart=home/'.config/autostart/io.github.wenshiqi0.Kite.desktop'
+    # The launcher path is stable across upgrades. Preserve user opt-out/customization.
+    if not autostart.exists():
+        atomic(autostart,desktop_entry.replace('Exec='+desktop_quote(gui),'Exec='+desktop_quote(gui)+' --background').encode(),0o644)
     subprocess.run(['systemctl','--user','daemon-reload'],check=True)
     if args.enable:
         subprocess.run(['systemctl','--user','enable','--now','kite-node.service'],check=True)

@@ -388,8 +388,13 @@ impl Node {
                 for service in &self.config.services {
                     services.push(self.service(service).await);
                 }
+                let health = if services.iter().all(|service| service["active"] == true) {
+                    "ready"
+                } else {
+                    "degraded"
+                };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"version":version(),"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"services":services}),
+                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"services":services}),
                 )
             }
             "sessions" => {
@@ -626,6 +631,44 @@ mod tests {
         c.environment
             .insert("LD_PRELOAD".into(), "untrusted".into());
         assert!(c.validate().is_err());
+    }
+    #[tokio::test]
+    async fn status_health_tracks_a_stopped_service_and_its_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let mut c = config(root.path());
+        c.services = ["Herdr", "Sunshine"]
+            .into_iter()
+            .map(|name| Service {
+                name: name.into(),
+                unit: format!("{name}.service"),
+                external: true,
+            })
+            .collect();
+        c.systemctl = root.path().join("systemctl");
+        fs::write(
+            &c.systemctl,
+            b"#!/usr/bin/python3\nimport sys\nfrom pathlib import Path\nactive = 'Herdr.service' in sys.argv or Path(__file__).with_name('recovered').exists()\nprint('ActiveState=' + ('active' if active else 'inactive'))\nprint('MainPID=' + ('123' if active else '0'))\n",
+        )
+        .unwrap();
+        fs::set_permissions(&c.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = c.socket.clone();
+        let task = tokio::spawn(serve(c));
+        for _ in 0..100 {
+            if path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let status = rpc(&path, NodeRequest::new("status")).await.unwrap();
+        assert_eq!(status["health"], "degraded");
+        assert_eq!(status["services"][0]["active"], true);
+        assert_eq!(status["services"][1]["active"], false);
+        fs::write(root.path().join("recovered"), b"").unwrap();
+        let status = rpc(&path, NodeRequest::new("status")).await.unwrap();
+        assert_eq!(status["health"], "ready");
+        assert_eq!(status["services"][1]["active"], true);
+        task.abort();
+        let _ = task.await;
     }
     #[tokio::test]
     async fn private_socket_has_one_owner_and_recovers_after_listener_exit() {

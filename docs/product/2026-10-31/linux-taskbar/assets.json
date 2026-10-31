@@ -1,0 +1,17 @@
+[
+  {
+    "file": "degraded.png",
+    "bytes": 41768,
+    "sha256": "73521e45d289ec9e8bdbb1fb16b894f15192fd80c8392496e52fc295d3a41fe9"
+  },
+  {
+    "file": "offline.png",
+    "bytes": 35229,
+    "sha256": "5980e448e23742fc2f2ac5ffca47820347625897a8d4626e89bc4edcd3bf8b38"
+  },
+  {
+    "file": "ready.png",
+    "bytes": 41220,
+    "sha256": "d5825256079dabe17e04f5bdc5db75a46e8f98a158712558ec416b52cc6abce0"
+  }
+]
