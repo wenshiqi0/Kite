@@ -700,8 +700,9 @@ pub async fn download_attachment(ssh: &Session, file: &Attachment) -> Result<Vec
     tokio::time::timeout(Duration::from_secs(60), async {
         let mut stream = ssh
             .open_command(&helper_command(&format!(
-                "attachment-read --id {}",
-                quote(&file.id)
+                "attachment-read --id {} --name {}",
+                quote(&file.id),
+                quote(&file.name)
             )))
             .await?;
         stream.shutdown().await?;

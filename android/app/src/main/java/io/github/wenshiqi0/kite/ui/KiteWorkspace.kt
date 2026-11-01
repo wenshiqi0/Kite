@@ -396,7 +396,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     else if(composeReason==R.string.composer_backend_unavailable)TextButton(onClick={vm.engine.command{vm.engine.core.reloadComposer()}}){Text(stringResource(R.string.retry))}
                 }
                 if (state?.question?.blocking != true) {
-                AttachmentDrafts(vm, state?.composer?.uploads.orEmpty())
+                AttachmentDrafts(vm, state?.composer?.uploads.orEmpty(), onExternalActivityChanged = updatePip, inspect = ::pauseHistory)
                 Row(Modifier.widthIn(max=680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(horizontal=10.dp,vertical=6.dp).padding(bottom=6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }

@@ -141,7 +141,11 @@ async fn uploaded_attachment_headers_and_binary_payload_survive_authenticated_ss
     let header = serde_json::json!({"name":"notes.txt","size":bytes.len(),"sha256":hex::encode(openssl::sha::sha256(&bytes))});
     let mut response = format!("{header}\n").into_bytes();
     response.extend_from_slice(&bytes);
-    let command = helper_command(&format!("attachment-read --id {}", quote(&id)));
+    let command = helper_command(&format!(
+        "attachment-read --id {} --name {}",
+        quote(&id),
+        quote("notes.txt")
+    ));
     let (ssh, task) = fixture_command(command, response).await;
     let file = Attachment {
         id,
@@ -176,7 +180,11 @@ async fn uploaded_attachments_reject_changed_name_size_or_checksum() {
         let mut response = format!("{header}\n").into_bytes();
         response.extend_from_slice(bytes);
         let (ssh, task) = fixture_command(
-            helper_command(&format!("attachment-read --id {}", quote(&id))),
+            helper_command(&format!(
+                "attachment-read --id {} --name {}",
+                quote(&id),
+                quote("notes.txt")
+            )),
             response,
         )
         .await;

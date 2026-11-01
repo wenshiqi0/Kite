@@ -2,6 +2,7 @@ package io.github.wenshiqi0.kite.ui
 
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -80,13 +81,14 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
     else -> effort
 }
 
-@Composable fun AttachmentDrafts(vm: HostCheckViewModel, files: List<UploadInfo>) {
+@Composable fun AttachmentDrafts(vm: HostCheckViewModel, files: List<UploadInfo>, onExternalActivityChanged: () -> Unit = {}, inspect: () -> Unit = {}) {
     if (files.isEmpty() && !vm.copyingAttachments) return
+    var preview by remember { mutableStateOf<UploadInfo?>(null) }
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             files.forEach { upload ->
                 Surface(color = KiteColors.Surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.widthIn(max = 235.dp)) {
-                    Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.clickable(enabled = upload.localPath.isNotBlank()) { inspect(); preview = upload }.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         ProductIcon(attachmentMark(upload.file.mime), KiteColors.Muted, Modifier.size(20.dp))
                         Column(Modifier.widthIn(max = 154.dp).padding(start = 9.dp, top = 9.dp, bottom = 9.dp)) {
                             Text(upload.file.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -101,6 +103,8 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
         if (vm.copyingAttachments) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
         if (files.any { it.file.mime.startsWith("audio/") }) Text(stringResource(R.string.audio_attachment_hint), color = KiteColors.Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
     }
+    preview?.let { upload -> AttachmentPreview(vm, vm.engine.timeline.context, upload.file, onExternalActivityChanged, localFile = java.io.File(upload.localPath)) { preview = null } }
+
 }
 
 fun attachmentMark(mime: String) = when { mime.startsWith("image/") -> Mark.Image; mime.startsWith("audio/") -> Mark.Audio; else -> Mark.File }

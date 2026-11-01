@@ -80,7 +80,7 @@ fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onEx
 }
 
 @Composable
-private fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, attachment: AttachmentInfo, updatePip: () -> Unit, close: () -> Unit) {
+internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, attachment: AttachmentInfo, updatePip: () -> Unit, localFile: File? = null, close: () -> Unit) {
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
     val kind=remember(attachment.mime,attachment.name){attachmentPreviewKind(attachment.mime,attachment.name)}
@@ -90,10 +90,10 @@ private fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, atta
     var truncated by remember(conversation,attachment.id){mutableStateOf(false)}
     var failed by remember(conversation,attachment.id){mutableStateOf(false)}
     var attempt by remember(conversation,attachment.id){mutableIntStateOf(0)}
-    LaunchedEffect(conversation,attachment.id,attempt) {
+    LaunchedEffect(conversation,attachment.id,attempt,localFile?.path) {
         failed=false
         try {
-            val file=vm.engine.messageAttachment(conversation,attachment)
+            val file=localFile ?: vm.engine.messageAttachment(conversation,attachment)
             withContext(Dispatchers.IO) {
                 if(kind==AttachmentPreviewKind.Image) bitmap=decodeGeneratedImage(file)
                 if(kind==AttachmentPreviewKind.Text) {

@@ -453,16 +453,14 @@ def upload(identifier, name, size, digest):
         raise
 
 
-def read_uploaded_attachment(identifier, output):
+def read_uploaded_attachment(identifier, name, output):
     if not re.fullmatch(r"[a-f0-9]{32}", identifier or ""):
         raise ValueError("invalid attachment identity")
+    if not name or len(name.encode()) > 180 or name in (".", "..") or any(c in name for c in "/\\\0\r\n"):
+        raise ValueError("invalid attachment filename")
     root = private_dir(Path.home() / ".local/share/kite/uploads")
     descriptor = os.open(root / identifier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        names = os.listdir(descriptor)
-        if len(names) != 1:
-            raise ValueError("attachment is unavailable")
-        name = names[0]
         file_descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
         with os.fdopen(file_descriptor, "rb") as source:
             info = os.fstat(source.fileno())
@@ -1008,7 +1006,7 @@ def main():
         else:
             history_projection(args.file, sys.stdout.buffer, args.before, args.after)
     elif args.action == "attachment-read":
-        read_uploaded_attachment(args.id, sys.stdout.buffer)
+        read_uploaded_attachment(args.id, args.name, sys.stdout.buffer)
     elif args.action == "image-read":
         read_generated_image(args.id, sys.stdout.buffer)
     elif args.action == "session-facts":
