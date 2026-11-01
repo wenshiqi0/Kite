@@ -128,6 +128,21 @@ class WorkspaceRefinementPresentationTest {
         }
     }
 
+    @Test fun latestButtonUsesOnlyAnIconAndRetainsItsAccessibleTouchTarget() {
+        val clicks = java.util.concurrent.atomic.AtomicInteger()
+        overlay({ Box(Modifier.fillMaxSize(), contentAlignment=androidx.compose.ui.Alignment.Center) { LatestMessageButton({clicks.incrementAndGet()}) } }) {
+            waitFor("Accessible latest action"){find(description="回到最新消息")!=null}
+            assertNull(find(text="回到最新"))
+            val box=bounds("回到最新消息")
+            val density=test.targetContext.resources.displayMetrics.density
+            assertEquals(48f,box.width()/density,1f)
+            assertEquals(48f,box.height()/density,1f)
+            assertTrue(actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Jump action fires once"){clicks.get()==1}
+            screenshot("latest-icon-only.png",box)
+        }
+    }
+
     @Test fun answeredQuestionsKeepPromptsAboveDistinctAnswerPanels() {
         val replies = listOf(
             QuestionReplyInfo("owned-q1", "你希望更新到哪个 `main` 分支？", "更新最新版本"),

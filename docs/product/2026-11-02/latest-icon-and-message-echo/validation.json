@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "rustWorkspaceTests": 139,
+  "androidJvmTests": 65,
+  "clippy": "all targets, warnings denied",
+  "androidLint": "Release",
+  "nativeUi": {
+    "api": 36,
+    "abi": "x86_64",
+    "variant": "debug harness, bindings generated from same library",
+    "tests": 2,
+    "iconTouchSizeDp": 48,
+    "visibleLabel": false,
+    "accessibleDescription": "回到最新消息",
+    "jumpClickCount": 1
+  },
+  "messageEchoRegression": {
+    "tests": 6,
+    "simultaneousSchedules": 100,
+    "cases": [
+      "echo before successful-send callback",
+      "send before echo",
+      "prepared old history projection after acknowledgement",
+      "two intentional identical sends",
+      "host and message role isolation",
+      "paired question metadata retention"
+    ]
+  },
+  "realModelTurns": 0
+}

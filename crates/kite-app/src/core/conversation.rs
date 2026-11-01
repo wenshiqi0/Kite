@@ -471,7 +471,7 @@ impl AppCore {
                 && s.selected_session == snapshot.selected_session
                 && s.selected_agent == snapshot.selected_agent
             {
-                s.replace_shared_conversation(present, true);
+                self.publish_conversation(s, present, true);
                 s.history_status = status;
             }
         });
@@ -587,7 +587,7 @@ impl AppCore {
                         return;
                     }
                     if let Some(messages) = messages {
-                        s.replace_shared_conversation(messages, true);
+                        core.publish_conversation(s, messages, true);
                     }
                     s.history_status = status;
                 });

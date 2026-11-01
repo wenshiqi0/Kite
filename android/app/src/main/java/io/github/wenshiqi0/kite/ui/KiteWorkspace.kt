@@ -373,9 +373,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         if(state.history.failed)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试")}
                     }
                 }
-                if(!followTail&&latestVisible&&entries.isNotEmpty())Surface(onClick=::jumpToLatest,color=KiteColors.AccentSurface,shape=RoundedCornerShape(24.dp),modifier=Modifier.align(Alignment.BottomEnd).padding(8.dp).heightIn(min=48.dp).semantics(mergeDescendants=true){contentDescription="回到最新消息";onClick{jumpToLatest();true}}){
-                    Row(Modifier.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){ProductIcon(Mark.Chevron,Blue,Modifier.size(18.dp));Text(stringResource(R.string.history_latest),color=Blue,fontSize=12.sp)}
-                }
+                if(!followTail&&latestVisible&&entries.isNotEmpty())LatestMessageButton(::jumpToLatest,Modifier.align(Alignment.BottomEnd).padding(8.dp))
+
                 }
                 Column(Modifier.fillMaxWidth().onSizeChanged{footerHeight=with(density){it.height.toDp()}}){
                 if (currentSession != null && (currentSession.archived || agent == null)) {

@@ -39,6 +39,7 @@ pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
 mod notifications;
+mod pending;
 mod sessions;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
@@ -276,6 +277,7 @@ struct PendingMessage {
     key: String,
     message: Message,
     previous: BTreeSet<String>,
+    receipt: Option<MessageRef>,
 }
 
 pub struct AppCore {
@@ -1017,34 +1019,6 @@ impl AppCore {
                 lock(&self.paused_processes).get(&base).cloned(),
             )
         };
-        let key = format!("{base}/{}", source_key(&agent));
-        let mut messages = history.messages.clone();
-        {
-            let mut pending = lock(&self.pending_messages);
-            let mut matched = BTreeSet::new();
-            pending.retain(|p| {
-                if p.key != key {
-                    return true;
-                }
-                if let Some(found) = messages.iter().find(|m| {
-                    m.role == Role::User
-                        && m.text == p.message.text
-                        && !p.previous.contains(&m.id)
-                        && !matched.contains(&m.id)
-                }) {
-                    matched.insert(found.id.clone());
-                    false
-                } else {
-                    true
-                }
-            });
-            messages.extend(
-                pending
-                    .iter()
-                    .filter(|p| p.key == key)
-                    .map(|p| p.message.clone()),
-            );
-        }
         if self.generation.load(Ordering::SeqCst) != generation
             || self.snapshot().selected_agent.as_deref() != Some(selected)
             || self
@@ -1056,7 +1030,7 @@ impl AppCore {
         {
             return;
         }
-        self.present_history(&history, messages);
+        self.present_history(&history, history.messages.clone());
         self.update(|s| {
             if s.selected_agent.as_deref() == Some(selected) {
                 s.agent_output = text;
@@ -1699,21 +1673,17 @@ impl AppCore {
                     tool: None,
                     question_replies: Vec::new(),
                 };
-                let mut pending = lock(&core.pending_messages);
-                if pending.len() >= 32 {
-                    pending.remove(0);
-                }
-                pending.push(PendingMessage {
-                    key: format!("{}/{}/{}", c.host.id, id, source_key(&agent)),
-                    message: message.clone(),
-                    previous,
-                });
-                drop(pending);
                 core.update(|s| {
-                    if s.selected_agent.as_deref() == Some(&id) {
-                        let mut messages = s.conversation.as_ref().clone();
-                        messages.push(Arc::new(message));
-                        s.replace_shared_conversation(messages, true);
+                    if core.generation.load(Ordering::SeqCst) == generation {
+                        core.stage_pending_message(
+                            s,
+                            PendingMessage {
+                                key: format!("{}/{}/{}", c.host.id, id, source_key(&agent)),
+                                message,
+                                previous,
+                                receipt: None,
+                            },
+                        );
                     }
                 });
             }
@@ -1876,31 +1846,24 @@ impl AppCore {
                 .iter()
                 .map(|m| m.id.clone())
                 .collect::<BTreeSet<_>>();
-            let already_synced = core.snapshot().conversation.iter().any(|m| {
-                m.role == Role::User && m.text == message.text && !previous.contains(&m.id)
-            });
-            if !already_synced {
-                let mut pending = lock(&core.pending_messages);
-                if pending.len() >= 32 {
-                    pending.remove(0);
-                }
-                pending.push(PendingMessage {
-                    key: format!("{}/{}/{}", c.host.id, id, source_key(agent)),
-                    message: message.clone(),
-                    previous,
-                });
-            }
             let runtime = client.runtime();
             core.update(|s| {
+                if core.generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
                 if s.selected_agent.as_ref() == Some(&id) {
                     s.question = runtime.question();
                     s.response_activity = runtime.phase();
-                    if !already_synced {
-                        let mut messages = s.conversation.as_ref().clone();
-                        messages.push(Arc::new(message));
-                        s.replace_shared_conversation(messages, true);
-                    }
                 }
+                core.stage_pending_message(
+                    s,
+                    PendingMessage {
+                        key: format!("{}/{}/{}", c.host.id, id, source_key(agent)),
+                        message,
+                        previous,
+                        receipt: None,
+                    },
+                );
             });
             Ok(())
         })
