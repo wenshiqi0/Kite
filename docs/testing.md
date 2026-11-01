@@ -150,3 +150,8 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 `ChatTimelineTest` and `ChatTimelineStateTest` now require non-tool assistant text to remain outside collapsed tool groups. The incremental case first shows commentary, appends a tool, updates history and resets the mirror; the text remains a Message row throughout. `CreditExpiryTest` covers countdown boundaries. Rust `usage` tests cover authoritative reset-card counts, complete/partial/absent expiration details, duplicate/redeemed rows, rolling updates, stale data and account switches.
 
 `WorkspaceRefinementPresentationTest` adds native cases for visible public commentary beside collapsed tools, card counts/countdowns and unavailable expiry. These cases are compiled in PR CI; device execution is separate. [Finding and acceptance scope](product/2026-11-01/readable-progress-and-cards/acceptance.md).
+
+
+## Pending questions and latest navigation
+
+`ResponsePresentationTest` requires question/approval attention to override thinking/tool/responding presentation and restores the actual phase after resolution. Native presentation adds the explicit waiting label. `ChatTailMarginTest` uses 240/96 dp thresholds and replays tall historical user answers, negative scroll deltas, real tail/spacer bounds, added footer rows, growing replies, invalid layouts and transient cannot-scroll flags. Once visible, the button can hide only on a measured tail inside the buffer or an explicit reset. The guarded native drag uses the enlarged show threshold. [Finding and acceptance scope](product/2026-11-01/question-wait-and-tail/acceptance.md).
