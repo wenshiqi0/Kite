@@ -21,3 +21,7 @@ Rust tests include real authenticated SSH attachment framing and rejection of ch
 ## Combined check results
 
 Local checks pass: 125 Rust tests, Clippy, 33 backend tests, 8 publisher tests and 5 installer tests. The isolated real-systemd upgrade probe passes with atomic heartbeat writes. The new main-branch desktop stress check exposed dropped Unicode input on the owned GTK target; non-ASCII dispatch uses 24 ms pacing and fixture observations avoid synchronous per-key geometry/file I/O. One private Xvfb run passed, but an independent confirmation run still lost a character in the short sample. The 24 ms candidate is therefore not accepted as a complete input fix; validation remains open. The Android preview/Markdown source passed the earlier PR compilation and JVM cases; the final retained-draft changes are also checked by the trusted release build.
+
+## Focus-ready confirmation
+
+The confirmation failure was retained in the record. The owned fixture previously advertised geometry before its scheduled 200 ms focus initialization finished; input could race that later focus operation. It now advertises an explicit `input_ready` state only after focus setup, and the probe waits for it. The combination of that ready gate, lightweight fixture observation and 24 ms non-ASCII pacing passes three consecutive complete private Xvfb runs, including exact short and maximum-length text hashes and all existing MCP/desktop assertions. Earlier Alpha 36 publication was cancelled; its immutable tag is retained. The final release is Alpha 37.

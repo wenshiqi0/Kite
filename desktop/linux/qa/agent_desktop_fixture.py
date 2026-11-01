@@ -62,5 +62,5 @@ window.connect('destroy',stop);signal.signal(signal.SIGTERM,stop)
 window.show_all();window.present();entry.grab_focus()
 def focus():
     # This fixture owns this window. Allows headless X11 tests without a WM.
-    x.XSetInputFocus(display,window.get_window().get_xid(),1,0);x.XSync(display,0);save();return False
+    x.XSetInputFocus(display,window.get_window().get_xid(),1,0);x.XSync(display,0);state['input_ready']=True;save();return False
 GLib.timeout_add(200,focus);GLib.timeout_add(100,save);Gtk.main()

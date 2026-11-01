@@ -73,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix='kite-desktop-api-') as directory:
         wait_for(lambda:socket.exists(),'private listener readiness')
         status=cli('status');assert status['available'] and status['width']>0
         launched=cli('launch','--','/usr/bin/python3',source/'agent_desktop_fixture.py','--state',state);fixture_pid=launched['pid']
-        wait_for(lambda:state.exists() and 'tile' in fixture(),'owned window readiness')
+        wait_for(lambda:state.exists() and 'tile' in fixture() and fixture().get('input_ready'),'owned window and focus readiness')
         assert fixture()['manager_environment_cleared']
         own_focus();entry=fixture()['entry'];cli('click',entry['x']+10,entry['y']+entry['height']//2)
         own_focus();cli('key','ctrl+a');cli('type','--stdin',stdin='Kite 你好 19')
