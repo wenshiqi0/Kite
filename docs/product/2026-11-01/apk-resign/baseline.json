@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0-alpha.26",
+  "bytes": 21672379,
+  "sha256": "c778618162661a8f19d897b82dcbf43656bba6b87666dd5cba9e39c13c836f4c",
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "validFrom": "2026-10-28T19:36:25+08:00",
+  "validUntil": "2054-03-15T19:36:25+08:00",
+  "physicalPhoneInstallerCode": -103,
+  "physicalPhoneRootCause": "unconfirmed",
+  "freshResignRequested": true
+}

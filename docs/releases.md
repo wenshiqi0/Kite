@@ -67,6 +67,8 @@ python3 android/scripts/release-alpha.py --notes-file /absolute/path/release-not
 
 The command pushes the source branch and annotated tag, waits for the tag workflow, and reports the published Release URL. The tagged CI build is the publication authority; local builds do not race it to upload a different APK.
 
+Alpha 27+ also runs a final explicit SDK `apksigner` pass using the same certificate after alignment, with environment-only passwords and a non-signing-payload equality guard. No APK mutation is permitted after this final signing step. This is an installer diagnostic change, not a new signing identity or a confirmed fix for a specific handset failure.
+
 The build verifies the APK's version, non-debuggable Release variant, ABI, signature and pinned certificate. The publish job checks the source commit and checksums, uploads a draft prerelease, downloads every asset to verify its bytes, and then publishes it. An existing tag cannot move to another commit, and existing release assets cannot be replaced with different bytes.
 
 If a publish step is interrupted, rerun that failed job from GitHub Actions so it reuses the same verified build artifact. If source or artifact content changes, use a new Alpha version.

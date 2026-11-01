@@ -3,6 +3,8 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import unittest
+import tempfile
+import zipfile
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("release_alpha", Path(__file__).with_name("release-alpha.py"))
@@ -11,6 +13,41 @@ spec.loader.exec_module(release_alpha)
 
 
 class DraftPublicationTests(unittest.TestCase):
+    def test_explicit_resign_preserves_payload_and_uses_password_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); built = root / "built.apk"; output = root / "signed.apk"
+            with zipfile.ZipFile(built, "w") as archive:
+                archive.writestr("AndroidManifest.xml", b"unchanged application")
+                archive.writestr("META-INF/CERT.SF", b"old signature")
+            def align(*args):
+                Path(args[-1]).write_bytes(built.read_bytes())
+                return ""
+            def sign(command, **kwargs):
+                with zipfile.ZipFile(output, "w") as archive:
+                    archive.writestr("AndroidManifest.xml", b"unchanged application")
+                    archive.writestr("META-INF/CERT.SF", b"fresh signature")
+                return subprocess.CompletedProcess(command, 0, "", "")
+            signing = {"store.password": "test-store-password", "key.password": "test-key-password", "key.alias": "existing"}
+            with patch.object(release_alpha, "run", side_effect=align), patch.object(release_alpha.subprocess, "run", side_effect=sign) as signed:
+                release_alpha.resign_apk(built, output, Path("tools"), root / "stable.keystore", signing)
+            command = signed.call_args.args[0]
+            self.assertNotIn("test-store-password", command)
+            self.assertNotIn("test-key-password", command)
+            self.assertEqual(signed.call_args.kwargs["env"]["KITE_APK_STORE_PASSWORD"], "test-store-password")
+            for version in (1, 2, 3):
+                self.assertEqual(command[command.index(f"--v{version}-signing-enabled") + 1], "true")
+            self.assertEqual(command[command.index("--v4-signing-enabled") + 1], "false")
+            self.assertEqual(release_alpha.apk_payload(built), release_alpha.apk_payload(output))
+
+    def test_payload_guard_includes_dependency_metadata_but_excludes_signatures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / "app.apk"
+            with zipfile.ZipFile(apk, "w") as archive:
+                archive.writestr("classes.dex", b"application")
+                archive.writestr("META-INF/dependency.version", b"must be preserved")
+                archive.writestr("META-INF/CERT.RSA", b"signature")
+            self.assertEqual(set(release_alpha.apk_payload(apk)), {"classes.dex", "META-INF/dependency.version"})
+
     def test_verified_release_requires_all_signature_schemes_and_native_alignment(self):
         certificate = "f" * 64
         signature = "\n".join([f"Verified using v{v} scheme (test): {'false' if v == 1 else 'true'}" for v in (1, 2, 3)]) + f"\nSigner #1 certificate SHA-256 digest: {certificate}"

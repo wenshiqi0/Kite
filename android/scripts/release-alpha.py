@@ -7,10 +7,10 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 import tempfile
 import sys
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,6 +34,37 @@ def clean_tree():
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def apk_payload(apk):
+    """Signing entries may change; application contents must remain identical."""
+    with zipfile.ZipFile(apk) as archive:
+        require(archive.testzip() is None, "APK ZIP CRC verification failed.")
+        names = archive.namelist()
+        require(len(names) == len(set(names)), "APK contains duplicate ZIP entries.")
+        return {name: hashlib.sha256(archive.read(name)).hexdigest() for name in names
+                if not re.fullmatch(r"META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))", name, re.IGNORECASE)}
+
+
+def resign_apk(built, apk, tools, keystore, signing):
+    """Fresh SDK signatures using the existing certificate, without exposing passwords."""
+    before = apk_payload(built)
+    with tempfile.TemporaryDirectory(prefix="kite-apk-sign-") as temporary:
+        aligned = Path(temporary) / "aligned.apk"
+        run(str(tools / "zipalign"), "-f", "-P", "16", "4", str(built), str(aligned))
+        environment = os.environ.copy()
+        environment["KITE_APK_STORE_PASSWORD"] = signing["store.password"]
+        environment["KITE_APK_KEY_PASSWORD"] = signing["key.password"]
+        command = [str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                   "--ks-key-alias", signing["key.alias"],
+                   "--ks-pass", "env:KITE_APK_STORE_PASSWORD",
+                   "--key-pass", "env:KITE_APK_KEY_PASSWORD",
+                   "--v1-signer-name", "CERT", "--v1-signing-enabled", "true",
+                   "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
+                   "--v4-signing-enabled", "false", "--out", str(apk), str(aligned)]
+        subprocess.run(command, cwd=ROOT, env=environment, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    require(apk_payload(apk) == before, "Re-signing changed the application payload.")
 
 
 def release_info(repo, tag):
@@ -178,7 +209,7 @@ def main():
         built = ROOT / "android/app/build/outputs/apk/release/app-release.apk"
         require(built.is_file(), "Signed release APK was not produced.")
         output.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(built, apk)
+        resign_apk(built, apk, tools, keystore, signing)
         run("cargo", "build", "--release", "--locked", "-p", "kite-node", capture=False)
         target = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
         host_binary = target / "release/kite-node"
@@ -192,6 +223,7 @@ def main():
                     "variant": "release", "debuggable": False, "abis": abis,
                     "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
                     "signingCertificateSha256": certificate, "signingSchemes": [1, 2, 3],
+                    "apkSigningStep": "explicit-sdk-resign", "applicationPayloadUnchangedByResign": True,
                     "zipAlignmentKiB": 16, "androidLint": "passed"}
         manifest["linuxHostNode"] = {"asset": linux_host.name, "bytes": linux_host.stat().st_size,
             "sha256": digest(linux_host), "target": "x86_64-unknown-linux-gnu", "nodeApi": 1, "backendProtocol": 5}
