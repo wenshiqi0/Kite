@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "version": "0.2.0-alpha.35",
+  "sourceCommit": "2c780b629cfa28a88932f223650b6f38065f72e7",
+  "localTestBuild": true,
+  "publishedRelease": false,
+  "nodeHealthy": true,
+  "retainedOwners": 11,
+  "ownerBaseline": 11,
+  "externalServicePidsRetained": {
+    "Herdr": true,
+    "Sunshine": true
+  },
+  "configurationUnchanged": true,
+  "kiteAliasInstalled": true,
+  "sharedSkillMatches": {
+    "shared": true,
+    "claude": true
+  },
+  "desktop": {
+    "available": true,
+    "backend": "x11",
+    "display": ":10",
+    "width": 1920,
+    "height": 1080,
+    "input_available": true
+  },
+  "conditionalDocsVerified": true,
+  "harnessConfigurationsChanged": false,
+  "capturedAt": "2026-11-01T13:28:13.227645+00:00"
+}
