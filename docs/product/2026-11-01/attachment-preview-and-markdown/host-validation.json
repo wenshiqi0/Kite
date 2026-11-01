@@ -1,0 +1,15 @@
+{
+  "installedHostVersion": "0.2.0-alpha.38",
+  "configAndIdentityRetained": true,
+  "externalServicePidsRetained": true,
+  "herdrReadOnlyPingsBeforeAndAfter": true,
+  "herdrBridgeIsOneShot": true,
+  "liveBridgeRetentionOnProductionNotAsserted": true,
+  "attachmentRoundTrips": [
+    "txt",
+    "wav",
+    "received-jpeg"
+  ],
+  "modelTurnSubmitted": false,
+  "userCatalogueRestored": false
+}

@@ -33,3 +33,13 @@ Cloud runs still lost characters after the focus/pacing-only candidate, so Alpha
 ## Final integrated source check
 
 The [full PR check](https://github.com/wenshiqi0/Kite/actions/runs/41318210699) passes with the concurrently merged Skill-picker source: Rust/Clippy, host/backend/publisher tests, real owned X11/MCP input (including distinct Unicode and keymap restoration), documentation budgets, real user-systemd handover, Android Release/lint/JVM and instrumentation-source compilation. Local shared-core validation now covers 130 Rust tests. This is not Android device execution.
+
+## Published Alpha 38 and installed host
+
+[Alpha 38 compatibility APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.38/kite-0.2.0-alpha.38-arm64-v8a-compat-v2.apk), versionCode 40, is published from `7442493b55127053f11ec24aa0e6a6028d6a1862`. [Main CI](https://github.com/wenshiqi0/Kite/actions/runs/41318883534), [tag publication](https://github.com/wenshiqi0/Kite/actions/runs/41318889186) and the integrated PR check pass. The downloaded primary/compatibility APKs have the original certificate, identical non-signing payloads and verified API-36 v3/v2 paths respectively. All public checksums and native alignment match; the APK contains the new preview, Markdown and tail-presentation classes. [Exact bytes](published-release.json).
+
+The matching public host package is installed through the documented live installer. Config/identity assertions and external Herdr/Sunshine PID checks pass. Read-only real Herdr pings work before and after. An attempted reuse of that Herdr API bridge was an invalid validation method: each real bridge handles one RPC and naturally exits. The corrected check opens a new one-shot bridge; production long-lived connection retention is not asserted from that test. Owned CI handover checks provide the controlled long-lived-stream evidence.
+
+New installed attachment reads return exact UTF-8 text and WAV fixture bytes and the received JPEG's original bytes. Only owned fixture upload directories were removed. No model turn was submitted, no catalogue backup restored, and no keys/tokens or user screenshot content are published. [Host verification](host-validation.json).
+
+Android phone installation, image pinch/pan, audio output/focus and text interaction remain device-execution acceptance; compilation, JVM regressions and real host transfers must not be presented as handset UI execution. Earlier unpublished candidate tags are retained unchanged.
