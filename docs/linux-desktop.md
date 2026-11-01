@@ -7,8 +7,8 @@ Kite's Linux desktop host includes a persistent Rust **Kite Node** and a native 
 Download the Linux x86_64 archive from the same [Alpha release](https://github.com/wenshiqi0/Kite/releases) as Android and check it against `SHA256SUMS`. The package targets GNU/Linux x86_64, built on Ubuntu 24.04. Python 3, GTK 3, a systemd user manager, Herdr and Sunshine must already be installed. Linux X11 is the current supported capture path.
 
 ```sh
-tar -xzf kite-host-0.2.0-alpha.26-linux-x86_64.tar.gz
-cd kite-host-0.2.0-alpha.26-linux-x86_64
+tar -xzf kite-host-0.2.0-alpha.28-linux-x86_64.tar.gz
+cd kite-host-0.2.0-alpha.28-linux-x86_64
 python3 install.py --enable
 ~/.local/bin/kite-node status
 ~/.local/bin/kite-desktop
@@ -19,6 +19,8 @@ Install as the desktop/SSH user without sudo. The installer checks the binary ag
 Default service references are `herdr.service` and `app-dev.lizardbyte.app.Sunshine.service`. Active services are reused without changing their processes or configuration. For custom unit/executable names, edit the corresponding configuration fields and restart only `kite-node.service`. **Start host services** starts configured inactive services; the panel does not stop external services. **Close panel** only closes the GUI.
 
 Alpha 17+ requires the live node. There is no automatic Python-direct fallback. Keep the same phone key, host address/port, trust and Sunshine pairing. Node installs `~/.local/lib/kite/backend-v5.py` and continues using the existing session catalogue, provider references, histories, owner registry and recovery leases. Earlier adapter files are left unchanged. Production sessions are not migrated to herdr-core.
+
+Host agent notifications and optional private FCM sender configuration are documented in [Agent notifications](notifications.md).
 
 ## Taskbar status
 

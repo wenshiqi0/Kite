@@ -38,6 +38,8 @@ class AgentNotificationTest {
             java.io.File(context.getExternalFilesDir(null),"agent-notification-drawer.png").outputStream().use{test.uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
             notifier.enable(false)
             assertFalse(notifier.deliver(notice))
+            val cancelDeadline=android.os.SystemClock.uptimeMillis()+2_000
+            while(manager.activeNotifications.any{it.tag==id}&&android.os.SystemClock.uptimeMillis()<cancelDeadline)android.os.SystemClock.sleep(20)
             assertFalse(manager.activeNotifications.any{it.tag==id})
             assertTrue(manager.activeNotifications.any{it.tag=="owned-connection"})
         }finally{

@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "criticalIdentityFilesRetained": 2,
+  "mainAppAndDataRetained": true,
+  "testHarnessRemoved": true,
+  "ownedDownloadsAndUiDumpRemoved": true,
+  "ownedLocalCatalogueAndNoticeRemoved": true,
+  "primaryDirtyFilesPreserved": 5
+}

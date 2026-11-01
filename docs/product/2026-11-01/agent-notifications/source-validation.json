@@ -1,0 +1,13 @@
+{
+  "rustTests": 106,
+  "backendTests": 21,
+  "publisherTests": 6,
+  "linuxPackageTests": 1,
+  "jvmTests": 52,
+  "nativeCompile": "PASS",
+  "releaseLint": "PASS",
+  "instrumentationCompile": "PASS",
+  "clippy": "PASS",
+  "ffiAndBindingsGeneratedTogether": true,
+  "realFcmDelivery": "PENDING_EXTERNAL_PROJECT_AND_DEVICE_CONFIG"
+}

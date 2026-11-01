@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "coldProcessAbsent": true,
+  "actualNotificationTap": true,
+  "hostId": "host-cc392945e14685cb",
+  "sessionId": "d276aa46d474f62e2faf8754d97bf638",
+  "ownedReplyRendered": true,
+  "forceStopped": false,
+  "realFcmDelivery": false
+}

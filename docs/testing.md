@@ -1,5 +1,11 @@
 # Testing
 
+## Agent notifications
+
+Rust notification tests cover transition provenance, fast Codex turns, persistence/deduplication, cursors, private token rotation/revocation and independent storage failures. Backend tests check lifecycle fact privacy and bounded FCM responses/retry without network calls. `AgentNotificationTest` uses the real Android NotificationManager and requires granted POST_NOTIFICATIONS; cancellation assertions await Android's asynchronous propagation. `LiveAgentNotificationTest` is opt-in (`qa_notifications=true`) and guarded to the owned emulator SSH profile and exact Alpha 28 QA cwd. It creates one disposable Codex conversation and one tool-free turn, checks a durable completion event, actual system posting and PendingIntent return, then prepares an existing event for an external cold-start tap. Remove temporary authorization and only those owned resources afterward.
+
+The exact public-APK results and the distinction between connected notifications, cold-start navigation and actual FCM process-reclamation delivery are recorded in [Alpha 28 acceptance](product/2026-11-01/agent-notifications/acceptance.md). Full system-push acceptance requires a real configured project/device, not an injected callback.
+
 ## Chat allowance and input refinements
 
 `ChatTailMarginTest` checks native scroll thresholds. Rust `usage` tests cover provider facts, missing data, account/notification races and stale results. `WorkspaceRefinementPresentationTest` renders synthetic allowance cards and checks the real workspace's scroll affordance, editor bounds and native text changes; its history case requires `qa_native_history=true`, injects only a native display mirror and restores it from Rust afterward.
