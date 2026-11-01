@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "fromVersion": "0.2.0-alpha.28",
+  "toVersion": "0.2.0-alpha.29",
+  "entryCount": 203,
+  "groups": {
+    "nativeLibraries": {
+      "count": 4,
+      "identical": true
+    },
+    "dex": {
+      "count": 3,
+      "identical": true
+    },
+    "resources": {
+      "count": 95,
+      "identical": true
+    }
+  },
+  "changedEntries": [
+    "AndroidManifest.xml",
+    "META-INF/CERT.SF",
+    "META-INF/CERT.RSA",
+    "META-INF/MANIFEST.MF"
+  ]
+}
