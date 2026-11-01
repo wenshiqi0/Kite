@@ -1,0 +1,52 @@
+{
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.39",
+  "sourceCommit": "085fa0acaff717bcbc3581d679db31839c2197bd",
+  "versionCode": 41,
+  "compatibilityDownload": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.39/kite-0.2.0-alpha.39-arm64-v8a-compat-v2.apk",
+  "publicChecksumsMatch": true,
+  "sameApplicationPayload": true,
+  "sameSigningIdentity": true,
+  "apk": {
+    "kite-0.2.0-alpha.39-arm64-v8a.apk": {
+      "bytes": 23739488,
+      "sha256": "dc0b056831953eb2c9e36cfb20810d228af7067447295870ed5508a138dffa70",
+      "checks": {
+        "api23to36": {
+          "1": true,
+          "2": true,
+          "3": true
+        },
+        "api36to36": {
+          "1": false,
+          "2": false,
+          "3": true
+        }
+      },
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+      "nativeAlignmentKiB": 16
+    },
+    "kite-0.2.0-alpha.39-arm64-v8a-compat-v2.apk": {
+      "bytes": 23739488,
+      "sha256": "aedbc79149a82bcff3d2c4f9e5d854d370ccd6d62adb25d4951249c9a6c1e386",
+      "checks": {
+        "api23to36": {
+          "1": true,
+          "2": true,
+          "3": false
+        },
+        "api36to36": {
+          "1": false,
+          "2": true,
+          "3": false
+        }
+      },
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+      "nativeAlignmentKiB": 16
+    }
+  },
+  "handsetInstallResult": "pending",
+  "android16VerificationOnly": true,
+  "newQuestionAndCompactCodeClassesInApk": true,
+  "nativeUiRuntimeTests": 6,
+  "nativeUiAbi": "x86_64 debug harness; public ARM64 verified separately"
+}

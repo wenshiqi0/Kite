@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "ownedUiHarnessUninstalled": true,
+  "ownedEmulatorContainerStopped": true,
+  "hostKvmPermissions": "unchanged: 0660 root:kvm",
+  "ownedAvdAppAndDataRetained": true,
+  "productionHostUpgradePerformed": false,
+  "realModelTurns": 0
+}

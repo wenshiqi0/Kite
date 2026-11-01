@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-11-02
+
+[0.2.0-alpha.39](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.39) / versionCode **41**, source `085fa0acaff717bcbc3581d679db31839c2197bd`, adds compact inline-code backgrounds and joined gray/blue question-and-answer cards, including history and immediate successful-answer display. Rust/JVM/lint checks, six native Android 16 presentation tests and main/tag CI pass. Native captures cover nine width/font combinations and actual paired-panel colors. Independent public APK checks verify stable signatures, equal primary/compatibility payloads, checksums and 16 KiB native ZIP alignment. Physical handset acceptance remains separate. [Compatibility APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.39/kite-0.2.0-alpha.39-arm64-v8a-compat-v2.apk) · [Evidence](product/2026-11-02/markdown-and-question-replies/acceptance.md).
+
 ## Verified delivery — 2026-11-01
 
 [0.2.0-alpha.38](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.38) / versionCode **40**, source `7442493b55127053f11ec24aa0e6a6028d6a1862`, combines explicit question waiting, 240/96 dp verified-tail navigation, CJK strong-markup repair and draft/history image/audio/text previews. Integrated Android/JVM/native-source checks and main/tag CI pass. Public signature/checksum/payload/alignment checks pass. The matching host is installed with config/identity and external service PIDs retained; real text/WAV/received-JPEG transfers pass. Phone preview/gesture/playback execution remains pending. [Compatibility APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.38/kite-0.2.0-alpha.38-arm64-v8a-compat-v2.apk) · [Evidence](product/2026-11-01/attachment-preview-and-markdown/acceptance.md).
