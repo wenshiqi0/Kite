@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='kite-desktop-api-') as directory:
         while time.monotonic()<deadline:
             if predicate():return
             time.sleep(.03)
-        raise AssertionError(label)
+        raise AssertionError(label + ': ' + json.dumps(fixture(),sort_keys=True))
     def own_focus():
         focused=int(subprocess.check_output(['xdotool','getwindowfocus'],env=env,text=True).strip())
         assert focused==fixture()['window'],'Focus moved away from owned fixture; refusing input'

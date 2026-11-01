@@ -44,9 +44,12 @@ def button(_,event):
     save();return False
 def scroll(*_):state['scroll']+=1;save();return False
 def key(_,event):
-    if event.keyval==Gdk.KEY_F8:state['f8']=True
-    save();return False
-entry.connect('changed',lambda widget:(state.update(text_matched=widget.get_text()=='Kite 你好 19',text_length=len(widget.get_text()),text_sha256=hashlib.sha256(widget.get_text().encode()).hexdigest()),save()))
+    if event.keyval==Gdk.KEY_F8:
+        state['f8']=True;save()
+    return False
+# The 100 ms timer persists observations; synchronous geometry/X11 round trips
+# on every key would make the target itself interfere with Unicode key mapping.
+entry.connect('changed',lambda widget:state.update(text_matched=widget.get_text()=='Kite 你好 19',text_length=len(widget.get_text()),text_sha256=hashlib.sha256(widget.get_text().encode()).hexdigest()))
 target.connect('button-press-event',button);target.connect('scroll-event',scroll);window.connect('key-press-event',key)
 def stop(*_):
     current=C.c_ulong();mode=C.c_int();x.XGetInputFocus(display,C.byref(current),C.byref(mode))

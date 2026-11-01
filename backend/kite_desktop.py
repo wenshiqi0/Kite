@@ -246,7 +246,7 @@ def dispatch(request, env, x11):
     elif action == 'key':
         input_command(['key', '--clearmodifiers', *request['keys']], env)
     elif action == 'type':
-        input_command(['type', '--clearmodifiers', '--delay', '12' if any(ord(char)>127 for char in request['text']) else '1', '--file', '-'], env, request['text'])
+        input_command(['type', '--clearmodifiers', '--delay', '24' if any(ord(char)>127 for char in request['text']) else '1', '--file', '-'], env, request['text'])
     elif action == 'launch':
         process = subprocess.Popen(request['argv'], env=env, cwd=request.get('cwd') or str(Path.home()),
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

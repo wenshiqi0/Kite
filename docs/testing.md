@@ -168,3 +168,8 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 ## Pending questions and latest navigation
 
 `ResponsePresentationTest` requires question/approval attention to override thinking/tool/responding presentation and restores the actual phase after resolution. Native presentation adds the explicit waiting label. `ChatTailMarginTest` uses 240/96 dp thresholds and replays tall historical user answers, negative scroll deltas, real tail/spacer bounds, added footer rows, growing replies, invalid layouts and transient cannot-scroll flags. Once visible, the button can hide only on a measured tail inside the buffer or an explicit reset. The guarded native drag uses the enlarged show threshold. [Finding and acceptance scope](product/2026-11-01/question-wait-and-tail/acceptance.md).
+
+
+## Attachment previews and CJK Markdown
+
+`MarkdownNormalizationTest` covers CJK closing punctuation before adjacent text and preserves code/escapes/destinations. `NativePresentationTest` checks actual Markwon strong spans and literal code for this boundary. `AttachmentPreviewTest` covers image/audio/text selection, media time labels, UTF BOM and bounded text reading. Rust SSH fixtures exercise attachment frames and name/size/checksum failures. Host adapter tests reject traversal, symlink and FIFO paths and retain exact bytes. The owned live-upgrade heartbeat writer uses atomic replacement to eliminate its empty-read race. [Acceptance boundaries](product/2026-11-01/attachment-preview-and-markdown/acceptance.md).
