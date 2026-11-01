@@ -8,7 +8,7 @@ The roles have independent lifecycles. Disconnecting a remote machine releases i
 
 ## Current delivery
 
-Alpha 23 includes the [Linux host node, panel and taskbar status](linux-desktop.md). It does **not yet include a desktop remote client**. Android remains the delivered remote-desktop client. Linux client functionality is the next desktop stage; macOS client and host adapters remain in scope afterward.
+Alpha 26 includes the [Linux host node, panel and taskbar status](linux-desktop.md). It does **not yet include a desktop remote client**. Android remains the delivered remote-desktop client. Linux client functionality is the next desktop stage; macOS client and host adapters remain in scope afterward.
 
 Desktop client acceptance requires a real connection between distinct machines: sessions and history, chat and interactive questions, actual decoded desktop video, mapped input, reconnection and independent local-service lifetime. Host status, CLI access and MCP queries alone do not demonstrate this capability.
 

@@ -15,6 +15,7 @@ A native workspace for local and remote coding agents, built around [herdr](http
 - Choose a Codex model and reasoning effort, and send images, files and audio attachments.
 - Keep the live desktop in a draggable window, dock it to the edge, use split view or fullscreen, and continue watching in Android picture-in-picture.
 - Switch between Watch and Operate. Zoom and pan, type with the system keyboard, and use a collapsible split-view trackpad or compact fullscreen mouse with a visible arrow pointer. Buttons and scrolling stay aligned as you zoom and pan, with visual and tactile wheel feedback. Pause or resume an agent separately when needed.
+- Listen to remote desktop sound, control it with the phone’s media volume, and mute or enable it from the workspace menu.
 - Enable automatic text clipboard sharing with one switch in settings, then copy and paste normally between phone and desktop.
 - Fit the full desktop to your phone while preserving its source resolution, with responsiveness as the priority.
 
@@ -25,7 +26,7 @@ A native workspace for local and remote coding agents, built around [herdr](http
 3. Add Kite's public key to your host, verify the host fingerprint, and connect. Kite reconnects to the host agent automatically, preparing a default Codex session when needed. Additional project sessions are optional.
 4. Open the desktop and pair with Sunshine when prompted. Use the fullscreen orientation button even when phone auto-rotation is off.
 
-The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Desktop audio playback is not available yet. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
+The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Android supports remote desktop sound; host local playback stays enabled. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
 
 The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS, including connections to other desktop machines. The current Linux Alpha delivers the host node and management panel; desktop client functionality is the next stage.
 

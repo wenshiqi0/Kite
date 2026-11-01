@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0-alpha.26",
+  "baseline": false,
+  "composerReady": true,
+  "historyFailed": false,
+  "historyWaiting": true,
+  "automaticTerminalSeen": false,
+  "composerDetails": "",
+  "status": "PASS",
+  "firstModelReply": true,
+  "promptCount": 1,
+  "sameSessionRestored": true,
+  "secondFreshSessionReady": true,
+  "crossSessionBleed": false,
+  "falseSyncFailureSeen": false,
+  "firstConversationMessages": 2
+}

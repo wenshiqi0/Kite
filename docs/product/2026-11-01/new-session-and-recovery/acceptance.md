@@ -25,7 +25,7 @@ Stored history, host profiles, device identity, trust, pairing and preferences k
 
 Rust tests, Release lint/compilation and guarded Android instrumentation are run before publishing. The final public-package tests require two new sessions, one bounded model reply, same-session reconnect with retained history, no terminal auto-display or false sync error, three actual 1080p stream cycles, and an explicit failure after stopping only the isolated Sunshine fixture. Publication, deployment and cleanup results are recorded after completion.
 
-Disabling audio capture was first validated in three isolated 1080p stream cycles and temporarily applied between production sessions, retaining Herdr and Kite Node. After the user requested audio, that temporary workaround is being replaced with actual playback and host-device preservation. The final evidence must record restored production capture, decoded non-silent test audio, AudioTrack playback, focus/mute behavior and repeated disconnects. Until those results are attached, audio acceptance is pending. See the [installed Sunshine source](https://github.com/LizardByte/Sunshine/blob/v2026.914.233613/src/audio.cpp#L146-L151) and its [configuration](https://docs.lizardbyte.dev/projects/sunshine/v2026.319.132152/md_docs_2configuration.html#stream_audio).
+Disabling audio capture was first validated in three isolated 1080p stream cycles and temporarily applied between production sessions, retaining Herdr and Kite Node. After the user requested audio, that temporary workaround is being replaced with actual playback and host-device preservation. The final evidence must record restored production capture, decoded non-silent test audio, AudioTrack playback, focus/mute behavior and repeated disconnects. Those final results are attached below. See the [installed Sunshine source](https://github.com/LizardByte/Sunshine/blob/v2026.914.233613/src/audio.cpp#L146-L151) and its [configuration](https://docs.lizardbyte.dev/projects/sunshine/v2026.319.132152/md_docs_2configuration.html#stream_audio).
 
 The official [Codex App Server documentation](https://learn.chatgpt.com/docs/app-server#threads) was checked against the owned live thread. This release does not replace the provider, create a second owner or change the provider protocol.
 
@@ -33,8 +33,37 @@ The official [Codex App Server documentation](https://learn.chatgpt.com/docs/app
 
 The public Alpha 24 package passed new-session/first-reply/reconnect checks and audio liveness, menu mute and focus checks. A first accessibility lookup returned no menu node; an unchanged rerun completed the full audio test. Further sustained-playback measurement nevertheless failed: after warmup, four seconds received 802 packets, discarded 450, and advanced playback by only 82,560 frames (42.9% of real time), with 109 underruns. [Measured baseline](audio-alpha24-baseline.json). Liveness alone was insufficient acceptance.
 
-Alpha 25 requests the pinned Moonlight transport's 10ms Opus mode for the MediaCodec receiver, batches codec input/output and reduces playback-counter polling. Its audio test now measures a warmed four-second interval and requires at least 95% real-time playback with at most 2% application queue drops, alongside mute/focus/resource and video checks. Final package acceptance remains pending until these pass.
+Alpha 25 requests the pinned Moonlight transport's 10ms Opus mode for the MediaCodec receiver, batches codec input/output and reduces playback-counter polling. Its audio test now measures a warmed four-second interval and requires at least 95% real-time playback with at most 2% application queue drops, alongside mute/focus/resource and video checks. Final Alpha 26 package acceptance is recorded below.
 
 ## Session-operation ordering
 
 The public Alpha 25 audio test met the steady-playback target: 98.0% real-time playback, one queue drop in 400 packets (0.25%), and zero steady-window underruns. Its latest new-session test completed the first reply and same-session reconnect, then attempted another create while `openSession` still held the native busy guard. The command was ignored. UI new-session entries and confirmation were also enabled during that guard, so Alpha 26 disables them consistently and the test waits for completion before creating the next session. Audio production code remains unchanged from the passing Alpha 25 implementation.
+
+## Final public Alpha 26 acceptance
+
+Public [APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.26/kite-0.2.0-alpha.26-arm64-v8a.apk), versionCode 28, source `ad1ecfda2797a290144df52de1bfd523ec282448`: 21,672,379 bytes, SHA-256 `c778618162661a8f19d897b82dcbf43656bba6b87666dd5cba9e39c13c836f4c`. Both main/tag CI passed 95 Rust tests, Android Release JVM/lint and host checks. Independently verified public bytes, stable v1/v2/v3 certificate and 16KiB alignment pass. In-place installation retained all 28 recorded private files before launch, including four profiles, identity, trust and current pairing. [Publication](published-release.json), [upgrade](android-upgrade.json).
+
+The exact public APK passed all four guarded Android API 36 ARM64 tests. They target separate owned SSH/Sunshine ports, an Xvfb moving scene and a private PulseAudio server with a synthetic tone; no user's desktop or audio route is used.
+
+| Area | Final result |
+| --- | --- |
+| New sessions | Two fresh sessions ready; first marker reply received; same session/history restored after reconnect; no automatic terminal, false sync error or cross-session text |
+| Audio format | 48kHz stereo, 480 samples / 10ms packet |
+| Warmed audio, 4.0002 seconds | 399 packets, 0 application queue drops, 190,304 played frames / **99.1%** of real time, 1 underrun |
+| Audio interaction/lifetime | Three stream cycles, real non-silent decoded PCM and AudioTrack progress; menu mute/resume, transient focus loss/return and worker release pass |
+| Video with sound enabled | Source and stream **1920×1080**; 60fps requested, **53.39fps actually rendered**, 55.88fps received over 12.04 seconds |
+| UI/decoder timing | UI-frame P95 16.67ms; queue/render/callback P95 7.8/11.4/2.1ms; no input-buffer timeouts, rejections or explicit decoder IDR requests |
+| Desktop recovery | Three actual video reopen/stop cycles; idle has an action, not a spinner; deliberate owned-server termination becomes explicit failure while SSH remains connected |
+| Owned Sunshine | Eight connected streams in the final server invocation, no PulseAudio assertion and no default audio-sink switch before intentional interruption |
+
+[Session results](new-session.json), [audio results](audio.json), [video results](video.json), [recovery](recovery.json), [server counts](sunshine-audio-validation.json). These counters demonstrate the emulator pipeline and controlled local link, not audible physical speakers/Bluetooth or mobile Tailscale A/V latency. Audio output is not recorded. The same-app transient focus request is a controlled focus-lifecycle check, not a real phone-call test. The roughly 53.4fps video measurement is close to the earlier 54.6fps local baseline; it does not claim measured 60fps or prove the earlier WAN video issue is eliminated.
+
+## Production host and cleanup
+
+Production Sunshine's temporary audio-disable line was removed and the original configuration bytes restored between streams. Only Sunshine was restarted for that restoration; Herdr and Kite Node stayed up. Capture is enabled by its original default. New clients keep local host playback and avoid requesting a default-device swap. This remains a mitigation, not a patched PulseAudio library. [Restoration](audio-restoration.json).
+
+The matching official Linux Alpha 26 archive was installed with the same node identity and current Herdr/Sunshine processes. Eleven stable private files are byte-identical; the live session catalogue legitimately changed during QA session creation, so it was checked semantically for all 13 records rather than compared with a stale pre-test hash. The native status panel/tray opens and hides without stopping the node; health is `ready`. [Deployment](linux-deployment.json).
+
+Cleanup stopped seven precisely owned provider groups/workspaces, removed their catalogue/registry entries and deleted only three owned persisted test threads. Other sessions and provider owners were retained. The isolated Sunshine, private PulseAudio/D-Bus group, tone generator, scene/display, guest/Mac relays, three ADB reverses, test APK and emulator were stopped or removed. The original QA pairing, rotation and authorized-key bytes were restored. The public app/data remain installed in that AVD. Five pre-existing dirty primary-checkout files are unchanged. [Local cleanup](local-cleanup.json), [host cleanup](remote-cleanup.json).
+
+Physical-phone Tailscale stability, speaker/Bluetooth audibility and end-to-end A/V synchronization remain to be confirmed on the user's device. The 09:32 short disconnect still has no established single cause; the fixes and bounded tests above must not be presented as proof of that network path.

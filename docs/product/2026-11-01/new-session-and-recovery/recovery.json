@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "cycles": [
+    {
+      "renderedFrames": 25,
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "renderedFrames": 27,
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "renderedFrames": 24,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "idleHasReconnectAction": true,
+  "interruptedStreamFailedExplicitly": true,
+  "sshRetained": true,
+  "modelPromptSubmitted": false,
+  "productionDesktopTouched": false
+}

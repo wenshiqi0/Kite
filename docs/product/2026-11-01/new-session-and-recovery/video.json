@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "modelPromptSubmitted": false,
+  "sourceWidth": 1920,
+  "sourceHeight": 1080,
+  "width": 1920,
+  "height": 1080,
+  "targetFps": 60,
+  "seconds": 12.043988214,
+  "receivedFps": 55.878500380604905,
+  "renderedFps": 53.38763112143975,
+  "uiFrameP95Ms": 16.666666,
+  "uiFrameMaxMs": 16.666666,
+  "decoderMetrics": "decoder=c2.goldfish.h264.decoder hardware=true\nreceive\/submit\/render_fps=55.0\/55.0\/54.0\nqueue\/render\/callback_p95_ms=7.8\/11.4\/2.1\ninput_waits=0 timeouts=0 rejected=0 superseded=11 idr=0 queue_max=3"
+}

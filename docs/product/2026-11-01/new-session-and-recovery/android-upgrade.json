@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "version": "0.2.0-alpha.26",
+  "inPlaceInstall": true,
+  "privateFilesByteIdenticalBeforeLaunch": 28,
+  "hostProfilesRetained": 4,
+  "deviceIdentityRetained": true,
+  "sshTrustRetained": true,
+  "pairingsRetained": true,
+  "sourceCommit": "ad1ecfda2797a290144df52de1bfd523ec282448",
+  "apkSha256": "c778618162661a8f19d897b82dcbf43656bba6b87666dd5cba9e39c13c836f4c"
+}

@@ -1,0 +1,59 @@
+{
+  "status": "PASS",
+  "cycles": [
+    {
+      "rate": 48000,
+      "channels": 2,
+      "packetSamples": 480,
+      "packets": 827,
+      "decodedFrames": 396480,
+      "writtenFrames": 352120,
+      "playedFrames": 337952,
+      "nonSilentFrames": 396480,
+      "queueMax": 10,
+      "droppedPackets": 1,
+      "underruns": 3
+    },
+    {
+      "rate": 48000,
+      "channels": 2,
+      "packetSamples": 480,
+      "packets": 70,
+      "decodedFrames": 33120,
+      "writtenFrames": 32648,
+      "playedFrames": 27200,
+      "nonSilentFrames": 33120,
+      "queueMax": 10,
+      "droppedPackets": 0,
+      "underruns": 0
+    },
+    {
+      "rate": 48000,
+      "channels": 2,
+      "packetSamples": 480,
+      "packets": 76,
+      "decodedFrames": 35520,
+      "writtenFrames": 35520,
+      "playedFrames": 28800,
+      "nonSilentFrames": 35520,
+      "queueMax": 10,
+      "droppedPackets": 2,
+      "underruns": 1
+    }
+  ],
+  "steady": {
+    "seconds": 4.000156377,
+    "packets": 399,
+    "dropped": 0,
+    "dropRatio": 0,
+    "playedFrames": 190304,
+    "playedFraction": 0.991127919264009,
+    "underruns": 1
+  },
+  "muteAndResume": true,
+  "focusLossAndReturn": true,
+  "audioThreadsReleased": true,
+  "realDecodedSignal": true,
+  "physicalSpeakerAudibilityVerified": false,
+  "productionAudioRouteTouched": false
+}
