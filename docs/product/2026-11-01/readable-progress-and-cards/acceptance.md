@@ -30,3 +30,11 @@ Rolling quota-window notifications retain reset-card facts. A racing full read c
 - Native presentation cases check visible commentary with collapsed tool details, reset-card count/countdown and explicit missing expiry. Device execution remains pending; CI compilation is recorded separately from actual device rendering.
 
 The [PR check](https://github.com/wenshiqi0/Kite/actions/runs/41299488862) compiles the Release app and debug instrumentation sources, runs Release lint and JVM tests, and checks the shared Rust code. Runtime rendering on an Android device is not established by this compilation.
+
+## Published Alpha 32
+
+[0.2.0-alpha.32](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.32), versionCode 34, source `f44bd41f8a67303e9a5b04ff66d58f625a85db0f`, is merged into `main` and published as a prerelease. [Main CI](https://github.com/wenshiqi0/Kite/actions/runs/41300023556) and [tag publication](https://github.com/wenshiqi0/Kite/actions/runs/41300033596) pass. The PR's client grouping/countdown JVM tests and native-source compilation also pass.
+
+The public APK, host archive and manifest match `SHA256SUMS`. Independent checks confirm the stable certificate, v2/v3 block presence and 16 KiB native ZIP alignment; CI performs full v1/v2/v3 verification. The downloaded APK contains the new reset-credit record and expiry field. The host archive reports Alpha 32. [Exact public-package evidence](published-release.json).
+
+Device rendering and phone installation were not repeated. The client behavior finding is confirmed by the released grouping source and the passing incremental-timeline regression; this is not a claim to have reproduced the user's specific conversation on their handset.

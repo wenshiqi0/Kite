@@ -1,0 +1,32 @@
+{
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.32",
+  "sourceCommit": "f44bd41f8a67303e9a5b04ff66d58f625a85db0f",
+  "versionCode": 34,
+  "prerelease": true,
+  "allPublicAssetChecksumsMatch": true,
+  "stableSigningCertificateMatches": true,
+  "apkV2V3BlocksPresent": true,
+  "nativeLibraries16KiBAligned": true,
+  "publicHostVersion": "0.2.0-alpha.32",
+  "resetCreditsRecordInPublicApk": true,
+  "androidDeviceExecution": false,
+  "apk": {
+    "asset": "kite-0.2.0-alpha.32-arm64-v8a.apk",
+    "bytes": 23481440,
+    "sha256": "7446a18a3d3ae6aaccfb0395b08f0c69e795ab1230498a47d9c79926d9559b2c",
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273"
+  },
+  "linuxHost": {
+    "asset": "kite-host-0.2.0-alpha.32-linux-x86_64.tar.gz",
+    "bytes": 2665909,
+    "sha256": "d56f0a2ca38bdda16bf9e156cd64fe3a7b470223bca99f5c59181bb4e01ebcca",
+    "target": "x86_64-unknown-linux-gnu",
+    "nodeApi": 1,
+    "backendProtocol": 5
+  },
+  "mainCI": "https://github.com/wenshiqi0/Kite/actions/runs/41300023556",
+  "tagCI": "https://github.com/wenshiqi0/Kite/actions/runs/41300033596",
+  "clientRegressionCI": "https://github.com/wenshiqi0/Kite/actions/runs/41299488862",
+  "readOnlyResetFieldsVerified": true,
+  "cardRedemptionRequested": false
+}
