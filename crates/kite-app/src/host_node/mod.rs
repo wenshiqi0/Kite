@@ -560,6 +560,8 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
                     | "catalog-read"
                     | "catalog-write"
                     | "session-open"
+                    | "session-facts"
+                    | "image-read"
             )
         ) {
             return Err(Error::Protocol("backend action denied"));
@@ -701,6 +703,75 @@ mod tests {
         };
         validate_args(&c, &request).unwrap();
     }
+    #[test]
+    fn session_facts_and_image_downloads_are_allowed_through_the_host_bridge() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path());
+        for args in [
+            vec!["session-facts".into(), "--herdr".into(), "/bin/sh".into()],
+            vec!["image-read".into(), "--id".into(), "a".repeat(64)],
+        ] {
+            validate_args(
+                &config,
+                &NodeRequest {
+                    method: "backend".into(),
+                    args,
+                    params: json!({}),
+                },
+            )
+            .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn image_download_crosses_the_real_node_socket_as_complete_binary_frames() {
+        let root = tempfile::tempdir().unwrap();
+        let c = config(root.path());
+        let path = c.socket.clone();
+        let backend = c.backend.clone();
+        let task = tokio::spawn(serve(c));
+        for _ in 0..100 {
+            if path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        // Only this owned adapter fixture is replaced; no production node is used.
+        fs::write(
+            &backend,
+            "import sys\nsys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\n' + bytes(6*1024*1024))\n",
+        )
+        .unwrap();
+        let stream = UnixStream::connect(&path).await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let request = NodeRequest {
+            method: "backend".into(),
+            args: vec!["image-read".into(), "--id".into(), "a".repeat(64)],
+            params: json!({}),
+        };
+        json_line(&mut write, &request).await.unwrap();
+        let mut read = tokio::io::BufReader::new(read);
+        assert_eq!(read_json(&mut read).await.unwrap()["ok"], true);
+        wire::write(&mut write, wire::EOF, &[]).await.unwrap();
+        let mut bytes = Vec::new();
+        loop {
+            let (kind, data) = wire::read(&mut read).await.unwrap().unwrap();
+            match kind {
+                wire::OUTPUT => bytes.extend_from_slice(&data),
+                wire::EXIT => {
+                    assert_eq!(data, 0_i32.to_be_bytes());
+                    break;
+                }
+                _ => panic!("unexpected image frame"),
+            }
+        }
+        assert_eq!(bytes.len(), 6 * 1024 * 1024 + 8);
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+        assert!(bytes[8..].iter().all(|b| *b == 0));
+        task.abort();
+        let _ = task.await;
+    }
+
     #[test]
     fn service_units_and_environment_are_declarative() {
         let root = tempfile::tempdir().unwrap();

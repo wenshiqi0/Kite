@@ -666,9 +666,12 @@ pub async fn download_image(ssh: &Session, id: &str) -> Result<Vec<u8>, Error> {
         return Err(Error::Invalid("image identity"));
     }
     tokio::time::timeout(Duration::from_secs(60), async {
-        let stream = ssh
+        let mut stream = ssh
             .open_command(&helper_command(&format!("image-read --id {}", quote(id))))
             .await?;
+        // This is a download-only channel. EOF releases the Node client's stdin
+        // task so its runtime can exit and the reader can observe completion.
+        stream.shutdown().await?;
         let mut bytes = Vec::new();
         stream.take(MAX_FILE + 1).read_to_end(&mut bytes).await?;
         if bytes.is_empty()

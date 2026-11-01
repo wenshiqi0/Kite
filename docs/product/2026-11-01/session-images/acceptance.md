@@ -6,7 +6,8 @@ Generated images are assistant attachment messages with immutable SHA-256 identi
 
 ## Evidence
 
-- `cargo test --workspace --locked`: 108 tests passed.
+- `cargo test --workspace --locked`: 110 tests passed.
+- An isolated real Node socket test transports a 6 MiB binary result through the same framed bridge used by SSH; route tests require both new commands to be allowed.
 - `cargo clippy --workspace --all-targets --locked -- -D warnings` and `cargo fmt --all --check`: passed.
 - `python3 -m unittest discover -s backend -p 'test_*.py'`: 27 tests passed, including a 5 MiB result projected below 2 KiB, byte-exact download, malformed data, source pagination, file-backed completion, archived sessions, oversize isolation, corruption rejection and cache repair.
 - A controlled Codex CLI 0.164.0 turn generated one blue-square PNG through the real image-generation tool. Its actual `Extension` / `image_gen.generation` rollout was projected by the new host adapter and parsed by `kite-agent` into five messages with one image attachment. The downloaded image was visually inspected and matched its original SHA-256. Exact dimensions, sizes and identity are in [the round-trip record](image-roundtrip.json). The owned prompt invoked no shell command. This is a real generation and local projection/download check, not an Android device rendering check.
