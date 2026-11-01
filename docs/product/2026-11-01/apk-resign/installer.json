@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "version": "0.2.0-alpha.27",
+  "versionCode": 29,
+  "installedThrough": "Android 16 Files -> AOSP PackageInstaller -> Update",
+  "systemInstallerResult": "App installed.",
+  "firstInstallTimeRetained": true,
+  "privateFilesByteIdenticalBeforeLaunch": 30,
+  "signingCertificateRetained": true,
+  "apkSha256": "e1aa697e89d46f48ee145a096e847ea191a6b1aea88ab40f27843bcbc71e8828",
+  "freshSdkSigning": true,
+  "physicalNX769JReproduced": false
+}

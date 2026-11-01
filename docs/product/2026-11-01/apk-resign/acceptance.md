@@ -11,3 +11,13 @@ Application behavior, stored history, SSH identity/trust, pairing and host API 1
 Publisher tests cover the explicit signing command, environment-only passwords and payload scope. Final public-byte and Android 16 system-installer upgrade evidence is recorded after publication. Physical NX769J installation still needs user confirmation; emulator success cannot establish the handset's result.
 
 Sources: [Android error definition](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/content/pm/PackageManager.java), [SDK signing and alignment order](https://developer.android.com/tools/apksigner), [signing identity and updates](https://developer.android.com/studio/publish/app-signing).
+
+## Published test and system-installer result
+
+The immutable [Alpha 27 test APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.27/kite-0.2.0-alpha.27-arm64-v8a.apk) is 21,665,635 bytes with SHA-256 `e1aa697e89d46f48ee145a096e847ea191a6b1aea88ab40f27843bcbc71e8828`, versionCode 29, from `87e41cffbffe6133198d8544bb8d5383eee94b10`. Main/tag CI passed, including six publisher tests, 95 Rust tests and Release JVM/lint. Its manifest confirms the explicit SDK re-signing step and unchanged application payload through signing. Public bytes independently pass the original certificate, v1/v2/v3 and 16KiB alignment checks. The new v1 signature reports `Created-By: 1.0 (Android)`, whereas the prior AGP signature reported `Android Gradle 9.4.1`. This confirms a new signing-tool pass, not a new certificate. [Publication verification](published-release.json).
+
+The exact public APK was copied into the owned Android 16 emulator's Downloads folder, opened from Files and installed by the AOSP PackageInstaller's **Update** action. It displayed **App installed.** First-install time was retained; version advanced from Alpha 26/code 28 to Alpha 27/code 29. All 30 captured private files remained byte-identical before launch. No uninstall, key recreation or data reset was used. [Installer evidence](installer.json), [system-installer screenshot](system-installer-success.png).
+
+The downloaded test copy/UI dump were removed, the owned emulator stopped and its updated app/data retained. Five pre-existing primary-checkout modifications are unchanged. No backend settings or processes were changed for this signing-only test. [Cleanup](cleanup.json).
+
+This is emulator system-installer acceptance, not a reproduced or fixed NX769J result. The handset's exact failed bytes and certificate-collection exception are still unknown; whether the fresh test package resolves its `-103` requires the user's installation result.

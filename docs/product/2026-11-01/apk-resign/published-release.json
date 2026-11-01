@@ -1,0 +1,72 @@
+{
+  "status": "PASS",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.27",
+  "prerelease": true,
+  "draft": false,
+  "manifest": {
+    "versionName": "0.2.0-alpha.27",
+    "versionCode": 29,
+    "sourceCommit": "87e41cffbffe6133198d8544bb8d5383eee94b10",
+    "variant": "release",
+    "debuggable": false,
+    "abis": [
+      "arm64-v8a"
+    ],
+    "apk": "kite-0.2.0-alpha.27-arm64-v8a.apk",
+    "bytes": 21665635,
+    "sha256": "e1aa697e89d46f48ee145a096e847ea191a6b1aea88ab40f27843bcbc71e8828",
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "apkSigningStep": "explicit-sdk-resign",
+    "applicationPayloadUnchangedByResign": true,
+    "zipAlignmentKiB": 16,
+    "androidLint": "passed",
+    "linuxHostNode": {
+      "asset": "kite-host-0.2.0-alpha.27-linux-x86_64.tar.gz",
+      "bytes": 836618,
+      "sha256": "ba7a86763b84c4bb562aa2c9de83a34c1d97507f96470feded66a2a7095b1abc",
+      "target": "x86_64-unknown-linux-gnu",
+      "nodeApi": 1,
+      "backendProtocol": 5
+    }
+  },
+  "abis": [
+    "arm64-v8a"
+  ],
+  "certificate": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "alignmentKiB": 16,
+  "ciRuns": [
+    {
+      "conclusion": "success",
+      "databaseId": 41283627346,
+      "headBranch": "main",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41283627346"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 41283562656,
+      "headBranch": "v0.2.0-alpha.27",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41283562656"
+    }
+  ],
+  "checks": {
+    "rustTests": 95,
+    "releaseJvmTests": "PASS",
+    "releaseLint": "PASS",
+    "rustFmt": "PASS",
+    "rustClippy": "PASS",
+    "linuxPackage": "PASS",
+    "nativeGtk": "PASS"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "ownedEmulatorStopped": true,
+  "temporaryDownloadedCopyRemoved": true,
+  "temporaryUiDumpRemoved": true,
+  "appAndDataRetained": true,
+  "uninstallUsed": false,
+  "backendChanged": false,
+  "primaryDirtyFilesPreserved": 5
+}

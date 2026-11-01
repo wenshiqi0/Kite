@@ -14,6 +14,7 @@
 
 ## Delivery and evaluation records
 
+- [Re-signed APK installer test](product/2026-11-01/apk-resign/acceptance.md): long-lived certificate evidence, explicit SDK signing, public-package verification and Android 16 system-installer update.
 - [New sessions, desktop audio and recovery](product/2026-11-01/new-session-and-recovery/acceptance.md): clean new-session state, first message/reconnect, sustained Opus/AudioTrack playback, mute/focus, actual video and interrupted-host recovery.
 - [Streaming performance](product/2026-11-01/streaming-performance/acceptance.md): continuous pointer delivery, fixed input windows, preserved 1080p, public APK comparison and matching Linux deployment.
 - [Chat tail, allowance and desktop disconnect](product/2026-11-01/chat-tail-and-allowance/acceptance.md): scroll margin, compact composer, allowance in the left-hand model picker and explicit media disconnect.
