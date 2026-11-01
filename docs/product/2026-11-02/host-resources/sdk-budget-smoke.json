@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "fixture": "DSH SDK initialize only",
+  "scope_before_native_exec": true,
+  "same_logical_reference": true,
+  "model_turns": 0,
+  "budget_bytes": 10737418240
+}
