@@ -94,6 +94,13 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotEqual(first["activity"], second["activity"])
         self.assertGreater(second["last_activity_ms"], first["last_activity_ms"])
 
+    def test_continue_of_an_unmanaged_terminal_does_not_create_an_owner(self):
+        self.registry.unlink()
+        with patch.object(backend, "read_registry") as read:
+            backend.note_session_open("w1:p1")
+        read.assert_not_called()
+        self.assertFalse(self.registry.exists())
+
     def test_active_blocked_and_background_threads_are_preserved(self):
         for state in ("active", "notLoaded", "unknown"):
             self.statuses[self.thread] = state

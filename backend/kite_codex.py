@@ -304,6 +304,9 @@ def provider_history_exists(reference):
 
 def note_session_open(pane):
     """An explicit continue/restore is activity; discovery and polls are not."""
+    if not registry_path(pane).exists():
+        # Herdr can also expose a user-owned Codex TUI without a Kite owner.
+        return
     with file_lock(state_dir() / (pane_key(pane) + ".lock")):
         info = read_registry(pane)
         info["last_open_ms"] = int(time.time() * 1000)
