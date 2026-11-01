@@ -19,7 +19,7 @@
 
 活动时间取显式继续/恢复时间、owner 启动时间和原始 provider 历史的修改时间。普通发现和只读 RPC 不更新活动时间。检查实际 app-server 的全部已加载线程，并结合 Herdr 识别的前台进程；执行中、等待审批、暂停、未知、未落盘和共享 owner 均保留。
 
-执行回收时复用 `session-open` 的会话锁和 owner 锁，再次核对目录记录、provider 引用、PID/start ticks、活动指纹和实时空闲状态。先以 `/quit` 断开空闲 TUI，再次检查 owner，最后向独立 app-server 进程组发送 SIGTERM。只退出远程 TUI 不会释放其持久 app-server，因此必须执行两步。回收不删除 provider 文件，不改变归档状态，不重放消息或工具操作。
+执行回收时复用 `session-open` 的会话锁和 owner 锁，再次核对目录记录、provider 引用、PID/start ticks、活动指纹和实时空闲状态。先向核验过的闲置 TUI 发送 SIGTERM，再次检查 owner，最后向独立 app-server 进程组发送 SIGTERM。暂停的 TUI 保留。退出通过进程信号执行，避免把 `/quit` 拼进未提交的输入草稿。只退出远程 TUI 不会释放其持久 app-server，因此必须执行两步。回收不删除 provider 文件，不改变归档状态，不重放消息或工具操作。
 
 Node `status.sessionLifecycle` 暴露固定期限、扫描间隔、最近成功扫描时间和回收数量。升级与扫描共用 observation gate，旧代次进入 draining 后不再执行回收。
 

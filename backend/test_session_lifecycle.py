@@ -35,6 +35,7 @@ class LifecycleTests(unittest.TestCase):
         os.utime(self.history, ns=(100_000_000_000, 100_000_000_000))
         self.real_read_registry = backend.read_registry
         self.stack.enter_context(patch.object(backend, "read_registry", return_value=self.owner))
+        self.stack.enter_context(patch.object(backend, "process_stopped", return_value=False))
         self.agent = dict(pane_id="w1:p1", agent_session=self.reference,
                           agent_status="done", interactive_ready=True)
         self.process = dict(shell_pid=41, foreground_process_group_id=43,
@@ -70,7 +71,7 @@ class LifecycleTests(unittest.TestCase):
         self.stack.enter_context(patch.object(backend, "process_live", return_value=False))
         self.stack.enter_context(patch.object(backend.os, "getpgid", return_value=self.owner["pid"]))
         kill = self.stack.enter_context(patch.object(backend.os, "killpg"))
-        quit_tui = self.stack.enter_context(patch.object(backend.subprocess, "run"))
+        quit_tui = self.stack.enter_context(patch.object(backend.os, "kill"))
         return expected, kill, quit_tui
 
     def test_discovery_and_keepalive_do_not_extend_activity(self):
@@ -112,6 +113,15 @@ class LifecycleTests(unittest.TestCase):
         self.agent["agent_status"] = "blocked"
         self.assertFalse(self.fact()["idle"])
 
+    def test_paused_terminal_is_not_given_a_pending_exit(self):
+        with patch.object(backend, "process_stopped", return_value=True):
+            self.assertFalse(self.fact()["idle"])
+        expected, kill, stop_tui = self.reap_fixture()
+        with patch.object(backend, "process_stopped", return_value=True):
+            self.assertEqual(backend.lifecycle_reap(expected, "herdr")["reason"], "tui_paused")
+        kill.assert_not_called()
+        stop_tui.assert_not_called()
+
     def test_unsaved_and_mismatched_threads_are_not_reapable(self):
         self.history.unlink()
         self.assertFalse(self.fact()["persisted"])
@@ -125,7 +135,7 @@ class LifecycleTests(unittest.TestCase):
         result = backend.lifecycle_reap(expected, "herdr")
         self.assertTrue(result["reclaimed"])
         quit_tui.assert_called_once()
-        self.assertEqual(quit_tui.call_args.args[0], ["herdr", "agent", "prompt", "w1:p1", "/quit"])
+        quit_tui.assert_called_once_with(43, signal.SIGTERM)
         kill.assert_called_once_with(self.owner["pid"], signal.SIGTERM)
         self.assertFalse(self.registry.exists())
         self.assertEqual(self.history.read_bytes(), history)

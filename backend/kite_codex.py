@@ -328,7 +328,8 @@ def lifecycle_fact(record, binary, agents=None):
     pane_idle = ((agent is None and shell) or
                  (agent is not None and same_reference(agent, record) and
                   agent.get("agent_status") in ("idle", "done") and
-                  agent.get("interactive_ready") and remote_tui))
+                  agent.get("interactive_ready") and remote_tui and
+                  not process_stopped(front[0]["pid"])))
     loaded = backend_rpc(pane, "thread/loaded/list", {}, timeout=2)["data"]
     if len(loaded) > 64:
         raise ValueError("loaded thread capacity exceeded")
@@ -383,6 +384,10 @@ def lifecycle_facts(binary):
     return dict(facts=facts)
 
 
+def process_stopped(pid):
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0] in ("T", "t")
+
+
 def process_live(pid, ticks):
     try:
         if start_ticks(pid) != str(ticks):
@@ -428,8 +433,11 @@ def lifecycle_reap(expected, binary):
             if fresh["tui_pid"] is not None:
                 pid = fresh["tui_pid"]
                 ticks = start_ticks(pid)
-                subprocess.run([binary, "agent", "prompt", pane, "/quit"], check=True,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                # Do not type a slash command into a potentially nonempty draft.
+                # Provider work/history is owned by the independently checked server.
+                if process_stopped(pid):
+                    return dict(reclaimed=False, reason="tui_paused")
+                os.kill(pid, signal.SIGTERM)
                 deadline = time.monotonic() + 4
                 while process_live(pid, ticks) and time.monotonic() < deadline:
                     time.sleep(.05)
