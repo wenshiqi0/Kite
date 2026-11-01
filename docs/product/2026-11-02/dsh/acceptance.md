@@ -1,6 +1,6 @@
 # DSH integration acceptance
 
-Source branch: `feat/dsh-harness`. Delivery candidate: Android/Linux `0.2.0-alpha.42`, versionCode 44. This record separates source checks, real model execution, native presentation and public artifacts.
+Source branch: `feat/dsh-harness`. Delivery candidate: Android/Linux `0.2.0-alpha.43`, versionCode 45. This record separates source checks, real model execution, native presentation and public artifacts.
 
 ## Verified source and protocol checks
 
