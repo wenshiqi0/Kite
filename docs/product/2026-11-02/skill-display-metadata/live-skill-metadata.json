@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "source": "temporary project skill fixtures through real Codex app-server",
+  "modelTurns": 0,
+  "skills": [
+    {
+      "name": "adobe-batch-edit-photos",
+      "displayName": "Batch edit photos",
+      "shortDescription": "Apply a consistent look across a set of photos."
+    },
+    {
+      "name": "adobe-create-mockups",
+      "displayName": "Create mockups",
+      "shortDescription": "Takes a logo or a design asset and produces a suite of mockups."
+    },
+    {
+      "name": "adobe-create-social-variations",
+      "displayName": "Create social variations",
+      "shortDescription": "Resize and export images into platform-ready social media sets."
+    }
+  ]
+}
