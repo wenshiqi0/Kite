@@ -1,4 +1,4 @@
-# RFC 0020：可用 provider 目录与 DSH 托管会话
+# RFC 0021：可用 provider 目录与 DSH 托管会话
 
 > 状态：已实现（Android/Linux Alpha 43） · 2026-11-02
 > 相关：RFC 0007、0013、0014、0018；内部实施规范见 [Harness 接入](../development/harness-integration.md)。
