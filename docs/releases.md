@@ -41,6 +41,10 @@ Only tagged builds publish a user-facing GitHub Release. They are always prerele
 
 [0.2.0-alpha.11](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.11) / versionCode **13** was published from source `1bd806f15b0c49842f857b5128151a028fca052d`. Both main and tagged CI passed. The public attachment was downloaded, matched against its manifest, independently verified for v1/v2/v3 signatures and 16 KiB alignment, and installed as an update on the Android 16 emulator. Reconnection reused the existing SSH identity and desktop pairing, and automatic text clipboard sharing passed in both directions. See the [acceptance record](product/2026-10-30/hybrid-input/acceptance.md) and [machine-readable evidence](product/2026-10-30/hybrid-input/published-release.json) for exact bytes, checksum, certificate and CI links. Physical-phone acceptance of Alpha 11 is still pending.
 
+## Compatibility APK — Alpha 33+
+
+Each signed release also includes `kite-X.Y.Z-alpha.N-arm64-v8a-compat-v2.apk`. This diagnostic asset uses the same certificate, version and non-signing payload as the primary APK, with v1/v2 enabled and v3/v4 disabled. The primary APK retains v1/v2/v3. The compatibility gate separately forces API-36 v2 and API-23 v1 verification, then compares certificate and payload identity. Both APKs, the host archive and manifest are listed in `SHA256SUMS`; publication verifies all five assets. Use the explicit compatibility download when diagnosing a handset `-103`, and record handset acceptance separately from SDK checks.
+
 ## Version and signing identity
 
 `android/version.properties` is the Android version source. Increment both the Alpha suffix and `versionCode` for each new delivery. The initial CI release is `0.2.0-alpha.1` / `3`. APK metadata must match the tag exactly.

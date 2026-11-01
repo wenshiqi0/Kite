@@ -46,7 +46,7 @@ def apk_payload(apk):
                 if not re.fullmatch(r"META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))", name, re.IGNORECASE)}
 
 
-def resign_apk(built, apk, tools, keystore, signing):
+def resign_apk(built, apk, tools, keystore, signing, *, v3=True):
     """Fresh SDK signatures using the existing certificate, without exposing passwords."""
     before = apk_payload(built)
     with tempfile.TemporaryDirectory(prefix="kite-apk-sign-") as temporary:
@@ -60,7 +60,7 @@ def resign_apk(built, apk, tools, keystore, signing):
                    "--ks-pass", "env:KITE_APK_STORE_PASSWORD",
                    "--key-pass", "env:KITE_APK_KEY_PASSWORD",
                    "--v1-signer-name", "CERT", "--v1-signing-enabled", "true",
-                   "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
+                   "--v2-signing-enabled", "true", "--v3-signing-enabled", str(v3).lower(),
                    "--v4-signing-enabled", "false", "--out", str(apk), str(aligned)]
         subprocess.run(command, cwd=ROOT, env=environment, check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -92,7 +92,7 @@ def wait_for_created_release(repo, tag):
     raise RuntimeError("Created Alpha draft is not visible yet; rerun the publish job to recover it.")
 
 
-def inspect_apk(apk, tools, version, code):
+def inspect_apk(apk, tools, version, code, *, v3=True):
     badging = run(str(tools / "aapt2"), "dump", "badging", str(apk))
     package = next(line for line in badging.splitlines() if line.startswith("package:"))
     require(f"versionName='{version}'" in package and f"versionCode='{code}'" in package,
@@ -101,9 +101,12 @@ def inspect_apk(apk, tools, version, code):
     abi_line = next(line for line in badging.splitlines() if line.startswith("native-code:"))
     abis = re.findall(r"'([^']+)'", abi_line)
     signature = run(str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(apk))
-    for scheme in (2, 3):
+    for scheme in ((2, 3) if v3 else (2,)):
         require(re.search(rf"^Verified using v{scheme} scheme .*: true$", signature, re.MULTILINE),
                 f"Alpha APK must verify with signing scheme v{scheme}.")
+    if not v3:
+        require(re.search(r"^Verified using v3 scheme .*: false$", signature, re.MULTILINE),
+                "Compatibility APK must avoid the v3 verification path.")
     certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", signature)
     require(certificate is not None, "APK signature verification failed.")
     expected = os.environ.get("KITE_EXPECTED_CERTIFICATE_SHA256")
@@ -116,6 +119,14 @@ def inspect_apk(apk, tools, version, code):
     legacy_certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", legacy)
     require(legacy_certificate and legacy_certificate[1].lower() == certificate[1].lower(),
             "APK signature schemes must use the same certificate.")
+    android16 = run(str(tools / "apksigner"), "verify", "--verbose", "--print-certs",
+                    "--min-sdk-version", "36", "--max-sdk-version", "36", str(apk))
+    selected = 3 if v3 else 2
+    require(re.search(rf"^Verified using v{selected} scheme .*: true$", android16, re.MULTILINE),
+            f"Android 16 must verify this APK using v{selected}.")
+    android16_certificate = re.search(r"certificate SHA-256 digest: ([0-9a-f]{64})", android16)
+    require(android16_certificate and android16_certificate[1].lower() == certificate[1].lower(),
+            "Android 16 signing certificate changed.")
     run(str(tools / "zipalign"), "-c", "-P", "16", "4", str(apk))
     return abis, certificate[1]
 
@@ -180,10 +191,12 @@ def main():
         return
     output = ROOT / "android/release-output" / tag
     apk = output / f"kite-{version}-arm64-v8a.apk"
+    compatibility_apk = output / f"kite-{version}-arm64-v8a-compat-v2.apk"
     linux_host = output / f"kite-host-{version}-linux-x86_64.tar.gz"
     manifest_file = output / "release-manifest.json"
     sums = output / "SHA256SUMS"
-    assets = [apk, linux_host, manifest_file, sums]
+    assets = [apk, compatibility_apk, linux_host, manifest_file, sums]
+    checksummed = [apk, compatibility_apk, linux_host, manifest_file]
     if args.build_only:
         require(sys.platform == "linux", "The synchronized Android/Linux Alpha build must run on Linux; launch trusted CI.")
         keystore = Path(os.environ.get("KITE_ALPHA_KEYSTORE", "~/.config/kite/signing/android-alpha.keystore")).expanduser()
@@ -210,6 +223,9 @@ def main():
         require(built.is_file(), "Signed release APK was not produced.")
         output.mkdir(parents=True, exist_ok=True)
         resign_apk(built, apk, tools, keystore, signing)
+        resign_apk(built, compatibility_apk, tools, keystore, signing, v3=False)
+        require(apk_payload(apk) == apk_payload(compatibility_apk),
+                "Compatibility signing changed application contents.")
         run("cargo", "build", "--release", "--locked", "-p", "kite-node", capture=False)
         target = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
         host_binary = target / "release/kite-node"
@@ -219,16 +235,23 @@ def main():
         clean_tree()
         abis, certificate = inspect_apk(apk, tools, version, code)
         require(abis == ["arm64-v8a"], "Update asset naming before publishing other ABIs.")
+        compat_abis, compat_certificate = inspect_apk(compatibility_apk, tools, version, code, v3=False)
+        require(compat_abis == abis and compat_certificate == certificate,
+                "Compatibility APK must retain the exact ABI and signing identity.")
         manifest = {"versionName": version, "versionCode": code, "sourceCommit": head,
                     "variant": "release", "debuggable": False, "abis": abis,
                     "apk": apk.name, "bytes": apk.stat().st_size, "sha256": digest(apk),
                     "signingCertificateSha256": certificate, "signingSchemes": [1, 2, 3],
                     "apkSigningStep": "explicit-sdk-resign", "applicationPayloadUnchangedByResign": True,
                     "zipAlignmentKiB": 16, "androidLint": "passed"}
+        manifest["compatibilityApk"] = {"asset": compatibility_apk.name, "bytes": compatibility_apk.stat().st_size,
+            "sha256": digest(compatibility_apk), "signingCertificateSha256": compat_certificate,
+            "signingSchemes": [1, 2], "android16VerifiedScheme": 2,
+            "applicationPayloadMatchesPrimary": True, "zipAlignmentKiB": 16}
         manifest["linuxHostNode"] = {"asset": linux_host.name, "bytes": linux_host.stat().st_size,
             "sha256": digest(linux_host), "target": "x86_64-unknown-linux-gnu", "nodeApi": 1, "backendProtocol": 5}
         manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
-        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in [apk, linux_host, manifest_file]))
+        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in checksummed))
         print(str(output), flush=True)
         return
     require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF_TYPE") == "tag",
@@ -240,10 +263,17 @@ def main():
             and manifest["versionCode"] == code and manifest["sha256"] == digest(apk)
             and manifest["variant"] == "release" and manifest["debuggable"] is False,
             "Artifact provenance does not match this source tag.")
+    require(manifest["compatibilityApk"]["asset"] == compatibility_apk.name
+            and manifest["compatibilityApk"]["sha256"] == digest(compatibility_apk)
+            and manifest["compatibilityApk"]["signingCertificateSha256"] == manifest["signingCertificateSha256"]
+            and manifest["compatibilityApk"]["signingSchemes"] == [1, 2]
+            and manifest["compatibilityApk"]["android16VerifiedScheme"] == 2
+            and apk_payload(apk) == apk_payload(compatibility_apk),
+            "Compatibility APK provenance or contents do not match.")
     require(manifest["linuxHostNode"]["sha256"] == digest(linux_host)
             and manifest["linuxHostNode"]["asset"] == linux_host.name,
             "Linux host artifact provenance does not match this source tag.")
-    require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in [apk, linux_host, manifest_file]),
+    require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in checksummed),
             "Artifact checksums do not match.")
     release = release_info(repo, tag)
     if release is None:

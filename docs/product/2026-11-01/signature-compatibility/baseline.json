@@ -1,0 +1,32 @@
+{
+  "alpha10": {
+    "api23to36": {
+      "1": true,
+      "2": true,
+      "3": true
+    },
+    "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "api36to36": {
+      "1": false,
+      "2": false,
+      "3": true
+    },
+    "bytes": 20743547,
+    "sha256": "99c717f46a79ef756a0c14a06e453f6acba5c55f5758c6e18d238bf3d52529ec"
+  },
+  "alpha32": {
+    "api23to36": {
+      "1": true,
+      "2": true,
+      "3": true
+    },
+    "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "api36to36": {
+      "1": false,
+      "2": false,
+      "3": true
+    },
+    "bytes": 23481440,
+    "sha256": "7446a18a3d3ae6aaccfb0395b08f0c69e795ab1230498a47d9c79926d9559b2c"
+  }
+}

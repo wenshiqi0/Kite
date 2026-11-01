@@ -53,7 +53,7 @@ class DraftPublicationTests(unittest.TestCase):
         signature = "\n".join([f"Verified using v{v} scheme (test): {'false' if v == 1 else 'true'}" for v in (1, 2, 3)]) + f"\nSigner #1 certificate SHA-256 digest: {certificate}"
         legacy = f"Verified using v1 scheme (test): true\nSigner #1 certificate SHA-256 digest: {certificate}"
         badging = "package: name='io.github.wenshiqi0.kite' versionCode='12' versionName='0.2.0-alpha.10'\nnative-code: 'arm64-v8a'"
-        with patch.object(release_alpha, "run", side_effect=[badging, signature, legacy, ""]) as call:
+        with patch.object(release_alpha, "run", side_effect=[badging, signature, legacy, signature, ""]) as call:
             abis, actual = release_alpha.inspect_apk(Path("app.apk"), Path("tools"), "0.2.0-alpha.10", 12)
         self.assertEqual(abis, ["arm64-v8a"])
         self.assertEqual(actual, certificate)
@@ -67,6 +67,39 @@ class DraftPublicationTests(unittest.TestCase):
         with patch.object(release_alpha, "run", side_effect=[badging, signature, legacy.replace(certificate, "a" * 64)]):
             with self.assertRaisesRegex(RuntimeError, "same certificate"):
                 release_alpha.inspect_apk(Path("app.apk"), Path("tools"), "0.2.0-alpha.10", 12)
+
+    def test_compatibility_signing_keeps_v1_v2_and_explicitly_disables_v3(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); built = root / "built.apk"; output = root / "compat.apk"
+            with zipfile.ZipFile(built, "w") as archive:
+                archive.writestr("classes.dex", b"same application")
+            def align(*args): Path(args[-1]).write_bytes(built.read_bytes()); return ""
+            def sign(command, **kwargs):
+                output.write_bytes(built.read_bytes())
+                return subprocess.CompletedProcess(command, 0, "", "")
+            signing = {"store.password":"private", "key.password":"private", "key.alias":"existing"}
+            with patch.object(release_alpha, "run", side_effect=align), patch.object(release_alpha.subprocess, "run", side_effect=sign) as call:
+                release_alpha.resign_apk(built, output, Path("tools"), root / "existing.keystore", signing, v3=False)
+            command = call.call_args.args[0]
+            self.assertEqual(command[command.index("--v3-signing-enabled")+1], "false")
+            self.assertEqual(command[command.index("--v2-signing-enabled")+1], "true")
+            self.assertEqual(command[command.index("--v1-signing-enabled")+1], "true")
+            self.assertEqual(release_alpha.apk_payload(built), release_alpha.apk_payload(output))
+
+    def test_compatibility_package_requires_v2_on_android16_and_the_same_certificate(self):
+        certificate = "f"*64
+        modern = f"Verified using v2 scheme (test): true\nVerified using v3 scheme (test): false\nSigner #1 certificate SHA-256 digest: {certificate}"
+        legacy = f"Verified using v1 scheme (test): true\nSigner #1 certificate SHA-256 digest: {certificate}"
+        badging = "package: name='io.github.wenshiqi0.kite' versionCode='35' versionName='0.2.0-alpha.33'\nnative-code: 'arm64-v8a'"
+        with patch.object(release_alpha, "run", side_effect=[badging, modern, legacy, modern, ""]) as call:
+            release_alpha.inspect_apk(Path("compat.apk"), Path("tools"), "0.2.0-alpha.33", 35, v3=False)
+        self.assertIn("36", call.call_args_list[-2].args)
+        with patch.object(release_alpha, "run", side_effect=[badging, modern, legacy, modern.replace("v2 scheme (test): true", "v2 scheme (test): false")]):
+            with self.assertRaisesRegex(RuntimeError,"Android 16 must verify"):
+                release_alpha.inspect_apk(Path("compat.apk"), Path("tools"), "0.2.0-alpha.33", 35, v3=False)
+        with patch.object(release_alpha, "run", side_effect=[badging, modern.replace("v3 scheme (test): false", "v3 scheme (test): true")]):
+            with self.assertRaisesRegex(RuntimeError,"avoid the v3"):
+                release_alpha.inspect_apk(Path("compat.apk"), Path("tools"), "0.2.0-alpha.33", 35, v3=False)
 
     def test_tag_404_recovers_existing_draft_from_release_list(self):
         result = subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")
