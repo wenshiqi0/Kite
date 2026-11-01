@@ -163,8 +163,39 @@ def descendants(table, roots):
 def managed(binary, table):
     codex = codex_module()
     result = []
-    for record in codex.catalog_read()["sessions"]:
+    records = codex.catalog_read()["sessions"]
+    claude = codex.api(binary, "agent.list", {})["agents"] if any(r.get("provider") == "claude" and r.get("reference") for r in records) else []
+    for record in records:
         pane = record.get("pane_id")
+        if record.get("provider") == "claude" and pane:
+            if not any(codex.same_reference(agent, record) for agent in claude):
+                continue
+            process = codex.api(binary, "pane.process_info", {"pane_id": pane})["process_info"]
+            item = table.get(process["shell_pid"])
+            if item:
+                owner = dict(pane=pane, pid=item["pid"], start_ticks=item["started"], shell_pid=item["pid"], registry_managed=False)
+                result.append((owner, descendants(table, [item["pid"]])))
+            continue
+        if record.get("provider") == "dsh":
+            try:
+                import kite_harness
+                reference = record["reference"]
+                if reference.get("source") != "kite:harness" or reference.get("agent") != "dsh":
+                    continue
+                directory = kite_harness.directory(reference["value"])
+                state = json.loads((directory / "state.json").read_text())
+                info = json.loads((directory / "session.json").read_text())
+                item = table.get(state["pid"])
+                if item is None or item["started"] != state["start_ticks"] or info["id"] != record["id"]:
+                    continue
+                argv = Path("/proc", str(item["pid"]), "cmdline").read_bytes().decode().split("\0")
+                if not any(Path(arg).name == "kite_harness_runtime.py" for arg in argv) or reference["value"] not in argv:
+                    continue
+                owner = dict(pane="kite-harness-" + reference["value"],pid=item["pid"],start_ticks=item["started"],registry_managed=False)
+                result.append((owner, descendants(table, [item["pid"]])))
+            except (OSError, ValueError, KeyError, RuntimeError):
+                pass
+            continue
         if record.get("provider") != "codex" or not pane:
             continue
         try:
@@ -365,6 +396,19 @@ def sample():
     table = processes()
     value = ledger()
     reserved = sum(item["reserved"] for item in live_legacy(value, table).values())
+    uncontained = set()
+    for info in value["units"].values():
+        item = table.get(info["pid"])
+        if item and item["started"] == info["started"] and not inside_budget(item):
+            uncontained.add(item["pid"])
+    codex = codex_module()
+    for file in codex.state_dir().glob("*.json"):
+        try:
+            info = json.loads(file.read_text());item = table.get(info.get("pid"))
+            if item and item["started"] == info.get("start_ticks") and not inside_budget(item):
+                uncontained.add(item["pid"])
+        except (OSError, ValueError, AttributeError):
+            pass
     # Read the kernel's user hierarchy directly; do not execute systemctl per tick.
     manager = next((item["cgroup"].split("/app.slice/", 1)[0] for item in table.values()
                     if item["pid"] == os.getpid() and "/app.slice/" in item["cgroup"]), None)
@@ -388,6 +432,7 @@ def sample():
                 agent_reserved_bytes=reserved, agent_effective_limit_bytes=integer(budget / "memory.max"),
                 agent_cpu_usage_usec=stats.get("usage_usec", 0), agent_process_count=len(members),
                 agent_oom_kills=events.get("oom_kill", 0), agent_high_events=events.get("high", 0),
+                uncontained_owners=len(uncontained),
                 enforced=budget.exists() and integer(budget / "memory.max") > 0,
                 processes=[dict(pid=item["pid"], name=item["name"], started=item["started"],
                                 cpu_ticks=item["ticks"], memory_bytes=item["rss"],
@@ -412,6 +457,18 @@ def exec_agent(pane, binary, command):
     owner = dict(pane=pane, pid=pid, start_ticks=table[pid]["started"], bootstrap_pid=pid, shell_pid=process["shell_pid"])
     configure(int(admission["limit_bytes"]), int(admission["high_bytes"]), binary,
               adopt=False, extra=(owner, descendants(table, [pid, process["shell_pid"]])))
+    os.execvpe(command[0], command, os.environ)
+
+
+def exec_harness(pane, command):
+    pid = os.getpid()
+    admission = node("resource-admit", "--pane", pane, "--pid", pid)
+    if not admission.get("allowed"):
+        raise RuntimeError("agent resource admission denied: " + str(admission.get("reason", "unavailable")))
+    table = processes()
+    owner = dict(pane=pane, pid=pid, start_ticks=table[pid]["started"], bootstrap_pid=pid, registry_managed=False)
+    configure(int(admission["limit_bytes"]), int(admission["high_bytes"]), None,
+              adopt=False, extra=(owner, descendants(table, [pid])))
     os.execvpe(command[0], command, os.environ)
 
 
@@ -440,14 +497,24 @@ def ready(owner):
             pass
 
 
+def reserve_existing(owner):
+    # Reattaching an existing TUI is free, but recreating its client can load
+    # a large context. Reuse the owner startup reservation when one exists.
+    if os.environ.get("KITE_AGENT_RESOURCE_CONTROL") != "1":
+        return
+    admission = node("resource-admit", "--pane", owner["pane"], "--pid", owner["pid"])
+    if not admission.get("allowed"):
+        raise RuntimeError("agent resource admission denied: " + str(admission.get("reason", "unavailable")))
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("sample", "configure", "exec-agent", "orphans"))
+    parser.add_argument("action", choices=("sample", "configure", "exec-agent", "exec-harness", "orphans"))
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     args, command = parser.parse_known_args()
-    if command and args.action != "exec-agent":
+    if command and args.action not in ("exec-agent", "exec-harness"):
         raise ValueError("unexpected resource arguments")
     if args.action == "sample":
         print(json.dumps(sample()))
@@ -465,7 +532,10 @@ def main():
             command = command[1:]
         if not command:
             raise ValueError("agent command required")
-        exec_agent(args.pane, args.herdr, command)
+        if args.action == "exec-harness":
+            exec_harness(args.pane, command)
+        else:
+            exec_agent(args.pane, args.herdr, command)
 
 
 if __name__ == "__main__":

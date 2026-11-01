@@ -168,7 +168,7 @@ impl Resources {
                 platform(
                     node,
                     "configure",
-                    Some(json!({"limit_bytes":state.limit,"high_bytes":state.limit / 10 * 9})),
+                    Some(json!({"limit_bytes":state.limit,"high_bytes":state.limit})),
                 )
                 .await?;
                 Ok::<(), Error>(())
@@ -188,6 +188,10 @@ impl Resources {
         }
         let bytes = platform(node, "sample", None).await?;
         let raw: RawResources = serde_json::from_slice(&bytes)?;
+        if raw.uncontained_owners > 0 {
+            state.configured = false;
+            state.problem = Some("managed agent processes remain outside the memory budget".into());
+        }
         let reserved = state.reservations.iter().map(|item| item.bytes).sum();
         state.profile = state
             .tracker
@@ -209,17 +213,25 @@ impl Resources {
     }
 
     pub async fn admit(&self, node: &Node, pane: &str, pid: u32) -> Result<Value> {
-        let (prefix, suffix) = pane
-            .split_once(":p")
-            .ok_or(Error::Protocol("invalid resource pane"))?;
-        if prefix.is_empty()
-            || suffix.is_empty()
-            || !prefix
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-            || !suffix.bytes().all(|b| b.is_ascii_digit())
-            || pane.len() > 96
-        {
+        let herdr = pane.split_once(":p").is_some_and(|(prefix, suffix)| {
+            !prefix.is_empty()
+                && !suffix.is_empty()
+                && prefix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+                && suffix.bytes().all(|b| b.is_ascii_digit())
+        });
+        let harness = pane.strip_prefix("kite-harness-").is_some_and(|value| {
+            value.len() == 36
+                && value.bytes().enumerate().all(|(i, b)| {
+                    if [8, 13, 18, 23].contains(&i) {
+                        b == b'-'
+                    } else {
+                        b.is_ascii_hexdigit()
+                    }
+                })
+        });
+        if (!herdr && !harness) || pane.len() > 96 {
             return Err(Error::Protocol("invalid resource pane"));
         }
         let started = identity(pid).ok_or(Error::Protocol("invalid resource process identity"))?;
@@ -231,7 +243,7 @@ impl Resources {
             .find(|item| item.pid == pid && item.started == started)
         {
             return Ok(
-                json!({"allowed":true,"limit_bytes":state.limit,"high_bytes":state.limit / 10 * 9,"reserved_bytes":existing.bytes}),
+                json!({"allowed":true,"limit_bytes":state.limit,"high_bytes":state.limit,"reserved_bytes":existing.bytes}),
             );
         }
         if !state.profile.can_start_agents || state.reservations.len() >= 128 {
@@ -247,7 +259,7 @@ impl Resources {
         });
         self.save(&state)?;
         Ok(
-            json!({"allowed":true,"limit_bytes":state.limit,"high_bytes":state.limit / 10 * 9,"reserved_bytes":bytes}),
+            json!({"allowed":true,"limit_bytes":state.limit,"high_bytes":state.limit,"reserved_bytes":bytes}),
         )
     }
 
@@ -292,7 +304,7 @@ impl Resources {
         platform(
             node,
             "configure",
-            Some(json!({"limit_bytes":limit,"high_bytes":limit / 10 * 9})),
+            Some(json!({"limit_bytes":limit,"high_bytes":limit})),
         )
         .await?;
         state.limit = limit;
@@ -333,4 +345,111 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(root: &Path) -> Node {
+        let interpreter = root.join("resource-interpreter");
+        fs::write(&interpreter, "#!/usr/bin/python3\nimport json,sys,time\nfrom pathlib import Path\nr=Path(__file__).parent\na=sys.argv[2]\np=r/'sample.json'\nv=json.loads(p.read_text())\nif a=='configure':\n q=json.load(sys.stdin);v['agent_effective_limit_bytes']=q['limit_bytes'];p.write_text(json.dumps(v));print('{}')\nelif a=='orphans':print('{}')\nelif a=='sample':v['sampled_at_ms']=int(time.time()*1000);print(json.dumps(v))\nelse:raise AssertionError(a)\n").unwrap();
+        fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(root.join("sample.json"),serde_json::to_vec(&json!({
+            "sampled_at_ms":1000,"cpu_total_ticks":100,"cpu_idle_ticks":50,"cpu_cores":4,"load_average":[0.0,0.0,0.0],
+            "memory_total_bytes":20*GIB,"memory_available_bytes":10*GIB,"swap_total_bytes":GIB,"swap_used_bytes":0,
+            "memory_pressure_some":0.0,"memory_pressure_full":0.0,"agent_current_bytes":8*GIB,"agent_reclaimable_bytes":0,
+            "agent_reserved_bytes":0,"agent_effective_limit_bytes":10*GIB,"agent_cpu_usage_usec":0,
+            "agent_process_count":2,"agent_oom_kills":0,"enforced":true,"uncontained_owners":0,"processes":[]
+        })).unwrap()).unwrap();
+        let mut config = super::super::tests::config(root);
+        config.python = interpreter;
+        config.source_path = Some(root.join("config.json"));
+        fs::write(
+            config.source_path.as_ref().unwrap(),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        Node {
+            config,
+            started: Instant::now(),
+            requests: AtomicU64::new(0),
+            backend_calls: AtomicU64::new(0),
+            lifecycle_last_scan: AtomicU64::new(0),
+            lifecycle_reclaimed: AtomicU64::new(0),
+            resources: Resources::open(root, 10 * GIB).unwrap(),
+            permits: Arc::new(Semaphore::new(4)),
+            notifications: None,
+            push: None,
+            notification_problem: None,
+            push_problem: None,
+            services: Mutex::new(None),
+            upgrade: None,
+            observation_gate: RwLock::new(()),
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_starts_share_persisted_reservations_without_overcommit() {
+        let root = tempfile::tempdir().unwrap();
+        let node = fixture(root.path());
+        let mut a = std::process::Command::new("/bin/sleep")
+            .arg("20")
+            .spawn()
+            .unwrap();
+        let mut b = std::process::Command::new("/bin/sleep")
+            .arg("20")
+            .spawn()
+            .unwrap();
+        let (first, second) = tokio::join!(
+            node.resources.admit(&node, "w1:p1", a.id()),
+            node.resources.admit(&node, "w1:p2", b.id())
+        );
+        let first = first.unwrap();
+        let second = second.unwrap();
+        assert_eq!(
+            [first["allowed"] == true, second["allowed"] == true]
+                .into_iter()
+                .filter(|v| *v)
+                .count(),
+            1
+        );
+        let restored = Resources::open(root.path(), 10 * GIB).unwrap();
+        assert_eq!(restored.state.lock().await.reservations.len(), 1);
+        let successful = if first["allowed"] == true {
+            a.id()
+        } else {
+            b.id()
+        };
+        node.resources.ready(successful).await.unwrap();
+        assert!(node.resources.state.lock().await.reservations.is_empty());
+        a.kill().unwrap();
+        b.kill().unwrap();
+        a.wait().unwrap();
+        b.wait().unwrap();
+    }
+
+    #[tokio::test]
+    async fn limit_changes_are_persistent_and_unsafe_shrinks_are_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let node = fixture(root.path());
+        let before = fs::read(root.path().join("config.json")).unwrap();
+        assert!(node.resources.set_limit(&node, 7 * GIB).await.is_err());
+        assert_eq!(fs::read(root.path().join("config.json")).unwrap(), before);
+        let profile = node.resources.set_limit(&node, 12 * GIB).await.unwrap();
+        assert!(profile.limit_enforced);
+        assert_eq!(profile.agent_memory_limit_bytes, 12 * GIB);
+        let saved: Value =
+            serde_json::from_slice(&fs::read(root.path().join("config.json")).unwrap()).unwrap();
+        assert_eq!(saved["agent_memory_limit_bytes"], 12 * GIB);
+    }
+
+    #[test]
+    fn corrupt_reservations_fail_closed_and_preserve_the_original_file() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("resource-reservations.json");
+        fs::write(&path, b"not-json").unwrap();
+        assert!(Resources::open(root.path(), 10 * GIB).is_err());
+        assert_eq!(fs::read(path).unwrap(), b"not-json");
+    }
 }

@@ -2,6 +2,16 @@ use super::*;
 use crate::resources::HostResources;
 
 impl AppCore {
+    pub(super) async fn poll_resources(
+        self: Arc<Self>,
+        connection: Arc<Connected>,
+        generation: u64,
+    ) {
+        while self.generation.load(Ordering::SeqCst) == generation && !connection.ssh.is_closed() {
+            self.refresh_resources(&connection, generation).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
     fn install_resources(&self, host: &str, generation: u64, profile: HostResources) {
         if self.generation.load(Ordering::SeqCst) != generation {
             return;

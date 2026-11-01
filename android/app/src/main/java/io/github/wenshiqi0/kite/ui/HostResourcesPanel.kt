@@ -53,7 +53,7 @@ internal fun ResourceWarning(profile: HostResourcesInfo?, onDetails: (() -> Unit
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge)
-                if (profile.available) Text(stringResource(if (profile.canStartAgents) R.string.resource_existing_tasks_continue else R.string.resource_new_sessions_paused), style = MaterialTheme.typography.bodySmall)
+                if (profile.available) Text(stringResource(if (profile.reason == MemoryWarningReason.RECENT_OOM) R.string.resource_oom_hint else if (profile.canStartAgents) R.string.resource_existing_tasks_continue else R.string.resource_new_sessions_paused), style = MaterialTheme.typography.bodySmall)
             }
             onDetails?.let { TextButton(onClick = it) { Text(stringResource(R.string.details)) } }
         }
@@ -144,6 +144,7 @@ internal fun HostResourcesCard(
                 OutlinedTextField(value, { value = it }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     label = { Text(stringResource(R.string.resource_limit_gib)) }, isError = parsed == null, modifier = Modifier.fillMaxWidth())
                 Text(stringResource(R.string.resource_limit_hint, resourceBytes(profile.agentMemoryUsedBytes + profile.agentStartupReservedBytes)), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.resource_limit_effect), style = MaterialTheme.typography.bodySmall)
             } },
             confirmButton = { TextButton(enabled = parsed != null && !saving, onClick = { parsed?.let(onSetLimit); editing = false }) { Text(stringResource(R.string.resource_save_limit)) } },
             dismissButton = { TextButton(onClick = { editing = false }, enabled = !saving) { Text(stringResource(R.string.cancel)) } })

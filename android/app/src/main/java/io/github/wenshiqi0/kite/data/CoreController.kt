@@ -30,6 +30,7 @@ import java.io.File
 
 /** One process-wide Core and observer; no Activity-owned domain state. */
 class CoreController(private val context: Context) {
+    private val resourceNotifications = ResourceNotifications(context)
     val agentNotifications=AgentNotifications(context)
     val systemPush=SystemPush(context,this)
     val notificationInbox=MutableStateFlow<List<AgentNoticeInfo>>(emptyList())
@@ -152,6 +153,7 @@ class CoreController(private val context: Context) {
                     timeline.prepareContext(snapshot.conversationContext)
                     val previous=current.value
                     current.value = snapshot
+                    resourceNotifications.observe(snapshot, visible)
                     if(snapshot.initialized)systemPush.refresh()
                     if(snapshot.initialized&&(noticeRevision!=snapshot.notificationRevision||previous?.selectedHost!=snapshot.selectedHost||previous?.selectedSession!=snapshot.selectedSession)){noticeRevision=snapshot.notificationRevision;refreshAgentNotifications()}
                     val requested=snapshot.conversationContext to snapshot.conversationRevision

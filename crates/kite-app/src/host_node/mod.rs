@@ -215,7 +215,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":1,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":1,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1,"resourceApi":1})
                 );
                 Ok(0)
             }
@@ -696,6 +696,9 @@ impl Node {
             c
         };
         command.envs(&self.config.environment);
+        command
+            .env("KITE_AGENT_RESOURCE_CONTROL", "1")
+            .env("KITE_CODEX_BACKEND_PATH", &self.config.backend);
         Ok(command)
     }
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
@@ -766,7 +769,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {

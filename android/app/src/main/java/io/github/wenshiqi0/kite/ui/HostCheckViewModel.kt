@@ -201,6 +201,12 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
+    fun openResourceDetails(hostId: String) {
+        viewModelScope.launch {
+            val state = engine.state.filterNotNull().first { it.initialized }
+            state.hosts.find { it.id == hostId }?.let { chooseHost(it); settingsVisible = true }
+        }
+    }
     fun newHost() {
         clearLocalError();form=HostForm();hostEditorVisible=true;settingsVisible=true
     }
@@ -260,12 +266,6 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun resumeSession(id: String) {
         if (sessionBusy) return
-        val session = engine.state.value?.sessions?.find { it.id == id }
-        val alreadyRunning = session?.agentId != null || session?.status in listOf("working", "blocked", "starting", "paused")
-        if (!alreadyRunning && !canStartResourceAgent(engine.state.value?.hostResources)) {
-            localError = getApplication<Application>().getString(R.string.resource_new_sessions_paused)
-            return
-        }
         sessionBusy = true
         engine.command { try { engine.core.resumeSession(id) } finally { sessionBusy = false } }
     }

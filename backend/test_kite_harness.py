@@ -38,7 +38,7 @@ class HarnessTests(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         endpoint = f"http://127.0.0.1:{self.server.server_port}/models"
         environment = {"KITE_HARNESS_STATE_DIR": str(Path(self.temporary.name) / "harnesses"), "DEEPSEEK_API_KEY": "fixture-only",
-            "KITE_ENABLE_DSH": "0",
+            "KITE_ENABLE_DSH": "0", "KITE_AGENT_RESOURCE_CONTROL": "0",
             "KITE_DSH_COMMAND": json.dumps([sys.executable, str(FIXTURE), "dsh"]),
             "KITE_DSH_HEALTH_URL": endpoint}
         self.environment = patch.dict(os.environ, environment)

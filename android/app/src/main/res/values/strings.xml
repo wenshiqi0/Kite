@@ -366,6 +366,8 @@
     <string name="host_details">主机详情</string>
     <string name="host_resources">主机资源</string>
     <string name="resource_refresh">刷新</string>
+    <string name="resource_alert_channel">主机资源预警</string>
+    <string name="resource_alert_body">主机可用内存 %1$s，Agent 预算已用 %2$s / %3$s。点击查看主机详情。</string>
     <string name="resource_connect_hint">连接这台主机后查看实时资源。</string>
     <string name="resource_sampling">正在采样…</string>
     <string name="resource_unavailable">暂时无法获取主机资源</string>
@@ -374,6 +376,8 @@
     <string name="resource_agent_memory_warning">Agent 内存接近上限</string>
     <string name="resource_memory_stall">主机出现持续内存压力</string>
     <string name="resource_oom_warning">内存上限已触发，请检查任务</string>
+    <string name="resource_oom_hint">部分进程可能已停止，会话历史保留。</string>
+    <string name="resource_limit_effect">超出硬上限时，系统可能停止相关进程。请为任务留足内存。</string>
     <string name="resource_start_paused">可用预算不足，暂停启动新会话</string>
     <string name="resource_memory_recovering">内存压力正在恢复</string>
     <string name="resource_existing_tasks_continue">现有任务继续运行。</string>

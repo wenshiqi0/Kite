@@ -31,6 +31,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0019](0019-agent-docs-and-linux-desktop.md) | 统一 Agent 文档、渐进披露与 Linux 桌面操作 | 已实现，待发布 |
 | [0020](0020-session-owner-lifecycle.md) | 闲置会话进程回收与按需恢复 | 已实现 |
 | [0021](0021-dsh-provider.md) | 可用 provider 目录与 DSH 托管会话 | 已实现（Alpha 45） |
+| [0022](0022-host-resources-and-agent-budget.md) | 主机资源概览与共享 Agent 内存预算 | 已实现 |
 
 ## 什么时候写 RFC
 

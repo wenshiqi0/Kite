@@ -295,6 +295,7 @@ pub struct AppCore {
     connected: Mutex<Option<Arc<Connected>>>,
     connect_job: Mutex<Option<JoinHandle<()>>>,
     poll_job: Mutex<Option<JoinHandle<()>>>,
+    resource_job: Mutex<Option<JoinHandle<()>>>,
     desktop_job: AsyncMutex<Option<DesktopJob>>,
     pending_pair: Mutex<Option<PendingPair>>,
     media: Mutex<Option<Arc<dyn MediaSink>>>,
@@ -371,6 +372,7 @@ impl AppCore {
             connected: Mutex::new(None),
             connect_job: Mutex::new(None),
             poll_job: Mutex::new(None),
+            resource_job: Mutex::new(None),
             desktop_job: AsyncMutex::new(None),
             pending_pair: Mutex::new(None),
             media: Mutex::new(None),
@@ -663,6 +665,13 @@ impl AppCore {
                         })
                     });
                 }
+                let resource_core = self.clone();
+                let resource_connection = connection.clone();
+                *lock(&self.resource_job) = Some(tokio::spawn(async move {
+                    resource_core
+                        .poll_resources(resource_connection, generation)
+                        .await;
+                }));
                 let core = self.clone();
                 let task = tokio::spawn(async move {
                     core.poll_connection(connection, generation).await;
@@ -938,7 +947,6 @@ impl AppCore {
                 self.report(&error);
             }
             self.refresh_session_activity(&connection, generation).await;
-            self.refresh_resources(&connection, generation).await;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
@@ -1509,6 +1517,11 @@ impl AppCore {
             let _ = task.await;
         }
         let old = lock(&self.connected).take();
+        let resources = lock(&self.resource_job).take();
+        if let Some(task) = resources {
+            task.abort();
+            let _ = task.await;
+        }
         if let Some(old) = old {
             let _ = old.ssh.close().await;
         }

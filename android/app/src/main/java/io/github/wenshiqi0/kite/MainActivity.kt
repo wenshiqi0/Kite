@@ -17,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import io.github.wenshiqi0.kite.core.ConnectionStatus
 import io.github.wenshiqi0.kite.data.AgentNotifications
+import io.github.wenshiqi0.kite.data.ResourceNotifications
 import androidx.compose.runtime.SideEffect
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -44,6 +45,8 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(AgentNotifications.ID)
         model = ViewModelProvider(this)[HostCheckViewModel::class.java]
         engine.stagedNoticeId?.let(model::openAgentNotification)
+        ResourceNotifications.target(intent)?.let(model::openResourceDetails)
+        intent.removeExtra(ResourceNotifications.HOST)
         lifecycleScope.launch {
             engine.state.collect { state ->
                 if(started&&state?.connection==ConnectionStatus.CONNECTED&&engine.agentNotifications.shouldAskPermission()) {
@@ -84,6 +87,8 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         AgentNotifications.target(intent)?.let(model::openAgentNotification)
+        ResourceNotifications.target(intent)?.let(model::openResourceDetails)
+        intent.removeExtra(ResourceNotifications.HOST)
         intent.removeExtra(AgentNotifications.ID)
         refreshPipParams()
     }

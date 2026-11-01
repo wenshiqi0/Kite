@@ -105,6 +105,7 @@ pub struct RawResources {
     pub agent_process_count: u32,
     pub agent_oom_kills: u64,
     pub enforced: bool,
+    pub uncontained_owners: u32,
     pub processes: Vec<RawProcessResource>,
 }
 
@@ -184,6 +185,7 @@ impl ResourceTracker {
             .saturating_add(startup_reserved);
         let enforced = configured
             && raw.enforced
+            && raw.uncontained_owners == 0
             && raw.agent_effective_limit_bytes > 0
             && raw
                 .agent_effective_limit_bytes
@@ -309,6 +311,7 @@ mod tests {
             agent_process_count: 4,
             agent_oom_kills: 0,
             enforced: true,
+            uncontained_owners: 0,
             processes: vec![RawProcessResource {
                 pid: 42,
                 name: "codex".into(),

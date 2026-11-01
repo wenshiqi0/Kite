@@ -556,6 +556,7 @@ def session_open(identifier, binary):
             else:
                 info = ensure(pane, binary)
             note_session_open(pane)
+            resources.reserve_existing(info)
             # Warm read-only account/routing discovery before the TUI's shorter
             # bootstrap deadline. This does not start a turn or change credentials.
             try:
