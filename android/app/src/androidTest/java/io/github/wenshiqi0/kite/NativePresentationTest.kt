@@ -189,7 +189,7 @@ class NativePresentationTest {
             - 混排：مرحبا `main` 中文测试
         """.trimIndent()
         for (scale in listOf(1f, 1.3f, 2f)) for (width in listOf(240, 320, 400)) {
-            view.textSize = 16 * density * scale
+            view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16 * scale)
             view.bind(source)
             measureText(view, (width * density).toInt())
             val boxes = view.inlineCodeBackgrounds()
@@ -205,6 +205,18 @@ class NativePresentationTest {
             }
             val spans = view.text as Spanned
             assertEquals(1, spans.getSpans(0, spans.length, URLSpan::class.java).size)
+            val pathSpan = spans.getSpans(0, spans.length, io.noties.markwon.core.spans.CodeSpan::class.java).first {
+                spans.subSequence(spans.getSpanStart(it), spans.getSpanEnd(it)).contains("/home/")
+            }
+            val start = spans.getSpanStart(pathSpan)
+            val end = spans.getSpanEnd(pathSpan)
+            for (line in view.layout.getLineForOffset(start)..view.layout.getLineForOffset(end - 1)) {
+                val baseline = view.layout.getLineBaseline(line)
+                val box = boxes.single { it.top <= baseline && it.bottom > baseline }
+                val from = maxOf(start, view.layout.getLineStart(line))
+                assertEquals("Wrapped highlight must not cover a bullet, label or leading margin", view.layout.getPrimaryHorizontal(from), box.left, .5f)
+                assertTrue("Wrapped highlight must not fill unused trailing space", box.right <= view.layout.getLineRight(line) + .5f)
+            }
             assertTrue("Long code still wraps within the text column", view.layout.lineCount > 6)
             val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap); canvas.drawColor(0xFF191C20.toInt()); view.draw(canvas)

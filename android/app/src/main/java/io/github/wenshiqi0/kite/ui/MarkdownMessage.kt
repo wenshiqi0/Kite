@@ -140,12 +140,21 @@ class MarkdownTextView(context: Context) : TextView(context) {
                 // Selection geometry also handles leading margins, wrapping and bidi runs.
                 val path = Path()
                 lines.getSelectionPath(from, to, path)
-                val bounds = RectF()
-                path.computeBounds(bounds, true)
                 val baseline = lines.getLineBaseline(line)
-                bounds.top = maxOf(lines.getLineTop(line).toFloat(), baseline + metrics.ascent - padding)
-                bounds.bottom = minOf(lines.getLineBottom(line).toFloat(), baseline + metrics.descent + padding)
-                result.add(bounds)
+                val top = maxOf(lines.getLineTop(line).toFloat(), baseline + metrics.ascent - padding)
+                val bottom = minOf(lines.getLineBottom(line).toFloat(), baseline + metrics.descent + padding)
+                // An end offset at a soft wrap also selects a zero-width contour on
+                // the next line. Intersect before taking bounds so that contour
+                // cannot extend this line's background across the list prefix.
+                val band = Path().apply {
+                    addRect(maxOf(0f, lines.getLineLeft(line)), top, minOf(lines.width.toFloat(), lines.getLineRight(line)), bottom, Path.Direction.CW)
+                }
+                path.op(band, Path.Op.INTERSECT)
+                if (!path.isEmpty) {
+                    val bounds = RectF()
+                    path.computeBounds(bounds, true)
+                    result.add(bounds)
+                }
             }
         }
         return result

@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "api": 36,
+  "abi": "x86_64",
+  "build": "debug UI harness; public ARM64 package verified separately",
+  "hardwareAcceleration": "KVM in owned container, UID 1000, device group only; host device permissions unchanged",
+  "tests": 6,
+  "textColumnsDp": [
+    240,
+    320,
+    400
+  ],
+  "textScale": [
+    1,
+    1.3,
+    2
+  ],
+  "fontSizeUnit": "sp",
+  "assertions": [
+    "inline code backgrounds compact and nonoverlapping",
+    "wrapped backgrounds retain label and bullet indentation",
+    "wrapped backgrounds exclude unused trailing space",
+    "linked code remains a URL span",
+    "tables settle after native draw",
+    "streamed Markdown spans remeasure correctly",
+    "Markdown labels preserve styling and literal code",
+    "question above answer, actual gray and blue background colors"
+  ],
+  "testNativeLink": "NDK 30 compiler-rt builtins archive explicitly linked for x86 CPU feature intrinsics; Kotlin bindings generated from that same library",
+  "userData": "synthetic display fixtures only; no real prompt or model turn"
+}

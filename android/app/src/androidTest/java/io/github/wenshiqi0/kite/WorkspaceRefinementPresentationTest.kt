@@ -70,6 +70,9 @@ class WorkspaceRefinementPresentationTest {
         try{
             main{for(i in 0 until root.childCount){root.getChildAt(i).let{original.add(it);it.visibility=View.INVISIBLE}};panel=ComposeView(activity).apply{setContent{KiteTheme{Box(Modifier.fillMaxSize().background(KiteColors.Background)){content()}}}};root.addView(panel,FrameLayout.LayoutParams(-1,-1))}
             test.waitForIdleSync();SystemClock.sleep(300);check()
+        }catch(error:Throwable){
+            runCatching { screenshot("workspace-refinement-failure.png") }
+            throw error
         }finally{main{panel.disposeComposition();root.removeView(panel);original.forEach{it.visibility=View.VISIBLE};activity.finish()}}
     }
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
