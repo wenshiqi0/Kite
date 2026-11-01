@@ -1122,6 +1122,8 @@ dependencies = [
  "kite-herdr",
  "kite-ssh",
  "openssl",
+ "rand",
+ "russh",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

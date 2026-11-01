@@ -15,3 +15,7 @@ thiserror.workspace = true
 tokio.workspace = true
 openssl.workspace = true
 hex.workspace = true
+
+[dev-dependencies]
+russh.workspace = true
+rand.workspace = true
