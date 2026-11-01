@@ -2,6 +2,7 @@
 """Real CLI/MCP/X11 integration on an owned target and a private Node."""
 import argparse
 import base64
+import ctypes as C
 import hashlib
 import json
 import os
@@ -17,6 +18,19 @@ import time
 parser=argparse.ArgumentParser();parser.add_argument('--binary',type=Path,required=True);parser.add_argument('--evidence',type=Path);args=parser.parse_args()
 binary=args.binary.resolve();source=Path(__file__).resolve().parent
 assert os.environ.get('DISPLAY'), 'Run on an owned X11 display'
+
+
+def keyboard_map_hash():
+    lib=C.CDLL('libX11.so.6')
+    lib.XOpenDisplay.argtypes=[C.c_char_p];lib.XOpenDisplay.restype=C.c_void_p
+    lib.XDisplayKeycodes.argtypes=[C.c_void_p,C.POINTER(C.c_int),C.POINTER(C.c_int)]
+    lib.XGetKeyboardMapping.argtypes=[C.c_void_p,C.c_ubyte,C.c_int,C.POINTER(C.c_int)];lib.XGetKeyboardMapping.restype=C.POINTER(C.c_ulong)
+    lib.XFree.argtypes=[C.c_void_p];lib.XCloseDisplay.argtypes=[C.c_void_p]
+    display=lib.XOpenDisplay(os.environ['DISPLAY'].encode())
+    low,high,width=C.c_int(),C.c_int(),C.c_int();lib.XDisplayKeycodes(display,C.byref(low),C.byref(high))
+    values=lib.XGetKeyboardMapping(display,low.value,high.value-low.value+1,C.byref(width))
+    try:return hashlib.sha256(json.dumps(list(values[:(high.value-low.value+1)*width.value])).encode()).hexdigest()
+    finally:lib.XFree(values);lib.XCloseDisplay(display)
 
 
 class MCP:
@@ -75,12 +89,16 @@ with tempfile.TemporaryDirectory(prefix='kite-desktop-api-') as directory:
         launched=cli('launch','--','/usr/bin/python3',source/'agent_desktop_fixture.py','--state',state);fixture_pid=launched['pid']
         wait_for(lambda:state.exists() and 'tile' in fixture() and fixture().get('input_ready'),'owned window and focus readiness')
         assert fixture()['manager_environment_cleared']
+        keymap_before=keyboard_map_hash()
         own_focus();entry=fixture()['entry'];cli('click',entry['x']+10,entry['y']+entry['height']//2)
         own_focus();cli('key','ctrl+a');cli('type','--stdin',stdin='Kite 你好 19')
         wait_for(lambda:fixture()['text_matched'],'real UTF-8 text delivery')
         # The documented bound must work without partial timeout or Unicode keymap loss.
         own_focus();cli('key','ctrl+a');large='你好'*256;cli('type','--stdin',stdin=large)
         wait_for(lambda:fixture().get('text_sha256')==hashlib.sha256(large.encode()).hexdigest(),'maximum-length UTF-8 delivery')
+        own_focus();cli('key','ctrl+a');distinct=''.join(chr(0x4e00+i) for i in range(512));cli('type','--stdin',stdin=distinct)
+        wait_for(lambda:fixture().get('text_sha256')==hashlib.sha256(distinct.encode()).hexdigest(),'distinct Unicode batches')
+        assert keyboard_map_hash()==keymap_before,'Temporary keyboard mappings were not restored'
         own_focus();cli('key','F8');wait_for(lambda:fixture()['f8'],'real key delivery')
         target=fixture()['target'];x=target['x']+target['width']//2;y=target['y']+target['height']//2
         own_focus();cli('move',x,y);cli('click',x,y);cli('click',x,y,'right');cli('scroll',0,2,'--at',x,y)
@@ -104,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix='kite-desktop-api-') as directory:
         bad=mcp.call('tools/call',dict(name='kite_desktop',arguments=dict(action='status',params=dict(action='launch',argv=['bad']))))
         assert bad.get('error',{}).get('code')==-32602
         invalid=cli('windows');assert isinstance(invalid['windows'],list)
-        result=dict(status='PASS',actualX11=True,utf8Text=True,maxLengthUtf8Text=True,keyChordAndF8=True,leftAndRightClicks=True,scrollEvents=True,
+        result=dict(status='PASS',actualX11=True,utf8Text=True,maxLengthUtf8Text=True,distinctUnicodeBatches=True,keyboardMapRestored=True,keyChordAndF8=True,leftAndRightClicks=True,scrollEvents=True,
                     configuredTarget=True,launchEnvironmentSanitized=True,standardMcpImage=True,cropOriginAndPixels=True,
                     privateArtifacts=True,unchangedImageOmitted=True,docsConditionalBody=True,actionOverrideRejected=True)
         print(json.dumps(result),flush=True)

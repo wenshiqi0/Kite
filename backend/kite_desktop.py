@@ -3,6 +3,7 @@
 import ctypes as C
 import ctypes.util
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,11 @@ class X11:
             'XDisplayWidth': ([C.c_void_p, C.c_int], C.c_int),
             'XDisplayHeight': ([C.c_void_p, C.c_int], C.c_int),
             'XCloseDisplay': ([C.c_void_p], C.c_int),
+            'XSync': ([C.c_void_p, C.c_int], C.c_int),
+            'XDisplayKeycodes': ([C.c_void_p, C.POINTER(C.c_int), C.POINTER(C.c_int)], C.c_int),
+            'XGetKeyboardMapping': ([C.c_void_p, C.c_ubyte, C.c_int, C.POINTER(C.c_int)], C.POINTER(C.c_ulong)),
+            'XChangeKeyboardMapping': ([C.c_void_p, C.c_int, C.c_int, C.POINTER(C.c_ulong), C.c_int], C.c_int),
+            'XKeysymToKeycode': ([C.c_void_p, C.c_ulong], C.c_ubyte),
             'XInternAtom': ([C.c_void_p, C.c_char_p, C.c_int], C.c_ulong),
             'XFree': ([C.c_void_p], C.c_int),
             'XGetWindowProperty': ([C.c_void_p, C.c_ulong, C.c_ulong, C.c_long, C.c_long,
@@ -199,6 +205,67 @@ def input_command(arguments, env, text=None):
         raise DesktopError('input_dispatch_failed') from None
 
 
+def stable_unicode_type(text, env, x11):
+    # xdotool's per-character temporary keycode reuse can race GTK/XKB event
+    # translation. Reserve distinct otherwise-empty keycodes for a whole batch.
+    symbols = {c: ord(c) if ord(c) <= 255 else 0x01000000 | ord(c)
+               for c in text if ord(c) > 127}
+    symbols = {c: symbol for c, symbol in symbols.items()
+               if not x11.lib.XKeysymToKeycode(x11.display, symbol)}
+    if not symbols:
+        input_command(['type', '--clearmodifiers', '--delay', '1', '--file', '-'], env, text)
+        return
+    directory = Path(os.environ['KITE_DESKTOP_ARTIFACTS'])
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (directory / 'keyboard-map.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        minimum, maximum, width = C.c_int(), C.c_int(), C.c_int()
+        x11.lib.XDisplayKeycodes(x11.display, C.byref(minimum), C.byref(maximum))
+        count = maximum.value - minimum.value + 1
+        original = x11.lib.XGetKeyboardMapping(x11.display, minimum.value, count, C.byref(width))
+        if not original or width.value <= 0:
+            raise DesktopError('keyboard_mapping_unavailable')
+        try:
+            slots = [(minimum.value+i, list(original[i*width.value:(i+1)*width.value]))
+                     for i in range(count) if not any(original[i*width.value:(i+1)*width.value])]
+        finally:
+            x11.lib.XFree(original)
+        if not slots:
+            raise DesktopError('unicode_keycodes_unavailable')
+        batches, start, seen = [], 0, set()
+        for index, char in enumerate(text):
+            if char in symbols and char not in seen and len(seen) == len(slots):
+                batches.append(text[start:index]);start=index;seen=set()
+            if char in symbols:seen.add(char)
+        batches.append(text[start:])
+        for batch in batches:
+            assigned = []
+            try:
+                for (code, before), char in zip(slots, dict.fromkeys(c for c in batch if c in symbols)):
+                    values = [symbols[char]] + [0]*(width.value-1)
+                    x11.lib.XChangeKeyboardMapping(x11.display, code, width.value, (C.c_ulong*width.value)(*values), 1)
+                    applied_width = C.c_int()
+                    applied = x11.lib.XGetKeyboardMapping(x11.display, code, 1, C.byref(applied_width))
+                    try:
+                        assigned.append((code, before, list(applied[:applied_width.value])))
+                    finally:
+                        x11.lib.XFree(applied)
+                x11.lib.XSync(x11.display, 0)
+                input_command(['type', '--clearmodifiers', '--delay', '2', '--file', '-'], env, batch)
+                # Keep mappings stable until queued client key events are consumed.
+                time.sleep(min(.5, .05 + len(batch)*.001))
+            finally:
+                for code, before, values in assigned:
+                    current_width = C.c_int()
+                    current = x11.lib.XGetKeyboardMapping(x11.display, code, 1, C.byref(current_width))
+                    try:
+                        if current and current_width.value == len(values) and list(current[:current_width.value]) == values:
+                            x11.lib.XChangeKeyboardMapping(x11.display, code, width.value, (C.c_ulong*width.value)(*before), 1)
+                    finally:
+                        if current:x11.lib.XFree(current)
+                x11.lib.XSync(x11.display, 0)
+
+
 def dispatch(request, env, x11):
     action = request['action']
     if action == 'status':
@@ -246,7 +313,7 @@ def dispatch(request, env, x11):
     elif action == 'key':
         input_command(['key', '--clearmodifiers', *request['keys']], env)
     elif action == 'type':
-        input_command(['type', '--clearmodifiers', '--delay', '24' if any(ord(char)>127 for char in request['text']) else '1', '--file', '-'], env, request['text'])
+        stable_unicode_type(request['text'], env, x11)
     elif action == 'launch':
         process = subprocess.Popen(request['argv'], env=env, cwd=request.get('cwd') or str(Path.home()),
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

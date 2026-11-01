@@ -25,3 +25,7 @@ Local checks pass: 125 Rust tests, Clippy, 33 backend tests, 8 publisher tests a
 ## Focus-ready confirmation
 
 The confirmation failure was retained in the record. The owned fixture previously advertised geometry before its scheduled 200 ms focus initialization finished; input could race that later focus operation. It now advertises an explicit `input_ready` state only after focus setup, and the probe waits for it. The combination of that ready gate, lightweight fixture observation and 24 ms non-ASCII pacing passes three consecutive complete private Xvfb runs, including exact short and maximum-length text hashes and all existing MCP/desktop assertions. Earlier Alpha 36 publication was cancelled; its immutable tag is retained. The final release is Alpha 37.
+
+## Stable Unicode batches
+
+Cloud runs still lost characters after the focus/pacing-only candidate, so Alpha 37 did not publish. The final X11 text adapter reserves distinct unused keycodes for a whole Unicode batch, holds them while dispatching queued events and restores the server-normalized mappings in `finally`. It never changes clipboard contents. Batches handle inputs with more distinct characters than available slots. The owned probe now also checks 512 distinct Han characters and byte-exact keyboard-map restoration. All three complete local runs pass these stronger assertions. Alpha 38 is the final combined candidate; earlier unshipped tags are retained without replacement.
