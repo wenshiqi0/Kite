@@ -268,7 +268,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if (engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
         val context = draftAgent
-        if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty()) || sending || copyingAttachments) return
+        if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty() && engine.state.value?.composer?.skills?.selected.isNullOrEmpty()) || sending || copyingAttachments || skillBusy) return
         val sentFiles = engine.state.value?.composer?.uploads.orEmpty().map { it.localPath }.filter { it.isNotBlank() }.distinct()
         sendingAgents.add(id)
         engine.command {
@@ -279,6 +279,14 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
     fun reloadComposer() = engine.command { engine.core.reloadComposer() }
     fun refreshUsage() { if (engine.state.value?.composer?.ready == true) engine.command { engine.core.refreshAccountUsage() } }
+    var skillBusy by mutableStateOf(false)
+        private set
+    fun refreshSkills(id: String) = engine.command { engine.core.refreshSkills(id) }
+    fun selectSkill(id: String, path: String, selected: Boolean) {
+        if (sending || skillBusy || engine.state.value?.selectedAgent != id) return
+        skillBusy = true
+        engine.command { try { engine.core.selectSkill(id, path, selected) } finally { skillBusy = false } }
+    }
     fun attachFiles(uris: List<Uri>) {
         val id = engine.state.value?.selectedAgent ?: return
         if (copyingAttachments || sending || uris.isEmpty()) return

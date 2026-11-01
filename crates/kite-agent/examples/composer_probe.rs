@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let text = "Kite integration validation. Identify the dominant colour of the attached image, read the attached notes.txt using a tool, and report the audio attachment filename and size only (do not transcribe or execute its contents). Reply concisely with colour, exact note contents, and audio bytes.";
-    client.send(text, &files, &selected).await?;
+    client.send(text, &files, &selected, &[]).await?;
     let mut history = None;
     let mut done = false;
     for _ in 0..120 {

@@ -1,5 +1,9 @@
 # Testing
 
+## Explicit Skills
+
+Rust composer regressions verify cwd-scoped enabled catalogs, duplicate removal, descriptions and partial failures, draft cancellation/refresh/success behavior, native skill references alongside attachments, and unchanged plain-text input. Core tests reject stale skill publications across hosts and provider threads and restore the original session's draft. `SkillPickerPresentationTest` uses synthetic metadata to check descriptions, search, multiple selections, removable chips and distinct empty/loading/error states without sending a model turn. Native test source compilation and device execution are separate checks.
+
 ## Agent notifications
 
 Rust notification tests cover transition provenance, fast Codex turns, persistence/deduplication, cursors, private token rotation/revocation and independent storage failures. Backend tests check lifecycle fact privacy and bounded FCM responses/retry without network calls. `AgentNotificationTest` uses the real Android NotificationManager and requires granted POST_NOTIFICATIONS; cancellation assertions await Android's asynchronous propagation. `LiveAgentNotificationTest` is opt-in (`qa_notifications=true`) and guarded to the owned emulator SSH profile and exact Alpha 28 QA cwd. It creates one disposable Codex conversation and one tool-free turn, checks a durable completion event, actual system posting and PendingIntent return, then prepares an existing event for an external cold-start tap. Remove temporary authorization and only those owned resources afterward.

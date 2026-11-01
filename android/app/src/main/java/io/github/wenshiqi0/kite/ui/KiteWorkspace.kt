@@ -87,6 +87,7 @@ private val Amber = KiteColors.Warning
 fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () -> Unit) {
     val current by vm.engine.state.collectAsState()
     val state = current
+    val agent = state?.agents?.find { it.id == state.selectedAgent }
     val presentationPhase = responsePresentationPhase(state?.responsePhase ?: ResponsePhase.IDLE, vm.sending, state?.question != null, state?.approval != null)
     val responseInProgress = presentationPhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING)
     val currentSession = state?.sessions?.find { it.id == state.selectedSession }
@@ -128,6 +129,14 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val imeVisible=WindowInsets.ime.getBottom(inputDensity)>0
     var terminal by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
+    var skillPicker by remember(state?.selectedHost, state?.selectedSession, state?.selectedAgent) { mutableStateOf(false) }
+    if (skillPicker && agent != null && state != null) SkillPicker(
+        draft = state.composer.skills,
+        enabled = !vm.sending && !vm.skillBusy && state.composer.ready,
+        select = { skill, selected -> vm.selectSkill(agent.id, skill.path, selected) },
+        refresh = { vm.refreshSkills(agent.id) },
+        dismiss = { skillPicker = false },
+    )
     var answerRequest by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(state?.question?.id) { if (answerRequest != state?.question?.id) answerRequest = null }
     var arrows by remember { mutableStateOf(false) }
@@ -259,7 +268,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             val fullscreen = vm.layout == DesktopLayout.Fullscreen || vm.inPip
             val railWidth=if(vm.layout==DesktopLayout.Fullscreen&&!hideChrome)64.dp else 0.dp
             val desktopWidth=(availableWidth-railWidth).coerceAtLeast(1.dp)
-            val agent = state?.agents?.find { it.id == state.selectedAgent }
             val takeover = state?.desktop?.takeover == true && !hideChrome && !vm.settingsVisible
             val split = vm.layout == DesktopLayout.Split && !fullscreen
             val aspect=if(state!=null&&state.desktop.sourceWidth>0u&&state.desktop.sourceHeight>0u)(state.desktop.sourceWidth.toFloat()/state.desktop.sourceHeight.toFloat()).coerceIn(.1f,10f)else 16f/9f
@@ -397,11 +405,20 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty(), onExternalActivityChanged = updatePip, inspect = ::pauseHistory)
+                SkillDrafts(state?.composer?.skills?.selected.orEmpty(), !vm.sending && !vm.skillBusy) { skill ->
+                    agent?.id?.let { vm.selectSkill(it, skill.path, false) }
+                }
                 Row(Modifier.widthIn(max=680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(horizontal=10.dp,vertical=6.dp).padding(bottom=6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }
                         IconButton(onClick = { plus = true }, modifier = Modifier.semantics { contentDescription = addDescription }) { ProductIcon(Mark.Plus) }
                         DropdownMenu(plus, { plus = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.skills_title)) },
+                                leadingIcon = { ProductIcon(Mark.Skill) },
+                                enabled = agent?.agent == "codex" && state?.composer?.ready == true && !vm.sending,
+                                onClick = { plus = false; skillPicker = true; agent?.id?.let(vm::refreshSkills) },
+                            )
                             listOf(R.string.attach_image to "image/*", R.string.attach_file to "*/*", R.string.attach_audio to "audio/*").forEach { (label, type) ->
                                 DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { ProductIcon(when (label) { R.string.attach_image -> Mark.Image; R.string.attach_audio -> Mark.Audio; else -> Mark.File }) }, onClick = { plus = false; pickAttachments(arrayOf(type)) }, enabled = state?.composer?.ready == true && !vm.sending && !vm.copyingAttachments && state.composer.uploads.size < 5)
                             }
@@ -409,7 +426,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
                     ChatDraftField(vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()})
-                    if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
+                    if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
                         if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, Blue)
                     } else IconButton(onClick = {
                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)

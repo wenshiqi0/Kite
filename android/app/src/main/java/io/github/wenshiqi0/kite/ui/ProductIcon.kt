@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows }
+enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Mic, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows, Skill }
 
 @Composable
 fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier = Modifier) {
@@ -48,6 +48,7 @@ fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier 
             Mark.Keyboard -> { box(2f, 5f, 20f, 14f); for (y in listOf(9f, 12f)) for (x in listOf(6f, 10f, 14f, 18f)) drawCircle(color, .65f * unit, Offset(x * unit, y * unit)); line(7f, 16f, 17f, 16f) }
             Mark.Mic -> { box(9f, 2f, 6f, 13f, 3f); line(6f, 10f, 6f, 13f); line(18f, 10f, 18f, 13f); line(6f, 13f, 9f, 18f); line(18f, 13f, 15f, 18f); line(9f, 18f, 15f, 18f); line(12f, 18f, 12f, 22f) }
             Mark.Plus -> { line(12f, 4f, 12f, 20f); line(4f, 12f, 20f, 12f) }
+            Mark.Skill -> { line(12f, 3f, 14.5f, 9.5f); line(14.5f, 9.5f, 21f, 12f); line(21f, 12f, 14.5f, 14.5f); line(14.5f, 14.5f, 12f, 21f); line(12f, 21f, 9.5f, 14.5f); line(9.5f, 14.5f, 3f, 12f); line(3f, 12f, 9.5f, 9.5f); line(9.5f, 9.5f, 12f, 3f) }
             Mark.Close -> { line(6f, 6f, 18f, 18f); line(18f, 6f, 6f, 18f) }
             Mark.Send -> { line(4f, 5f, 21f, 12f); line(21f, 12f, 4f, 19f); line(4f, 19f, 7f, 12f); line(7f, 12f, 4f, 5f); line(7f, 12f, 15f, 12f) }
             Mark.Touchpad -> { box(3f, 4f, 18f, 16f); line(3f, 15f, 21f, 15f); line(12f, 15f, 12f, 20f); line(10f, 8f, 14f, 8f) }
