@@ -24,6 +24,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 /** Synthetic resource records only. No provider prompt or live limit change. */
 class HostResourcesPresentationTest {
@@ -63,8 +64,8 @@ class HostResourcesPresentationTest {
     private fun capture(name:String){val bitmap=requireNotNull(test.uiAutomation.takeScreenshot());File(test.targetContext.getExternalFilesDir(null),name).outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
 
     @Test fun metricsAndEditableBudgetRenderAndSubmitBinaryGiB(){
-        var saved:ULong?=null
-        overlay({HostResourcesCard(profile(),true,false,{}, {saved=it})}){
+        val saved=AtomicReference<ULong?>(null)
+        overlay({HostResourcesCard(profile(),true,false,{}, {saved.set(it)})}){
             waitFor("Resource overview"){find("Agent 内存预算")!=null}
             assertNotNull(find("72.5%"));assertNotNull(find("2.0 GiB / 10.0 GiB"));assertNotNull(find("系统内存上限已生效"))
             capture("host-resources-normal.png")
@@ -72,7 +73,9 @@ class HostResourcesPresentationTest {
             waitFor("Budget input"){find(editable=true)!=null}
             val args=Bundle().apply{putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"6")}
             assertTrue(requireNotNull(find(editable=true)).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args));test.waitForIdleSync()
-            click(requireNotNull(find("保存上限")));waitFor("Exact binary budget callback"){saved==6uL*gib}
+            waitFor("Edited budget text"){find(editable=true)?.text?.toString()=="6"}
+            capture("host-resources-limit-dialog.png")
+            click(requireNotNull(find("保存上限")));waitFor("Exact binary budget callback: ${saved.get()}"){saved.get()==6uL*gib}
         }
     }
     @Test fun criticalMemoryShowsPausedStartsAndOfflineHasNoInventedMetrics(){

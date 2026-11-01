@@ -2,6 +2,8 @@ package io.github.wenshiqi0.kite.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -140,13 +142,13 @@ internal fun HostResourcesCard(
         var value by remember(profile.agentMemoryLimitBytes) { mutableStateOf(String.format(Locale.ROOT, "%.2f", profile.agentMemoryLimitBytes.toDouble() / RESOURCE_GIB).trimEnd('0').trimEnd('.')) }
         val parsed = resourceBudgetBytes(value)
         AlertDialog(onDismissRequest = { if (!saving) editing = false }, title = { Text(stringResource(R.string.resource_edit_limit)) },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(value, { value = it }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     label = { Text(stringResource(R.string.resource_limit_gib)) }, isError = parsed == null, modifier = Modifier.fillMaxWidth())
                 Text(stringResource(R.string.resource_limit_hint, resourceBytes(profile.agentMemoryUsedBytes + profile.agentStartupReservedBytes)), style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.resource_limit_effect), style = MaterialTheme.typography.bodySmall)
             } },
-            confirmButton = { TextButton(enabled = parsed != null && !saving, onClick = { parsed?.let(onSetLimit); editing = false }) { Text(stringResource(R.string.resource_save_limit)) } },
+            confirmButton = { TextButton(enabled = parsed != null && !saving, onClick = { resourceBudgetBytes(value)?.let { onSetLimit(it); editing = false } }) { Text(stringResource(R.string.resource_save_limit)) } },
             dismissButton = { TextButton(onClick = { editing = false }, enabled = !saving) { Text(stringResource(R.string.cancel)) } })
     }
 }
