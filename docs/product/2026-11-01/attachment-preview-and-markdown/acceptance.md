@@ -29,3 +29,7 @@ The confirmation failure was retained in the record. The owned fixture previousl
 ## Stable Unicode batches
 
 Cloud runs still lost characters after the focus/pacing-only candidate, so Alpha 37 did not publish. The final X11 text adapter reserves distinct unused keycodes for a whole Unicode batch, holds them while dispatching queued events and restores the server-normalized mappings in `finally`. It never changes clipboard contents. Batches handle inputs with more distinct characters than available slots. The owned probe now also checks 512 distinct Han characters and byte-exact keyboard-map restoration. All three complete local runs pass these stronger assertions. Alpha 38 is the final combined candidate; earlier unshipped tags are retained without replacement.
+
+## Final integrated source check
+
+The [full PR check](https://github.com/wenshiqi0/Kite/actions/runs/41318210699) passes with the concurrently merged Skill-picker source: Rust/Clippy, host/backend/publisher tests, real owned X11/MCP input (including distinct Unicode and keymap restoration), documentation budgets, real user-systemd handover, Android Release/lint/JVM and instrumentation-source compilation. Local shared-core validation now covers 130 Rust tests. This is not Android device execution.
