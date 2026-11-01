@@ -37,6 +37,26 @@ pub struct QuestionPrompt {
     pub questions: Vec<Question>,
     pub blocking: bool,
 }
+impl QuestionPrompt {
+    /// Called after transport validation succeeds; secrets never enter display history.
+    pub fn reply_records(&self, answers: &[Answer]) -> Vec<crate::QuestionReply> {
+        self.questions
+            .iter()
+            .filter_map(|q| {
+                let answer = answers.iter().find(|a| a.question_id == q.id)?;
+                Some(crate::QuestionReply {
+                    id: q.id.clone(),
+                    question: q.question.clone(),
+                    answer: if q.is_secret {
+                        "••••".into()
+                    } else {
+                        answer.value.trim().into()
+                    },
+                })
+            })
+            .collect()
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Answer {
     pub question_id: String,
@@ -418,6 +438,44 @@ mod tests {
     use super::*;
     fn request() -> Value {
         json!({"id":7,"method":"item/tool/requestUserInput","params":{"threadId":"t","turnId":"turn","isBlocking":true,"questions":[{"id":"colour","header":"Colour","question":"Which colour?","isOther":true,"options":[{"label":"Blue","description":"Blue"},{"label":"Green","description":"Green"}]}]}})
+    }
+    #[test]
+    fn submitted_display_records_preserve_question_order_and_mask_secrets() {
+        let prompt = QuestionPrompt {
+            id: "p".into(),
+            blocking: true,
+            questions: vec![
+                Question {
+                    id: "a".into(),
+                    header: "Short".into(),
+                    question: "Full first question?".into(),
+                    is_other: true,
+                    is_secret: false,
+                    options: None,
+                },
+                Question {
+                    id: "b".into(),
+                    header: "Secret".into(),
+                    question: "Enter secret".into(),
+                    is_other: true,
+                    is_secret: true,
+                    options: None,
+                },
+            ],
+        };
+        let records = prompt.reply_records(&[
+            Answer {
+                question_id: "b".into(),
+                value: "sensitive".into(),
+            },
+            Answer {
+                question_id: "a".into(),
+                value: "  A long answer\nwith another line  ".into(),
+            },
+        ]);
+        assert_eq!(records[0].question, "Full first question?");
+        assert_eq!(records[0].answer, "A long answer\nwith another line");
+        assert_eq!(records[1].answer, "••••");
     }
     #[test]
     fn unknown_server_requests_stop_the_processing_indicator_without_inventing_options() {

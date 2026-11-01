@@ -623,6 +623,10 @@ private fun agentTitle(a: AgentInfo): String {
     }
 }
 @Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: MessageInfo, streaming: Boolean = false) {
+    if (message.questionReplies.isNotEmpty()) {
+        AnsweredQuestions(message.questionReplies)
+        return
+    }
     val user = message.kind == MessageKind.USER
     val context = LocalContext.current
     val copyLabel = stringResource(R.string.copy_reply)

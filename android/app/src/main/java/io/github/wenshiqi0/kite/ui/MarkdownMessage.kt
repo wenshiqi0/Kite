@@ -6,6 +6,13 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.MetricAffectingSpan
 import android.net.Uri
 import android.util.TypedValue
 import android.widget.TextView
@@ -26,6 +33,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.viewinterop.AndroidView
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
@@ -43,6 +51,7 @@ import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.movement.MovementMethodPlugin
 import java.util.Locale
+import org.commonmark.node.Code
 import org.commonmark.node.Link
 import org.commonmark.node.Paragraph
 
@@ -72,7 +81,7 @@ fun markdownLabel(context: Context, source: String): AnnotatedString {
             val style = when (span) {
                 is StrongEmphasisSpan -> SpanStyle(fontWeight = FontWeight.Bold)
                 is EmphasisSpan -> SpanStyle(fontStyle = FontStyle.Italic)
-                is CodeSpan -> SpanStyle(fontFamily = FontFamily.Monospace, background = KiteColors.Raised)
+                is CodeSpan -> SpanStyle(fontFamily = FontFamily.Monospace, fontSize = .9.em, background = KiteColors.Raised)
                 is StrikethroughSpan -> SpanStyle(textDecoration = TextDecoration.LineThrough)
                 is URLSpan -> SpanStyle(textDecoration = TextDecoration.Underline)
                 else -> continue
@@ -104,6 +113,66 @@ class MarkdownTextView(context: Context) : TextView(context) {
         // escaped/literal markers keep their original CommonMark behavior.
         val partialStrong=inProgress && tail.startsWith("**") && tail.length>2 && !tail[2].isWhitespace() && tail.indexOf("**",2)<0 && markdown.parse(display).lastChild is Paragraph
         markdown.setMarkdown(this,if(partialStrong)display+"**" else display)
+        (text as? Spanned)?.let { body ->
+            body.getSpans(0, body.length, CompactCodeSpan::class.java).forEach { it.drawCompactBackground = true }
+        }
+    }
+
+    // Paint.bgColor fills the entire TextView line, including its extra leading.
+    // Draw only the code font's own band, leaving line breaking/selection native.
+    fun inlineCodeBackgrounds(): List<RectF> {
+        val body = text as? Spanned ?: return emptyList()
+        val lines = layout ?: return emptyList()
+        val padding = resources.displayMetrics.density
+        val result = ArrayList<RectF>()
+        for (span in body.getSpans(0, body.length, CompactCodeSpan::class.java)) {
+            val start = body.getSpanStart(span)
+            val end = body.getSpanEnd(span)
+            if (start >= end) continue
+            val codePaint = TextPaint(paint)
+            body.getSpans(start, start + 1, MetricAffectingSpan::class.java).forEach { it.updateMeasureState(codePaint) }
+            val metrics = codePaint.fontMetrics
+            for (line in lines.getLineForOffset(start)..lines.getLineForOffset(end - 1)) {
+                val from = maxOf(start, lines.getLineStart(line))
+                var to = minOf(end, lines.getLineEnd(line))
+                while (to > from && body[to - 1] == '\n') to--
+                if (from >= to) continue
+                // Selection geometry also handles leading margins, wrapping and bidi runs.
+                val path = Path()
+                lines.getSelectionPath(from, to, path)
+                val bounds = RectF()
+                path.computeBounds(bounds, true)
+                val baseline = lines.getLineBaseline(line)
+                bounds.top = maxOf(lines.getLineTop(line).toFloat(), baseline + metrics.ascent - padding)
+                bounds.bottom = minOf(lines.getLineBottom(line).toFloat(), baseline + metrics.descent + padding)
+                result.add(bounds)
+            }
+        }
+        return result
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = KiteColors.Raised.toArgb() }
+        val saved = canvas.save()
+        canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+        val radius = 3 * resources.displayMetrics.density
+        inlineCodeBackgrounds().forEach { canvas.drawRoundRect(it, radius, radius, background) }
+        canvas.restoreToCount(saved)
+        super.onDraw(canvas)
+    }
+}
+
+private class CompactCodeSpan(theme: MarkwonTheme) : CodeSpan(theme) {
+    var drawCompactBackground = false
+    override fun updateMeasureState(paint: TextPaint) {
+        super.updateMeasureState(paint)
+        paint.textSize *= .9f
+    }
+    override fun updateDrawState(paint: TextPaint) {
+        super.updateDrawState(paint)
+        paint.textSize *= .9f
+        // Other renderers (notably table cells) retain their standard background.
+        if (drawCompactBackground) paint.bgColor = android.graphics.Color.TRANSPARENT
     }
 }
 
@@ -132,6 +201,7 @@ object MarkdownRenderer {
         .usePlugin(MovementMethodPlugin.create(TableAwareMovementMethod.create()))
         .usePlugin(object : AbstractMarkwonPlugin() {
             override fun configureSpansFactory(builder: MarkwonSpansFactory.Builder) {
+                builder.setFactory(Code::class.java) { configuration, _ -> CompactCodeSpan(configuration.theme()) }
                 builder.setFactory(Link::class.java) { configuration, props ->
                     val link = CoreProps.LINK_DESTINATION.require(props)
                     if (isExternalLink(link)) LinkSpan(configuration.theme(), link, configuration.linkResolver()) else null

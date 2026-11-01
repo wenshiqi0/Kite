@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -107,8 +109,8 @@ class WorkspaceRefinementPresentationTest {
     }
 
     @Test fun commentaryIsVisibleWhileToolDetailsStayCollapsed() {
-        fun text(id:String,body:String,progress:Boolean)=MessageInfo(emptyList(),id,MessageKind.ASSISTANT,body,progress,null)
-        val tool=MessageInfo(emptyList(),"owned-call",MessageKind.TOOL,"",false,ToolInfo("Bash","读取配置","exec_command","owned-argument","owned-output",true,false,false))
+        fun text(id:String,body:String,progress:Boolean)=MessageInfo(emptyList(),emptyList(),id,MessageKind.ASSISTANT,body,progress,null)
+        val tool=MessageInfo(emptyList(),emptyList(),"owned-call",MessageKind.TOOL,"",false,ToolInfo("Bash","读取配置","exec_command","owned-argument","owned-output",true,false,false))
         val rows=chatEntries(listOf(text("before","已经定位问题，接下来读取配置",true),tool,text("after","配置中发现一个需要你注意的结论",true),text("final","检查完成",false)))
         overlay({Column { rows.forEach { row -> when(row) {
             is ChatEntry.Message -> MarkdownMessage(row.message.text)
@@ -120,6 +122,28 @@ class WorkspaceRefinementPresentationTest {
             assertNotNull(find(text="1 次工具调用"))
             assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
             screenshot("commentary-visible-tools-collapsed.png")
+        }
+    }
+
+    @Test fun answeredQuestionsKeepPromptsAboveDistinctAnswerPanels() {
+        val replies = listOf(
+            QuestionReplyInfo("owned-q1", "你希望更新到哪个 `main` 分支？", "更新最新版本"),
+            QuestionReplyInfo("owned-q2", "是否保留现有 SSH 信任记录？", "保留，另外检查新版本安装。\n这是一段多行回答。"),
+        )
+        overlay({Column(Modifier.padding(20.dp)) { AnsweredQuestions(replies) }}) {
+            waitFor("Question and answer labels"){find(text="模型提问")!=null && find(text="你的回答")!=null}
+            assertNotNull(find(text="更新最新版本"))
+            val question = requireNotNull(find(text="是否保留现有 SSH 信任记录"))
+            val answer = requireNotNull(find(text="保留，另外检查新版本安装"))
+            val q = Rect().also { question.getBoundsInScreen(it) }
+            val a = Rect().also { answer.getBoundsInScreen(it) }
+            assertTrue("Question must stay above its answer", q.bottom < a.top)
+            val bitmap = test.uiAutomation.takeScreenshot()
+            val x = (q.left + 2 * test.targetContext.resources.displayMetrics.density).toInt()
+            assertEquals(KiteColors.Surface.toArgb(), bitmap.getPixel(x, q.top - 2))
+            assertEquals(KiteColors.UserBubble.toArgb(), bitmap.getPixel(x, a.top - 2))
+            bitmap.recycle()
+            screenshot("question-answer-paired-panels.png")
         }
     }
 
@@ -142,7 +166,7 @@ class WorkspaceRefinementPresentationTest {
         test.waitForIdleSync();SystemClock.sleep(500)
         val delta=runBlocking{vm.engine.core.conversationSince("owned-native-refinement",0uL)}
         val context=requireNotNull(vm.engine.state.value).conversationContext
-        val messages=(0 until 501).map{i->MessageInfo(emptyList(),"owned-native-$i",MessageKind.ASSISTANT,if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else if(i==500)"Owned tail status" else"Owned history row $i\nSecond line",false,null)}
+        val messages=(0 until 501).map{i->MessageInfo(emptyList(),emptyList(),"owned-native-$i",MessageKind.ASSISTANT,if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else if(i==500)"Owned tail status" else"Owned history row $i\nSecond line",false,null)}
         try{
             main{vm.engine.timeline.prepareContext(context);vm.engine.timeline.apply(ConversationDeltaInfo(context,100000uL,true,listOf(ConversationEditInfo(0uL,0uL,messages))))}
             waitFor("History visible"){find(description="聊天记录")!=null&&find(description="消息输入框")!=null}

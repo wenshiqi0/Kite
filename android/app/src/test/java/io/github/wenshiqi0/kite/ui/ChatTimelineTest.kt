@@ -5,8 +5,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatTimelineTest {
-    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = MessageInfo(id = id, text = id, kind = if (user) MessageKind.USER else MessageKind.ASSISTANT, tool = null, attachments = emptyList(), intermediate = intermediate)
-    private fun tool(id: String, complete: Boolean = true) = MessageInfo(id = id, text = "", kind = MessageKind.TOOL, attachments = emptyList(), intermediate = false, tool = ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))
+    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = MessageInfo(questionReplies = emptyList(), id = id, text = id, kind = if (user) MessageKind.USER else MessageKind.ASSISTANT, tool = null, attachments = emptyList(), intermediate = intermediate)
+    private fun tool(id: String, complete: Boolean = true) = MessageInfo(questionReplies = emptyList(), id = id, text = "", kind = MessageKind.TOOL, attachments = emptyList(), intermediate = false, tool = ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))
 
     @Test fun progressTextRemainsVisibleBetweenCollapsedToolGroups() {
         val calls = (1..80).flatMap { listOf(text("progress-$it", intermediate = true), tool("tool-$it")) }
