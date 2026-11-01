@@ -35,10 +35,10 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    #[error("Codex backend: {0}")]
+    #[error("chat backend: {0}")]
     Remote(String),
     #[error(
-        "Codex request timed out; delivery may have occurred, inspect the conversation before resubmitting"
+        "Chat request timed out; delivery may have occurred, inspect the conversation before resubmitting"
     )]
     Timeout,
     #[error("invalid composer input: {0}")]
