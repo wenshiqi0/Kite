@@ -1,0 +1,100 @@
+{
+  "status": "PASS",
+  "tag": "v0.2.0-alpha.42",
+  "versionCode": 44,
+  "sourceCommit": "09a8efd69753462f163406a88c1cef94f9c8d333",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.42",
+  "prerelease": true,
+  "draft": false,
+  "checksums": {
+    "kite-0.2.0-alpha.42-arm64-v8a.apk": "9f9b5a3cc16704a9306e7ee20cc3e6b308ebc586402aecf437928890e848299e",
+    "kite-0.2.0-alpha.42-arm64-v8a-compat-v2.apk": "19e65d2fd50573ba13c5b31840d2874d543938b893ce58d67710e9fe5b28d979",
+    "kite-host-0.2.0-alpha.42-linux-x86_64.tar.gz": "afb41ff907f3d5d6e987c7acbedd1e17a549ae70c22cbd3c1897dc97656a2667",
+    "release-manifest.json": "9f4263c66a62b669cec85e21ebf4f59e3f8cae626a0005400d706454fd370452"
+  },
+  "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "primarySigningSchemes": [
+    1,
+    2,
+    3
+  ],
+  "compatibilitySigningSchemes": [
+    1,
+    2
+  ],
+  "signatureVerificationApis": [
+    23,
+    36
+  ],
+  "zipAlignmentKiB": 16,
+  "compatibilityPayloadMatchesPrimary": true,
+  "linuxHostSourceMatches": true,
+  "packagedPresentationSymbols": {
+    "SkillPresentationKt": true,
+    "getPresentationName": true,
+    "getPresentationDescription": true,
+    "matchesSearch": true
+  },
+  "workflowRuns": [
+    {
+      "conclusion": "success",
+      "databaseId": 41339634028,
+      "headBranch": "main",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41339634028"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 41339633726,
+      "headBranch": "v0.2.0-alpha.42",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41339633726"
+    }
+  ],
+  "tagBuildAttempt": 3,
+  "earlierTagAttempts": [
+    {
+      "attempt": 1,
+      "conclusion": "failure",
+      "step": "Check agent desktop CLI and MCP on owned X11",
+      "assertion": "distinct Unicode batches",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41339633726/attempts/1"
+    },
+    {
+      "attempt": 2,
+      "conclusion": "failure",
+      "step": "Check agent desktop CLI and MCP on owned X11",
+      "assertion": "distinct Unicode batches",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41339633726/attempts/2"
+    }
+  ],
+  "assets": [
+    {
+      "name": "kite-0.2.0-alpha.42-arm64-v8a-compat-v2.apk",
+      "bytes": 23772256,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.42/kite-0.2.0-alpha.42-arm64-v8a-compat-v2.apk"
+    },
+    {
+      "name": "kite-0.2.0-alpha.42-arm64-v8a.apk",
+      "bytes": 23772256,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.42/kite-0.2.0-alpha.42-arm64-v8a.apk"
+    },
+    {
+      "name": "kite-host-0.2.0-alpha.42-linux-x86_64.tar.gz",
+      "bytes": 2886974,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.42/kite-host-0.2.0-alpha.42-linux-x86_64.tar.gz"
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 1359,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.42/release-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 409,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.42/SHA256SUMS"
+    }
+  ],
+  "physicalPhoneInstall": "not performed",
+  "hostUpgrade": "not performed"
+}
