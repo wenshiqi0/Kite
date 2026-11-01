@@ -323,4 +323,16 @@
     <string name="notice_push_host_missing">手机已注册，主机尚未配置推送凭据。</string>
     <string name="notice_push_retry">推送注册暂时失败，稍后自动重试。</string>
     <string name="notice_push_disabled">通知已关闭</string>
+    <string name="session_running">运行中</string>
+    <string name="session_question">待回答</string>
+    <string name="session_attention">待处理</string>
+    <string name="session_failed">运行失败</string>
+    <string name="session_saved">已保存</string>
+    <string name="session_disconnected">未连接</string>
+    <string name="generated_image_loading">正在加载图片</string>
+    <string name="generated_image_failed">图片加载失败</string>
+    <string name="generated_image_preview">预览图片</string>
+    <string name="generated_image_save">保存图片</string>
+    <string name="generated_image_saved">图片已保存</string>
+    <string name="generated_image_save_failed">图片保存失败</string>
 </resources>

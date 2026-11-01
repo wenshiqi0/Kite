@@ -346,7 +346,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                     items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.kind}) { entry -> when (entry) {
-                        is ChatEntry.Message -> MessageCard(entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
+                        is ChatEntry.Message -> MessageCard(vm, entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
                         is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
                     } }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
@@ -604,14 +604,15 @@ private fun agentTitle(a: AgentInfo): String {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else KiteColors.Muted, Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
     }
 }
-@Composable private fun MessageCard(message: MessageInfo, streaming: Boolean = false) {
+@Composable private fun MessageCard(vm: HostCheckViewModel, message: MessageInfo, streaming: Boolean = false) {
     val user = message.kind == MessageKind.USER
     val context = LocalContext.current
     val copyLabel = stringResource(R.string.copy_reply)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                MessageAttachments(message.attachments)
+                MessageAttachments(message.attachments.filterNot { it.path.startsWith("kite-image:") })
+                GeneratedImages(vm, message.attachments.filter { it.path.startsWith("kite-image:") })
                 if (message.text.isNotBlank()) {
                     if (user) SelectionContainer { Text(message.text, color = KiteColors.Accent, fontSize = 16.sp, lineHeight = 25.sp) }
                     else {

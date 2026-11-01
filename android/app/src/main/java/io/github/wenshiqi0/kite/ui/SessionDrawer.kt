@@ -2,6 +2,7 @@ package io.github.wenshiqi0.kite.ui
 
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,7 +50,10 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                 Surface(color = if (selected) KiteColors.AccentSurface else Color.Transparent, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().clickable { open(session.id) }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(providerLabel(session.provider), fontSize = 10.sp, color = KiteColors.Muted)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(providerLabel(session.provider), fontSize = 10.sp, color = KiteColors.Muted)
+                                SessionStatusBadge(sessionStatus(session.status, state?.connection == ConnectionStatus.CONNECTED))
+                            }
                             Text(sessionTitle(session), fontSize = 14.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val subtitle = session.preview.ifBlank { stringResource(if (session.provider == "claude" && session.agentId == null) R.string.claude_not_connected else if (session.recorded) R.string.session_recorded else R.string.session_new_hint) }
                             Text(subtitle, fontSize = 11.sp, color = KiteColors.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -67,5 +71,20 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
             if (sessions.isEmpty()) item { Text(stringResource(if (archived) R.string.no_archived_sessions else R.string.no_active_sessions), fontSize = 13.sp, color = KiteColors.Muted, modifier = Modifier.padding(12.dp)) }
         }
         TextButton(onClick = settings, modifier = Modifier.padding(12.dp)) { ProductIcon(Mark.Settings); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.host_settings)) }
+    }
+}
+
+@Composable
+internal fun SessionStatusBadge(status: SessionStatus) {
+    val color = when (status) {
+        SessionStatus.Running, SessionStatus.Starting -> KiteColors.Accent
+        SessionStatus.Question, SessionStatus.Attention, SessionStatus.Paused -> KiteColors.Warning
+        SessionStatus.Completed -> KiteColors.Success
+        SessionStatus.Failed -> MaterialTheme.colorScheme.error
+        else -> KiteColors.Muted
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(6.dp).background(color, RoundedCornerShape(3.dp)))
+        Text(stringResource(status.label), fontSize = 10.sp, color = color)
     }
 }

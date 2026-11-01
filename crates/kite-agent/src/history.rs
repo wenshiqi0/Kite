@@ -313,7 +313,7 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
             continue;
         };
         let p = &value["payload"];
-        let id = if p["type"] == "message" {
+        let id = if p["type"] == "message" || p["type"] == "image_generation_call" {
             p["id"]
                 .as_str()
                 .or_else(|| value["uuid"].as_str())

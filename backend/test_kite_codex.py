@@ -280,3 +280,57 @@ class BackendTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class GeneratedImageTests(unittest.TestCase):
+    page = BackendTests.page
+    def test_large_generated_images_are_small_manifests_and_download_exactly(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            # Larger than the transcript limit; no image data may enter its pages.
+            data = b"\x89PNG\r\n\x1a\n" + b"x" * (5 * 1024 * 1024)
+            row = {"type":"response_item", "payload":{"type":"image_generation_call", "id":"ig-test", "status":"completed", "result":base64.b64encode(data).decode()}}
+            source = Path(temporary) / "history.jsonl"
+            source.write_text(json.dumps(row) + "\n")
+            _, controls, body = self.page(source)
+            self.assertLess(len(body), 2048)
+            self.assertNotIn(b"result", body)
+            self.assertNotIn(b"_kite_images", controls)
+            image = json.loads(body)["payload"]["_kite_images"][0]
+            self.assertEqual(image["size"], len(data))
+            self.assertEqual(image["id"], hashlib.sha256(data).hexdigest())
+            output = io.BytesIO()
+            backend.read_generated_image(image["id"], output)
+            self.assertEqual(output.getvalue(), data)
+            self.assertEqual(source.read_text(), json.dumps(row) + "\n")
+            self.assertEqual(self.page(source)[2], body)
+
+    def test_file_backed_completion_is_projected_and_partial_results_are_deferred(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            image = Path(temporary) / "result.webp"
+            data = b"RIFF1234WEBPtest"
+            image.write_bytes(data)
+            source = Path(temporary) / "history.jsonl"
+            row = {"type":"event_msg", "payload":{"type":"image_generation_end", "call_id":"ig-file", "status":"completed", "file_id":"file-1", "saved_path":str(image)}}
+            source.write_text(json.dumps(row))
+            self.assertFalse(self.page(source)[2])
+            source.write_text(json.dumps(row) + "\n")
+            payload = json.loads(self.page(source)[2])["payload"]
+            self.assertEqual(payload["id"], "ig-file")
+            self.assertEqual(payload["type"], "image_generation_call")
+            self.assertEqual(payload["_kite_images"][0]["mime"], "image/webp")
+            output = io.BytesIO()
+            backend.read_generated_image(payload["_kite_images"][0]["id"], output)
+            self.assertEqual(output.getvalue(), data)
+
+    def test_invalid_results_do_not_break_chat_and_image_reads_reject_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            source = Path(temporary) / "history.jsonl"
+            for result in ("bad base64!", base64.b64encode(b"not an image").decode()):
+                source.write_text(json.dumps({"type":"response_item", "payload":{"type":"image_generation_call", "id":"invalid", "result":result, "status":"completed"}}) + "\n")
+                payload = json.loads(self.page(source)[2])["payload"]
+                self.assertEqual(payload["_kite_images"], [])
+                self.assertTrue(payload["_kite_image_error"])
+            for identifier in ("../secret", "a" * 63, "A" * 64):
+                with self.assertRaises(ValueError): backend.read_generated_image(identifier, io.BytesIO())
+            image = backend.store_generated_bytes(b"\xff\xd8\xfftest")
+            (backend.image_store() / image["id"]).write_bytes(b"changed")
+            with self.assertRaises(ValueError): backend.read_generated_image(image["id"], io.BytesIO())

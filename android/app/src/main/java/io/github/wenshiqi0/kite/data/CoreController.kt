@@ -92,6 +92,34 @@ class CoreController(private val context: Context) {
     private var foregroundRequested = false
     private var service: ConnectionService? = null
 
+    private val imageDownloads = kotlinx.coroutines.sync.Mutex()
+    suspend fun generatedImage(conversation: String, id: String): File = withContext(Dispatchers.IO) {
+        require(id.matches(Regex("[a-f0-9]{64}")))
+        imageDownloads.lock()
+        try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val namespace = digest.digest(conversation.toByteArray()).joinToString("") { "%02x".format(it) }
+            val root = File(context.filesDir, "generated-images/$namespace").apply { mkdirs() }
+            val file = File(root, id)
+            fun valid(): Boolean = file.isFile && file.length() in 1..(25L * 1024 * 1024) &&
+                file.inputStream().use { source ->
+                    digest.reset()
+                    val buffer = ByteArray(65536)
+                    while (true) { val count = source.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
+                    digest.digest().joinToString("") { "%02x".format(it) } == id
+                }
+            if (!valid()) {
+                val bytes = core.chatImage(conversation, id)
+                val temporary = File.createTempFile("image-", ".tmp", root)
+                try {
+                    temporary.outputStream().use { it.write(bytes) }
+                    check(temporary.renameTo(file)) { "Could not save image" }
+                } finally { temporary.delete() }
+            }
+            file
+        } finally { imageDownloads.unlock() }
+    }
+
     val core = KiteCore(DeviceKeyStore(context), object : CoreObserver {
         override fun stateChanged(snapshot: CoreSnapshot) {
             main.post {

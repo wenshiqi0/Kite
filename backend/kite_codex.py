@@ -722,13 +722,109 @@ def cursor_position(value, info):
     return position
 
 
+def image_store():
+    return private_dir(state_dir() / "generated-images")
+
+
+def store_generated_image(encoded):
+    if not isinstance(encoded, str) or len(encoded) > (MAX_FILE + 2) // 3 * 4 + 128:
+        raise ValueError("generated image exceeds 25 MiB")
+    if encoded.startswith("data:image/"):
+        encoded = encoded.split(",", 1)[1]
+    return store_generated_bytes(base64.b64decode(encoded, validate=True))
+
+
+def store_generated_bytes(data):
+    if not 0 < len(data) <= MAX_FILE:
+        raise ValueError("invalid generated image size")
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        mime, extension = "image/png", "png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        mime, extension = "image/jpeg", "jpg"
+    elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        mime, extension = "image/webp", "webp"
+    else:
+        raise ValueError("unsupported generated image format")
+    identifier = hashlib.sha256(data).hexdigest()
+    path = image_store() / identifier
+    if not path.exists():
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
+            output.write(data)
+            temporary = Path(output.name)
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    return dict(id=identifier, name="generated-" + identifier[:12] + "." + extension,
+                mime=mime, size=len(data), path="kite-image:" + identifier)
+
+
+def read_generated_image(identifier, output):
+    if not re.fullmatch(r"[a-f0-9]{64}", identifier or ""):
+        raise ValueError("invalid generated image identity")
+    path = image_store() / identifier
+    with path.open("rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_FILE:
+            raise ValueError("invalid generated image file")
+        data = source.read(MAX_FILE + 1)
+    if hashlib.sha256(data).hexdigest() != identifier:
+        raise ValueError("generated image changed")
+    output.write(data)
+
+
+def display_line(stream, limit):
+    # Native image results exceed the transcript budget. Decode them on the host
+    # and send only an immutable attachment identity. Other records retain the
+    # streaming image-input stripping and existing text limit.
+    start = stream.tell()
+    header = stream.read(1024)
+    stream.seek(start)
+    if b'"image_generation_call"' not in header and b'"image_generation_end"' not in header:
+        return control_line(stream, limit)
+    line = stream.readline((MAX_FILE + 2) // 3 * 4 + limit + 1)
+    complete = line.endswith(b"\n")
+    if not complete:
+        # Advance to the source boundary without growing memory.
+        while line and not line.endswith(b"\n"):
+            line = stream.readline(65536)
+        return None, bool(line)
+    try:
+        record = json.loads(line)
+    except (ValueError, TypeError):
+        return b"", True
+    payload = record.get("payload", {})
+    if record.get("type") == "event_msg" and payload.get("type") == "image_generation_end":
+        record["type"] = "response_item"
+        payload["type"] = "image_generation_call"
+        payload["id"] = payload.get("call_id")
+    elif record.get("type") != "response_item" or payload.get("type") != "image_generation_call":
+        stream.seek(start)
+        return control_line(stream, limit)
+    encoded = payload.pop("result", "")
+    payload.pop("encrypted_content", None)
+    payload["_kite_images"] = []
+    try:
+        if encoded:
+            payload["_kite_images"] = [store_generated_image(encoded)]
+        elif payload.get("saved_path") and payload.get("status") == "completed":
+            path = Path(payload["saved_path"])
+            if not path.is_absolute():
+                raise ValueError("invalid generated image path")
+            with path.open("rb") as source:
+                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                    raise ValueError("invalid generated image file")
+                payload["_kite_images"] = [store_generated_bytes(source.read(MAX_FILE + 1))]
+    except (ValueError, OSError) as error:
+        payload["_kite_image_error"] = str(error)
+    return json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode() + b"\n", True
+
+
 def display_record(line):
     try:
         record = json.loads(line)
         payload = record.get("payload")
         return record.get("type") == "response_item" and isinstance(payload, dict) and payload.get("type") in {
             "message", "function_call", "custom_tool_call", "computer_call",
-            "function_call_output", "custom_tool_call_output", "computer_call_output",
+            "function_call_output", "custom_tool_call_output", "computer_call_output", "image_generation_call",
         }
     except (ValueError, AttributeError, TypeError):
         return False
@@ -751,7 +847,7 @@ def history_projection(file, output, before=None, after=None):
             position = boundary
             while position < info.st_size:
                 stream.seek(position)
-                line, complete = control_line(stream, transport_budget)
+                line, complete = display_line(stream, transport_budget)
                 end = stream.tell()
                 if not complete or end > info.st_size:
                     break
@@ -761,7 +857,7 @@ def history_projection(file, output, before=None, after=None):
         def backward_ranges():
             for start, end in reverse_record_ranges(stream, boundary):
                 stream.seek(start)
-                line, complete = control_line(stream, transport_budget)
+                line, complete = display_line(stream, transport_budget)
                 if complete and stream.tell() == end:
                     yield start, end, line
 
@@ -797,12 +893,12 @@ def history_projection(file, output, before=None, after=None):
         output.write(b"kite-codex-history-v2\n" + str(len(controls)).encode() + b"\n" + controls + body)
 
 
-def notification_facts(binary):
+def notification_facts(binary, include_archived=False):
     """Return bounded host facts; transition and pending-question policy stays in Rust."""
     agents = api(binary, "agent.list", {})["agents"]
     result = []
     for record in catalog_read()["sessions"]:
-        if record.get("archived"):
+        if record.get("archived") and not include_archived:
             continue
         agent = next((a for a in agents if same_reference(a, record) or
                       (not record.get("reference") and a["terminal_id"] == record.get("terminal_id"))), None)
@@ -841,7 +937,7 @@ def notification_facts(binary):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "image-read"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -870,6 +966,10 @@ def main():
                 history_projection(args.file, output, args.before, args.after)
         else:
             history_projection(args.file, sys.stdout.buffer, args.before, args.after)
+    elif args.action == "image-read":
+        read_generated_image(args.id, sys.stdout.buffer)
+    elif args.action == "session-facts":
+        print(notification_facts(args.herdr, include_archived=True))
     elif args.action == "notification-facts":
         print(notification_facts(args.herdr))
     elif args.action == "catalog-read":

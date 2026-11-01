@@ -656,6 +656,33 @@ pub async fn upload(
     .map_err(|_| Error::Timeout)?
 }
 
+/// Fetch only content-addressed images previously projected by the host adapter.
+pub async fn download_image(ssh: &Session, id: &str) -> Result<Vec<u8>, Error> {
+    if id.len() != 64
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err(Error::Invalid("image identity"));
+    }
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let stream = ssh
+            .open_command(&helper_command(&format!("image-read --id {}", quote(id))))
+            .await?;
+        let mut bytes = Vec::new();
+        stream.take(MAX_FILE + 1).read_to_end(&mut bytes).await?;
+        if bytes.is_empty()
+            || bytes.len() as u64 > MAX_FILE
+            || hex::encode(openssl::sha::sha256(&bytes)) != id
+        {
+            return Err(Error::Invalid("image download incomplete or changed"));
+        }
+        Ok(bytes)
+    })
+    .await
+    .map_err(|_| Error::Timeout)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

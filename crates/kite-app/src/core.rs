@@ -33,6 +33,7 @@ use tokio::{
 };
 pub mod clipboard;
 mod conversation;
+mod images;
 pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
@@ -899,6 +900,7 @@ impl AppCore {
             } else if let Err(error) = self.refresh_saved_session(&connection, generation).await {
                 self.report(&error);
             }
+            self.refresh_session_activity(&connection, generation).await;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }

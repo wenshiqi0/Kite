@@ -50,7 +50,13 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
                 updated_ms: r.updated_ms,
                 agent_id: live.map(|a| a.terminal_id.clone()),
                 status: live
-                    .map(|a| a.agent_status.clone())
+                    .map(|a| {
+                        if a.launch_pending {
+                            "starting".into()
+                        } else {
+                            a.agent_status.clone()
+                        }
+                    })
                     .unwrap_or_else(|| "saved".into()),
                 recorded: r.reference.is_some(),
             }
@@ -64,7 +70,106 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
     result
 }
 
+fn activity_status<'a>(
+    agent: &'a Agent,
+    paused: bool,
+    question: bool,
+    runtime: Option<&kite_agent::interaction::RuntimeState>,
+) -> &'a str {
+    if agent.launch_pending {
+        "starting"
+    } else if paused {
+        "paused"
+    } else if question {
+        "question"
+    } else if runtime
+        .is_some_and(|r| r.approval().is_some() || r.phase() == ResponseActivity::Waiting)
+    {
+        "blocked"
+    } else if runtime.is_some_and(|r| r.phase() == ResponseActivity::Failed) {
+        "failed"
+    } else if runtime.is_some_and(|r| {
+        matches!(
+            r.phase(),
+            ResponseActivity::Sending
+                | ResponseActivity::Thinking
+                | ResponseActivity::Tool
+                | ResponseActivity::Responding
+        )
+    }) {
+        "working"
+    } else {
+        agent.agent_status.as_str()
+    }
+}
+
 impl AppCore {
+    pub(super) async fn refresh_session_activity(&self, c: &Connected, generation: u64) {
+        #[derive(Deserialize)]
+        struct Facts {
+            facts: Vec<Fact>,
+        }
+        #[derive(Deserialize)]
+        struct Fact {
+            session_id: String,
+            thread: String,
+            controls: String,
+            controls_known: bool,
+        }
+        // One batch covers questions in every session, including archived running
+        // sessions and sessions which this phone has never opened.
+        let command = composer::helper_command(&format!(
+            "session-facts --herdr {}",
+            composer::quote(&c.path)
+        ));
+        let facts =
+            match tokio::time::timeout(Duration::from_secs(15), c.ssh.exec(&command, &[])).await {
+                Ok(Ok(output))
+                    if output.exit_status == Some(0) && output.stdout.len() <= 4 * 1024 * 1024 =>
+                {
+                    serde_json::from_slice::<Facts>(&output.stdout).ok()
+                }
+                _ => None,
+            };
+        let snapshot = self.snapshot();
+        let clients = self.chat_clients.lock().await;
+        let mut states = BTreeMap::new();
+        for session in &snapshot.sessions {
+            let agent = session
+                .agent_id
+                .as_ref()
+                .and_then(|id| snapshot.agents.iter().find(|a| &a.terminal_id == id));
+            let Some(agent) = agent else { continue };
+            let fact = facts
+                .as_ref()
+                .and_then(|facts| facts.facts.iter().find(|f| f.session_id == session.id));
+            let controls = fact
+                .filter(|f| f.controls_known)
+                .map(|f| kite_agent::async_input::history(&f.thread, f.controls.as_bytes()));
+            let client = clients.get(&chat_key(c, agent)).filter(|c| !c.is_closed());
+            if let (Some(client), Some(controls)) = (client, &controls) {
+                client.reconcile_async(controls);
+            }
+            let runtime = client.map(|c| c.runtime());
+            let question = runtime.as_ref().is_some_and(|r| r.question().is_some())
+                || controls.as_ref().is_some_and(|h| !h.pending.is_empty());
+            let paused = lock(&self.paused_processes)
+                .contains_key(&format!("{}/{}", c.host.id, agent.terminal_id));
+            let status = activity_status(agent, paused, question, runtime.as_ref());
+            states.insert(session.id.clone(), status.to_owned());
+        }
+        drop(clients);
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.update(|s| {
+                for session in &mut s.sessions {
+                    if let Some(status) = states.get(&session.id) {
+                        session.status = status.clone();
+                    }
+                }
+            });
+        }
+    }
+
     fn cached_history(&self, host: &str, id: &str) -> Option<CachedConversation> {
         let key = domain::cache_key(host, id);
         if let Some(value) = lock(&self.session_book).histories.get(&key).cloned() {
@@ -308,7 +413,18 @@ impl AppCore {
         let cache = selected
             .as_ref()
             .and_then(|id| self.cached_history(&c.host.id, id));
-        let all_views = views(&catalog.sessions, agents);
+        let mut all_views = views(&catalog.sessions, agents);
+        for view in &mut all_views {
+            if let Some(previous) = current
+                .sessions
+                .iter()
+                .find(|s| s.id == view.id && s.agent_id == view.agent_id)
+                && matches!(previous.status.as_str(), "question" | "paused" | "failed")
+            {
+                // Retain refined state until this poll's batch reconciliation.
+                view.status = previous.status.clone();
+            }
+        }
         self.update(|s| {
             s.sessions = all_views;
             s.selected_session = selected.clone();
@@ -737,6 +853,43 @@ mod tests {
     struct Silent;
     impl Observer for Silent {
         fn changed(&self, _: Snapshot) {}
+    }
+    #[test]
+    fn session_attention_survives_turn_completion_and_resolves_from_fresh_controls() {
+        let mut agent: Agent = serde_json::from_value(serde_json::json!({
+            "terminal_id":"terminal", "agent_status":"done", "workspace_id":"workspace", "tab_id":"tab", "pane_id":"workspace:p1", "revision":1
+        })).unwrap();
+        let mut runtime = kite_agent::interaction::RuntimeState::default();
+        assert_eq!(
+            activity_status(&agent, false, true, Some(&runtime)),
+            "question"
+        );
+        assert_eq!(
+            activity_status(&agent, false, false, Some(&runtime)),
+            "done"
+        );
+        runtime.begin();
+        assert_eq!(
+            activity_status(&agent, false, false, Some(&runtime)),
+            "working"
+        );
+        assert_eq!(
+            activity_status(&agent, true, true, Some(&runtime)),
+            "paused"
+        );
+        runtime.failed("failure".into());
+        assert_eq!(
+            activity_status(&agent, false, false, Some(&runtime)),
+            "failed"
+        );
+        agent.launch_pending = true;
+        assert_eq!(
+            activity_status(&agent, false, true, Some(&runtime)),
+            "starting"
+        );
+        agent.launch_pending = false;
+        agent.agent_status = "blocked".into();
+        assert_eq!(activity_status(&agent, false, false, None), "blocked");
     }
     #[test]
     fn stale_poll_results_cannot_undo_an_archive() {

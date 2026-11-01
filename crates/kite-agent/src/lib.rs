@@ -332,6 +332,32 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                                 p["phase"] == "commentary" || p["channel"] == "commentary";
                         }
                     }
+                    Some("image_generation_call") => {
+                        let image_id = p["id"].as_str().unwrap_or(&id).to_owned();
+                        let files = p["_kite_images"]
+                            .as_array()
+                            .and_then(|_| {
+                                serde_json::from_value::<Vec<composer::Attachment>>(
+                                    p["_kite_images"].clone(),
+                                )
+                                .ok()
+                            })
+                            .unwrap_or_default();
+                        let label = if !files.is_empty() {
+                            ""
+                        } else if p["_kite_image_error"].is_string() {
+                            "图片加载失败，请重试同步"
+                        } else if p["status"] == "failed" {
+                            "图片生成失败"
+                        } else if p["status"] == "completed" {
+                            "生成图片暂不可用"
+                        } else {
+                            "正在生成图片…"
+                        };
+                        let text =
+                            composer::compose_text(label, &files).unwrap_or_else(|_| label.into());
+                        add_text(&mut messages, image_id, Role::Assistant, text);
+                    }
                     Some("function_call" | "custom_tool_call" | "computer_call") => {
                         if let Some(call) = p["call_id"].as_str() {
                             let name = p["name"].as_str().unwrap_or("computer_call");
@@ -450,6 +476,24 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn generated_images_render_as_assistant_attachments_with_stable_identity() {
+        let bytes = br#"{"type":"response_item","_kite_offset":100,"payload":{"type":"image_generation_call","id":"ig-test","status":"completed","_kite_images":[{"id":"abc","name":"generated.png","mime":"image/png","size":1024,"path":"kite-image:abc"}]}}
+{"type":"response_item","payload":{"type":"message","id":"final","role":"assistant","content":[{"text":"Here is your image"}]}}
+"#;
+        let messages = parse_history("codex", bytes);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].id, "ig-test");
+        assert_eq!(messages[0].role, Role::Assistant);
+        assert!(!messages[0].intermediate);
+        let (body, files) = composer::split_attachments(&messages[0].text);
+        assert!(body.is_empty());
+        assert_eq!(files[0].path, "kite-image:abc");
+        assert_eq!(messages[1].id, "final");
+        let failed = parse_history("codex", br#"{"type":"response_item","payload":{"type":"image_generation_call","id":"bad","status":"failed"}}"#);
+        assert_eq!(failed.len(), 1);
+        assert!(!failed[0].text.is_empty());
+    }
     #[test]
     fn actual_model_question_answers_are_retained_as_user_replies() {
         let input = serde_json::json!({"type":"response_item","payload":{"type":"function_call","call_id":"question","name":"request_user_input","arguments":serde_json::json!({"questions":[{"id":"colour","header":"Colour"}]}).to_string()}});

@@ -237,7 +237,7 @@ impl RuntimeState {
                 Some("reasoning") => self.activity = Activity::Thinking,
                 Some(
                     "commandExecution" | "fileChange" | "mcpToolCall" | "dynamicToolCall"
-                    | "webSearch" | "imageView",
+                    | "webSearch" | "imageView" | "imageGeneration",
                 ) => self.activity = Activity::Tool,
                 Some("agentMessage") => self.activity = Activity::Responding,
                 _ => {}
