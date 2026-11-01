@@ -1,4 +1,4 @@
-# New sessions and connection feedback — Alpha 24
+# New sessions, desktop audio and recovery — Alpha 25
 
 ## Report and evidence
 
@@ -28,3 +28,9 @@ Rust tests, Release lint/compilation and guarded Android instrumentation are run
 Disabling audio capture was first validated in three isolated 1080p stream cycles and temporarily applied between production sessions, retaining Herdr and Kite Node. After the user requested audio, that temporary workaround is being replaced with actual playback and host-device preservation. The final evidence must record restored production capture, decoded non-silent test audio, AudioTrack playback, focus/mute behavior and repeated disconnects. Until those results are attached, audio acceptance is pending. See the [installed Sunshine source](https://github.com/LizardByte/Sunshine/blob/v2026.914.233613/src/audio.cpp#L146-L151) and its [configuration](https://docs.lizardbyte.dev/projects/sunshine/v2026.319.132152/md_docs_2configuration.html#stream_audio).
 
 The official [Codex App Server documentation](https://learn.chatgpt.com/docs/app-server#threads) was checked against the owned live thread. This release does not replace the provider, create a second owner or change the provider protocol.
+
+## Alpha 24 audio throughput finding
+
+The public Alpha 24 package passed new-session/first-reply/reconnect checks and audio liveness, menu mute and focus checks. A first accessibility lookup returned no menu node; an unchanged rerun completed the full audio test. Further sustained-playback measurement nevertheless failed: after warmup, four seconds received 802 packets, discarded 450, and advanced playback by only 82,560 frames (42.9% of real time), with 109 underruns. [Measured baseline](audio-alpha24-baseline.json). Liveness alone was insufficient acceptance.
+
+Alpha 25 requests the pinned Moonlight transport's 10ms Opus mode for the MediaCodec receiver, batches codec input/output and reduces playback-counter polling. Its audio test now measures a warmed four-second interval and requires at least 95% real-time playback with at most 2% application queue drops, alongside mute/focus/resource and video checks. Final package acceptance remains pending until these pass.

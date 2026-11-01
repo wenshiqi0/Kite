@@ -13,3 +13,7 @@
 验收分别记录有界 Opus 接收、实际 PCM 解码、AudioTrack 播放头前进、非静音测试信号、静音/恢复、断开资源释放、反复连接及视频帧率。模拟器播放管线与真实手机扬声器/Bluetooth 的听感、音画同步分开记录。保留已有历史、设备身份、信任和配对；C 适配层、Rust 和 JNI 同次构建，不保留旧媒体 ABI。
 
 依据：[Android MediaCodec 的 Opus CSD](https://developer.android.com/reference/android/media/MediaCodec)、[AudioTrack](https://developer.android.com/reference/android/media/AudioTrack)、仓库固定版本 Moonlight 的 `OPUS_MULTISTREAM_CONFIGURATION`，以及安装版本 [Sunshine audio capture](https://github.com/LizardByte/Sunshine/blob/v2026.914.233613/src/audio.cpp)。
+
+## 持续播放验收修正（Alpha 25）
+
+Alpha 24 的接收、解码和播放头前进检查不足以证明流畅。其预热后四秒实测仅达到 42.9% 的实时播放量。MediaCodec 路径改为通过固定 Moonlight 的 `CAPABILITY_SLOW_OPUS_DECODER` 协商 10ms 包，并批量提交/回收解码缓冲、降低计数轮询频率。已有协议支持该时长，不修改第三方子模块、不新增解码库或旧接口兼容层。持续播放需达到至少 95% 实时播放量，应用层队列丢弃不高于 2%；初始化和焦点切换单独统计。

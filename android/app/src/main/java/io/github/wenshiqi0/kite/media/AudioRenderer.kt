@@ -14,19 +14,18 @@ import android.os.Process
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** Opus and AudioTrack stay off the video, network and UI threads. */
 class AudioRenderer(context:Context,private val rate:Int,private val channels:Int,private val frameSamples:Int,initialEnabled:Boolean) {
-    data class Snapshot(val running:Boolean,val enabled:Boolean,val focused:Boolean,val packets:Long,val decodedFrames:Long,
+    data class Snapshot(val running:Boolean,val enabled:Boolean,val focused:Boolean,val rate:Int,val channels:Int,val packetSamples:Int,val packets:Long,val decodedFrames:Long,
         val writtenFrames:Long,val playedFrames:Long,val nonSilentFrames:Long,val droppedPackets:Long,val maxQueued:Int,val underruns:Int,val problem:String) {
-        fun diagnostics()="audio running=$running enabled=$enabled focus=$focused\npackets=$packets decoded/written/played=$decodedFrames/$writtenFrames/$playedFrames non_silent=$nonSilentFrames\naudio_drop=$droppedPackets queue_max=$maxQueued underruns=$underruns $problem"
+        fun diagnostics()="audio running=$running enabled=$enabled focus=$focused format=$rate/$channels packet_samples=$packetSamples\npackets=$packets decoded/written/played=$decodedFrames/$writtenFrames/$playedFrames non_silent=$nonSilentFrames\naudio_drop=$droppedPackets queue_max=$maxQueued underruns=$underruns $problem"
     }
     private data class Packet(val bytes:ByteArray,val pts:Long,val arrived:Long)
     private val manager=context.applicationContext.getSystemService(AudioManager::class.java)
-    private val packets=ArrayBlockingQueue<Packet>(20)
+    private val packets=ArrayBlockingQueue<Packet>((rate/10/frameSamples).coerceIn(2,20))
     private val closed=AtomicBoolean(false)
     private val sequence=AtomicLong()
     private val received=AtomicLong()
@@ -54,7 +53,7 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
         if(!packets.offer(packet)){packets.poll();dropped.incrementAndGet();if(!packets.offer(packet))dropped.incrementAndGet()}
         maxQueued=maxOf(maxQueued,packets.size)
     }
-    fun snapshot()=Snapshot(running,enabled,focused,received.get(),decoded,written,played,nonSilent,dropped.get(),maxQueued,underruns,problem)
+    fun snapshot()=Snapshot(running,enabled,focused,rate,channels,frameSamples,received.get(),decoded,written,played,nonSilent,dropped.get(),maxQueued,underruns,problem)
     fun close(){if(closed.compareAndSet(false,true))worker.interrupt()}
 
     private fun decode() {
@@ -62,6 +61,7 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
         var pending:Packet?=null
         var pcmIndex=-1;var pcm:ByteBuffer?=null;var pcmBegan=0L
         var bytesPerSample=2;var playState=false;var lastEnabled=enabled;var lastHead=0L
+        var lastAccount=0L
         fun account() {
             val current=track?:return
             val head=current.playbackHeadPosition.toLong() and 0xffffffffL
@@ -84,10 +84,12 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
                 setInteger(MediaFormat.KEY_PCM_ENCODING,AudioFormat.ENCODING_PCM_16BIT)
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE,4096)
                 setInteger(MediaFormat.KEY_PRIORITY,0)
+                setFloat(MediaFormat.KEY_OPERATING_RATE,rate.toFloat())
             }
             decoder.configure(format,null,null,0);decoder.start();running=true
             val info=MediaCodec.BufferInfo()
             while(!closed.get()) {
+                var worked=false
                 if(enabled!=lastEnabled) {
                     lastEnabled=enabled;requestFocus=enabled
                     if(!enabled){focused=false;manager.abandonAudioFocusRequest(focus)}
@@ -98,25 +100,29 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
                 }
                 val audible=enabled&&focused
                 if(playState&&!audible)flushPlayer()
+                for(batch in 0 until 8) {
                 if(pcmIndex>=0) {
                     val data=requireNotNull(pcm)
                     if(!audible) {
                         decoder.releaseOutputBuffer(pcmIndex,false);pcmIndex=-1;pcm=null
+                        worked=true
                     }else {
                         val current=requireNotNull(track)
                         if(!playState){current.play();playState=true}
                         val count=current.write(data,data.remaining(),AudioTrack.WRITE_NON_BLOCKING)
                         check(count>=0){"audio output error $count"};written+=count/(channels*bytesPerSample)
-                        account()
+                        worked=worked||count>0
+                        if(System.nanoTime()-lastAccount>=50_000_000L){account();lastAccount=System.nanoTime()}
                         if(!data.hasRemaining()||System.nanoTime()-pcmBegan>100_000_000L) {
                             if(data.hasRemaining())flushPlayer()
                             decoder.releaseOutputBuffer(pcmIndex,false);pcmIndex=-1;pcm=null
-                        }else if(count==0)Thread.sleep(1)
+                        }else if(count==0)break
                     }
                 }
                 if(pcmIndex<0) {
                     val output=decoder.dequeueOutputBuffer(info,0)
                     if(output==MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        worked=true
                         val next=decoder.outputFormat
                         val encoding=if(next.containsKey(MediaFormat.KEY_PCM_ENCODING))next.getInteger(MediaFormat.KEY_PCM_ENCODING)else AudioFormat.ENCODING_PCM_16BIT
                         require(next.getInteger(MediaFormat.KEY_SAMPLE_RATE)==rate&&next.getInteger(MediaFormat.KEY_CHANNEL_COUNT)==channels)
@@ -130,6 +136,7 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
                             .setBufferSizeInBytes(maxOf(minimum,rate*channels*bytesPerSample/50)).build()
                         check(track.state==AudioTrack.STATE_INITIALIZED)
                     }else if(output>=0) {
+                        worked=true
                         val data=requireNotNull(decoder.getOutputBuffer(output));data.position(info.offset);data.limit(info.offset+info.size)
                         decoded+=info.size/(channels*bytesPerSample)
                         val sample=data.duplicate().order(ByteOrder.nativeOrder());var signal=false
@@ -139,20 +146,25 @@ class AudioRenderer(context:Context,private val rate:Int,private val channels:In
                         if(signal)nonSilent+=info.size/(channels*bytesPerSample)
                         if(info.size==0||track==null){decoder.releaseOutputBuffer(output,false)}
                         else{pcmIndex=output;pcm=data;pcmBegan=System.nanoTime()}
-                    }
+                    }else break
                 }
-                if(pending==null)pending=packets.poll(2,TimeUnit.MILLISECONDS)
+                }
+                for(batch in 0 until 8) {
+                if(pending==null)pending=packets.poll()
                 val packet=pending
                 if(packet!=null) {
-                    if(System.nanoTime()-packet.arrived>100_000_000L){dropped.incrementAndGet();pending=null}
+                    if(System.nanoTime()-packet.arrived>100_000_000L){dropped.incrementAndGet();pending=null;worked=true}
                     else {
                         val input=decoder.dequeueInputBuffer(0)
                         if(input>=0) {
                             val buffer=requireNotNull(decoder.getInputBuffer(input));buffer.clear();buffer.put(packet.bytes)
                             decoder.queueInputBuffer(input,0,packet.bytes.size,packet.pts,0);pending=null
-                        }
+                            worked=true
+                        }else break
                     }
+                }else break
                 }
+                if(!worked)Thread.sleep(1)
             }
         }catch(_:InterruptedException) {
             // A normal stream/surface lifecycle transition.

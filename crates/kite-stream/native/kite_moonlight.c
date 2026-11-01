@@ -95,7 +95,7 @@ int kite_ml_start(const char* address, const char* app, const char* gfe, const c
     video.setup = setup; video.submitDecodeUnit = submit;
     video.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_SLICES_PER_FRAME(1);
     AUDIO_RENDERER_CALLBACKS audio; LiInitializeAudioCallbacks(&audio);
-    audio.init = audio_init; audio.decodeAndPlaySample = submit_audio; audio.capabilities = CAPABILITY_DIRECT_SUBMIT;
+    audio.init = audio_init; audio.decodeAndPlaySample = submit_audio; audio.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_SLOW_OPUS_DECODER;
     CONNECTION_LISTENER_CALLBACKS listener; LiInitializeConnectionCallbacks(&listener);
     listener.stageStarting = stage_start; listener.stageFailed = stage_failed;
     listener.connectionTerminated = terminated; listener.logMessage = discard_log;
