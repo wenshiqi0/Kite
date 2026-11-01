@@ -9,9 +9,9 @@ A native workspace for local and remote coding agents, built around [herdr](http
 - Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.
 - See connection status on simple host cards, connect or enter a workspace, and edit settings separately.
 - Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
-- View Codex plan allowance and reset times alongside model and reasoning selection.
+- View Codex plan allowance, available reset cards and their earliest expiry alongside model and reasoning selection.
 - Keep complete synchronized conversation history, continue saved sessions, and archive them while their tasks keep running. See running, waiting-for-answer and attention states directly in the Android session list.
-- Read compact, collapsible tool activity; answer model questions with choices or text and see live response feedback.
+- Read compact, collapsible tool activity while public progress updates and interim conclusions stay visible; answer model questions with choices or text and see live response feedback.
 - Choose a Codex model and reasoning effort, and send images, files and audio attachments. Preview, zoom and save Codex-generated images, with offline access after download.
 - Keep the live desktop in a draggable window, dock it to the edge, use split view or fullscreen, and continue watching in Android picture-in-picture.
 - Switch between Watch and Operate. Zoom and pan, type with the system keyboard, and use a collapsible split-view trackpad or compact fullscreen mouse with a visible arrow pointer. Buttons and scrolling stay aligned as you zoom and pan, with visual and tactile wheel feedback. Pause or resume an agent separately when needed.

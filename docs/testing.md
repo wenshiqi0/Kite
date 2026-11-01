@@ -130,3 +130,10 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 `SessionStatusTest` covers list labels and disconnected-state precedence. Rust session tests cover attention after completion, active requests, pause/start priority and failures. Host adapter tests cover native hosted/extension image records, large-result projection, byte-exact download, malformed/oversized images, cache repair and archived live sessions. The PR build also compiles debug Android instrumentation sources.
 
 `SessionImagesPresentationTest` uses an owned synthetic PNG and a native overlay to check offline image-cache reuse, explicit status badges, preview and expansion/dismissal. It submits no model turn and needs no host. Its device execution is separate from CI compilation. A controlled real Codex generation and local history/image round trip are recorded in [session/image acceptance](product/2026-11-01/session-images/acceptance.md).
+
+
+## Public commentary and reset cards
+
+`ChatTimelineTest` and `ChatTimelineStateTest` now require non-tool assistant text to remain outside collapsed tool groups. The incremental case first shows commentary, appends a tool, updates history and resets the mirror; the text remains a Message row throughout. `CreditExpiryTest` covers countdown boundaries. Rust `usage` tests cover authoritative reset-card counts, complete/partial/absent expiration details, duplicate/redeemed rows, rolling updates, stale data and account switches.
+
+`WorkspaceRefinementPresentationTest` adds native cases for visible public commentary beside collapsed tools, card counts/countdowns and unavailable expiry. These cases are compiled in PR CI; device execution is separate. [Finding and acceptance scope](product/2026-11-01/readable-progress-and-cards/acceptance.md).
