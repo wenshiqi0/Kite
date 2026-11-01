@@ -182,7 +182,7 @@ def ensure(pane, binary):
             child = subprocess.Popen(["codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, cwd=cwd, start_new_session=True)
         finally:
             os.close(descriptor)
-        info = {"protocol": PROTOCOL, "pane": pane, "socket": str(sock), "pid": child.pid, "start_ticks": start_ticks(child.pid)}
+        info = {"protocol": PROTOCOL, "pane": pane, "socket": str(sock), "pid": child.pid, "start_ticks": start_ticks(child.pid), "last_open_ms": int(time.time() * 1000)}
         for _ in range(100):
             if child.poll() is not None:
                 raise RuntimeError("Codex backend exited; inspect private host log")
@@ -239,13 +239,13 @@ def upgrade(pane, binary):
     raise RuntimeError("TUI resume not confirmed; inspect pane, do not create another thread")
 
 
-def backend_rpc(pane, method, params):
+def backend_rpc(pane, method, params, timeout=10):
     process = subprocess.Popen([sys.executable, __file__, "proxy", "--pane", pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     buffer = bytearray()
     def rpc(identifier, method, params):
         process.stdin.write((json.dumps({"id": identifier, "method": method, "params": params}) + "\n").encode())
         process.stdin.flush()
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if b"\n" not in buffer:
                 if not select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0]:
@@ -302,6 +302,164 @@ def provider_history_exists(reference):
     return True
 
 
+def note_session_open(pane):
+    """An explicit continue/restore is activity; discovery and polls are not."""
+    if not registry_path(pane).exists():
+        # Herdr can also expose a user-owned Codex TUI without a Kite owner.
+        return
+    with file_lock(state_dir() / (pane_key(pane) + ".lock")):
+        info = read_registry(pane)
+        info["last_open_ms"] = int(time.time() * 1000)
+        atomic_json(registry_path(pane), info)
+
+
+def lifecycle_fact(record, binary, agents=None):
+    """Bounded local facts only. The host's Rust policy selects when to reap."""
+    pane = record["pane_id"]
+    owner = read_registry(pane)
+    agents = agents if agents is not None else api(binary, "agent.list", {})["agents"]
+    agent = next((a for a in agents if a["pane_id"] == pane), None)
+    process = api(binary, "pane.process_info", {"pane_id": pane})["process_info"]
+    front = process["foreground_processes"]
+    shell = process["foreground_process_group_id"] == process["shell_pid"]
+    remote_tui = (len(front) == 1 and front[0]["name"] == "codex" and
+                  "--remote" in front[0].get("argv", []) and
+                  "unix://" + owner["socket"] in front[0].get("argv", []))
+    pane_idle = ((agent is None and shell) or
+                 (agent is not None and same_reference(agent, record) and
+                  agent.get("agent_status") in ("idle", "done") and
+                  agent.get("interactive_ready") and remote_tui and
+                  not process_stopped(front[0]["pid"])))
+    loaded = backend_rpc(pane, "thread/loaded/list", {}, timeout=2)["data"]
+    if len(loaded) > 64:
+        raise ValueError("loaded thread capacity exceeded")
+    statuses = []
+    histories = []
+    reference = record.get("reference") or {}
+    root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
+    for thread in loaded:
+        if not re.fullmatch(r"[a-f0-9-]{36}", thread):
+            raise ValueError("invalid loaded thread identity")
+        value = backend_rpc(pane, "thread/read", {"threadId": thread, "includeTurns": False}, timeout=2)["thread"]
+        if value.get("id") != thread:
+            raise RuntimeError("loaded thread identity changed")
+        statuses.append(value.get("status", {}).get("type", "unknown"))
+        files = list(root.rglob("rollout-*-" + thread + ".jsonl"))
+        if len(files) == 1:
+            info = files[0].stat()
+            histories.append([thread, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns])
+    # Include activity in a saved but currently unloaded conversation too.
+    if not loaded and reference.get("kind") == "id" and re.fullmatch(r"[a-f0-9-]{36}", reference.get("value", "")):
+        files = list(root.rglob("rollout-*-" + reference["value"] + ".jsonl"))
+        if len(files) == 1:
+            info = files[0].stat()
+            histories.append([reference["value"], info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns])
+    boot = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime "))
+    started_ms = int((boot + int(owner["start_ticks"]) / os.sysconf("SC_CLK_TCK")) * 1000)
+    last_open_ms = owner.get("last_open_ms", started_ms)
+    activity = hashlib.sha256(json.dumps([last_open_ms, sorted(histories)]).encode()).hexdigest()
+    return dict(session_id=record["id"], pane=pane, owner=owner,
+                reference=record.get("reference"), archived=bool(record.get("archived")),
+                idle=bool(pane_idle and all(s == "idle" for s in statuses) and
+                          (not loaded or reference.get("value") in loaded)),
+                persisted=len(histories) >= len(loaded), activity=activity,
+                last_activity_ms=max([last_open_ms] + [h[4] // 1000000 for h in histories]),
+                tui_pid=front[0]["pid"] if remote_tui else None)
+
+
+def lifecycle_facts(binary):
+    records = catalog_read()["sessions"]
+    if len(records) > 1024:
+        raise ValueError("session capacity exceeded")
+    agents = api(binary, "agent.list", {})["agents"]
+    facts = []
+    for record in records:
+        if record.get("provider") != "codex" or not record.get("pane_id"):
+            continue
+        try:
+            facts.append(lifecycle_fact(record, binary, agents))
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError):
+            # An unavailable owner or ambiguous state never authorizes a stop.
+            continue
+    return dict(facts=facts)
+
+
+def process_stopped(pid):
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0] in ("T", "t")
+
+
+def process_live(pid, ticks):
+    try:
+        if start_ticks(pid) != str(ticks):
+            return False
+        return "State:\tZ" not in Path(f"/proc/{pid}/status").read_text()
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def lifecycle_reap(expected, binary):
+    """Revalidate identity/activity under the same leases as session-open."""
+    identifier = expected["session_id"]
+    pane = expected["pane"]
+    reason = expected["reason"]
+    if not re.fullmatch(r"[a-f0-9]{32,64}", identifier) or reason not in ("archived", "idle_timeout"):
+        raise ValueError("invalid lifecycle request")
+    with file_lock(catalog_root() / ("session-" + identifier + ".lock")):
+        with file_lock(state_dir() / (pane_key(pane) + ".lock")):
+            catalog = catalog_read()
+            record = next((r for r in catalog["sessions"] if r["id"] == identifier), None)
+            if record is None or record.get("pane_id") != pane or record.get("provider") != "codex":
+                return dict(reclaimed=False, reason="record_changed")
+            if reason == "archived" and not record.get("archived"):
+                return dict(reclaimed=False, reason="unarchived")
+            fresh = lifecycle_fact(record, binary)
+            for field in ("owner", "reference", "activity", "archived"):
+                if fresh[field] != expected[field]:
+                    return dict(reclaimed=False, reason="activity_changed")
+            if not fresh["idle"] or not fresh["persisted"]:
+                return dict(reclaimed=False, reason="not_idle_or_not_persisted")
+            owner = fresh["owner"]
+            # A restored pane can alias an existing owner. Do not kill a process
+            # serving another durable record, even if this record is archived.
+            for other in catalog["sessions"]:
+                if other["id"] == identifier or not other.get("pane_id"):
+                    continue
+                try:
+                    alias = read_registry(other["pane_id"])
+                except (OSError, ValueError, KeyError, RuntimeError):
+                    continue
+                if (alias["pid"], alias["start_ticks"]) == (owner["pid"], owner["start_ticks"]):
+                    return dict(reclaimed=False, reason="shared_owner")
+            if fresh["tui_pid"] is not None:
+                pid = fresh["tui_pid"]
+                ticks = start_ticks(pid)
+                # Do not type a slash command into a potentially nonempty draft.
+                # Provider work/history is owned by the independently checked server.
+                if process_stopped(pid):
+                    return dict(reclaimed=False, reason="tui_paused")
+                os.kill(pid, signal.SIGTERM)
+                deadline = time.monotonic() + 4
+                while process_live(pid, ticks) and time.monotonic() < deadline:
+                    time.sleep(.05)
+                if process_live(pid, ticks):
+                    return dict(reclaimed=False, reason="tui_still_connected")
+            # /quit disconnects a remote TUI; it does not stop its app-server.
+            after = lifecycle_fact(record, binary)
+            if any(after[k] != fresh[k] for k in ("owner", "reference", "activity")) or not after["idle"]:
+                return dict(reclaimed=False, reason="activity_changed")
+            if read_registry(pane) != owner or os.getpgid(owner["pid"]) != owner["pid"]:
+                return dict(reclaimed=False, reason="owner_changed")
+            os.killpg(owner["pid"], signal.SIGTERM)
+            deadline = time.monotonic() + 4
+            while process_live(owner["pid"], owner["start_ticks"]) and time.monotonic() < deadline:
+                time.sleep(.05)
+            if process_live(owner["pid"], owner["start_ticks"]):
+                return dict(reclaimed=False, reason="owner_still_running")
+            if json.loads(registry_path(pane).read_text()) == owner:
+                registry_path(pane).unlink()
+            return dict(reclaimed=True, session_id=identifier)
+
+
 def session_open(identifier, binary):
     """Serialize reconnect/create for one durable record, never a model turn."""
     if not re.fullmatch(r"[a-f0-9]{32,64}", identifier):
@@ -321,6 +479,8 @@ def session_open(identifier, binary):
         agents = api(binary, "agent.list", {})["agents"]
         existing = next((a for a in agents if same_reference(a, record)), None)
         if existing:
+            if provider == "codex":
+                note_session_open(existing["pane_id"])
             return {"agent": existing}
         # A start whose transport result was lost is inspected, never replayed.
         pending = next((a for a in agents if record["terminal_id"] and a["terminal_id"] == record["terminal_id"] and (a.get("launch_pending") or a.get("agent") == provider)), None)
@@ -387,6 +547,7 @@ def session_open(identifier, binary):
                 info = read_registry(pane)
             else:
                 info = ensure(pane, binary)
+            note_session_open(pane)
             # Warm read-only account/routing discovery before the TUI's shorter
             # bootstrap deadline. This does not start a turn or change credentials.
             try:
@@ -997,7 +1158,7 @@ def notification_facts(binary, include_archived=False):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "image-read", "attachment-read", "harness-scan", "harness-history"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "lifecycle-facts", "lifecycle-reap", "image-read", "attachment-read", "harness-scan", "harness-history"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -1048,6 +1209,13 @@ def main():
         read_generated_image(args.id, sys.stdout.buffer)
     elif args.action == "session-facts":
         print(notification_facts(args.herdr, include_archived=True))
+    elif args.action == "lifecycle-facts":
+        print(json.dumps(lifecycle_facts(args.herdr)))
+    elif args.action == "lifecycle-reap":
+        payload = sys.stdin.buffer.read(65537)
+        if len(payload) > 65536:
+            raise ValueError("lifecycle request too large")
+        print(json.dumps(lifecycle_reap(json.loads(payload), args.herdr)))
     elif args.action == "notification-facts":
         print(notification_facts(args.herdr))
     elif args.action == "catalog-read":
@@ -1061,6 +1229,7 @@ def main():
         print(json.dumps(session_open(args.id, args.herdr)))
     elif args.action == "tui":
         info = ensure(args.pane, args.herdr)
+        note_session_open(args.pane)
         if not re.fullmatch(r"[a-f0-9-]{36}", args.thread or ""):
             raise ValueError("invalid thread ID")
         os.execvp("codex", ["codex", "--remote", "unix://" + info["socket"], "-c", "check_for_update_on_startup=false", "resume", args.thread])
