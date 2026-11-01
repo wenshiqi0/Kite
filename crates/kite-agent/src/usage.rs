@@ -55,6 +55,66 @@ pub struct Bucket {
     pub limit_reached: bool,
     pub spend_control_reached: bool,
 }
+/// Account-level earned resets. Opaque credit IDs never enter snapshots.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResetCredits {
+    pub available_count: u64,
+    pub earliest_expires_at: Option<i64>,
+    pub expiry_complete: bool,
+    observed_ms: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireResetCredits {
+    available_count: i64,
+    credits: Option<Vec<Value>>,
+}
+impl WireResetCredits {
+    fn into_summary(self, observed_ms: i64) -> Result<ResetCredits, &'static str> {
+        if self.available_count < 0 {
+            return Err("negative reset-credit count");
+        }
+        let count = self.available_count as u64;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut earliest = None;
+        let mut known = self.credits.is_some();
+        for credit in self.credits.into_iter().flatten() {
+            if credit["status"] != "available" {
+                continue;
+            }
+            let Some(id) = credit["id"].as_str().filter(|id| !id.is_empty()) else {
+                known = false;
+                continue;
+            };
+            if !seen.insert(id.to_owned()) {
+                known = false;
+                continue;
+            }
+            match credit.get("expiresAt") {
+                Some(Value::Null) => {}
+                Some(value) => {
+                    if let Some(at) = value
+                        .as_i64()
+                        .filter(|at| *at > 0 && *at <= i64::MAX / 1000)
+                    {
+                        earliest = Some(earliest.map_or(at, |old: i64| old.min(at)));
+                    } else {
+                        known = false;
+                    }
+                }
+                None => known = false,
+            }
+        }
+        Ok(ResetCredits {
+            available_count: count,
+            earliest_expires_at: earliest,
+            expiry_complete: known && seen.len() as u64 == count,
+            observed_ms,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AccountUsage {
     pub status: Status,
@@ -64,6 +124,7 @@ pub struct AccountUsage {
     pub plan: Option<String>,
     pub buckets: Vec<Bucket>,
     pub ordinary_usage_allowed: Option<bool>,
+    pub reset_credits: Option<ResetCredits>,
     pub updated_ms: Option<i64>,
 }
 
@@ -119,6 +180,7 @@ struct WireLimits {
     rate_limits: WireBucket,
     rate_limits_by_limit_id: Option<BTreeMap<String, WireBucket>>,
     ordinary_usage_allowed: Option<bool>,
+    rate_limit_reset_credits: Option<WireResetCredits>,
 }
 
 pub fn decode(
@@ -161,7 +223,11 @@ pub fn decode(
                 || b.spend_control_reached
         })
         .collect();
-    let available = !buckets.is_empty();
+    let reset_credits = wire
+        .rate_limit_reset_credits
+        .map(|credits| credits.into_summary(time_ms))
+        .transpose()?;
+    let available = !buckets.is_empty() || reset_credits.is_some();
     Ok(AccountUsage {
         status: if available {
             Status::Ready
@@ -176,6 +242,7 @@ pub fn decode(
         plan,
         buckets,
         ordinary_usage_allowed: wire.ordinary_usage_allowed,
+        reset_credits,
         updated_ms: available.then_some(time_ms),
         ..Default::default()
     })
@@ -204,7 +271,11 @@ impl Tracker {
                 .iter()
                 .flat_map(|b| [&b.primary, &b.secondary])
                 .flatten()
-                .any(|w| w.resets_at.is_some_and(|at| at <= time_ms / 1000));
+                .any(|w| w.resets_at.is_some_and(|at| at <= time_ms / 1000))
+            || value.reset_credits.as_ref().is_some_and(|c| {
+                time_ms.saturating_sub(c.observed_ms) > 90_000
+                    || c.earliest_expires_at.is_some_and(|at| at <= time_ms / 1000)
+            });
         value
     }
     pub fn begin(&mut self, force: bool, now: Instant) -> Option<Refresh> {
@@ -233,6 +304,15 @@ impl Tracker {
                 if request.revision != self.revision && value.status == Status::Ready {
                     // Account metadata may be filled, but later notifications own the windows.
                     self.value.plan = value.plan.take().or(self.value.plan.take());
+                    // Rolling window updates do not carry reset-card facts.
+                    self.value.reset_credits = value.reset_credits.take();
+                    if self.value.reset_credits.is_some()
+                        && self.value.unavailable == Unavailable::NoData
+                    {
+                        self.value.status = Status::Ready;
+                        self.value.unavailable = Unavailable::None;
+                        self.value.updated_ms = value.updated_ms;
+                    }
                 } else {
                     self.value = value;
                 }
@@ -278,7 +358,8 @@ impl Tracker {
                             || b.spend_control_reached
                     });
                     self.revision = self.revision.wrapping_add(1);
-                    let available = !self.value.buckets.is_empty();
+                    let available =
+                        !self.value.buckets.is_empty() || self.value.reset_credits.is_some();
                     self.value.updated_ms = available.then_some(time_ms);
                     self.value.status = if available {
                         Status::Ready
@@ -307,6 +388,139 @@ mod tests {
     }
     fn limits(used: i32) -> Value {
         json!({"rateLimits":{"limitId":"codex","primary":{"usedPercent":used,"windowDurationMins":300,"resetsAt":2000000000}},"ordinaryUsageAllowed":false})
+    }
+    fn reset_limits(count: i64, credits: Value) -> Value {
+        json!({"rateLimits":{},"rateLimitResetCredits":{"availableCount":count,"credits":credits}})
+    }
+    fn credit(id: &str, expires: Value) -> Value {
+        json!({"id":id,"status":"available","expiresAt":expires,"grantedAt":1,"resetType":"codexRateLimits"})
+    }
+    #[test]
+    fn reset_count_is_authoritative_and_earliest_expiry_is_order_independent() {
+        let input = reset_limits(
+            3,
+            json!([
+                credit("later", json!(300)),
+                credit("never", Value::Null),
+                credit("first", json!(200))
+            ]),
+        );
+        let value = decode(&account(), Some(&input), 1000).unwrap();
+        assert_eq!(value.status, Status::Ready);
+        let cards = value.reset_credits.unwrap();
+        assert_eq!(cards.available_count, 3);
+        assert_eq!(cards.earliest_expires_at, Some(200));
+        assert!(cards.expiry_complete);
+        let input = reset_limits(5, json!([credit("only-returned-row", json!(300))]));
+        let cards = decode(&account(), Some(&input), 1000)
+            .unwrap()
+            .reset_credits
+            .unwrap();
+        assert_eq!(cards.available_count, 5);
+        assert!(!cards.expiry_complete);
+        assert_eq!(cards.earliest_expires_at, Some(300));
+    }
+    #[test]
+    fn missing_details_zero_cards_and_no_expiration_remain_distinct() {
+        assert!(
+            decode(&account(), Some(&limits(20)), 1000)
+                .unwrap()
+                .reset_credits
+                .is_none()
+        );
+        let unknown = decode(&account(), Some(&reset_limits(2, Value::Null)), 1000)
+            .unwrap()
+            .reset_credits
+            .unwrap();
+        assert!(!unknown.expiry_complete);
+        assert_eq!(unknown.available_count, 2);
+        let zero = decode(&account(), Some(&reset_limits(0, json!([]))), 1000)
+            .unwrap()
+            .reset_credits
+            .unwrap();
+        assert_eq!(zero.available_count, 0);
+        assert!(zero.expiry_complete);
+        let no_expiry = decode(
+            &account(),
+            Some(&reset_limits(1, json!([credit("never", Value::Null)]))),
+            1000,
+        )
+        .unwrap()
+        .reset_credits
+        .unwrap();
+        assert!(no_expiry.expiry_complete);
+        assert!(no_expiry.earliest_expires_at.is_none());
+        assert!(decode(&account(), Some(&reset_limits(-1, Value::Null)), 1000).is_err());
+    }
+    #[test]
+    fn duplicate_redeemed_or_missing_expiry_rows_do_not_claim_complete_card_details() {
+        for rows in [
+            json!([
+                credit("duplicate", json!(500)),
+                credit("duplicate", json!(500))
+            ]),
+            json!([{"id":"redeemed","status":"redeemed","expiresAt":500}]),
+            json!([{"id":"missing-expiry","status":"available"}]),
+            json!([credit("invalid-time", json!(-1))]),
+        ] {
+            let cards = decode(&account(), Some(&reset_limits(1, rows)), 1000)
+                .unwrap()
+                .reset_credits
+                .unwrap();
+            assert!(!cards.expiry_complete);
+        }
+    }
+    #[test]
+    fn window_notifications_keep_reset_cards_and_a_racing_read_updates_them() {
+        let mut tracker = Tracker::default();
+        let request = tracker.begin(false, Instant::now()).unwrap();
+        tracker.ingest(&json!({"method":"account/rateLimits/updated","params":{"rateLimits":limits(50)["rateLimits"]}}), 1000);
+        tracker.finish(
+            request,
+            decode(
+                &account(),
+                Some(&reset_limits(
+                    2,
+                    json!([credit("first", json!(200)), credit("later", json!(300))]),
+                )),
+                1000,
+            ),
+        );
+        assert_eq!(
+            tracker
+                .snapshot(1000)
+                .reset_credits
+                .as_ref()
+                .unwrap()
+                .available_count,
+            2
+        );
+        assert_eq!(
+            tracker.snapshot(1000).buckets[0]
+                .primary
+                .as_ref()
+                .unwrap()
+                .remaining_percent,
+            50
+        );
+        tracker.ingest(&json!({"method":"account/rateLimits/updated","params":{"rateLimits":limits(60)["rateLimits"]}}), 95000);
+        assert!(tracker.snapshot(95000).stale);
+        assert_eq!(
+            tracker
+                .snapshot(95000)
+                .reset_credits
+                .as_ref()
+                .unwrap()
+                .available_count,
+            2
+        );
+        let request = tracker.begin(true, Instant::now()).unwrap();
+        tracker.ingest(&json!({"method":"account/updated"}), 96000);
+        tracker.finish(
+            request,
+            decode(&account(), Some(&reset_limits(2, Value::Null)), 95000),
+        );
+        assert!(tracker.snapshot(96000).reset_credits.is_none());
     }
     #[test]
     fn current_schema_preserves_independent_windows_and_exact_credit_balance() {

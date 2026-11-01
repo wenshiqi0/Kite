@@ -237,6 +237,12 @@ pub enum UsageUnavailable {
     NoData,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct UsageResetCreditsInfo {
+    pub available_count: u64,
+    pub earliest_expires_at: Option<i64>,
+    pub expiry_complete: bool,
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct AccountUsageInfo {
     pub status: UsageStatus,
     pub unavailable: UsageUnavailable,
@@ -245,6 +251,7 @@ pub struct AccountUsageInfo {
     pub plan: Option<String>,
     pub buckets: Vec<UsageBucketInfo>,
     pub ordinary_usage_allowed: Option<bool>,
+    pub reset_credits: Option<UsageResetCreditsInfo>,
     pub updated_ms: Option<i64>,
 }
 impl From<kite_app::UsageWindow> for UsageWindowInfo {
@@ -275,6 +282,11 @@ impl From<kite_app::AccountUsage> for AccountUsageInfo {
             stale: u.stale,
             plan: u.plan,
             ordinary_usage_allowed: u.ordinary_usage_allowed,
+            reset_credits: u.reset_credits.map(|c| UsageResetCreditsInfo {
+                available_count: c.available_count,
+                earliest_expires_at: c.earliest_expires_at,
+                expiry_complete: c.expiry_complete,
+            }),
             updated_ms: u.updated_ms,
             buckets: u
                 .buckets

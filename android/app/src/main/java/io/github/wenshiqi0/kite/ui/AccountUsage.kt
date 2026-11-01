@@ -37,6 +37,7 @@ import java.util.Date
         for (window in windows) labels.add(stringResource(R.string.usage_short_remaining, windowLabel(window.durationMins), window.remainingPercent.toInt()))
         return labels.joinToString(" · ")
     }
+    usage.resetCredits?.let { return stringResource(R.string.usage_cards_count, it.availableCount.toString()) }
     return usage.plan ?: stringResource(R.string.usage_groups, usage.buckets.size)
 }
 
@@ -84,6 +85,7 @@ import java.util.Date
                                 }
                             }
                         }
+                        if (usage != null && usage.status != UsageStatus.NOT_LOADED && usage.unavailable !in listOf(UsageUnavailable.NO_ACCOUNT, UsageUnavailable.UNSUPPORTED_AUTH)) ResetCreditsCard(usage.resetCredits, usage.stale)
                         usage?.updatedMs?.let { Text(stringResource(R.string.usage_updated, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))), color = KiteColors.Muted, fontSize = 11.sp) }
                         Text(stringResource(R.string.usage_scope), color = KiteColors.Muted, fontSize = 11.sp)
                     }
@@ -102,6 +104,7 @@ import java.util.Date
                 usage?.plan?.let{Text(it.replaceFirstChar(Char::uppercaseChar),fontSize=12.sp,color=KiteColors.Muted)}
             }
             Text(accountUsageSummary(usage),fontSize=12.sp,color=if(usage?.stale==true)KiteColors.Warning else KiteColors.Text)
+            usage?.resetCredits?.let { ResetCreditsSummary(it, usage.stale) }
             Text(stringResource(R.string.usage_details),fontSize=11.sp,color=KiteColors.Muted)
         }
     }

@@ -42,6 +42,22 @@ class ChatTimelineStateTest {
         timeline.apply(delta(3uL,true,items=listOf(message(3)),context="host/other"))
         assertEquals("m3",timeline.messages.single().id)
     }
+    @Test fun aVisibleCommentaryDoesNotDisappearWhenTheNextToolArrives() {
+        val timeline=ChatTimelineState();timeline.prepareContext("host/thread")
+        val progress=message(1).copy(text="已确认问题，接下来检查配置",intermediate=true)
+        timeline.apply(delta(1uL,true,items=listOf(progress)))
+        val original=timeline.rows.single()
+        timeline.apply(delta(2uL,at=1,items=listOf(tool("call-a"))))
+        assertEquals(2,timeline.rows.size)
+        assertSame(original,timeline.rows.first())
+        assertEquals(progress,(timeline.rows.first() as ChatEntry.Message).message)
+        val next=message(2).copy(text="配置已经读取，正在验证",intermediate=true)
+        timeline.apply(delta(3uL,at=2,items=listOf(next,tool("call-b"))))
+        assertEquals(listOf("message:m1","work:call-a","message:m2","work:call-b"),timeline.rows.map{it.key})
+        timeline.apply(delta(4uL,true,items=listOf(progress,tool("call-a"),next,tool("call-b"))))
+        assertEquals(listOf(progress,next),timeline.rows.filterIsInstance<ChatEntry.Message>().map{it.message})
+        assertTrue(timeline.rows.filterIsInstance<ChatEntry.Work>().all{row->row.messages.all{it.tool!=null}})
+    }
     @Test fun veryLongLiteralOutputKeepsAllTextWithoutOneGiantLayoutParagraph() {
         val source="odd"+"😀".repeat(9000)+"\n"+"complete output\r\n".repeat(10000)
         val chunks=literalChunks(source)

@@ -23,8 +23,9 @@ pub use kite_agent::interaction::{
 };
 pub use kite_agent::notifications::Kind as AgentNoticeKind;
 pub use kite_agent::usage::{
-    AccountUsage, Bucket as UsageBucket, Credits as UsageCredits, Status as UsageStatus,
-    Unavailable as UsageUnavailable, Window as UsageWindow,
+    AccountUsage, Bucket as UsageBucket, Credits as UsageCredits,
+    ResetCredits as UsageResetCredits, Status as UsageStatus, Unavailable as UsageUnavailable,
+    Window as UsageWindow,
 };
 pub use kite_agent::{
     Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,

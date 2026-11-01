@@ -71,7 +71,7 @@ class WorkspaceRefinementPresentationTest {
         }finally{main{panel.disposeComposition();root.removeView(panel);original.forEach{it.visibility=View.VISIBLE};activity.finish()}}
     }
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
-        if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,System.currentTimeMillis())
+        if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,null,System.currentTimeMillis())
 
     @Test fun modelPanelUsageShowsIndependentPeriodsAndMissingDataIsNotZero() {
         overlay({AccountUsageDialog(usage(),"codex",true,{},{})}) {
@@ -88,6 +88,38 @@ class WorkspaceRefinementPresentationTest {
             waitFor("Model picker quota access"){find(text="套餐余量")!=null}
             assertNotNull(find(text="5小时 73%"));assertNotNull(find(text="7天 52%"))
             screenshot("quota-owned-model-access.png")
+        }
+    }
+
+    @Test fun resetCardCountAndCountdownRemainSeparateFromMissingExpiry() {
+        val at=System.currentTimeMillis()/1000+2*86400+3*3600+300
+        overlay({AccountUsageDialog(usage().copy(resetCredits=UsageResetCreditsInfo(2uL,at,true)),"codex",true,{},{})}) {
+            waitFor("Reset-card count"){find(text="可用重置卡：2 次")!=null}
+            assertNotNull(find(text="最早到期还剩 2天3小时"))
+            assertNotNull(find(text="到期"))
+            screenshot("quota-owned-reset-cards.png")
+        }
+        overlay({AccountUsageDialog(usage().copy(resetCredits=UsageResetCreditsInfo(3uL,null,false)),"codex",true,{},{})}) {
+            waitFor("Known count without expiration"){find(text="可用重置卡：3 次")!=null}
+            assertNotNull(find(text="到期时间暂未提供"))
+            assertNull(find(text="无到期限制"))
+        }
+    }
+
+    @Test fun commentaryIsVisibleWhileToolDetailsStayCollapsed() {
+        fun text(id:String,body:String,progress:Boolean)=MessageInfo(emptyList(),id,MessageKind.ASSISTANT,body,progress,null)
+        val tool=MessageInfo(emptyList(),"owned-call",MessageKind.TOOL,"",false,ToolInfo("Bash","读取配置","exec_command","owned-argument","owned-output",true,false,false))
+        val rows=chatEntries(listOf(text("before","已经定位问题，接下来读取配置",true),tool,text("after","配置中发现一个需要你注意的结论",true),text("final","检查完成",false)))
+        overlay({Column { rows.forEach { row -> when(row) {
+            is ChatEntry.Message -> MarkdownMessage(row.message.text)
+            is ChatEntry.Work -> ToolGroupCard(row,false,{},{})
+        } } }}) {
+            waitFor("Commentary before tools"){find(text="已经定位问题，接下来读取配置")!=null}
+            assertNotNull(find(text="配置中发现一个需要你注意的结论"))
+            assertNotNull(find(text="检查完成"))
+            assertNotNull(find(text="1 次工具调用"))
+            assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
+            screenshot("commentary-visible-tools-collapsed.png")
         }
     }
 

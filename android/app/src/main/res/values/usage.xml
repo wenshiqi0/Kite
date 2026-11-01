@@ -34,4 +34,19 @@
     <string name="usage_scope">额度由当前远端 Codex 账号提供；周期百分比不代表 token 或货币余额。重置时间使用手机时区。</string>
     <string name="desktop_disconnect">断开桌面</string>
     <string name="chat_model_settings">模型与思考强度</string>
+    <string name="usage_cards_title">重置卡</string>
+    <string name="usage_cards_count">可用重置卡：%1$s 次</string>
+    <string name="usage_cards_previous_count">上次可用重置卡：%1$s 次</string>
+    <string name="usage_cards_not_provided">暂未提供重置卡信息</string>
+    <string name="usage_cards_expiry_unknown">到期时间暂未提供</string>
+    <string name="usage_cards_no_expiry">无到期限制</string>
+    <string name="usage_cards_earliest">最早到期还剩 %1$s</string>
+    <string name="usage_cards_earliest_known">已知最早到期还剩 %1$s</string>
+    <string name="usage_cards_expires">%1$s 到期</string>
+    <string name="usage_cards_expired">最早到期的卡片已到期，等待刷新</string>
+    <string name="usage_cards_partial">部分卡片有效期未提供，可能有更早到期的卡片。</string>
+    <string name="usage_cards_days_hours">%1$s天%2$s小时</string>
+    <string name="usage_cards_hours_minutes">%1$s小时%2$s分钟</string>
+    <string name="usage_cards_minutes">%1$s分钟</string>
+    <string name="usage_cards_under_minute">不足1分钟</string>
 </resources>

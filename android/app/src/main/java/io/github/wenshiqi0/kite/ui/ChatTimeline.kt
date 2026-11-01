@@ -16,15 +16,15 @@ sealed interface ChatEntry {
     }
 }
 
+/** Commentary is user-facing text; only adjacent tool calls share a collapsed row. */
 fun chatEntries(messages: List<MessageInfo>): List<ChatEntry> = buildList {
     val work = mutableListOf<MessageInfo>()
     fun flush() {
-        if (work.any { it.tool != null }) add(ChatEntry.Work(work.toList()))
-        else work.forEach { add(ChatEntry.Message(it)) }
+        if (work.isNotEmpty()) add(ChatEntry.Work(work.toList()))
         work.clear()
     }
     messages.forEach { message ->
-        if (message.tool != null || message.intermediate) work.add(message)
+        if (message.tool != null) work.add(message)
         else { flush(); add(ChatEntry.Message(message)) }
     }
     flush()
@@ -60,7 +60,7 @@ class ChatTimelineState {
             revision=delta.revision;appliedContext=delta.context
         }
     }
-    private fun working(m:MessageInfo)=m.tool!=null||m.intermediate
+    private fun working(m:MessageInfo)=m.tool!=null
     private fun rowMessages(row:ChatEntry)=if(row is ChatEntry.Message)listOf(row.message)else(row as ChatEntry.Work).messages
     private fun indexRows(start:Int=0) {
         if(start==0)rowByMessage.clear()
@@ -101,7 +101,7 @@ class ChatTimelineState {
             var start=rows.size
             while(start>0){
                 val row=rows[start-1]
-                if(row is ChatEntry.Work || row is ChatEntry.Message&&row.message.intermediate)start--
+                if(row is ChatEntry.Work)start--
                 else break
             }
             val old=rows.subList(start,rows.size).toList()
