@@ -686,6 +686,43 @@ pub async fn download_image(ssh: &Session, id: &str) -> Result<Vec<u8>, Error> {
     .map_err(|_| Error::Timeout)?
 }
 
+pub async fn download_attachment(ssh: &Session, file: &Attachment) -> Result<Vec<u8>, Error> {
+    if file.id.len() != 32
+        || !file
+            .id
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        || file.size == 0
+        || file.size > MAX_FILE
+    {
+        return Err(Error::Invalid("attachment identity or size"));
+    }
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let mut stream = ssh
+            .open_command(&helper_command(&format!(
+                "attachment-read --id {}",
+                quote(&file.id)
+            )))
+            .await?;
+        stream.shutdown().await?;
+        let mut reader = BufReader::new(stream);
+        let header = read_json(&mut reader).await?;
+        if header["name"] != file.name || header["size"] != file.size {
+            return Err(Error::Invalid("attachment metadata changed"));
+        }
+        let mut bytes = Vec::new();
+        reader.take(MAX_FILE + 1).read_to_end(&mut bytes).await?;
+        if bytes.len() as u64 != file.size
+            || header["sha256"] != hex::encode(openssl::sha::sha256(&bytes))
+        {
+            return Err(Error::Invalid("attachment download incomplete or changed"));
+        }
+        Ok(bytes)
+    })
+    .await
+    .map_err(|_| Error::Timeout)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

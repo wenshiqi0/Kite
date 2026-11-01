@@ -120,6 +120,30 @@ class CoreController(private val context: Context) {
         } finally { imageDownloads.unlock() }
     }
 
+    suspend fun messageAttachment(conversation: String, attachment: io.github.wenshiqi0.kite.core.AttachmentInfo): File = withContext(Dispatchers.IO) {
+        if (attachment.generatedImage) return@withContext generatedImage(conversation, attachment.id)
+        require(attachment.id.matches(Regex("[a-f0-9]{32}")))
+        imageDownloads.lock()
+        try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            fun hash(bytes: ByteArray) = digest.digest(bytes).joinToString("") { "%02x".format(it) }
+            val root = File(context.filesDir, "message-attachments/" + hash(conversation.toByteArray())).apply { mkdirs() }
+            val file = File(root, attachment.id)
+            val checksum = File(root, attachment.id + ".sha256")
+            val valid = file.isFile && file.length() == attachment.size.toLong() && file.length() in 1..(25L*1024*1024) && checksum.isFile && hash(file.readBytes()) == checksum.readText()
+            if (!valid) {
+                val bytes = core.chatAttachment(conversation, attachment.id)
+                val temporary = File.createTempFile("attachment-", ".tmp", root)
+                try {
+                    temporary.writeBytes(bytes)
+                    check(temporary.renameTo(file)) { "Could not cache attachment" }
+                    checksum.writeText(hash(bytes))
+                } finally { temporary.delete() }
+            }
+            file
+        } finally { imageDownloads.unlock() }
+    }
+
     val core = KiteCore(DeviceKeyStore(context), object : CoreObserver {
         override fun stateChanged(snapshot: CoreSnapshot) {
             main.post {

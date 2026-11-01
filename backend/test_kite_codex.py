@@ -375,3 +375,36 @@ class GeneratedImageTests(unittest.TestCase):
             output = io.BytesIO()
             backend.read_generated_image(image["id"], output)
             self.assertEqual(output.getvalue(), data)
+
+class AttachmentDownloadTests(unittest.TestCase):
+    def test_uploaded_file_is_framed_with_its_exact_size_and_checksum(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            identifier = "b" * 32
+            folder = backend.private_dir(Path(temporary) / ".local/share/kite/uploads") / identifier
+            folder.mkdir(mode=0o700)
+            data = "测试文本\n**原始内容**".encode()
+            (folder / "example.txt").write_bytes(data)
+            output = io.BytesIO()
+            backend.read_uploaded_attachment(identifier, output)
+            header, body = output.getvalue().split(b"\n", 1)
+            self.assertEqual(json.loads(header), dict(name="example.txt", size=len(data), sha256=hashlib.sha256(data).hexdigest()))
+            self.assertEqual(body, data)
+
+    def test_download_rejects_traversal_and_symlink_files_or_directories(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            root = backend.private_dir(Path(temporary) / ".local/share/kite/uploads")
+            outside = Path(temporary) / "outside"; outside.write_bytes(b"private")
+            for identifier in ("../outside", "a" * 31, "A" * 32):
+                with self.assertRaises(ValueError): backend.read_uploaded_attachment(identifier, io.BytesIO())
+            folder = root / ("c" * 32); folder.mkdir()
+            (folder / "link.txt").symlink_to(outside)
+            with self.assertRaises(OSError): backend.read_uploaded_attachment("c" * 32, io.BytesIO())
+            (root / ("d" * 32)).symlink_to(folder, target_is_directory=True)
+            with self.assertRaises(OSError): backend.read_uploaded_attachment("d" * 32, io.BytesIO())
+
+    def test_pipe_is_rejected_without_waiting_for_a_writer(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            root = backend.private_dir(Path(temporary) / ".local/share/kite/uploads")
+            folder = root / ("e"*32); folder.mkdir()
+            os.mkfifo(folder / "not-a-file")
+            with self.assertRaises(ValueError): backend.read_uploaded_attachment("e"*32, io.BytesIO())

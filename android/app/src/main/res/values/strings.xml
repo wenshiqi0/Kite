@@ -337,4 +337,14 @@
     <string name="generated_image_save_failed">图片保存失败</string>
     <string name="response_waiting_answer">等待你的回答</string>
     <string name="response_waiting_approval">等待你的确认</string>
+    <string name="attachment_open_preview">点击预览</string>
+    <string name="attachment_save">保存附件</string>
+    <string name="attachment_preview_failed">附件加载失败，请确认连接后重试。</string>
+    <string name="attachment_preview_unsupported">此文件格式暂不支持预览，可以保存后打开。</string>
+    <string name="attachment_text_truncated">当前展示部分文本，可保存完整文件阅读。</string>
+    <string name="attachment_audio_failed">无法播放此音频</string>
+    <string name="attachment_audio_play">播放</string>
+    <string name="attachment_audio_pause">暂停</string>
+    <string name="attachment_saved">附件已保存</string>
+    <string name="attachment_save_failed">附件保存失败</string>
 </resources>

@@ -65,7 +65,7 @@ fun MarkdownLabel(text: String, modifier: Modifier = Modifier, color: Color = Ki
 }
 
 fun markdownLabel(context: Context, source: String): AnnotatedString {
-    val text = MarkdownRenderer.get(context).toMarkdown(source)
+    val text = MarkdownRenderer.get(context).toMarkdown(normalizeCjkStrong(source))
     return buildAnnotatedString {
         append(text.toString())
         for (span in text.getSpans(0, text.length, Any::class.java)) {
@@ -98,11 +98,12 @@ class MarkdownTextView(context: Context) : TextView(context) {
         if (source == value && streaming == inProgress) return
         source = value
         streaming = inProgress
-        val tail=value.substringAfterLast("\n\n")
+        val display=normalizeCjkStrong(value)
+        val tail=display.substringAfterLast("\n\n")
         // Stabilize a leading strong span during delivery. Code blocks and
         // escaped/literal markers keep their original CommonMark behavior.
-        val partialStrong=inProgress && tail.startsWith("**") && tail.length>2 && !tail[2].isWhitespace() && tail.indexOf("**",2)<0 && markdown.parse(value).lastChild is Paragraph
-        markdown.setMarkdown(this,if(partialStrong)value+"**" else value)
+        val partialStrong=inProgress && tail.startsWith("**") && tail.length>2 && !tail[2].isWhitespace() && tail.indexOf("**",2)<0 && markdown.parse(display).lastChild is Paragraph
+        markdown.setMarkdown(this,if(partialStrong)display+"**" else display)
     }
 }
 

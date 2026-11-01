@@ -979,6 +979,12 @@ impl KiteCore {
             .await
             .map_err(Into::into)
     }
+    pub async fn chat_attachment(&self, context: String, id: String) -> Result<Vec<u8>, KiteError> {
+        self.inner
+            .chat_attachment(context, id)
+            .await
+            .map_err(Into::into)
+    }
     pub async fn chat_image(&self, context: String, id: String) -> Result<Vec<u8>, KiteError> {
         self.inner.chat_image(context, id).await.map_err(Into::into)
     }

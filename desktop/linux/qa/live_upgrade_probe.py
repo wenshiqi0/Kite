@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix='kite-live-upgrade-') as directory:
     node_dir.mkdir(mode=0o700)
     address = node_dir / 'host.sock'
     herdr = root / 'herdr'
-    (root / 'owner.py').write_text('import time\nfrom pathlib import Path\np=Path(__file__).with_name("heartbeat")\nn=0\nwhile True:\n n+=1;p.write_text(str(n));time.sleep(.02)\n')
+    (root / 'owner.py').write_text('import time\nfrom pathlib import Path\np=Path(__file__).with_name("heartbeat")\nn=0\nwhile True:\n n+=1;q=p.with_suffix(".pending");q.write_text(str(n));q.replace(p);time.sleep(.02)\n')
     herdr.write_text('''#!/usr/bin/python3
 import os,subprocess,sys,time
 from pathlib import Path

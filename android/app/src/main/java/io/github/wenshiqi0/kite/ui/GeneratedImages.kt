@@ -43,14 +43,14 @@ internal fun decodeGeneratedImage(file: File): Bitmap {
 }
 
 @Composable
-fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>, conversation: String = vm.engine.timeline.context, onExternalActivityChanged: () -> Unit = {}) {
+fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>, conversation: String = vm.engine.timeline.context, onExternalActivityChanged: () -> Unit = {}, onOpenPreview: () -> Unit = {}) {
     images.forEach { image ->
-        key(conversation, image.id) { GeneratedImage(vm, conversation, image, onExternalActivityChanged) }
+        key(conversation, image.id) { GeneratedImage(vm, conversation, image, onExternalActivityChanged, onOpenPreview) }
     }
 }
 
 @Composable
-private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: AttachmentInfo, onExternalActivityChanged: () -> Unit) {
+private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: AttachmentInfo, onExternalActivityChanged: () -> Unit, onOpenPreview: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var bitmap by remember(conversation, image.id) { mutableStateOf<Bitmap?>(null) }
@@ -91,7 +91,7 @@ private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: 
         if (current != null) {
             val label = stringResource(R.string.generated_image_preview)
             Image(current.asImageBitmap(), label, contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clickable { preview = true })
+                modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clickable { onOpenPreview(); preview = true })
             TextButton(onClick = {
                 savingFile = file
                 vm.externalActivity = true

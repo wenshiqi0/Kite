@@ -453,6 +453,31 @@ def upload(identifier, name, size, digest):
         raise
 
 
+def read_uploaded_attachment(identifier, output):
+    if not re.fullmatch(r"[a-f0-9]{32}", identifier or ""):
+        raise ValueError("invalid attachment identity")
+    root = private_dir(Path.home() / ".local/share/kite/uploads")
+    descriptor = os.open(root / identifier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        names = os.listdir(descriptor)
+        if len(names) != 1:
+            raise ValueError("attachment is unavailable")
+        name = names[0]
+        file_descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(file_descriptor, "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or not 0 < info.st_size <= MAX_FILE:
+                raise ValueError("invalid attachment file")
+            data = source.read(MAX_FILE + 1)
+        if len(data) != info.st_size:
+            raise ValueError("attachment changed during read")
+        header = dict(name=name, size=len(data), sha256=hashlib.sha256(data).hexdigest())
+        output.write(json.dumps(header, ensure_ascii=False).encode() + b"\n")
+        output.write(data)
+    finally:
+        os.close(descriptor)
+
+
 def proxy(pane):
     """Adapt JSONL to the documented Unix WebSocket transport with bounded frames."""
     info = read_registry(pane)
@@ -953,7 +978,7 @@ def notification_facts(binary, include_archived=False):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "image-read"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "image-read", "attachment-read"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -982,6 +1007,8 @@ def main():
                 history_projection(args.file, output, args.before, args.after)
         else:
             history_projection(args.file, sys.stdout.buffer, args.before, args.after)
+    elif args.action == "attachment-read":
+        read_uploaded_attachment(args.id, sys.stdout.buffer)
     elif args.action == "image-read":
         read_generated_image(args.id, sys.stdout.buffer)
     elif args.action == "session-facts":

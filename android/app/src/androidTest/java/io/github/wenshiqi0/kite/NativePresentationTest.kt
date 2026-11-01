@@ -104,6 +104,19 @@ class NativePresentationTest {
         parent.closeVirtualMouse(); assertEquals(View.INVISIBLE, cursor.visibility)
     }
 
+    @Test fun cjkSentenceStrongClosesBeforeAnAdjacentLatinWord() = onMain {
+        val view=MarkdownTextView(instrumentation.targetContext)
+        view.bind("**已经完成。**Kite 接下来继续。")
+        measureText(view,900)
+        val body=view.text as Spanned
+        assertEquals("已经完成。 Kite 接下来继续。",body.toString())
+        assertTrue(body.getSpans(0,body.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isNotEmpty())
+        view.bind("`**已经完成。**Kite`")
+        val literal=view.text as Spanned
+        assertEquals("**已经完成。**Kite",literal.toString())
+        assertTrue(literal.getSpans(0,literal.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isEmpty())
+    }
+
     @Test fun markdownCreatesRichSpansAndRemeasuresStreamingText() = onMain {
         val view = MarkdownTextView(instrumentation.targetContext)
         FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))

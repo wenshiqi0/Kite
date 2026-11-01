@@ -762,6 +762,7 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
                     | "session-open"
                     | "session-facts"
                     | "image-read"
+                    | "attachment-read"
             )
         ) {
             return Err(Error::Protocol("backend action denied"));
@@ -913,6 +914,7 @@ mod tests {
         for args in [
             vec!["session-facts".into(), "--herdr".into(), "/bin/sh".into()],
             vec!["image-read".into(), "--id".into(), "a".repeat(64)],
+            vec!["attachment-read".into(), "--id".into(), "b".repeat(32)],
         ] {
             validate_args(
                 &config,

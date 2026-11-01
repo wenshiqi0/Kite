@@ -104,12 +104,3 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
 }
 
 fun attachmentMark(mime: String) = when { mime.startsWith("image/") -> Mark.Image; mime.startsWith("audio/") -> Mark.Audio; else -> Mark.File }
-
-@Composable fun MessageAttachments(files: List<AttachmentInfo>) {
-    files.forEach { file ->
-        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProductIcon(attachmentMark(file.mime), KiteColors.Accent, Modifier.size(18.dp))
-            Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp))
-        }
-    }
-}

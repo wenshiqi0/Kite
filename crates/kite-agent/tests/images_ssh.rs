@@ -1,5 +1,7 @@
 //! Real authenticated SSH channels, owned ephemeral keys and no local host changes.
-use kite_agent::composer::{download_image, helper_command, quote};
+use kite_agent::composer::{
+    Attachment, download_attachment, download_image, helper_command, quote,
+};
 use kite_ssh::{Session, Target};
 use russh::keys::{Algorithm, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Session as ServerSession, VerifiedPublicKey};
@@ -9,7 +11,7 @@ use tokio::net::TcpListener;
 
 struct ImageHost {
     authorized: PublicKey,
-    id: String,
+    command: String,
     bytes: Arc<Vec<u8>>,
     pending: HashSet<ChannelId>,
 }
@@ -41,10 +43,7 @@ impl server::Handler for ImageHost {
         data: &[u8],
         session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
-        assert_eq!(
-            data,
-            helper_command(&format!("image-read --id {}", quote(&self.id))).as_bytes()
-        );
+        assert_eq!(data, self.command.as_bytes());
         self.pending.insert(channel);
         session.channel_success(channel)
     }
@@ -62,6 +61,16 @@ impl server::Handler for ImageHost {
     }
 }
 async fn fixture(id: &str, bytes: Vec<u8>) -> (Session, tokio::task::JoinHandle<()>) {
+    fixture_command(
+        helper_command(&format!("image-read --id {}", quote(id))),
+        bytes,
+    )
+    .await
+}
+async fn fixture_command(
+    command: String,
+    bytes: Vec<u8>,
+) -> (Session, tokio::task::JoinHandle<()>) {
     let client = kite_ssh::generate_ed25519("image-download-fixture").unwrap();
     let authorized = PublicKey::from_openssh(&client.public_key_openssh).unwrap();
     let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
@@ -78,13 +87,12 @@ async fn fixture(id: &str, bytes: Vec<u8>) -> (Session, tokio::task::JoinHandle<
         port: listener.local_addr().unwrap().port(),
         username: "fixture".into(),
     };
-    let id = id.to_owned();
     let bytes = Arc::new(bytes);
     let task = tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let handler = ImageHost {
             authorized,
-            id,
+            command,
             bytes,
             pending: HashSet::new(),
         };
@@ -124,4 +132,63 @@ async fn changed_remote_images_are_rejected_instead_of_entering_the_cache() {
     );
     ssh.close().await.unwrap();
     task.abort();
+}
+
+#[tokio::test]
+async fn uploaded_attachment_headers_and_binary_payload_survive_authenticated_ssh() {
+    let bytes = b"text with newlines\n\0and raw bytes".to_vec();
+    let id = "b".repeat(32);
+    let header = serde_json::json!({"name":"notes.txt","size":bytes.len(),"sha256":hex::encode(openssl::sha::sha256(&bytes))});
+    let mut response = format!("{header}\n").into_bytes();
+    response.extend_from_slice(&bytes);
+    let command = helper_command(&format!("attachment-read --id {}", quote(&id)));
+    let (ssh, task) = fixture_command(command, response).await;
+    let file = Attachment {
+        id,
+        name: "notes.txt".into(),
+        mime: "text/plain".into(),
+        size: bytes.len() as u64,
+        path: "unused by transport".into(),
+    };
+    assert_eq!(download_attachment(&ssh, &file).await.unwrap(), bytes);
+    ssh.close().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn uploaded_attachments_reject_changed_name_size_or_checksum() {
+    let bytes = b"owned text";
+    for (name, size, checksum) in [
+        (
+            "different.txt",
+            bytes.len(),
+            hex::encode(openssl::sha::sha256(bytes)),
+        ),
+        (
+            "notes.txt",
+            bytes.len() + 1,
+            hex::encode(openssl::sha::sha256(bytes)),
+        ),
+        ("notes.txt", bytes.len(), "0".repeat(64)),
+    ] {
+        let id = "c".repeat(32);
+        let header = serde_json::json!({"name":name,"size":size,"sha256":checksum});
+        let mut response = format!("{header}\n").into_bytes();
+        response.extend_from_slice(bytes);
+        let (ssh, task) = fixture_command(
+            helper_command(&format!("attachment-read --id {}", quote(&id))),
+            response,
+        )
+        .await;
+        let file = Attachment {
+            id,
+            name: "notes.txt".into(),
+            mime: "text/plain".into(),
+            size: bytes.len() as u64,
+            path: "not a command argument".into(),
+        };
+        assert!(download_attachment(&ssh, &file).await.is_err());
+        ssh.close().await.unwrap();
+        task.abort();
+    }
 }
