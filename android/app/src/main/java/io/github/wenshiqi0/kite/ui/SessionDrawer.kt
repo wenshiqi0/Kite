@@ -35,7 +35,7 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
             val description = stringResource(R.string.close_navigation)
             IconButton(onClick = close, modifier = Modifier.semantics { contentDescription = description }) { ProductIcon(Mark.Close) }
         }
-        TextButton(onClick = create, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent, modifier = Modifier.padding(horizontal = 14.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
+        TextButton(onClick = create, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent && !vm.sessionBusy, modifier = Modifier.padding(horizontal = 14.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(false, true).forEach { filter ->
                 FilterChip(selected = archived == filter, onClick = { archived = filter }, label = { Text(stringResource(if (filter) R.string.archived_sessions else R.string.active_sessions)) })

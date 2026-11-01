@@ -50,6 +50,7 @@ class NewSessionRegressionTest {
         waitFor("Connected"){vm.engine.state.value?.connection==ConnectionStatus.CONNECTED}
         main{vm.settingsVisible=false;vm.closeDesktop()}
         fun fresh():String {
+            waitFor("Previous session operation completed"){!vm.sessionBusy&&!vm.creatingAgent}
             val before=vm.engine.state.value!!.selectedSession
             main{vm.createSession("codex",cwd,"Kite Alpha 24 owned new-session regression")}
             waitFor("New session selected"){val s=vm.engine.state.value;s?.selectedSession!=null&&s.selectedSession!=before&&s.sessions.any{it.id==s.selectedSession&&it.cwd==cwd}}
@@ -89,7 +90,7 @@ class NewSessionRegressionTest {
             runBlocking{vm.engine.core.disconnect();vm.engine.core.connect(host.id)}
             waitFor("Reconnected") {vm.engine.state.value?.connection==ConnectionStatus.CONNECTED}
             main{vm.settingsVisible=false;vm.openSession(first)}
-            waitFor("Same conversation restored") {vm.engine.state.value?.selectedSession==first&&vm.engine.timeline.messages.any{it.kind==MessageKind.ASSISTANT&&it.text.contains(marker)}&&vm.engine.state.value!!.composer.ready}
+            waitFor("Same conversation restored") {vm.engine.state.value?.selectedSession==first&&vm.engine.timeline.messages.any{it.kind==MessageKind.ASSISTANT&&it.text.contains(marker)}&&vm.engine.state.value!!.composer.ready&&!vm.sessionBusy}
             val second=fresh();assertNotEquals(first,second)
             assertTrue(vm.engine.state.value!!.composer.ready);assertFalse(vm.engine.state.value!!.history.failed);assertTrue(waiting())
             assertFalse(vm.engine.timeline.messages.any{it.text.contains(marker)})

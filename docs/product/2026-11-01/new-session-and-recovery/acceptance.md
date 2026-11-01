@@ -1,4 +1,4 @@
-# New sessions, desktop audio and recovery — Alpha 25
+# New sessions, desktop audio and recovery — Alpha 26
 
 ## Report and evidence
 
@@ -34,3 +34,7 @@ The official [Codex App Server documentation](https://learn.chatgpt.com/docs/app
 The public Alpha 24 package passed new-session/first-reply/reconnect checks and audio liveness, menu mute and focus checks. A first accessibility lookup returned no menu node; an unchanged rerun completed the full audio test. Further sustained-playback measurement nevertheless failed: after warmup, four seconds received 802 packets, discarded 450, and advanced playback by only 82,560 frames (42.9% of real time), with 109 underruns. [Measured baseline](audio-alpha24-baseline.json). Liveness alone was insufficient acceptance.
 
 Alpha 25 requests the pinned Moonlight transport's 10ms Opus mode for the MediaCodec receiver, batches codec input/output and reduces playback-counter polling. Its audio test now measures a warmed four-second interval and requires at least 95% real-time playback with at most 2% application queue drops, alongside mute/focus/resource and video checks. Final package acceptance remains pending until these pass.
+
+## Session-operation ordering
+
+The public Alpha 25 audio test met the steady-playback target: 98.0% real-time playback, one queue drop in 400 packets (0.25%), and zero steady-window underruns. Its latest new-session test completed the first reply and same-session reconnect, then attempted another create while `openSession` still held the native busy guard. The command was ignored. UI new-session entries and confirmation were also enabled during that guard, so Alpha 26 disables them consistently and the test waits for completion before creating the next session. Audio production code remains unchanged from the passing Alpha 25 implementation.
