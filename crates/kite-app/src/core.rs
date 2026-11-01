@@ -40,6 +40,7 @@ pub use conversation::{
 };
 mod notifications;
 mod pending;
+mod resources;
 mod sessions;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
@@ -182,6 +183,7 @@ pub struct Snapshot {
     pub herdr_path: Option<String>,
     pub capability: Option<String>,
     pub host_key_fingerprint: Option<String>,
+    pub host_resources: Option<crate::resources::HostResources>,
     pub agents: Vec<Agent>,
     pub selected_agent: Option<String>,
     pub sessions: Vec<ConversationSession>,
@@ -217,6 +219,7 @@ impl Default for Snapshot {
             herdr_path: None,
             capability: None,
             host_key_fingerprint: None,
+            host_resources: None,
             agents: Vec::new(),
             selected_agent: None,
             sessions: Vec::new(),
@@ -567,6 +570,7 @@ impl AppCore {
                 s.connection_step = ConnectionStep::Ssh;
                 s.selected_host = Some(host.id.clone());
                 s.failure = None;
+                s.host_resources = None;
                 s.pending_key = None;
             });
             core.disconnect_inner(false).await?;
@@ -907,6 +911,7 @@ impl AppCore {
                 self.report(&error);
             }
             self.refresh_session_activity(&connection, generation).await;
+            self.refresh_resources(&connection, generation).await;
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
@@ -1468,6 +1473,7 @@ impl AppCore {
             s.herdr_path = None;
             s.capability = None;
             s.host_key_fingerprint = None;
+            s.host_resources = None;
             s.agents.clear();
             s.selected_agent = None;
             s.history_status = HistoryStatus::default();

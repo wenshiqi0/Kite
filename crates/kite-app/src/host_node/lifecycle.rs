@@ -236,6 +236,11 @@ mod tests {
             backend_calls: AtomicU64::new(0),
             lifecycle_last_scan: AtomicU64::new(0),
             lifecycle_reclaimed: AtomicU64::new(0),
+            resources: super::super::resources::Resources::open(
+                root.path(),
+                crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
+            )
+            .unwrap(),
             permits: Arc::new(Semaphore::new(1)),
             notifications: None,
             push: None,

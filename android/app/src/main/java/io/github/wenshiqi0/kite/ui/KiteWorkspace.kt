@@ -291,7 +291,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent && !vm.sessionBusy)
+                            DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && canStartResourceAgent(state?.hostResources) && !vm.creatingAgent && !vm.sessionBusy)
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             if(vm.showDesktop||state?.desktop?.status in listOf(DesktopStatus.STARTING,DesktopStatus.STREAMING,DesktopStatus.PAIRING))DropdownMenuItem(text={Text(stringResource(R.string.desktop_disconnect))},leadingIcon={ProductIcon(Mark.Close)},onClick={tools=false;videoReference.value?.closeRemoteKeyboard();softwareKeyboard?.hide();focusManager.clearFocus();vm.closeDesktop();updatePip()})
@@ -303,6 +303,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.connection_diagnostics)) }, onClick = { tools = false; diagnostics = true })
                             DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.settingsVisible = true })
                         }
+                    }
+                }
+                if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    ResourceWarning(state?.hostResources) {
+                        state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.settingsVisible = true }
                     }
                 }
                 if (split) {

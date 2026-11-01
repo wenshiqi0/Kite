@@ -30,6 +30,125 @@ pub struct HostRecord {
     pub stream_host: Option<String>,
     pub sunshine_port: u16,
 }
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum HostMemoryPressure {
+    Unknown,
+    Normal,
+    Warning,
+    Critical,
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum MemoryWarningReason {
+    None,
+    HostMemory,
+    AgentBudget,
+    StartupReservation,
+    MemoryStall,
+    RecentOom,
+    EnforcementUnavailable,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ResourceProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub memory_bytes: u64,
+    pub cpu_percent: Option<f64>,
+    pub managed: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HostResourcesInfo {
+    pub available: bool,
+    pub problem: Option<String>,
+    pub sampled_at_ms: u64,
+    pub cpu_percent: Option<f64>,
+    pub cpu_cores: u32,
+    pub load_one: f64,
+    pub load_five: f64,
+    pub load_fifteen: f64,
+    pub memory_total_bytes: u64,
+    pub memory_available_bytes: u64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
+    pub memory_pressure_some: f64,
+    pub memory_pressure_full: f64,
+    pub agent_memory_used_bytes: u64,
+    pub agent_reclaimable_bytes: u64,
+    pub agent_memory_limit_bytes: u64,
+    pub agent_migration_reserved_bytes: u64,
+    pub agent_startup_reserved_bytes: u64,
+    pub agent_kernel_limit_bytes: u64,
+    pub agent_cpu_percent: Option<f64>,
+    pub agent_process_count: u32,
+    pub agent_oom_kills: u64,
+    pub limit_enforced: bool,
+    pub memory_pressure: HostMemoryPressure,
+    pub reason: MemoryWarningReason,
+    pub can_start_agents: bool,
+    pub processes: Vec<ResourceProcessInfo>,
+}
+
+impl From<kite_app::resources::HostResources> for HostResourcesInfo {
+    fn from(value: kite_app::resources::HostResources) -> Self {
+        use kite_app::resources::{MemoryPressure as P, ResourceReason as R};
+        Self {
+            available: value.available,
+            problem: value.problem,
+            sampled_at_ms: value.sampled_at_ms,
+            cpu_percent: value.cpu_percent,
+            cpu_cores: value.cpu_cores,
+            load_one: value.load_one,
+            load_five: value.load_five,
+            load_fifteen: value.load_fifteen,
+            memory_total_bytes: value.memory_total_bytes,
+            memory_available_bytes: value.memory_available_bytes,
+            swap_total_bytes: value.swap_total_bytes,
+            swap_used_bytes: value.swap_used_bytes,
+            memory_pressure_some: value.memory_pressure_some,
+            memory_pressure_full: value.memory_pressure_full,
+            agent_memory_used_bytes: value.agent_memory_used_bytes,
+            agent_reclaimable_bytes: value.agent_reclaimable_bytes,
+            agent_memory_limit_bytes: value.agent_memory_limit_bytes,
+            agent_migration_reserved_bytes: value.agent_migration_reserved_bytes,
+            agent_startup_reserved_bytes: value.agent_startup_reserved_bytes,
+            agent_kernel_limit_bytes: value.agent_kernel_limit_bytes,
+            agent_cpu_percent: value.agent_cpu_percent,
+            agent_process_count: value.agent_process_count,
+            agent_oom_kills: value.agent_oom_kills,
+            limit_enforced: value.limit_enforced,
+            can_start_agents: value.can_start_agents,
+            memory_pressure: match value.memory_pressure {
+                P::Unknown => HostMemoryPressure::Unknown,
+                P::Normal => HostMemoryPressure::Normal,
+                P::Warning => HostMemoryPressure::Warning,
+                P::Critical => HostMemoryPressure::Critical,
+            },
+            reason: match value.reason {
+                R::None => MemoryWarningReason::None,
+                R::HostMemory => MemoryWarningReason::HostMemory,
+                R::AgentBudget => MemoryWarningReason::AgentBudget,
+                R::StartupReservation => MemoryWarningReason::StartupReservation,
+                R::MemoryStall => MemoryWarningReason::MemoryStall,
+                R::RecentOom => MemoryWarningReason::RecentOom,
+                R::EnforcementUnavailable => MemoryWarningReason::EnforcementUnavailable,
+            },
+            processes: value
+                .processes
+                .into_iter()
+                .map(|p| ResourceProcessInfo {
+                    pid: p.pid,
+                    name: p.name,
+                    memory_bytes: p.memory_bytes,
+                    cpu_percent: p.cpu_percent,
+                    managed: p.managed,
+                })
+                .collect(),
+        }
+    }
+}
 impl From<HostRecord> for kite_app::SavedHost {
     fn from(h: HostRecord) -> Self {
         Self {
@@ -667,6 +786,7 @@ pub struct CoreSnapshot {
     pub herdr_path: Option<String>,
     pub capability: Option<String>,
     pub host_key_fingerprint: Option<String>,
+    pub host_resources: Option<HostResourcesInfo>,
     pub agents: Vec<AgentInfo>,
     pub selected_agent: Option<String>,
     pub sessions: Vec<SessionInfo>,
@@ -725,6 +845,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             herdr_path: s.herdr_path,
             capability: s.capability,
             host_key_fingerprint: s.host_key_fingerprint,
+            host_resources: s.host_resources.map(Into::into),
             agents: s
                 .agents
                 .into_iter()
@@ -960,6 +1081,22 @@ impl KiteCore {
     }
     pub async fn connect(&self, host_id: String) -> Result<(), KiteError> {
         self.inner.connect(host_id).await.map_err(Into::into)
+    }
+    pub async fn refresh_host_resources(&self) -> Result<(), KiteError> {
+        self.inner
+            .refresh_host_resources()
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn set_agent_memory_limit(
+        &self,
+        host_id: String,
+        bytes: u64,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .set_agent_memory_limit(host_id, bytes)
+            .await
+            .map_err(Into::into)
     }
     pub async fn trust_host(&self, host_id: String, fingerprint: String) -> Result<(), KiteError> {
         self.inner

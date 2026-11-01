@@ -10,6 +10,7 @@ use kite_ssh::Session;
 pub mod core;
 #[cfg(feature = "host-node")]
 pub mod host_node;
+pub mod resources;
 pub use core::clipboard::{ClipboardPlatform, RemoteClipboard};
 pub use core::*;
 pub use kite_agent::composer::skills::{Skill as ChatSkill, SkillDraft};

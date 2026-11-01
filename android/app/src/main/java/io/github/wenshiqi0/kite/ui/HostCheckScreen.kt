@@ -28,7 +28,7 @@ internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit)
     val snapshot by viewModel.engine.state.collectAsState()
     val platformError by viewModel.engine.platformError.collectAsState()
     val state = snapshot
-    Scaffold(topBar = { TopAppBar(title = { Text(if(viewModel.form.id.isEmpty())stringResource(R.string.add_host)else "编辑主机") }, navigationIcon = {
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(if(viewModel.form.id.isEmpty())R.string.add_host else R.string.host_details)) }, navigationIcon = {
         IconButton(onClick = onBack) { ProductIcon(Mark.Back) }
     }, actions = { state?.let { CopyDiagnosticsButton(it) } }) }) { padding ->
         Column(Modifier.padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -41,6 +41,12 @@ internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit)
                 val running = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTING
                 if(state.selectedHost==viewModel.form.id)Text(connectionStepLabel(state), color = if (state.connection == ConnectionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 state.failure?.takeIf{state.selectedHost==viewModel.form.id}?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
+                if (viewModel.form.id.isNotEmpty()) HostResourcesCard(
+                    profile = if (connected) state.hostResources else null,
+                    connected = connected, saving = viewModel.updatingMemoryLimit,
+                    onRefresh = { viewModel.engine.command { viewModel.engine.core.refreshHostResources() } },
+                    onSetLimit = viewModel::updateAgentMemoryLimit,
+                )
                 HostFormCard(viewModel, enabled = !running && !viewModel.savingHost && state.pendingHostKey == null, running = running, connected = connected)
                 state.deviceKey?.let { DeviceKeyCard(it) }
                 if (running) LinearProgressIndicator(Modifier.fillMaxWidth())
