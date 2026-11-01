@@ -6,7 +6,7 @@ Kite now owns the CLI/docs/MCP desktop contract described in [RFC 0019](../../..
 
 ## Cost measurements
 
-[Pinned reference tokenizer measurements](token-budget.json) distinguish discovery, first use, optional detail and unchanged rechecks. These are `cl100k_base` / `o200k_base` counts, not Claude/DeepSeek's native accounting. They exclude image tokens, model reasoning and unrelated harness context.
+[Pinned reference tokenizer measurements](token-budget.json) distinguish discovery, first use, optional detail and unchanged rechecks. These are `cl100k_base` / `o200k_base` counts, not Claude/DeepSeek's native accounting. They count emitted documentation/metadata artifacts and exclude request arguments, tool-call wrappers, image tokens, model reasoning and unrelated harness context. The 18-token figure is the unchanged response body, not the entire request/response transaction.
 
 | Path | Reference token count |
 | --- | ---: |
@@ -31,3 +31,9 @@ The Unicode test found that an overly short key delay could drop a remapped char
 [Host regression](host-regression.json) covers actual managed-skill installation, preserving local edits, live handover, notification state ownership, supervisor recovery while old streams remain open and cleanup of all uniquely named test services. Normal source checks include Rust, Python, formatting and Clippy. CI runs the native desktop test and pinned tokenizer budgets; a real user-manager-only regression is explicitly skipped on runners without that facility.
 
 The next development Alpha is used because an already-published tag cannot refer to this new source. No old release tag or attachment is overwritten. Physical-phone desktop streaming, macOS/Wayland input and model-level Claude/DeepSeek end-to-end behavior are outside this acceptance.
+
+## Local installed entry
+
+[Deployment verification](deployment.json) records the local Alpha 35 test build from `2c780b6`. The `kite` alias and identical standard Skill bundles in the shared agent and Claude discovery roots are installed. No harness configuration/permission file was edited. The Node is healthy, its configured X11 desktop is available, and matching document revisions omit the body. All eleven provider-owner PID/start-time identities present immediately before this upgrade were retained; Herdr/Sunshine PIDs and Node configuration were unchanged. This local build is not a newly published GitHub Release.
+
+The feature commit `7df9e68` passed the [complete main workflow](https://github.com/wenshiqi0/Kite/actions/runs/41310510543), including native X11/MCP and pinned token budgets. Embedded guide/Skill paths are now CI triggers, so later documentation-only edits are checked rather than silently escaping validation.
