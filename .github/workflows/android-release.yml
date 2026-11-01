@@ -10,6 +10,8 @@ on:
       - 'crates/**'
       - 'backend/**'
       - 'desktop/**'
+      - 'docs/agent/**'
+      - 'skills/**'
       - 'Cargo.*'
       - '.gitmodules'
       - '.github/workflows/android-release.yml'
