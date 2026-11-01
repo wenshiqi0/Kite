@@ -1,0 +1,34 @@
+{
+  "versionName": "0.2.0-alpha.46",
+  "versionCode": 48,
+  "sourceCommit": "898a659d2550445ab1fdb90e2dfccda01f3b4408",
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.46",
+  "prerelease": true,
+  "mainCi": "https://github.com/wenshiqi0/Kite/actions/runs/41357199975",
+  "tagCi": "https://github.com/wenshiqi0/Kite/actions/runs/41357199900",
+  "mainCiPassed": true,
+  "tagCiPassed": true,
+  "allPublicChecksumsVerified": true,
+  "apkVerification": [
+    {
+      "asset": "kite-0.2.0-alpha.46-arm64-v8a.apk",
+      "stableCertificateVerified": true,
+      "alignment16KiBVerified": true
+    },
+    {
+      "asset": "kite-0.2.0-alpha.46-arm64-v8a-compat-v2.apk",
+      "stableCertificateVerified": true,
+      "alignment16KiBVerified": true
+    }
+  ],
+  "hostInstallation": {
+    "version": "0.2.0-alpha.46",
+    "sourceCommit": "898a659d2550445ab1fdb90e2dfccda01f3b4408",
+    "publicChecksumsVerified": true,
+    "publicHostBinaryMatchesRunning": true,
+    "nodeIdentityPreserved": true,
+    "memoryLimitBytes": 10737418240,
+    "limitEnforced": true,
+    "resourceApi": 1
+  }
+}

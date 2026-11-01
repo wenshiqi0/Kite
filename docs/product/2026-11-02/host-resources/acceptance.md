@@ -29,4 +29,4 @@
 
 ## 发布
 
-Alpha 46 通过统一发布脚本和标签 CI 交付；公开安装包、校验与 CI 结果在发布完成后补充。
+[Alpha 46](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.46) / versionCode 48 已公开发布，源码 `898a659d2550445ab1fdb90e2dfccda01f3b4408`。main 与标签 CI 均通过；公开 APK/兼容包校验和、稳定证书与 16 KiB 对齐独立核验通过。匹配的 CI Linux 包已安装，运行二进制与公开 manifest 一致，原节点身份与 10 GiB 限额保持。[发布记录](published-release.json)。
