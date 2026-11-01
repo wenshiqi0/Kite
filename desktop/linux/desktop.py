@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native X11 status UI. Service health and lifecycle policy belong to Kite Node."""
 from pathlib import Path
+from collections import deque
 import json
 import os
 import subprocess
@@ -14,6 +15,7 @@ from gi.repository import Gtk, Gdk, GdkPixbuf, Gio, GLib
 ROOT = Path(__file__).resolve().parent
 TEXT = json.loads((ROOT / 'strings.json').read_text())
 NODE = os.environ.get('KITE_NODE_BINARY', str(Path.home() / '.local/bin/kite-node'))
+STATUS_TIMEOUT = 6  # Node: 4s service probe < 5s RPC < 6s UI deadline.
 
 
 class Window(Gtk.ApplicationWindow):
@@ -34,6 +36,7 @@ class Window(Gtk.ApplicationWindow):
         self.machine.get_style_context().add_class('muted')
         box.pack_start(self.machine, False, False, 0)
         self.services = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.service_rows = {}
         box.pack_start(self.services, False, False, 0)
         actions = Gtk.Box(spacing=10)
         box.pack_start(actions, False, False, 4)
@@ -50,6 +53,18 @@ class Window(Gtk.ApplicationWindow):
         self.hint.set_line_wrap(True)
         self.hint.get_style_context().add_class('muted')
         box.pack_start(self.hint, False, False, 0)
+        self.activity = Gtk.Label(xalign=0)
+        box.pack_start(self.activity, False, False, 0)
+        self.error_box = Gtk.Box(spacing=10)
+        self.error_box.set_no_show_all(True)
+        self.error_label = Gtk.Label(xalign=0)
+        self.error_label.set_line_wrap(True)
+        self.error_label.get_style_context().add_class('error')
+        self.error_box.pack_start(self.error_label, True, True, 0)
+        dismiss = Gtk.Button(label=TEXT['dismiss'])
+        dismiss.connect('clicked', lambda _: app.dismiss_error())
+        self.error_box.pack_start(dismiss, False, False, 0)
+        box.pack_start(self.error_box, False, False, 0)
         for key in ['routing', 'mcp']:
             label = Gtk.Label(label=TEXT[key], xalign=0)
             label.set_line_wrap(True)
@@ -75,18 +90,35 @@ class Window(Gtk.ApplicationWindow):
         style.add_class({'ready': 'success', 'offline': 'error'}.get(app.state, 'warning'))
         value = app.value or {}
         self.machine.set_text(' · '.join(filter(None, [value.get('machine'), value.get('version')])))
-        self.ensure.set_sensitive(not app.pending and app.value is not None)
+        self.ensure.set_sensitive(not app.action_pending and app.value is not None)
         self.hint.set_text(TEXT['background' if app.embedded() else 'no_tray'])
-        for child in self.services.get_children():
-            self.services.remove(child)
+        if app.update_pending:
+            self.hint.set_text(self.hint.get_text() + '\n' + TEXT['update_pending'])
+        self.activity.set_text(TEXT['queued'] if app.action_queue else TEXT['busy'] if app.action_pending else '')
+        self.error_label.set_text(app.action_error or '')
+        self.error_box.set_visible(bool(app.action_error))
+        if app.action_error:
+            for child in self.error_box.get_children():
+                child.show()
+        keys = tuple(service.get('unit', service['name']) for service in value.get('services', []))
+        if keys != tuple(self.service_rows):
+            for child in self.services.get_children():
+                child.destroy()
+            self.service_rows = {}
+            for service, key in zip(value.get('services', []), keys):
+                row = Gtk.Box(spacing=10)
+                row.get_style_context().add_class('service')
+                row.pack_start(Gtk.Label(label=service['name'], xalign=0), True, True, 0)
+                state = Gtk.Label()
+                row.pack_start(state, False, False, 0)
+                self.services.pack_start(row, False, False, 0)
+                self.service_rows[key] = state
         for service in value.get('services', []):
-            row = Gtk.Box(spacing=10)
-            row.get_style_context().add_class('service')
-            row.pack_start(Gtk.Label(label=service['name'], xalign=0), True, True, 0)
-            state = Gtk.Label(label=TEXT['active' if service['active'] else 'inactive'])
+            state = self.service_rows[service.get('unit', service['name'])]
+            state.set_text(TEXT['unknown' if service.get('error') else 'active' if service['active'] else 'inactive'])
+            for name in ['success', 'warning']:
+                state.get_style_context().remove_class(name)
             state.get_style_context().add_class('success' if service['active'] else 'warning')
-            row.pack_start(state, False, False, 0)
-            self.services.pack_start(row, False, False, 0)
         self.services.show_all()
         self.details.set_text(app.error or json.dumps(value, ensure_ascii=False, indent=2))
 
@@ -102,10 +134,33 @@ class Application(Gtk.Application):
         self.value = None
         self.state = 'busy'
         self.error = None
-        self.pending = False
+        self.status_pending = False
+        self.refresh_requested = False
+        self.action_pending = False
+        self.active_action = None
+        self.action_queue = deque()
+        self.action_error = None
+        self.failed_action = None
+        self.poll_source = 0
         self.exiting = False
         self.snapshot = None
         self.icon_state = None
+        self.update_pending = False
+        self.launcher = Path(os.environ.get('KITE_DESKTOP_LAUNCHER', str(Path.home() / '.local/bin/kite-desktop')))
+        try:
+            data = self.launcher.read_bytes()
+            self.launcher_bytes = data if str(ROOT / 'desktop.py').encode() in data else None
+        except OSError:
+            self.launcher_bytes = None
+        self.source_bytes = (ROOT / 'desktop.py').read_bytes()
+
+    @property
+    def pending(self):
+        return self.status_pending or self.action_pending or bool(self.action_queue)
+
+    def dismiss_error(self):
+        self.action_error, self.failed_action = None, None
+        self.render()
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -139,10 +194,10 @@ class Application(Gtk.Application):
             self.actions[key] = item
         self.render()
         self.tray.set_visible(True)
-        self.poll_source = GLib.timeout_add_seconds(3, self.poll)
+        self.schedule_poll()
         self.call('status')
         for name, callback in [('show', self.present_window), ('refresh', lambda: self.call('status')),
-                               ('hide', self.close_panel), ('quit', self.quit)]:
+                               ('hide', self.close_panel), ('quit', self.quit), ('upgrade', self.check_ui_upgrade)]:
             action = Gio.SimpleAction.new(name, None)
             action.connect('activate', lambda _, __, fn=callback: fn())
             self.add_action(action)
@@ -181,7 +236,7 @@ class Application(Gtk.Application):
             return
         if not self.embedded():
             GLib.timeout_add(1500, self.check_tray)
-        if self.window:
+        if self.window and self.window.get_visible():
             self.window.render(self)
 
     def present_window(self):
@@ -190,29 +245,38 @@ class Application(Gtk.Application):
         self.window.render(self)
         self.window.show_all()
         self.window.present()
+        self.schedule_poll()
 
     def close_panel(self):
         if self.embedded():
             if self.window:
                 self.window.hide()
+                self.check_ui_upgrade()
+                self.schedule_poll()
         else:
             self.quit()
         return True
 
     def resize_icon(self, size):
+        state = 'degraded' if self.state == 'unresponsive' else self.state
+        if self.action_pending:
+            state = 'busy'
         self.tray.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(
-            str(ROOT / ('icons/kite-' + self.state + '.png')), max(16, size), max(16, size), True))
+            str(ROOT / ('icons/kite-' + state + '.png')), max(16, size), max(16, size), True))
         return True
 
     def render(self):
-        if self.icon_state != self.state:
-            self.icon_state = self.state
+        icon_state = (self.state, self.action_pending)
+        if self.icon_state != icon_state:
+            self.icon_state = icon_state
             self.resize_icon(max(16, self.tray.get_size()))
-        node_state = 'active' if self.value else 'offline' if self.state == 'offline' else 'busy'
+        node_state = 'active' if self.value else self.state if self.state in ('offline', 'unresponsive') else 'busy'
         lines = [TEXT[self.state], TEXT['node'] + ' · ' + TEXT[node_state]]
+        # Service lines keep the same positions in the tray menu.
         for service in (self.value or {}).get('services', []):
-            lines.append(service['name'] + ' · ' + TEXT['active' if service['active'] else 'inactive'])
-        self.tray.set_tooltip_text('Kite\n' + '\n'.join(lines))
+            lines.append(service['name'] + ' · ' + TEXT['unknown' if service.get('error') else 'active' if service['active'] else 'inactive'])
+        tooltip = lines + ([TEXT['busy']] if self.action_pending else [])
+        self.tray.set_tooltip_text('Kite\n' + '\n'.join(tooltip))
         for item, line in zip(self.status_items, lines[:2]):
             item.set_label(line)
         names = tuple(service['name'] for service in (self.value or {}).get('services', []))
@@ -228,43 +292,88 @@ class Application(Gtk.Application):
                 self.service_items.append(item)
         for item, line in zip(self.service_items, lines[2:]):
             item.set_label(line)
-        self.actions['ensure'].set_sensitive(not self.pending and self.value is not None)
+        self.actions['ensure'].set_sensitive(not self.action_pending and self.value is not None)
         self.menu.show_all()
-        if self.window:
+        if self.window and self.window.get_visible():
             self.window.render(self)
 
     def popup(self, _, button, time):
         self.menu.popup(None, None, Gtk.StatusIcon.position_menu, self.tray, button, time)
 
+    def schedule_poll(self):
+        if self.poll_source:
+            GLib.source_remove(self.poll_source)
+        interval = 3 if self.window and self.window.get_visible() else 15
+        self.poll_source = GLib.timeout_add_seconds(interval, self.poll)
+
     def poll(self):
-        self.call('status')
+        self.check_ui_upgrade()
+        self.request_status()
         return True
 
-    def call(self, *args):
-        if self.pending or self.exiting:
+    def check_ui_upgrade(self):
+        if self.launcher_bytes is None or self.exiting:
             return
-        self.pending = True
-        if args[0] != 'status':
-            self.state = 'busy'
-        self.render()
+        try:
+            changed = self.launcher.read_bytes() != self.launcher_bytes or (ROOT / 'desktop.py').read_bytes() != self.source_bytes
+        except OSError:
+            return
+        if changed:
+            self.update_pending = True
+            if self.embedded() and not (self.window and self.window.get_visible()) and not self.action_pending and not self.action_queue:
+                os.execv(str(self.launcher), [str(self.launcher), '--background'])
+            self.render()
 
+    def call(self, *args):
+        if self.exiting:
+            return
+        if args[0] == 'status':
+            self.request_status(refresh=True)
+            return
+        if args != self.active_action and args not in self.action_queue:
+            self.action_queue.append(args)
+        self.next_action()
+
+    def request_status(self, refresh=False):
+        if self.exiting:
+            return
+        if self.status_pending:
+            self.refresh_requested |= refresh
+            return
+        self.status_pending = True
+        self.run_command(('status', '--refresh') if refresh else ('status',))
+
+    def next_action(self):
+        if self.action_pending or not self.action_queue or self.exiting:
+            self.render()
+            return
+        self.action_pending = True
+        self.active_action = self.action_queue.popleft()
+        self.render()
+        self.run_command(self.active_action)
+
+    def run_command(self, args):
         def run():
+            timed_out = False
             try:
                 p = subprocess.run([NODE, *args], capture_output=True, text=True,
-                                   timeout=3 if args[0] == 'status' else 35)
+                                   timeout=STATUS_TIMEOUT if args[0] == 'status' else 35)
                 if p.returncode:
-                    raise RuntimeError(p.stderr.strip())
+                    timed_out = 'node request timed out' in p.stderr
+                    raise RuntimeError(p.stderr.strip() or 'Node command failed: ' + str(p.returncode))
                 value, error = json.loads(p.stdout), None
+            except subprocess.TimeoutExpired as e:
+                value, error, timed_out = None, str(e), True
             except Exception as e:
                 value, error = None, str(e)
-            GLib.idle_add(self.result, args[0], value, error)
+            GLib.idle_add(self.result, args[0], value, error, timed_out)
         threading.Thread(target=run, daemon=True).start()
 
-    def result(self, kind, value, error):
+    def result(self, kind, value, error, timed_out=False):
         if self.exiting:
             return False
-        self.pending = False
         if kind == 'status':
+            self.status_pending = False
             try:
                 if error:
                     raise RuntimeError(error)
@@ -272,24 +381,34 @@ class Application(Gtk.Application):
                     raise ValueError('Invalid host health')
                 self.value, self.state, self.error = value, value['health'], None
             except Exception as e:
-                self.value, self.state, self.error = None, 'offline', str(e)
+                self.value, self.state, self.error = None, 'unresponsive' if timed_out else 'offline', str(e)
             self.render()
             if self.snapshot and self.window:
                 GLib.timeout_add(300, self.capture)
+            if self.refresh_requested:
+                self.refresh_requested = False
+                self.request_status(refresh=True)
         else:
+            completed = self.active_action
+            self.action_pending, self.active_action = False, None
             if error:
-                self.error = error
+                self.action_error = TEXT[kind] + '：' + error
+                self.failed_action = completed
                 self.present_window()
-            elif kind == 'sessions':
+            elif self.failed_action == completed:
+                self.action_error, self.failed_action = None, None
+            if not error and kind == 'sessions':
                 self.present_window()
                 rows = value.get('sessions', [])
                 dialog = Gtk.MessageDialog(transient_for=self.window, modal=True, message_type=Gtk.MessageType.INFO,
                                            buttons=Gtk.ButtonsType.CLOSE, text=TEXT['session_title'])
                 dialog.format_secondary_text(str(len(rows)) + ' ' + TEXT['session_count'] + '\n\n' +
                                              '\n'.join(str(r.get('title') or r.get('id')) for r in rows[:30]))
-                dialog.run()
-                dialog.destroy()
-            self.call('status')
+                dialog.connect('response', lambda dialog, _: dialog.destroy())
+                dialog.show_all()
+            self.next_action()
+            self.request_status(refresh=True)
+            self.check_ui_upgrade()
         return False
 
     def capture(self):
@@ -302,7 +421,8 @@ class Application(Gtk.Application):
 
     def do_shutdown(self):
         self.exiting = True
-        GLib.source_remove(self.poll_source)
+        if self.poll_source:
+            GLib.source_remove(self.poll_source)
         self.tray.set_visible(False)
         Gtk.Application.do_shutdown(self)
 

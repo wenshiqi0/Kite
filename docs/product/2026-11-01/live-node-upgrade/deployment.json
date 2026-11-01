@@ -1,0 +1,129 @@
+{
+  "status": "PASS",
+  "localTestBuild": true,
+  "publishedRelease": false,
+  "build": {
+    "version": "0.2.0-alpha.31",
+    "sourceCommit": "2850a07a7581736c6279fc70d5622102359c21c8",
+    "sourceDirty": true,
+    "localTestBuild": true,
+    "sourceTreeSha256": "7941b5248301e2bc107c3e2aa840e99fe9c7ea424c32debcf6e7bf1addcad157",
+    "target": "x86_64-unknown-linux-gnu",
+    "nodeApi": 1,
+    "backendProtocol": 5,
+    "binarySha256": "6399cd242e69e9f4b4bc30095dd7845b34a46f61ee000ed829492783d5ea76f4",
+    "buildProfile": "release",
+    "generationLaunch": 1
+  },
+  "firstMigration": {
+    "previousVersion": "0.2.0-alpha.29",
+    "targetVersion": "0.2.0-alpha.31",
+    "maintenanceSwitchRequired": true,
+    "providerOwnersRetained": 9
+  },
+  "realModelHotUpgrade": {
+    "status": "PASS",
+    "realModel": true,
+    "ephemeralOwnedThread": true,
+    "upgrades": [
+      {
+        "profile": "debug",
+        "previousPid": 2368513,
+        "pid": 2372141,
+        "seconds": 1.001,
+        "turnActiveAtStart": true,
+        "sameOriginalProxy": true,
+        "sameProviderOwner": true,
+        "sameThreadLoaded": true,
+        "directSupervisorParent": true
+      },
+      {
+        "profile": "release",
+        "previousPid": 2372141,
+        "pid": 2372218,
+        "seconds": 0.691,
+        "turnActiveAtStart": true,
+        "sameOriginalProxy": true,
+        "sameProviderOwner": true,
+        "sameThreadLoaded": true,
+        "directSupervisorParent": true
+      }
+    ],
+    "model": "gpt-6.1-sol",
+    "itemKinds": [
+      "agentMessage",
+      "userMessage"
+    ],
+    "originalNodePid": 2368513,
+    "sameClientConnectionThroughUpgrades": true,
+    "replyComplete": true,
+    "actualOutputChars": 4319,
+    "deltaEvents": 1599,
+    "modelTurnCount": 1,
+    "toolRequests": 0,
+    "elapsedSeconds": 64.798,
+    "capturedAt": "2026-11-01T11:31:18.813317+00:00"
+  },
+  "finalHost": {
+    "status": "PASS",
+    "version": "0.2.0-alpha.31",
+    "health": "ready",
+    "liveUpgrade": true,
+    "generationLaunch": 1,
+    "nodePid": 2372218,
+    "directSupervisorParent": true,
+    "optimizedBinarySha256": "6399cd242e69e9f4b4bc30095dd7845b34a46f61ee000ed829492783d5ea76f4",
+    "configuredLaunchBinaryMatchesRunning": true,
+    "retainedProviderOwners": 9,
+    "baselineProviderOwners": 9,
+    "externalServices": {
+      "herdr.service": {
+        "active": true,
+        "samePid": true
+      },
+      "app-dev.lizardbyte.app.Sunshine.service": {
+        "active": true,
+        "samePid": true
+      }
+    },
+    "protectedConfigurationFilesUnchanged": {
+      ".ssh/authorized_keys": true,
+      ".ssh/known_hosts": true,
+      ".config/kite/node.json": true
+    },
+    "sessionCatalogue": {
+      "byteIdenticalToInitial": false,
+      "versionValid": true,
+      "records": 9,
+      "revision": 298,
+      "ownedTestEntryPresent": false,
+      "concurrentUpdatesPreserved": true,
+      "restoredFromBackup": false
+    },
+    "gui": {
+      "pid": 2301265,
+      "samePidAcrossHotUpgrades": true,
+      "panelHidden": true,
+      "embeddedIcon22x22": true
+    },
+    "retiringTestGenerationsAlive": [],
+    "capturedAt": "2026-11-01T11:37:14.716139+00:00"
+  },
+  "cleanup": {
+    "ownedModelStopped": true,
+    "ownedRegistryRemoved": true
+  },
+  "supervisionRegression": {
+    "reproducedBeforeFix": true,
+    "replacementAdoptedByUserManager": true,
+    "newGenerationCrashAutomaticallyRecovered": true,
+    "oldDuplexStreamFrameErrors": []
+  },
+  "scope": {
+    "realLocalCodex": true,
+    "actualDesktopPanelAndTray": true,
+    "physicalPhone": false,
+    "wan": false,
+    "decodedVideoOrAudio": false
+  }
+}

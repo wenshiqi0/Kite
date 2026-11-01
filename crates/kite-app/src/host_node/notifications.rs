@@ -111,6 +111,10 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
     Watch(tokio::spawn(async move {
         loop {
             let Some(node) = node.upgrade() else { return };
+            let observation = node.observation_gate.read().await;
+            if node.draining() {
+                return;
+            }
             let mut command = Command::new(&node.config.python);
             command
                 .arg(&node.config.backend)
@@ -165,6 +169,7 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
             if result.is_err() {
                 log::debug!("notification fact scan unavailable");
             }
+            drop(observation);
             drop(node);
             tokio::time::sleep(Duration::from_secs(2)).await;
         }

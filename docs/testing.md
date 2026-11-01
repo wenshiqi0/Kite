@@ -32,9 +32,22 @@ On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:
 cargo test -p kite-app --features host-node host_node:: --locked
 python3 -m unittest discover -s desktop/linux -p 'test_*.py'
 xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
+xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/operations_probe.py
+xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/upgrade_probe.py
 ```
 
 The native probe uses an isolated CLI fixture. It verifies health transitions, stale-state clearing, timeout/recovery, menu actions and repeated launches. Without a tray it requires an automatically accessible window. On a supported Xfce/X11 desktop, run the probe in a private session bus with `--require-tray --evidence /path/to/owned-output` to additionally require a real embedded icon, hide/reopen the same window and record fixture screenshots. The probe does not stop real Herdr or Sunshine services. Trusted CI runs the missing-tray probe; actual Xfce results are recorded in [taskbar acceptance](product/2026-10-31/linux-taskbar/acceptance.md).
+
+`operations_probe.py` checks real GTK widgets while status and actions overlap: queued/deduplicated actions, health polling during startup, failures retained across healthy polls, successful retry, stable service widgets, skipped hidden-window rendering and three/fifteen-second foreground/background scheduling. Its optional `--evidence /owned/output` captures the failure and recovery panels. `upgrade_probe.py` uses two owned package directories on a private session bus, replaces the launcher and verifies a visible original GUI remains open until normal exit, after which the next launch loads the new release. Run it only on an isolated display and private bus. Installer unit tests cover interrupted-upgrade retry, running-executable verification, custom sockets, retained configuration/autostart preferences and deferred GUI updates and explicit first-migration refusal. Node tests cover batched cached probes, explicit refresh, service aliases, post-start cache invalidation and inspection timeout diagnostics.
+
+For live upgrades, a **real systemd user manager** is required:
+
+```sh
+cargo build -p kite-node --locked
+python3 desktop/linux/qa/live_upgrade_probe.py --binary target/debug/kite-node --evidence /owned/output/live-upgrade.json
+```
+
+This probe installs into a temporary user tree, routes manager operations only to uniquely named `kite-qa-upgrade-*` socket/service units and uses the actual installer and generated units. It continuously verifies duplex framed data across an executable replacement, a blocked exactly-once write, the same controlled detached agent PID/heartbeat, new connections on the new generation, old-generation drain, incompatible/broken candidates, corrupt persistent state, MAINPID notification failure/rollback, replacement adoption and automatic recovery after its death while old streams remain open, a notification transition without duplicate writers and concurrent push-registration retention. The interpreter supplies only owned notification facts; no real model, catalogue, FCM credentials, Herdr or Sunshine service is used. All owned processes/units are removed. CI runs it only when a user manager is available and explicitly reports a skip otherwise. This is transport/control acceptance, not actual mobile video, physical network latency or real-model generation acceptance.
 
 ## Offline checks
 

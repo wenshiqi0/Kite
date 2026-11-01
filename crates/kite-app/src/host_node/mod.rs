@@ -17,17 +17,22 @@ use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     process::Command,
-    sync::Semaphore,
+    sync::{Mutex, RwLock, Semaphore},
+    task::JoinSet,
 };
 
 mod bridge;
 mod mcp;
 mod notifications;
 mod push;
+mod upgrade;
 mod wire;
 pub type Result<T> = std::result::Result<T, Error>;
 pub const API: u64 = 1;
 const LIMIT: usize = 16 * 1024;
+const SERVICE_TIMEOUT: Duration = Duration::from_secs(4);
+const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
+const SERVICE_CACHE_TTL: Duration = Duration::from_secs(3);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -144,6 +149,17 @@ struct Node {
     push: Option<push::Push>,
     notification_problem: Option<String>,
     push_problem: Option<String>,
+    services: Mutex<Option<(Instant, Vec<Value>)>>,
+    upgrade: Option<upgrade::Handover>,
+    observation_gate: RwLock<()>,
+}
+struct NodeLock(fs::File);
+impl Drop for NodeLock {
+    fn drop(&mut self) {
+        // A concurrently spawning child may briefly inherit the open file
+        // description before exec closes it. Release ownership explicitly.
+        let _ = self.0.unlock();
+    }
 }
 
 pub fn run(mut args: Vec<String>) -> Result<i32> {
@@ -161,11 +177,15 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"liveUpgrade":1,"generationLaunch":1})
                 );
                 Ok(0)
             }
             "serve" => {
+                let activated = args.iter().any(|s| s == "--activated");
+                let replacement = args.iter().any(|s| s == "--handover");
+                let bootstrap = args.iter().any(|s| s == "--generation-bootstrap");
+                args.retain(|s| s != "--activated" && s != "--handover" && s != "--generation-bootstrap");
                 let config = if args.len() == 3 && args[1] == "--config" {
                     PathBuf::from(&args[2])
                 } else if args.len() == 1 {
@@ -173,9 +193,41 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 } else {
                     return Err(Error::Config("serve accepts only --config PATH"));
                 };
-                let data: Config = serde_json::from_slice(&fs::read(config)?)?;
+                if replacement && !activated {
+                    return Err(Error::Config("handover requires an activated listener"));
+                }
+                if bootstrap {
+                    if !replacement { return Err(Error::Config("generation bootstrap requires handover")); }
+                    upgrade::prepare_replacement().await?;
+                }
+                let data: Config = serde_json::from_slice(&fs::read(&config)?)?;
                 data.validate()?;
-                serve(data).await?;
+                if activated {
+                    serve_runtime(data, Some((config, replacement))).await?;
+                } else {
+                    serve(data).await?;
+                }
+                Ok(0)
+            }
+            "spawn-generation" => {
+                if args.len() != 3 || args[1] != "--config" {
+                    return Err(Error::Config("spawn-generation requires --config PATH"));
+                }
+                // This short-lived launcher exits so the new generation is
+                // adopted by the user manager before MAINPID is transferred.
+                std::process::Command::new(std::env::current_exe()?)
+                    .args(["serve", "--config", &args[2], "--activated", "--handover", "--generation-bootstrap"])
+                    .stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit())
+                    .spawn()?;
+                Ok(0)
+            }
+            "upgrade" => {
+                if args.len() != 3 || args[1] != "--binary" {
+                    return Err(Error::Config("upgrade requires --binary PATH"));
+                }
+                let mut request = NodeRequest::new("upgrade");
+                request.params = json!({"binary": args[2]});
+                println!("{}", rpc(&socket, request).await?);
                 Ok(0)
             }
             "backend" => {
@@ -226,6 +278,9 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                     command
                 };
                 let mut request = NodeRequest::new(method);
+                if command == "status" && args.get(1).map(String::as_str) == Some("--refresh") {
+                    request.params = json!({"refresh": true});
+                }
                 if command == "ensure" {
                     request.params =
                         json!({"service":args.get(1).map(String::as_str).unwrap_or("all")});
@@ -285,7 +340,14 @@ pub async fn read_json<R: AsyncBufRead + Unpin>(input: &mut R) -> Result<Value> 
     Ok(serde_json::from_slice(&bytes)?)
 }
 pub async fn rpc(socket: &Path, request: NodeRequest) -> Result<Value> {
-    tokio::time::timeout(Duration::from_secs(30), async {
+    let timeout = if request.method == "upgrade" {
+        Duration::from_secs(60)
+    } else if request.method == "status" {
+        STATUS_TIMEOUT
+    } else {
+        Duration::from_secs(30)
+    };
+    tokio::time::timeout(timeout, async {
         let mut stream = UnixStream::connect(socket)
             .await
             .map_err(|e| Error::Unavailable(e.to_string()))?;
@@ -315,6 +377,9 @@ pub async fn rpc(socket: &Path, request: NodeRequest) -> Result<Value> {
 }
 
 async fn serve(config: Config) -> Result<()> {
+    serve_runtime(config, None).await
+}
+async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -> Result<()> {
     let directory = config
         .socket
         .parent()
@@ -330,20 +395,41 @@ async fn serve(config: Config) -> Result<()> {
     if !existed {
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
     }
-    let lock = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(directory.join("node.lock"))?;
-    lock.try_lock()
-        .map_err(|_| Error::Config("node already running"))?;
-    if let Ok(meta) = fs::symlink_metadata(&config.socket) {
+    let _lock = if activated.is_none() {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.join("node.lock"))?;
+        file.try_lock()
+            .map_err(|_| Error::Config("node already running"))?;
+        Some(NodeLock(file))
+    } else {
+        None
+    };
+    if activated.is_none()
+        && let Ok(meta) = fs::symlink_metadata(&config.socket)
+    {
         if !meta.file_type().is_socket() {
             return Err(Error::Config("socket path is not a socket"));
         }
         fs::remove_file(&config.socket)?;
+    }
+    if activated.is_some() {
+        let source = format!(
+            "{}{}",
+            String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
+            include_str!("../../../../backend/kite_push.py")
+        );
+        let generation = config
+            .backend
+            .parent()
+            .ok_or(Error::Config("missing adapter directory"))?
+            .join("adapters")
+            .join(kite_agent::fingerprint(&source));
+        config.backend = generation.join("backend-v5.py");
     }
     if let Some(parent) = config.backend.parent() {
         fs::create_dir_all(parent)?;
@@ -357,8 +443,17 @@ async fn serve(config: Config) -> Result<()> {
     fs::write(&pending, include_str!("../../../../backend/kite_push.py"))?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, push_backend)?;
-    let listener = UnixListener::bind(&config.socket)?;
-    fs::set_permissions(&config.socket, fs::Permissions::from_mode(0o600))?;
+    let listener = if activated.is_some() {
+        upgrade::inherited_listener(&config.socket)?
+    } else {
+        let listener = UnixListener::bind(&config.socket)?;
+        fs::set_permissions(&config.socket, fs::Permissions::from_mode(0o600))?;
+        listener
+    };
+    let handover = activated
+        .as_ref()
+        .map(|(path, _)| upgrade::Handover::new(path, &listener))
+        .transpose()?;
     let (journal, notification_problem) =
         match notifications::Journal::open(directory, &config.node_id) {
             Ok(journal) => (Some(journal), None),
@@ -378,26 +473,57 @@ async fn serve(config: Config) -> Result<()> {
         push,
         notification_problem,
         push_problem,
+        services: Mutex::new(None),
+        upgrade: handover,
+        observation_gate: RwLock::new(()),
     });
+    if let Some((_, replacement)) = activated {
+        if replacement {
+            upgrade::activate_replacement(&node).await?;
+        } else {
+            upgrade::notify(&node.config, std::process::id()).await?;
+        }
+    }
     let _notification_watch = notifications::start(&node);
     let _push_watch = push::start(&node);
+    let mut connections = JoinSet::new();
     loop {
-        let (stream, _) = listener.accept().await?;
+        let accepted = tokio::select! {
+            biased;
+            _ = async {
+                if let Some(upgrade) = &node.upgrade { upgrade.drain.notified().await }
+                else { std::future::pending::<()>().await }
+            } => break,
+            _ = connections.join_next(), if !connections.is_empty() => continue,
+            accepted = listener.accept() => accepted?,
+        };
+        let (stream, _) = accepted;
         let permit = match node.permits.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => continue,
         };
         let node = node.clone();
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _permit = permit;
             if let Err(error) = node.connection(stream).await {
                 eprintln!("node request: {error}");
             }
         });
     }
+    drop(listener);
+    drop(_notification_watch);
+    drop(_push_watch);
+    // Existing bridges and in-flight operations finish in their own generation.
+    while connections.join_next().await.is_some() {}
+    Ok(())
 }
 
 impl Node {
+    fn draining(&self) -> bool {
+        self.upgrade
+            .as_ref()
+            .is_some_and(|u| u.draining.load(Ordering::Acquire))
+    }
     fn notification_journal(&self) -> Result<&notifications::Journal> {
         self.notifications.as_ref().ok_or(Error::Protocol(
             "notification journal unavailable; existing file preserved",
@@ -452,7 +578,17 @@ impl Node {
         Ok(command)
     }
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
+        let _registration = if request.method == "push-register" {
+            let gate = self.observation_gate.read().await;
+            if self.draining() {
+                return Box::pin(rpc(&self.config.socket, request.clone())).await;
+            }
+            Some(gate)
+        } else {
+            None
+        };
         match request.method.as_str() {
+            "upgrade" => upgrade::handover(self, request).await,
             "push-register" => self.push_registry()?.register(
                 &request.params,
                 self.notification_journal()?.page(None)?.cursor,
@@ -467,17 +603,14 @@ impl Node {
                     .page(request.params["after"].as_str())?,
             )?),
             "status" => {
-                let mut services = vec![];
-                for service in &self.config.services {
-                    services.push(self.service(service).await);
-                }
+                let services = self.services(request.params["refresh"] == true).await;
                 let health = if services.iter().all(|service| service["active"] == true) {
                     "ready"
                 } else {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {
@@ -493,50 +626,117 @@ impl Node {
                 if name != "all" && !self.config.services.iter().any(|s| s.name == name) {
                     return Err(Error::Config("unknown service"));
                 }
-                for service in self
-                    .config
-                    .services
-                    .iter()
-                    .filter(|s| name == "all" || s.name == name)
-                {
-                    if self.service(service).await["active"] == true {
-                        continue;
+                let services = self.services(true).await;
+                let result = tokio::time::timeout(Duration::from_secs(20), async {
+                    for (service, state) in self
+                        .config
+                        .services
+                        .iter()
+                        .zip(&services)
+                        .filter(|(s, _)| name == "all" || s.name == name)
+                    {
+                        if state["active"] == true {
+                            continue;
+                        }
+                        let mut c = Command::new(&self.config.systemctl);
+                        c.args(["--user", "start", &service.unit]);
+                        bounded_output(c).await?;
                     }
-                    let mut c = Command::new(&self.config.systemctl);
-                    c.args(["--user", "start", &service.unit]);
-                    bounded_output(c).await?;
-                }
+                    Ok::<(), Error>(())
+                })
+                .await;
+                // A start may change service state even if the caller sees a timeout.
+                *self.services.lock().await = None;
+                result.map_err(|_| Error::Protocol("service startup timed out"))??;
                 Ok(json!({"requested":name}))
             }
             _ => Err(Error::Protocol("unknown node method")),
         }
     }
-    async fn service(&self, service: &Service) -> Value {
+    async fn services(&self, refresh: bool) -> Vec<Value> {
+        // Hold this lock across the bounded probe so concurrent panels/MCP clients
+        // share one inspection instead of spawning duplicate systemctl processes.
+        let requested_at = Instant::now();
+        let mut cache = self.services.lock().await;
+        if let Some((at, services)) = &*cache
+            && (*at >= requested_at || (!refresh && at.elapsed() < SERVICE_CACHE_TTL))
+        {
+            return services.clone();
+        }
+        let services = self.inspect_services().await;
+        *cache = Some((Instant::now(), services.clone()));
+        services
+    }
+
+    async fn inspect_services(&self) -> Vec<Value> {
+        if self.config.services.is_empty() {
+            return vec![];
+        }
         let mut c = Command::new(&self.config.systemctl);
+        c.args(["--user", "show"]);
+        c.args(self.config.services.iter().map(|service| &service.unit));
         c.args([
-            "--user",
-            "show",
-            &service.unit,
+            "--property=Id",
+            "--property=Names",
             "--property=ActiveState",
             "--property=MainPID",
-            "--property=FragmentPath",
         ]);
-        match bounded_output(c).await {
+        let result = bounded_output_with_timeout(c, SERVICE_TIMEOUT).await;
+        match result {
             Ok(bytes) => {
                 let text = String::from_utf8_lossy(&bytes);
-                let field = |key: &str| {
-                    text.lines()
-                        .find_map(|l| l.strip_prefix(key))
-                        .unwrap_or("")
-                        .to_owned()
-                };
-                json!({"name":service.name,"unit":service.unit,"active":field("ActiveState=")=="active","pid":field("MainPID=").parse::<u32>().unwrap_or(0),"ownership":if service.external{"external"}else{"kite"}})
+                self.config
+                    .services
+                    .iter()
+                    .map(|service| {
+                        let block = text.split("\n\n").find(|block| {
+                            block.lines().any(|line| {
+                                line.strip_prefix("Id=") == Some(service.unit.as_str())
+                                    || line.strip_prefix("Names=").is_some_and(|names| {
+                                        names.split_whitespace().any(|name| name == service.unit)
+                                    })
+                            })
+                        });
+                        match block {
+                            Some(block) => {
+                                let field = |key: &str| {
+                                    block
+                                        .lines()
+                                        .find_map(|l| l.strip_prefix(key))
+                                        .unwrap_or("")
+                                };
+                                let mut value = service_state(service);
+                                value["active"] = json!(field("ActiveState=") == "active");
+                                value["pid"] = json!(field("MainPID=").parse::<u32>().unwrap_or(0));
+                                if field("ActiveState=").is_empty() {
+                                    value["error"] = json!("service state missing");
+                                }
+                                value
+                            }
+                            None => {
+                                let mut value = service_state(service);
+                                value["error"] = json!("service not returned by systemctl");
+                                value
+                            }
+                        }
+                    })
+                    .collect()
             }
-            Err(_) => {
-                json!({"name":service.name,"unit":service.unit,"active":false,"pid":0,"ownership":if service.external{"external"}else{"kite"}})
-            }
+            Err(error) => self
+                .config
+                .services
+                .iter()
+                .map(|service| {
+                    let mut value = service_state(service);
+                    value["error"] = json!(error.to_string());
+                    value
+                })
+                .collect(),
         }
     }
+}
+fn service_state(service: &Service) -> Value {
+    json!({"name":service.name,"unit":service.unit,"active":false,"pid":0,"ownership":if service.external{"external"}else{"kite"}})
 }
 fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
     if request.args.len() > 32
@@ -608,13 +808,16 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
     }
     Ok(())
 }
-async fn bounded_output(mut command: Command) -> Result<Vec<u8>> {
+async fn bounded_output(command: Command) -> Result<Vec<u8>> {
+    bounded_output_with_timeout(command, Duration::from_secs(15)).await
+}
+async fn bounded_output_with_timeout(mut command: Command, timeout: Duration) -> Result<Vec<u8>> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    tokio::time::timeout(Duration::from_secs(15), async {
+    tokio::time::timeout(timeout, async {
         let mut child = command.spawn()?;
         let mut bytes = vec![];
         child
@@ -802,7 +1005,7 @@ mod tests {
         c.systemctl = root.path().join("systemctl");
         fs::write(
             &c.systemctl,
-            b"#!/usr/bin/python3\nimport sys\nfrom pathlib import Path\nactive = 'Herdr.service' in sys.argv or Path(__file__).with_name('recovered').exists()\nprint('ActiveState=' + ('active' if active else 'inactive'))\nprint('MainPID=' + ('123' if active else '0'))\n",
+            b"#!/usr/bin/python3\nimport sys\nfrom pathlib import Path\nroot = Path(__file__).parent\nwith (root/'calls').open('a') as calls: calls.write('probe\\n')\nfor unit in sys.argv[3:]:\n if unit.startswith('--'): continue\n active = unit == 'Herdr.service' or (root/'recovered').exists()\n print('Id=' + unit)\n print('ActiveState=' + ('active' if active else 'inactive'))\n print('MainPID=' + ('123' if active else '0'))\n print()\n",
         )
         .unwrap();
         fs::set_permissions(&c.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
@@ -818,10 +1021,96 @@ mod tests {
         assert_eq!(status["health"], "degraded");
         assert_eq!(status["services"][0]["active"], true);
         assert_eq!(status["services"][1]["active"], false);
+        let (one, two) = tokio::join!(
+            rpc(&path, NodeRequest::new("status")),
+            rpc(&path, NodeRequest::new("status"))
+        );
+        assert_eq!(one.unwrap()["health"], "degraded");
+        assert_eq!(two.unwrap()["health"], "degraded");
+        assert_eq!(
+            fs::read_to_string(root.path().join("calls"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
         fs::write(root.path().join("recovered"), b"").unwrap();
-        let status = rpc(&path, NodeRequest::new("status")).await.unwrap();
+        let mut refresh = NodeRequest::new("status");
+        refresh.params = json!({"refresh": true});
+        let status = rpc(&path, refresh).await.unwrap();
         assert_eq!(status["health"], "ready");
         assert_eq!(status["services"][1]["active"], true);
+        task.abort();
+        let _ = task.await;
+    }
+    #[tokio::test]
+    async fn slow_service_inspection_returns_unknown_before_the_status_deadline() {
+        let root = tempfile::tempdir().unwrap();
+        let mut c = config(root.path());
+        c.services = vec![Service {
+            name: "Slow".into(),
+            unit: "slow.service".into(),
+            external: true,
+        }];
+        c.systemctl = root.path().join("systemctl");
+        fs::write(
+            &c.systemctl,
+            "#!/usr/bin/python3\nimport time\ntime.sleep(10)\n",
+        )
+        .unwrap();
+        fs::set_permissions(&c.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = c.socket.clone();
+        let task = tokio::spawn(serve(c));
+        for _ in 0..100 {
+            if path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let start = Instant::now();
+        let mut refresh = NodeRequest::new("status");
+        refresh.params = json!({"refresh": true});
+        let (one, two) = tokio::join!(rpc(&path, refresh.clone()), rpc(&path, refresh));
+        let status = one.unwrap();
+        assert_eq!(two.unwrap()["health"], "degraded");
+        assert!(start.elapsed() < STATUS_TIMEOUT);
+        assert_eq!(status["health"], "degraded");
+        assert!(
+            status["services"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("timed out")
+        );
+        task.abort();
+        let _ = task.await;
+    }
+
+    #[tokio::test]
+    async fn service_start_invalidates_the_cache_and_resolves_unit_aliases() {
+        let root = tempfile::tempdir().unwrap();
+        let mut c = config(root.path());
+        c.services = vec![Service {
+            name: "Alias".into(),
+            unit: "alias.service".into(),
+            external: true,
+        }];
+        c.systemctl = root.path().join("systemctl");
+        fs::write(&c.systemctl, "#!/usr/bin/python3\nimport sys\nfrom pathlib import Path\nstate=Path(__file__).with_name('active')\nif sys.argv[2]=='start': state.touch()\nelse: print('Id=real.service\\nNames=real.service alias.service\\nActiveState=' + ('active' if state.exists() else 'inactive') + '\\nMainPID=123\\n')\n").unwrap();
+        fs::set_permissions(&c.systemctl, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = c.socket.clone();
+        let task = tokio::spawn(serve(c));
+        for _ in 0..100 {
+            if path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let before = rpc(&path, NodeRequest::new("status")).await.unwrap();
+        assert_eq!(before["health"], "degraded");
+        assert!(before["services"][0].get("error").is_none());
+        rpc(&path, NodeRequest::new("ensure")).await.unwrap();
+        let after = rpc(&path, NodeRequest::new("status")).await.unwrap();
+        assert_eq!(after["health"], "ready");
         task.abort();
         let _ = task.await;
     }
@@ -853,17 +1142,24 @@ mod tests {
         );
         first.abort();
         let _ = first.await;
-        let second = tokio::spawn(serve(c));
-        for _ in 0..100 {
-            if rpc(&path, NodeRequest::new("status")).await.is_ok() {
-                break;
+        let mut second = tokio::spawn(serve(c));
+        let recovered = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if second.is_finished() {
+                    panic!(
+                        "replacement listener exited before readiness: {:?}",
+                        (&mut second).await
+                    );
+                }
+                if let Ok(status) = rpc(&path, NodeRequest::new("status")).await {
+                    break status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        assert_eq!(
-            rpc(&path, NodeRequest::new("status")).await.unwrap()["api"],
-            API
-        );
+        })
+        .await
+        .expect("replacement listener did not become ready");
+        assert_eq!(recovered["api"], API);
         second.abort();
         let _ = second.await;
     }

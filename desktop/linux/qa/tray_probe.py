@@ -30,7 +30,7 @@ with (root/'calls').open('a') as out:out.write(json.dumps(sys.argv[1:])+'\\n')
 mode=(root/'state').read_text()
 if sys.argv[1:] == ['ensure','all']:
  (root/'state').write_text('ready');print('{}');sys.exit()
-assert sys.argv[1:] == ['status'],sys.argv
+assert sys.argv[1:] in (['status'], ['status','--refresh']),sys.argv
 if mode == 'offline':sys.stderr.write('Owned fixture disconnected');sys.exit(2)
 if mode == 'slow':time.sleep(10)
 print(json.dumps(dict(health=mode,machine='Owned QA host',version='native-probe',services=[dict(name='Herdr',active=True),dict(name='Sunshine',active=mode=='ready')])))
@@ -111,7 +111,7 @@ def step():
             state.write_text('slow')
             app.call('status')
             stage = 4
-        elif stage == 4 and app.state == 'offline':
+        elif stage == 4 and app.state == 'unresponsive':
             assert 'timed out' in app.error
             state.write_text('ready')
             app.call('status')
@@ -144,7 +144,7 @@ def step():
             assert app.window.get_visible()
             calls = [json.loads(line) for line in (fixture / 'calls').read_text().splitlines()]
             assert ['ensure', 'all'] in calls
-            assert all(call in (['status'], ['ensure', 'all']) for call in calls)
+            assert all(call in (['status'], ['status', '--refresh'], ['ensure', 'all']) for call in calls)
             result = dict(status='PASS', embedded=app.embedded(), ready=True, degraded=True,
                           offlineClearsStaleState=True, timeout=True, recovered=True,
                           singleInstance=True, sameWindowReopened=True, backgroundServicesUntouched=True)

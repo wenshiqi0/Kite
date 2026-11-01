@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "realUserSystemd": true,
+  "continuousFrames": 985,
+  "frameErrors": [],
+  "maxRoundTripMs": 14.68,
+  "upgradeSeconds": 2.402,
+  "inFlightMutationExactlyOnce": true,
+  "sameOwnedAgentPid": true,
+  "newConnectionsUseNewGeneration": true,
+  "incompatibleAndBrokenCandidatesRetainOld": true,
+  "oldGenerationDrained": true,
+  "notifierFailureRestoresOldMainPid": true,
+  "realInstallerWithoutRestart": true,
+  "corruptCandidateStateRetainsOld": true,
+  "notificationWriterHandoverWithoutDuplicate": true,
+  "concurrentPushRegistrationRetained": true,
+  "replacementAdoptedByUserManager": true,
+  "newGenerationCrashAutomaticallyRecovered": true
+}

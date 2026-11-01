@@ -67,6 +67,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y python3-gi gir1.2-gtk-3.0 xvfb dbus-x11
           GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
+          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/operations_probe.py
+          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/upgrade_probe.py
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -111,6 +113,15 @@ jobs:
           cargo fmt --all --check
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check live Linux Node upgrade when a user manager is available
+        run: |
+          if [ -n "$XDG_RUNTIME_DIR" ] && systemctl --user show-environment >/dev/null 2>&1; then
+            cargo build -p kite-node --locked
+            python3 desktop/linux/qa/live_upgrade_probe.py --binary target/debug/kite-node
+          else
+            echo '::notice::Live Node upgrade integration requires a real systemd user manager; skipped on this runner.'
+          fi
 
       - name: Restore Alpha signing key
         if: github.event_name != 'pull_request'

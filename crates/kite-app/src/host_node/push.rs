@@ -132,6 +132,10 @@ pub(super) fn start(node: &Arc<Node>) -> notifications::Watch {
     notifications::Watch(tokio::spawn(async move {
         loop {
             let Some(node) = weak.upgrade() else { return };
+            let observation = node.observation_gate.read().await;
+            if node.draining() {
+                return;
+            }
             if let (Some(account), Some(push)) = (&node.config.push_service_account, &node.push) {
                 let devices = push
                     .state
@@ -214,6 +218,7 @@ pub(super) fn start(node: &Arc<Node>) -> notifications::Watch {
                     }
                 }
             }
+            drop(observation);
             drop(node);
             tokio::time::sleep(Duration::from_secs(3)).await;
         }

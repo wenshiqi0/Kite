@@ -27,6 +27,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0015](0015-desktop-client-and-host.md) | Linux/macOS 桌面客户端与主机双角色 | 已采纳；客户端待实现 |
 | [0016](0016-desktop-audio.md) | Android 远程桌面声音与播放生命周期 | 已实现（Android Alpha 26） |
 | [0017](0017-agent-notifications.md) | agent 通知、系统提醒与会话回访 | 已采纳，实施中 |
+| [0018](0018-live-node-upgrade.md) | 保留连接的 Linux Node 升级 | 已实现，尚未发布 |
 
 ## 什么时候写 RFC
 

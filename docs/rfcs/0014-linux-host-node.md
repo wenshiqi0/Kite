@@ -27,7 +27,9 @@ MCP 按 [2025-11-25 stdio](https://modelcontextprotocol.io/specification/2025-11
 
 控制面板增加常驻托盘入口，采用当前受支持的 Xfce/X11 桌面自带的 [GTK 3 StatusIcon](https://docs.gtk.org/gtk3/class.StatusIcon.html)。运行时使用随包 PNG 图标，SVG 保留为可编辑源文件，不依赖系统 SVG 解码器。这是当前 X11 平台适配；该 API 已被上游废弃，不以它声明 Wayland/GNOME 托盘支持，也不增加其他托盘协议的兼容回退。没有可用托盘时显示控制面板，关闭该窗口退出 GUI，后台节点继续运行。
 
-节点的 `status` 返回结构化 `health`（`ready` / `degraded`）：所有配置服务运行时为 `ready`，任一未运行或探测失败为 `degraded`。这反映本机服务运行状态，不表示手机已连接或模型/串流端到端可用。原生层负责启动中、节点不可达、图标与文案展示，不能把一次旧的成功状态保留成正常。托盘与可见窗口共用一个异步轮询器，3 秒刷新，状态调用超时 3 秒；命令执行期间显示处理中，完成后重新读取状态。
+节点的 `status` 返回结构化 `health`（`ready` / `degraded`）：所有配置服务运行时为 `ready`，任一未运行或探测失败为 `degraded`。这反映本机服务运行状态，不表示手机已连接或模型/串流端到端可用。原生层负责启动中、节点不可达、响应超时、图标与文案展示，不能把一次旧的成功状态保留成正常。托盘与窗口共用一个异步轮询器：可见时 3 秒、隐藏时 15 秒，隐藏窗口不重建控件。节点一次批量探测所有 unit，缓存 3 秒，显式刷新绕过缓存，同时发起的刷新复用正在执行的探测。服务探测、状态 RPC 与界面超时分别为 4、5、6 秒；探测失败返回服务 `error`，原生显示状态未知。用户操作按序处理并合并重复项，独立于健康查询，操作失败保留到确认或同一操作重试成功。
+
+2026-11-01 稳定性修订保留节点 API 1、适配器协议 5 与现有配置；安装器以运行中进程的二进制摘要和实际监听器版本判断升级完成，不能只比较已安装链接。`--enable` 成功后交接可访问桌面会话里的旧 GUI；受 Kite 自身状态服务托管时重启该服务，否则退出旧 GUI 再启动新版本。不改动外部 Herdr/Sunshine/provider owner 的生命周期。
 
 使用 [Gtk.Application / Gio.Application](https://docs.gtk.org/gio/class.Application.html) 保证同一桌面会话只保留一个 GUI 和托盘。关闭面板隐藏到可用托盘；显式“退出状态栏”只结束 GUI。安装 [XDG 登录自启动入口](https://specifications.freedesktop.org/autostart/latest/)，已有的用户自启动设置原样保留。GUI 自启动与节点 systemd 服务的生命周期分开。
 
