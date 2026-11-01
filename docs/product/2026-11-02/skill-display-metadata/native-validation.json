@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "tests": 3,
+  "api": 36,
+  "abi": "x86_64",
+  "fixture": "owned emulator in a network-isolated container; read-only AVD overlay",
+  "source": "6cd20b0a88dd5430cd4ce567a6355cafbbfcef28",
+  "variant": "debug harness, matching Rust/UniFFI, explicit NDK compiler-rt linkage",
+  "cases": [
+    "friendly names and short summaries for three plugin skills",
+    "friendly-only title search, selection, chip labels and removal",
+    "legacy field fallback and empty/loading/error states"
+  ],
+  "modelTurns": 0
+}
