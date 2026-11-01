@@ -10,6 +10,8 @@ pub struct HistoryStatus {
     pub loading: bool,
     pub complete: bool,
     pub failed: bool,
+    pub waiting: bool,
+    pub details: String,
 }
 
 #[derive(Clone, Debug)]
@@ -143,6 +145,26 @@ pub(super) struct Transcript {
     failed: bool,
     syncing: bool,
     generation: u64,
+    retry: ReadRetry,
+    problem: String,
+}
+
+#[derive(Default)]
+struct ReadRetry {
+    attempts: u32,
+    after: Option<Instant>,
+}
+impl ReadRetry {
+    fn ready(&self, now: Instant) -> bool {
+        self.after.is_none_or(|after| now >= after)
+    }
+    fn failed(&mut self, now: Instant) {
+        self.attempts = (self.attempts + 1).min(5);
+        self.after = Some(now + Duration::from_secs((1u64 << self.attempts).min(30)));
+    }
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
 
 impl Transcript {
@@ -172,6 +194,12 @@ impl Transcript {
             loading: self.syncing,
             complete: !self.ranges.is_empty() && self.next().is_none(),
             failed: self.failed,
+            waiting: false,
+            details: if self.failed {
+                self.problem.clone()
+            } else {
+                String::new()
+            },
         }
     }
     fn cover(&mut self, mut range: Range) {
@@ -212,6 +240,7 @@ impl Transcript {
             }
             if size > self.size {
                 self.failed = false;
+                self.retry.reset();
             }
             self.size = self.size.max(size);
             let mut range = Range {
@@ -396,9 +425,12 @@ impl AppCore {
                     if s.selected_host == snapshot.selected_host
                         && s.selected_session == snapshot.selected_session
                     {
-                        s.history_status.failed = true;
-                        s.history_status.loading = false;
-                        s.history_status.complete = false;
+                        s.history_status = HistoryStatus {
+                            failed: !value.source_pending,
+                            waiting: value.source_pending,
+                            details: value.problem.clone(),
+                            ..HistoryStatus::default()
+                        };
                     }
                 });
             }
@@ -456,9 +488,13 @@ impl AppCore {
             return;
         }
         let mut transcript = lock(&self.history_window);
-        if transcript.scope != scope || transcript.failed || transcript.next().is_none() {
+        if transcript.scope != scope
+            || transcript.next().is_none()
+            || (transcript.failed && !transcript.retry.ready(Instant::now()))
+        {
             return;
         }
+        transcript.failed = false;
         transcript.syncing = true;
         let token = transcript.generation;
         let status = transcript.status();
@@ -524,6 +560,16 @@ impl AppCore {
                             .map(|r| (r.start, r.end))
                             .collect::<Vec<_>>();
                     transcript.failed = !page.available || !progressed;
+                    if transcript.failed {
+                        transcript.problem = if page.problem.is_empty() {
+                            "history page made no progress".into()
+                        } else {
+                            page.problem.clone()
+                        };
+                        transcript.retry.failed(Instant::now());
+                    } else {
+                        transcript.retry.reset();
+                    }
                     let done = transcript.failed || transcript.next().is_none();
                     transcript.syncing = !done;
                     let messages = if done && !transcript.failed {
@@ -559,7 +605,11 @@ impl AppCore {
     pub async fn retry_history(self: &Arc<Self>) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
-            lock(&core.history_window).failed = false;
+            {
+                let mut transcript = lock(&core.history_window);
+                transcript.failed = false;
+                transcript.retry.reset();
+            }
             *lock(&core.history) = None;
             core.update(|s| s.history_status.failed = false);
             core.ensure_history_sync();
@@ -572,6 +622,74 @@ impl AppCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn history_read_retry_is_bounded_and_manual_retry_can_reset_it() {
+        let now = Instant::now();
+        let mut retry = ReadRetry::default();
+        for delay in [2, 4, 8, 16, 30, 30] {
+            retry.failed(now);
+            assert!(!retry.ready(now + Duration::from_secs(delay - 1)));
+            assert!(retry.ready(now + Duration::from_secs(delay)));
+        }
+        retry.reset();
+        assert!(retry.ready(now));
+    }
+
+    #[test]
+    fn pending_source_and_transport_failure_keep_the_existing_conversation() {
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let mut record = kite_agent::sessions::Record::draft(
+            "session".into(),
+            "codex".into(),
+            String::new(),
+            None,
+            0,
+        );
+        record.reference = Some(AgentSession {
+            source: "herdr:codex".into(),
+            agent: "codex".into(),
+            kind: "id".into(),
+            value: "thread".into(),
+        });
+        core.install_catalog(
+            "host",
+            &kite_agent::sessions::Catalog {
+                revision: 1,
+                now_ms: 0,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected_session = Some("session".into());
+            s.replace_conversation(vec![message(0)], true)
+        });
+        let before = core.snapshot().conversation;
+        core.present_history(
+            &Arc::new(history::History {
+                source_pending: true,
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        let pending = core.snapshot();
+        assert!(pending.history_status.waiting);
+        assert!(!pending.history_status.failed);
+        assert!(Arc::ptr_eq(&before, &pending.conversation));
+        core.present_history(
+            &Arc::new(history::History {
+                problem: "history request timed out".into(),
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        let failed = core.snapshot();
+        assert!(failed.history_status.failed);
+        assert!(!failed.history_status.waiting);
+        assert_eq!(failed.history_status.details, "history request timed out");
+        assert!(Arc::ptr_eq(&before, &failed.conversation));
+    }
     fn message(i: usize) -> Message {
         Message {
             id: format!("message-{i}"),

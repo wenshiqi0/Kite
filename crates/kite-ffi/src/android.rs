@@ -4,7 +4,7 @@ use jni::{
     objects::{GlobalRef, JByteBuffer, JClass, JObject, JObjectArray, JString, JValue},
     sys::{jboolean, jint, jlong},
 };
-use kite_app::{FrameInfo, Input, InputSender, MediaSink, VideoFormat};
+use kite_app::{AudioFormat, FrameInfo, Input, InputSender, MediaSink, VideoFormat};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -97,6 +97,48 @@ impl Drop for AndroidSink {
     }
 }
 impl MediaSink for AndroidSink {
+    fn configure_audio(&self, format: AudioFormat) {
+        if let Ok(mut env) = self.env() {
+            if env
+                .call_method(
+                    self.renderer.as_obj(),
+                    "onAudioFormat",
+                    "(III)V",
+                    &[
+                        JValue::Int(format.sample_rate as jint),
+                        JValue::Int(format.channels as jint),
+                        JValue::Int(format.samples_per_frame as jint),
+                    ],
+                )
+                .is_err()
+            {
+                let _ = env.exception_clear();
+            }
+        }
+    }
+    fn submit_audio(&self, data: &[u8]) {
+        if data.is_empty() || data.len() > 4096 {
+            return;
+        }
+        if let Ok(mut env) = self.env() {
+            if let Ok(bytes) = env.byte_array_from_slice(data) {
+                // These callbacks use a permanently attached media thread.
+                // Release every local reference instead of accumulating packets.
+                let bytes = env.auto_local(bytes);
+                if env
+                    .call_method(
+                        self.renderer.as_obj(),
+                        "onAudioPacket",
+                        "([B)V",
+                        &[JValue::Object(bytes.as_ref())],
+                    )
+                    .is_err()
+                {
+                    let _ = env.exception_clear();
+                }
+            }
+        }
+    }
     fn supports(&self, f: VideoFormat) -> bool {
         self.call(
             "supportsFormat",

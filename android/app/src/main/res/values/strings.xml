@@ -175,7 +175,7 @@
     <string name="open_host_settings">连接 / 主机设置</string>
     <string name="composer_no_connection">先连接主机，才能发送消息。</string>
     <string name="composer_no_agent">主机正在准备 agent；失败时可点“重试准备”。</string>
-    <string name="composer_starting">agent 正在启动，请稍候或查看终端。</string>
+    <string name="composer_starting">正在准备会话…</string>
     <string name="composer_not_ready">agent 未就绪，请查看终端完成登录或确认。</string>
     <string name="composer_paused">agent 已暂停，恢复后才能发消息。</string>
     <string name="composer_blocked_hint">agent 正在等待选择，请先处理确认卡或查看终端。</string>
@@ -204,7 +204,7 @@
     <string name="attachment_retry">上传失败 · 重试</string>
     <string name="audio_attachment_hint">音频作为附件发送；模型可通过工具读取文件。</string>
     <string name="composer_loading">正在连接聊天通道…</string>
-    <string name="composer_backend_unavailable">聊天通道未就绪，请检查主机后端</string>
+    <string name="composer_backend_unavailable">聊天连接暂未就绪，正在重试</string>
     <string name="effort_none">不使用思考</string>
     <string name="effort_minimal">最少思考</string>
     <string name="effort_low">少量思考</string>
@@ -291,4 +291,13 @@
     <string name="host_edit_named">编辑主机 %1$s</string>
     <string name="host_open_named">打开主机 %1$s</string>
     <string name="error_host_node">请先在主机启用 Kite 桌面服务，再重新连接。</string>
+    <string name="history_sync_failed">记录同步暂未完成，已保存的内容会保留</string>
+    <string name="history_syncing">正在同步会话记录…</string>
+    <string name="new_session_ready">发送消息，开始这个会话</string>
+    <string name="desktop_disconnected">桌面已断开</string>
+    <string name="desktop_stopping">正在断开桌面…</string>
+    <string name="desktop_failed">桌面连接中断</string>
+    <string name="desktop_pairing">等待桌面配对</string>
+    <string name="desktop_audio_mute">关闭桌面声音</string>
+    <string name="desktop_audio_enable">打开桌面声音</string>
 </resources>

@@ -88,11 +88,20 @@ pub trait InputSender: Send + Sync {
     fn send(&self, input: Input) -> Result<(), StreamError>;
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct AudioFormat {
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub samples_per_frame: u32,
+}
+
 /// Implemented by the platform adapter. Frames are borrowed only for this call.
 pub trait MediaSink: Send + Sync {
     fn supports(&self, format: VideoFormat) -> bool;
     fn configure(&self, format: VideoFormat) -> bool;
     fn submit(&self, data: &[u8], info: FrameInfo) -> bool;
+    fn configure_audio(&self, format: AudioFormat);
+    fn submit_audio(&self, data: &[u8]);
     fn set_input(&self, sender: Option<Arc<dyn InputSender>>);
     fn rendered_frames(&self) -> u64;
     fn failure_code(&self) -> i32;

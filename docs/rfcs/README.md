@@ -25,6 +25,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0013](0013-complete-transcript-and-dark-workspace.md) | 完整数据、虚拟渲染与深色工作区 | 已实现（Alpha 13） |
 | [0014](0014-linux-host-node.md) | Linux 桌面主机节点、私有桥接与 MCP | 已实现（Alpha 17） |
 | [0015](0015-desktop-client-and-host.md) | Linux/macOS 桌面客户端与主机双角色 | 已采纳；客户端待实现 |
+| [0016](0016-desktop-audio.md) | Android 远程桌面声音与播放生命周期 | 已采纳，实施中 |
 
 ## 什么时候写 RFC
 

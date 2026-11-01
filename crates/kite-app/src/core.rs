@@ -292,7 +292,7 @@ pub struct AppCore {
     consumed_approvals: Mutex<BTreeSet<String>>,
     agent_starts: Mutex<BTreeMap<String, PendingAgentStart>>,
     chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
-    chat_failures: Mutex<BTreeSet<String>>,
+    chat_failures: Mutex<BTreeMap<String, Instant>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
     session_book: Mutex<SessionBook>,
     dirty_histories: Mutex<BTreeSet<String>>,
@@ -349,7 +349,7 @@ impl AppCore {
             consumed_approvals: Mutex::new(BTreeSet::new()),
             agent_starts: Mutex::new(BTreeMap::new()),
             chat_clients: AsyncMutex::new(BTreeMap::new()),
-            chat_failures: Mutex::new(BTreeSet::new()),
+            chat_failures: Mutex::new(BTreeMap::new()),
             uploads: Mutex::new(BTreeMap::new()),
             session_book: Mutex::new(SessionBook::default()),
             dirty_histories: Mutex::new(BTreeSet::new()),
@@ -770,8 +770,24 @@ impl AppCore {
                 return;
             }
             if connection.ssh.is_closed() {
-                self.report(&AppError::State("SSH connection closed".into()));
-                self.update(|s| s.connection = ConnectionPhase::Failed);
+                self.update(|s| {
+                    s.connection = ConnectionPhase::Failed;
+                    s.failure = Some(Failure {
+                        code: FailureCode::Connection,
+                        details: "SSH connection closed".into(),
+                        username: String::new(),
+                        trusted: String::new(),
+                        presented: String::new(),
+                    });
+                    if s.desktop.phase != DesktopPhase::Idle {
+                        s.desktop.phase = DesktopPhase::Failed;
+                        s.desktop.pin = None;
+                        s.desktop.takeover = false;
+                    }
+                });
+                if let Some(media) = lock(&self.media).as_ref() {
+                    media.set_takeover(false);
+                }
                 if let Some(job) = self.desktop_job.lock().await.as_ref() {
                     let _ = job.cancel.send(true);
                 }
@@ -1041,7 +1057,11 @@ impl AppCore {
         if clients.get(&key).is_some_and(|c| c.is_closed()) {
             clients.remove(&key);
         }
-        if !clients.contains_key(&key) && !lock(&self.chat_failures).contains(&key) {
+        if !clients.contains_key(&key)
+            && !lock(&self.chat_failures)
+                .get(&key)
+                .is_some_and(|retry| Instant::now() < *retry)
+        {
             self.update(|s| {
                 if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
                     s.composer.loading = true;
@@ -1049,10 +1069,12 @@ impl AppCore {
             });
             match ChatClient::connect(&c.ssh, &agent.pane_id, &reference.value).await {
                 Ok(client) => {
+                    lock(&self.chat_failures).remove(&key);
                     clients.insert(key.clone(), Arc::new(client));
                 }
                 Err(error) => {
-                    lock(&self.chat_failures).insert(key.clone());
+                    lock(&self.chat_failures)
+                        .insert(key.clone(), Instant::now() + Duration::from_secs(5));
                     if self.generation.load(Ordering::SeqCst) == generation {
                         self.update(|s| {
                             if s.selected_agent.as_deref() == Some(&agent.terminal_id) {
@@ -1950,8 +1972,15 @@ impl AppCore {
     ) {
         let work = async {
             let mut client = self.client(&c)?;
-            let info = client.info().await?;
-            let source = client.desktop_size().await?;
+            let (info, source) = tokio::time::timeout(Duration::from_secs(30), async {
+                Ok::<_, AppError>((client.info().await?, client.desktop_size().await?))
+            })
+            .await
+            .map_err(|_| {
+                AppError::Stream(kite_stream::StreamError::Protocol(
+                    "desktop discovery timed out".into(),
+                ))
+            })??;
             let config = StreamConfig::for_desktop(source, |format| sink.supports(format))?;
             self.desktop_update(generation, |s| {
                 s.desktop.source_width = source.width;
@@ -1993,7 +2022,15 @@ impl AppCore {
                 s.desktop.phase = DesktopPhase::Starting;
                 s.desktop.pin = None;
             });
-            Ok::<_, AppError>((client.launch_desktop(config).await?, config))
+            let launch =
+                tokio::time::timeout(Duration::from_secs(20), client.launch_desktop(config))
+                    .await
+                    .map_err(|_| {
+                        AppError::Stream(kite_stream::StreamError::Protocol(
+                            "desktop launch timed out".into(),
+                        ))
+                    })??;
+            Ok::<_, AppError>((launch, config))
         };
         let launch = tokio::select! {result=work=>result,_=cancel.changed()=>return};
         let (launch, config) = match launch {
@@ -2008,12 +2045,26 @@ impl AppCore {
         }
         let mut starting =
             tokio::task::spawn_blocking(move || NativeSession::connect(launch, config, sink));
+        let setup_began = Instant::now();
+        let mut setup_expired = false;
         let session = loop {
             tokio::select! {
                 result=&mut starting=>break result,
-                _=tokio::time::sleep(Duration::from_millis(50))=>{if *cancel.borrow(){native::interrupt_pending();}}
+                _=tokio::time::sleep(Duration::from_millis(50))=>{
+                    if !setup_expired && setup_began.elapsed()>=Duration::from_secs(30) {
+                        setup_expired=true;
+                        self.desktop_error(generation,&AppError::Stream(kite_stream::StreamError::Protocol("desktop handshake timed out".into())));
+                    }
+                    if *cancel.borrow()||setup_expired {native::interrupt_pending();}
+                }
             }
         };
+        if setup_expired {
+            if let Ok(Ok(session)) = session {
+                let _ = tokio::task::spawn_blocking(move || session.stop()).await;
+            }
+            return;
+        }
         let session = match session {
             Ok(Ok(v)) => v,
             Ok(Err(e)) => {
@@ -2032,11 +2083,17 @@ impl AppCore {
         };
         let began = std::time::Instant::now();
         let mut published = std::time::Instant::now() - Duration::from_secs(2);
+        let mut last_rendered = 0;
+        let mut last_frame = Instant::now();
         loop {
             if *cancel.borrow() {
                 break;
             }
             let stats = session.stats();
+            if stats.rendered != last_rendered {
+                last_rendered = stats.rendered;
+                last_frame = Instant::now();
+            }
             if stats.terminated || stats.decoder_error != 0 {
                 self.desktop_error(
                     generation,
@@ -2054,7 +2111,18 @@ impl AppCore {
             if began.elapsed() > Duration::from_secs(15) && stats.rendered == 0 {
                 self.desktop_error(
                     generation,
-                    &AppError::State("decoder did not render a video frame".into()),
+                    &AppError::Stream(kite_stream::StreamError::Protocol(
+                        "decoder did not render a video frame".into(),
+                    )),
+                );
+                break;
+            }
+            if last_rendered > 0 && last_frame.elapsed() >= Duration::from_secs(10) {
+                self.desktop_error(
+                    generation,
+                    &AppError::Stream(kite_stream::StreamError::Protocol(
+                        "video stopped presenting frames".into(),
+                    )),
                 );
                 break;
             }
@@ -2300,6 +2368,8 @@ mod tests {
         use std::sync::atomic::AtomicBool;
         struct Sink(AtomicBool);
         impl MediaSink for Sink {
+            fn configure_audio(&self, _: kite_stream::AudioFormat) {}
+            fn submit_audio(&self, _: &[u8]) {}
             fn supports(&self, _: kite_stream::VideoFormat) -> bool {
                 true
             }

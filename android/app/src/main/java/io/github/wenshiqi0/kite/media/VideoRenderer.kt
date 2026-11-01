@@ -1,6 +1,7 @@
 package io.github.wenshiqi0.kite.media
 
 import android.media.MediaCodec
+import android.content.Context
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
@@ -18,12 +19,26 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** MediaCodec owns decoding and Surface rendering. No network or pairing logic. */
 @Keep
-class VideoRenderer(private val surface: Surface) {
+class VideoRenderer(private val surface: Surface, private val context:Context) {
     private val buffers = Array(3) { ByteBuffer.allocateDirect(8 * 1024 * 1024) }
     private val closed = AtomicBoolean(false)
     private val guard = Any()
     @Volatile private var worker: Decoder? = null
     val performance = VideoPerformance()
+    private val audioGuard=Any()
+    @Volatile private var audio:AudioRenderer?=null
+    var audioEnabled=true
+        set(value){field=value;audio?.enabled=value}
+    val audioPerformance:AudioRenderer.Snapshot? get()=audio?.snapshot()
+
+    @Keep fun onAudioFormat(rate:Int,channels:Int,samples:Int) {
+        synchronized(audioGuard){
+            audio?.close();audio=null
+            if(!closed.get())audio=AudioRenderer(context.applicationContext,rate,channels,samples,audioEnabled)
+        }
+    }
+    @Keep fun onAudioPacket(bytes:ByteArray){if(!closed.get())audio?.packet(bytes)}
+    private fun stopAudio(){synchronized(audioGuard){audio?.close();audio=null}}
     private val decoders by lazy {
         val choices=MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter {
             !it.isEncoder && it.supportedTypes.any { type -> type.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true) }
@@ -72,10 +87,11 @@ class VideoRenderer(private val surface: Surface) {
     }
 
     @Keep
-    fun onStopped() { worker?.stopDecoder() }
+    fun onStopped() { worker?.stopDecoder();stopAudio() }
 
     fun release() {
         if (closed.compareAndSet(false, true)) {
+            stopAudio()
             worker?.stopDecoder()
             DesktopInput.releaseInput(id)
             NativeMedia.detach(id)

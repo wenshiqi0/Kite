@@ -6,6 +6,8 @@ typedef struct {
     int (*frame)(void*, const uint8_t*, int, uint64_t, unsigned int);
     void (*stage)(void*, int, int);
     void (*terminated)(void*, int);
+    void (*audio_configure)(void*, int, int, int);
+    void (*audio_frame)(void*, const uint8_t*, int);
 } KiteCallbacks;
 
 int kite_ml_start(const char*, const char*, const char*, const char*, int,

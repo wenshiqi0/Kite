@@ -10,6 +10,14 @@
 
 `StreamingCadenceTest` is opt-in (`qa_stream_perf=true`, `qa_seconds=12`, range 10–30). It requires the owned `10.0.2.2:22223` / Sunshine `48200` host and an isolated 1920×1080 moving scene. It requires actual presented frames, warms the decoder, samples receive/render counters across fresh core statistics, and records UI-frame cadence plus available decoder metrics. It then sends a 60-sample continuous fullscreen pointer sweep through VideoSurface → DesktopInput → JNI; compare the independently recorded host motion count and span to detect delivery delayed until gesture end. It submits no model prompt and closes its desktop on success. Keep fixture routing, scene, public APKs and warmup identical for A/B results; the old APK has no new decoder metrics. Test View dispatch and host arrival timing are not physical finger-to-photon latency. See [performance acceptance](product/2026-11-01/streaming-performance/acceptance.md).
 
+## New sessions and interrupted desktops
+
+`NewSessionRegressionTest` is opt-in (`qa_new_session=true`) and requires the owned QA host plus the exact owned Alpha 24 project path. Baseline mode sends no prompt; final mode creates two disposable Codex sessions, sends one tool-free marker prompt, checks the first reply and retained history after reconnect, and detects false sync failures, automatic terminal presentation and cross-session content bleed. It writes owned session IDs privately for precise cleanup.
+
+`DesktopRecoveryTest` is opt-in (`qa_desktop_recovery=true`) on the same isolated host/Sunshine port guard. It requires three actual 1080p video cycles, a usable idle/reconnect presentation, and an explicit failed state after a controller stops only the owned Sunshine instance. Production desktop services must not be targeted. See [acceptance](product/2026-11-01/new-session-and-recovery/acceptance.md).
+
+`AudioStreamTest` is opt-in (`qa_audio_stream=true`) with the same guarded QA host. It requires an isolated PulseAudio server and a non-silent synthetic test signal, then checks real Opus decoding, AudioTrack playback-head progress, menu mute/resume, transient focus loss/return and audio-thread release across three 1080p stream cycles. It does not record microphone or system audio and does not prove physical speaker/Bluetooth audibility or WAN A/V synchronization. The private audio server and tone generator are cleaned up separately from user audio services.
+
 ## Linux status UI
 
 On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:

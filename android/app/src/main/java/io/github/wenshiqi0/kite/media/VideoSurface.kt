@@ -74,6 +74,9 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     )
     val target: Long get() = renderer?.id ?: 0L
     val performance: VideoPerformance.Snapshot? get() = renderer?.performance?.snapshot()
+    val audioPerformance: AudioRenderer.Snapshot? get() = renderer?.audioPerformance
+    var audioEnabled=true
+        set(value){field=value;renderer?.audioEnabled=value}
     var takeover = false
         set(value) { if (field != value) { if(!value)closeRemoteKeyboard();cancelGesture(); field = value; updateInputRoute(); refreshCursor() } }
     var trackpad = true
@@ -203,7 +206,7 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         // Creation precedes the first size callback. Start only when the plane is
         // usable; keep the same renderer through subsequent split/zoom changes.
         if (renderer == null && width > 1 && height > 1 && holder.surface.isValid) {
-            renderer = VideoRenderer(holder.surface).also { ready(it.id) }
+            renderer = VideoRenderer(holder.surface,context).also { it.audioEnabled=audioEnabled;ready(it.id) }
             updateInputRoute()
         }
     }

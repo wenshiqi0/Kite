@@ -243,6 +243,12 @@ xrandr --output DP-1 --mode 1920x1080
 
 xrdp may reject a normal `xrandr` resize; use the RDP client's display settings for that session. After changing the desktop mode, restart Sunshine and reconnect the stream. In the tested X11 version, reopening video alone retained the old XTEST coordinate mapping, while restarting Sunshine corrected it without restarting the desktop applications.
 
+### Desktop sound
+
+Alpha 24 adds Android system-sound playback for the Sunshine stereo Opus stream. The workspace menu can mute or enable it; the preference is local to the phone and system media volume controls loudness. Watch and Operate both support sound, and PiP keeps stream audio. Closing the stream releases audio resources. Audio diagnostic counters distinguish received packets, decoded PCM and actual AudioTrack playback.
+
+Keep Sunshine audio capture enabled (`stream_audio = enabled`, or its default). Kite requests host-local playback as well as phone playback, so it does not switch and restore the host's default audio sink; the host can still be heard locally. This avoids the device-switch path observed immediately before a PulseAudio `cleanup_time_events()` abort. Repeated audio-enabled streams must be validated separately; this does not patch PulseAudio or prove every WAN disconnect is resolved. A temporary capture-disable workaround was used during diagnosis and must be reverted for sound. See [RFC 0016](rfcs/0016-desktop-audio.md) and the installed [Sunshine capture source](https://github.com/LizardByte/Sunshine/blob/v2026.914.233613/src/audio.cpp#L146-L209).
+
 ## Troubleshooting
 
 | Symptom | Check |

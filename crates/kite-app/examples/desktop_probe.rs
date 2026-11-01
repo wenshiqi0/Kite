@@ -16,6 +16,8 @@ use std::{
 
 struct Sink(AtomicU64);
 impl MediaSink for Sink {
+    fn configure_audio(&self, _: kite_stream::AudioFormat) {}
+    fn submit_audio(&self, _: &[u8]) {}
     fn supports(&self, _: VideoFormat) -> bool {
         true
     }

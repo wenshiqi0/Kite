@@ -463,7 +463,7 @@ impl Client {
         let mut iv = [0; 16];
         iv[..4].copy_from_slice(&id.to_be_bytes());
         let query = format!(
-            "appid={desktop}&mode={}x{}x{}&additionalStates=1&sops=0&rikey={}&rikeyid={id}&localAudioPlayMode=0&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&gcpersist=0{}",
+            "appid={desktop}&mode={}x{}x{}&additionalStates=1&sops=0&rikey={}&rikeyid={id}&localAudioPlayMode=1&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&gcpersist=0{}",
             config.width,
             config.height,
             config.fps,

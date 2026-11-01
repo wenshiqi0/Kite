@@ -491,6 +491,8 @@ pub struct HistoryInfo {
     pub loading: bool,
     pub complete: bool,
     pub failed: bool,
+    pub waiting: bool,
+    pub details: String,
 }
 impl From<kite_app::HistoryStatus> for HistoryInfo {
     fn from(v: kite_app::HistoryStatus) -> Self {
@@ -498,6 +500,8 @@ impl From<kite_app::HistoryStatus> for HistoryInfo {
             loading: v.loading,
             complete: v.complete,
             failed: v.failed,
+            waiting: v.waiting,
+            details: v.details,
         }
     }
 }

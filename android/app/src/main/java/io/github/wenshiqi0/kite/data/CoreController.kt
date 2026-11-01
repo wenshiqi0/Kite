@@ -29,6 +29,10 @@ import java.io.File
 
 /** One process-wide Core and observer; no Activity-owned domain state. */
 class CoreController(private val context: Context) {
+    private val audioPreferences=context.getSharedPreferences("desktop-audio",Context.MODE_PRIVATE)
+    var desktopAudioEnabled by androidx.compose.runtime.mutableStateOf(audioPreferences.getBoolean("enabled",true))
+        private set
+    fun setDesktopAudio(enabled:Boolean){desktopAudioEnabled=enabled;audioPreferences.edit().putBoolean("enabled",enabled).apply()}
     private val clipboardPreferences = context.getSharedPreferences("clipboard-bridge", Context.MODE_PRIVATE)
     var clipboardSyncEnabled by androidx.compose.runtime.mutableStateOf(clipboardPreferences.getBoolean("enabled",false))
         private set

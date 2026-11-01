@@ -17,6 +17,8 @@ pub struct History {
     pub key: String,
     pub stamp: String,
     pub available: bool,
+    pub source_pending: bool,
+    pub problem: String,
     pub messages: Vec<Message>,
     pub async_input: crate::async_input::History,
     pub page: Option<Page>,
@@ -95,18 +97,19 @@ value={value}
 cached={cached}
 if test "$provider" = claude; then root="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/projects"; pattern="$value.jsonl";
 else root="${{CODEX_HOME:-$HOME/.codex}}/sessions"; pattern="rollout-*-$value.jsonl"; fi
-test -d "$root"
+if ! test -d "$root"; then printf 'kite-history-pending-v1\n'; exit 0; fi
 root=$(readlink -f "$root")
 if test "$kind" = path; then
   file=$(readlink -f "$value")
   case "$file" in "$root"/*.jsonl) ;; *) exit 2;; esac
 else
   files=$(find "$root" -maxdepth 6 -type f -name "$pattern" -print | head -n 2)
-  count=$(printf '%s\n' "$files" | grep -c .)
+  count=$(printf '%s\n' "$files" | grep -c . || true)
+  if test "$count" = 0; then printf 'kite-history-pending-v1\n'; exit 0; fi
   test "$count" = 1
   file=$files
 fi
-test -f "$file"
+if ! test -f "$file"; then printf 'kite-history-pending-v1\n'; exit 0; fi
 stamp=$(stat -c '%d:%i:%s:%y' "$file")
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
@@ -122,23 +125,56 @@ fi
         cached = quote(previous.as_ref().map(|p| p.stamp.as_str()).unwrap_or("")),
         page_args = page_args,
     );
-    let Ok(Ok(output)) = tokio::time::timeout(
+    let output = match tokio::time::timeout(
         Duration::from_secs(30),
         ssh.exec("/bin/sh -s", script.as_bytes()),
     )
     .await
-    else {
-        return Arc::new(History::default());
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return unavailable(&cache_key, format!("history transport: {error}")),
+        Err(_) => return unavailable(&cache_key, "history request timed out".into()),
     };
+    response(reference, previous, output)
+}
+
+fn unavailable(key: &str, problem: String) -> Arc<History> {
+    Arc::new(History {
+        key: key.into(),
+        problem,
+        ..History::default()
+    })
+}
+
+fn response(
+    reference: &AgentSession,
+    previous: Option<Arc<History>>,
+    output: kite_ssh::ExecOutput,
+) -> Arc<History> {
+    let cache_key = key(reference);
     if output.exit_status != Some(0) || output.stdout.len() > 4 * 1024 * 1024 {
-        return Arc::new(History::default());
+        return unavailable(
+            &cache_key,
+            format!(
+                "history source read failed (exit {:?}, {} bytes)",
+                output.exit_status,
+                output.stdout.len()
+            ),
+        );
+    }
+    if output.stdout == b"kite-history-pending-v1\n" {
+        return Arc::new(History {
+            key: cache_key,
+            source_pending: true,
+            ..History::default()
+        });
     }
     let mut lines = output.stdout.splitn(3, |b| *b == b'\n');
     if lines.next() != Some(b"kite-history-v1".as_slice()) {
-        return Arc::new(History::default());
+        return unavailable(&cache_key, "invalid history response header".into());
     }
     let Some(stamp) = lines.next().and_then(|b| std::str::from_utf8(b).ok()) else {
-        return Arc::new(History::default());
+        return unavailable(&cache_key, "invalid history source stamp".into());
     };
     if let Some(previous) = previous
         && previous.stamp == stamp
@@ -149,7 +185,7 @@ fi
     let decoded;
     let bytes = if reference.agent == "codex" {
         let Some(value) = decode_history(bytes) else {
-            return Arc::new(History::default());
+            return unavailable(&cache_key, "invalid compressed history response".into());
         };
         decoded = value;
         decoded.as_slice()
@@ -158,10 +194,10 @@ fi
     };
     let (controls, bytes, page) = if reference.agent == "codex" {
         let Some(parts) = codex_projection(bytes) else {
-            return Arc::new(History::default());
+            return unavailable(&cache_key, "invalid provider history projection".into());
         };
         let Some((page, display)) = display_page(parts.1) else {
-            return Arc::new(History::default());
+            return unavailable(&cache_key, "invalid history page".into());
         };
         (parts.0, display, Some(page))
     } else {
@@ -171,6 +207,8 @@ fi
         key: cache_key,
         stamp: stamp.into(),
         available: true,
+        source_pending: false,
+        problem: String::new(),
         messages: parse_history(&reference.agent, bytes),
         async_input: if reference.agent == "codex" {
             crate::async_input::history(&reference.value, controls)
@@ -301,6 +339,39 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pending_source_is_distinct_from_failed_transport_or_invalid_output() {
+        let reference = AgentSession {
+            source: "herdr:codex".into(),
+            agent: "codex".into(),
+            kind: "id".into(),
+            value: "thread".into(),
+        };
+        let output = |stdout: &[u8], exit| kite_ssh::ExecOutput {
+            stdout: stdout.to_vec(),
+            stderr: Vec::new(),
+            exit_status: exit,
+        };
+        let pending = response(
+            &reference,
+            None,
+            output(b"kite-history-pending-v1\n", Some(0)),
+        );
+        assert!(pending.source_pending);
+        assert!(!pending.available);
+        assert!(pending.problem.is_empty());
+        assert_eq!(pending.key, key(&reference));
+        for bad in [
+            output(b"kite-history-pending-v1\n", None),
+            output(b"kite-history-pending-v1\n", Some(1)),
+            output(b"kite-history-pending-v1\ntruncated", Some(0)),
+        ] {
+            let failed = response(&reference, None, bad);
+            assert!(!failed.source_pending);
+            assert!(!failed.available);
+            assert!(!failed.problem.is_empty());
+        }
+    }
     #[test]
     fn control_history_is_separate_from_the_bounded_display_and_frames_are_checked() {
         let data = b"kite-codex-history-v2\n8\ncontrol\nrecent-chat";

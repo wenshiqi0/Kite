@@ -55,9 +55,17 @@ static void terminated(int error) {
 }
 static void discard_log(const char* format, ...) { (void)format; }
 static int audio_init(int config, const POPUS_MULTISTREAM_CONFIGURATION opus, void* context, int flags) {
-    (void)config; (void)opus; (void)context; (void)flags; return 0;
+    (void)config; (void)flags;
+    KiteContext* c = context;
+    if (opus->channelCount == 2 && opus->streams == 1 && opus->coupledStreams == 1 && opus->mapping[0] == 0 && opus->mapping[1] == 1) {
+        c->callbacks.audio_configure(c->opaque, opus->sampleRate, opus->channelCount, opus->samplesPerFrame);
+    }
+    return 0;
 }
-static void discard_audio(char* sample, int size) { (void)sample; (void)size; }
+static void submit_audio(char* sample, int size) {
+    KiteContext* c = atomic_load(&current);
+    if (c && sample && size > 0 && size <= 4096) c->callbacks.audio_frame(c->opaque, (const uint8_t*)sample, size);
+}
 
 int kite_ml_start(const char* address, const char* app, const char* gfe, const char* rtsp, int codecs,
     int width, int height, int fps, int bitrate, const uint8_t* key, const uint8_t* iv,
@@ -87,7 +95,7 @@ int kite_ml_start(const char* address, const char* app, const char* gfe, const c
     video.setup = setup; video.submitDecodeUnit = submit;
     video.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_SLICES_PER_FRAME(1);
     AUDIO_RENDERER_CALLBACKS audio; LiInitializeAudioCallbacks(&audio);
-    audio.init = audio_init; audio.decodeAndPlaySample = discard_audio; audio.capabilities = CAPABILITY_DIRECT_SUBMIT;
+    audio.init = audio_init; audio.decodeAndPlaySample = submit_audio; audio.capabilities = CAPABILITY_DIRECT_SUBMIT;
     CONNECTION_LISTENER_CALLBACKS listener; LiInitializeConnectionCallbacks(&listener);
     listener.stageStarting = stage_start; listener.stageFailed = stage_failed;
     listener.connectionTerminated = terminated; listener.logMessage = discard_log;

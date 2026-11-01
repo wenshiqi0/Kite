@@ -1,7 +1,7 @@
 //! Small owned interface to the pinned C transport; no C types escape this module.
 
 use crate::{
-    FrameInfo, Input, InputSender, MediaSink, StreamConfig, StreamError, VideoFormat,
+    AudioFormat, FrameInfo, Input, InputSender, MediaSink, StreamConfig, StreamError, VideoFormat,
     control::Launch,
 };
 use std::{
@@ -21,6 +21,8 @@ struct Callbacks {
     frame: unsafe extern "C" fn(*mut c_void, *const u8, i32, u64, u32) -> i32,
     stage: unsafe extern "C" fn(*mut c_void, i32, i32),
     terminated: unsafe extern "C" fn(*mut c_void, i32),
+    audio_configure: unsafe extern "C" fn(*mut c_void, i32, i32, i32),
+    audio_frame: unsafe extern "C" fn(*mut c_void, *const u8, i32),
 }
 unsafe extern "C" {
     fn kite_ml_start(
@@ -213,6 +215,8 @@ impl NativeSession {
             frame,
             stage,
             terminated,
+            audio_configure,
+            audio_frame,
         };
         let result = unsafe {
             kite_ml_start(
@@ -309,6 +313,28 @@ unsafe extern "C" fn configure(context: *mut c_void, width: i32, height: i32, fp
         }))
         .unwrap_or(false),
     )
+}
+
+unsafe extern "C" fn audio_configure(context: *mut c_void, rate: i32, channels: i32, samples: i32) {
+    if context.is_null() || rate != 48000 || channels != 2 || !(120..=2880).contains(&samples) {
+        return;
+    }
+    let c = unsafe { &*(context as *const Context) };
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.sink.configure_audio(AudioFormat {
+            sample_rate: rate as u32,
+            channels: channels as u32,
+            samples_per_frame: samples as u32,
+        })
+    }));
+}
+unsafe extern "C" fn audio_frame(context: *mut c_void, data: *const u8, size: i32) {
+    if context.is_null() || data.is_null() || !(1..=4096).contains(&size) {
+        return;
+    }
+    let c = unsafe { &*(context as *const Context) };
+    let bytes = unsafe { std::slice::from_raw_parts(data, size as usize) };
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.sink.submit_audio(bytes)));
 }
 unsafe extern "C" fn frame(
     context: *mut c_void,

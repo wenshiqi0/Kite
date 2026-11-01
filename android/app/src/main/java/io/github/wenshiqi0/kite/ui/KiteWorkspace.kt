@@ -282,6 +282,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             if(vm.showDesktop||state?.desktop?.status in listOf(DesktopStatus.STARTING,DesktopStatus.STREAMING,DesktopStatus.PAIRING))DropdownMenuItem(text={Text(stringResource(R.string.desktop_disconnect))},leadingIcon={ProductIcon(Mark.Close)},onClick={tools=false;videoReference.value?.closeRemoteKeyboard();softwareKeyboard?.hide();focusManager.clearFocus();vm.closeDesktop();updatePip()})
+                            if(vm.showDesktop)DropdownMenuItem(text={Text(stringResource(if(vm.engine.desktopAudioEnabled)R.string.desktop_audio_mute else R.string.desktop_audio_enable))},onClick={vm.engine.setDesktopAudio(!vm.engine.desktopAudioEnabled);tools=false})
                             currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(if (session.archived) R.string.restore_session else R.string.archive_session)) }, onClick = { tools = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = agent != null)
@@ -296,7 +297,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         Box(Modifier.size(48.dp).semantics{contentDescription=splitDescription}.pointerInput(availableHeight){
                             detectDragGestures{change,amount->change.consume();vm.splitAdjustment=(vm.splitAdjustment+amount.y/density.density).coerceIn(-240f,240f)}
                         },contentAlignment=Alignment.Center){Box(Modifier.size(24.dp,3.dp).background(Muted.copy(alpha=.5f),RoundedCornerShape(3.dp)))}
-                        Text("live",color=Muted,fontSize=11.sp,modifier=Modifier.weight(1f))
+                        Text(stringResource(desktopStatusLabel(state?.desktop?.status?:DesktopStatus.IDLE)),color=Muted,fontSize=11.sp,modifier=Modifier.weight(1f))
                         TextButton(onClick=::toggleTouchpad,enabled=takeover&&state?.desktop?.status==DesktopStatus.STREAMING,modifier=Modifier.height(48.dp)){
                             ProductIcon(Mark.Touchpad,if(padVisible)Blue else Muted,Modifier.size(18.dp));Spacer(Modifier.width(5.dp));Text(stringResource(R.string.trackpad),fontSize=12.sp)
                         }
@@ -346,14 +347,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         is ChatEntry.Message -> MessageCard(entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
                         is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
                     } }
-                    if (state != null && agent != null && !state.conversationAvailable && !state.composer.ready && state.agentOutput.isNotBlank()) item {
-                        Surface(color = Paper, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable { terminal = true }) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text(stringResource(R.string.terminal_output), color = Muted, fontSize = 12.sp)
-                                Text(state.agentOutput.takeLast(3000), fontFamily = FontFamily.Monospace, fontSize = 12.sp, maxLines = 10, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
                     if (state?.connection == ConnectionStatus.CONNECTED && (vm.sending || state.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.FAILED))) item(key = "response-feedback") { ResponseFeedback(state.responsePhase, vm.sending) }
@@ -362,10 +355,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
-                if(entries.isEmpty()&&state?.selectedSession!=null&&state.question==null&&state.approval==null&&(state.history.loading||state.history.failed)){
+                if(entries.isEmpty()&&state?.selectedSession!=null&&state.question==null&&state.approval==null&&(state.history.loading||state.history.failed||state.history.waiting)){
                     Column(Modifier.align(Alignment.Center).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
                         if(state.history.loading)CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp,color=Muted)
-                        Text(if(state.history.failed)"记录同步失败，已保存的内容会保留" else "正在同步完整会话记录…",color=Muted,fontSize=13.sp)
+                        Text(stringResource(when{state.history.failed->R.string.history_sync_failed;state.history.waiting->if(state.composer.ready)R.string.new_session_ready else R.string.composer_starting;else->R.string.history_syncing}),color=Muted,fontSize=13.sp)
                         if(state.history.failed)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试")}
                     }
                 }
@@ -387,17 +380,17 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     currentSession?.archived == true -> R.string.session_archived_hint
                     agent == null -> if (currentSession == null) R.string.composer_no_agent else null
                     agent.launchPending -> R.string.composer_starting
-                    agent.agent == "codex" && !state.composer.ready -> R.string.composer_backend_unavailable
+                    agent.agent == "codex" && !state.composer.ready -> if(state.composer.loading)R.string.composer_starting else R.string.composer_backend_unavailable
                     state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
                     state.question != null -> if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_hint
                     agent.status == "blocked" && state.question == null && !responseInProgress -> R.string.composer_blocked_hint
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
-                if (composeReason != null && composeReason != R.string.composer_backend_unavailable && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (composeReason != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     if (state?.question != null) TextButton(onClick = { answerRequest = state.question?.id }) { Text(stringResource(R.string.go_answer)) }
-                    else if (agent != null && agent.launchPending) TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.terminal_output)) }
+                    else if(composeReason==R.string.composer_backend_unavailable)TextButton(onClick={vm.engine.command{vm.engine.core.reloadComposer()}}){Text(stringResource(R.string.retry))}
                 }
                 if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty())
@@ -458,6 +451,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         vm.flushRemoteText={weak.get()?.flushRemoteText()}
                     } }, update = { surface ->
                         surface.takeover = takeover && !docked
+                        surface.audioEnabled=vm.engine.desktopAudioEnabled
                         surface.fullscreenInput = vm.layout == DesktopLayout.Fullscreen
                         surface.trackpad = false
                         surface.externalMouseButtons = vm.heldMouseButtons
@@ -475,8 +469,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     })
                     if (!docked && state.desktop.status != DesktopStatus.STREAMING && state.desktop.status != DesktopStatus.PAIRING) {
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (state.desktop.status == DesktopStatus.FAILED) TextButton(onClick = vm::retryDesktop) { Text(stringResource(R.string.retry)) }
-                            else CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Blue)
+                            Text(stringResource(desktopStatusLabel(state.desktop.status)),color=Muted,fontSize=13.sp)
+                            if (state.desktop.status in listOf(DesktopStatus.FAILED,DesktopStatus.IDLE)) {
+                                TextButton(onClick = { if(state.connection==ConnectionStatus.CONNECTED)vm.retryDesktop()else vm.settingsVisible=true }) { Text(stringResource(if(state.connection==ConnectionStatus.CONNECTED)R.string.retry else R.string.open_host_settings)) }
+                            } else CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Blue)
                         }
                     }
                 }
@@ -568,7 +564,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         SelectionContainer { Text(if (terminal) state?.agentOutput.orEmpty() else buildString {
             append(state?.let(::connectionDiagnostics).orEmpty()); append("\n${state?.desktop?.sourceWidth}×${state?.desktop?.sourceHeight} → ${state?.desktop?.width}×${state?.desktop?.height} @${state?.desktop?.fps}\n")
             append(frameCounts); state?.failure?.let { append("\n${it.details}") }; state?.composer?.details?.takeIf { it.isNotBlank() }?.let { append("\n$it") }
+            state?.history?.details?.takeIf{it.isNotBlank()}?.let{append("\n$it")}
             videoReference.value?.performance?.let{append("\n\n");append(it.diagnostics())}
+            videoReference.value?.audioPerformance?.let{append("\n\n");append(it.diagnostics())}
         }, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) }
         }
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })
