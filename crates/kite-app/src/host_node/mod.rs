@@ -690,9 +690,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-
                     json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
-
                 )
             }
             "sessions" => {
