@@ -22,3 +22,7 @@ Prior session/audio delivery: [0.2.0-alpha.26](https://github.com/wenshiqi0/Kite
 Current facts: one active SSH connection is held by mobile AppCore; Linux Kite Node now owns the host bridge and local lifecycle policy. Capture discovery still uses Linux `/proc`. The host panel does not establish a full desktop remote client or durable multi-node orchestration. Upstream herdr-core and Herdr TUI are separate servers with no automatic shared agents. Sunshine's macOS host support is marked experimental upstream; screen capture/input must be validated on both target platforms.
 
 Stage completion includes updating this plan, the documentation index, affected setup/development instructions, relevant RFC/SPEC decisions, and acceptance/release records. Record what shipped, what was actually validated and what remains pending; retain dated earlier results with their original validation scope.
+
+## Managed DSH conversations — 2026-11-02
+
+Alpha 43 adds opt-in DSH SDK sessions with host-verified provider availability, shared Rust/FFI operation metadata and Android choices/initialization controls. Text, tools, history and same-owner reconnect are verified; unsupported input/settings/control features remain unavailable. Real-model, native-component, public-package and matching-host checks are recorded separately in the [delivery evidence](product/2026-11-02/dsh/acceptance.md). Configuration details remain in the [on-demand DSH guide](development/dsh.md).

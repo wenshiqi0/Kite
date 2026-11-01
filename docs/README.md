@@ -14,6 +14,7 @@
 
 ## Delivery and evaluation records
 
+- [DSH conversations and verified provider choices](product/2026-11-02/dsh/acceptance.md): opt-in SDK sessions, real tool/reconnect checks, Android presentation, public Alpha 43 and matching host deployment.
 - [Re-signed APK installer test](product/2026-11-01/apk-resign/acceptance.md): long-lived certificate evidence, explicit SDK signing, public-package verification and Android 16 system-installer update.
 - [New sessions, desktop audio and recovery](product/2026-11-01/new-session-and-recovery/acceptance.md): clean new-session state, first message/reconnect, sustained Opus/AudioTrack playback, mute/focus, actual video and interrupted-host recovery.
 - [Streaming performance](product/2026-11-01/streaming-performance/acceptance.md): continuous pointer delivery, fixed input windows, preserved 1080p, public APK comparison and matching Linux deployment.

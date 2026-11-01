@@ -1,6 +1,6 @@
 # DSH integration acceptance
 
-Source branch: `feat/dsh-harness`. Delivery candidate: Android/Linux `0.2.0-alpha.43`, versionCode 45. This record separates source checks, real model execution, native presentation and public artifacts.
+Source branch: `feat/dsh-harness`; published source `4daad6d66bf18603a26164a15c809c6aa23c458d`. Verified delivery: Android/Linux `0.2.0-alpha.43`, versionCode 45. This record separates source checks, real model execution, native presentation and public artifacts.
 
 ## Verified source and protocol checks
 
@@ -22,6 +22,10 @@ DSH SDK exposes creation, prompt and notifications rather than an SDK resume RPC
 
 ## Native presentation and delivery
 
-The committed native test renders the actual provider-choice component: verified DSH is selectable with ID `dsh`; absent providers do not appear, and an empty catalogue shows an actionable host-configuration message. Runtime execution, screenshots, published APK checksums/signature and matching host deployment are recorded after their respective checks; source compilation alone is not counted as runtime acceptance.
+Two native API 36 tests passed on an isolated x86_64 emulator: verified DSH is selectable with ID `dsh`, absent providers do not appear, and initialization prevents input until ready. These are actual component/initialization checks with synthetic display metadata, not a claim of a full physical-phone model turn. The x86 UI harness uses a temporary portable Reed–Solomon CPU-dispatch header for an existing nanors/Clang link limitation; production ARM64 sources and optimization settings are unchanged. [Native record](native-validation.json).
+
+[Alpha 43](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.43) was published by [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41342566322). Independent public downloads passed checksum, version/code, stable certificate versus Alpha 42, primary/v2-compatible payload identity and 16 KiB ZIP-alignment checks. [Public artifact record](published-release.json).
+
+The verified matching Linux package was installed through compatible live handover. Node reports `0.2.0-alpha.43`, `harnessApi=1`, ready health and available `codex`, `claude`, `dsh`. Host identity and external service PIDs were retained. DSH uses private Node environment and a Kite-only SDK profile, leaving global DSH model settings unchanged. [Host record](host-validation.json).
 
 Physical-handset installation, WAN conditions and newly delivered system push remain separate from the isolated model and emulator checks. DSH supports the declared text/tool/history flow; unsupported interaction and input features remain unavailable.

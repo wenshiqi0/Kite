@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "4daad6d66bf18603a26164a15c809c6aa23c458d",
+  "androidApi": 36,
+  "abi": "x86_64",
+  "testsPassed": 2,
+  "checks": [
+    "verifiedDshIsSelectableAndUnavailableProvidersAreAbsent",
+    "initializationShowsOneSimpleStatusAndKeepsDraftEditingLocked"
+  ],
+  "scope": "Actual provider-choice component and initialization UI; isolated emulator, synthetic display metadata; real provider execution verified separately.",
+  "testOnlyPortableReedSolomon": true,
+  "productionArm64Unmodified": true
+}
