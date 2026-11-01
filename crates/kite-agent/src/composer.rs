@@ -19,6 +19,9 @@ use tokio::{
     task::JoinHandle,
 };
 
+pub mod skills;
+use skills::{Skill, SkillDraft};
+
 const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
@@ -151,6 +154,7 @@ pub struct Composer {
     pub selection: Selection,
     pub uploads: Vec<Upload>,
     pub usage: AccountUsage,
+    pub skills: SkillDraft,
 }
 
 type Replies = Arc<Mutex<BTreeMap<String, oneshot::Sender<Result<Value, String>>>>>;
@@ -441,6 +445,7 @@ impl Client {
         text: &str,
         attachments: &[Attachment],
         selected: &Selection,
+        skills: &[Skill],
     ) -> Result<String, Error> {
         let selected = selection(&self.models, selected)?;
         let model = self
@@ -448,20 +453,8 @@ impl Client {
             .iter()
             .find(|m| m.model == selected.model)
             .ok_or(Error::Invalid("model unavailable"))?;
-        let text = compose_text(text, attachments)?;
-        let mut input = vec![json!({"type":"text","text":text})];
-        for a in attachments {
-            if a.mime.starts_with("image/") {
-                if !model.input_modalities.iter().any(|v| v == "image") {
-                    return Err(Error::Invalid("selected model does not accept images"));
-                }
-                input.push(json!({"type":"localImage","path":a.path}));
-            } else if a.mime.starts_with("audio/")
-                && model.input_modalities.iter().any(|v| v == "audio")
-            {
-                input.push(json!({"type":"localAudio","path":a.path}));
-            }
-        }
+        let text = compose_prompt(text, attachments, skills)?;
+        let input = turn_input(&text, attachments, skills, model)?;
         if lock(&self.runtime).question().is_some_and(|q| q.blocking) {
             return Err(Error::Invalid("answer the pending model question"));
         }
@@ -479,6 +472,49 @@ impl Client {
         }
         Ok(text)
     }
+}
+
+fn turn_input(
+    text: &str,
+    attachments: &[Attachment],
+    skills: &[Skill],
+    model: &Model,
+) -> Result<Vec<Value>, Error> {
+    let mut input = vec![json!({"type":"text","text":text})];
+    for skill in skills {
+        input.push(json!({"type":"skill","name":skill.name,"path":skill.path}));
+    }
+    for a in attachments {
+        if a.mime.starts_with("image/") {
+            if !model.input_modalities.iter().any(|v| v == "image") {
+                return Err(Error::Invalid("selected model does not accept images"));
+            }
+            input.push(json!({"type":"localImage","path":a.path}));
+        } else if a.mime.starts_with("audio/")
+            && model.input_modalities.iter().any(|v| v == "audio")
+        {
+            input.push(json!({"type":"localAudio","path":a.path}));
+        }
+    }
+    Ok(input)
+}
+
+pub fn compose_prompt(text: &str, files: &[Attachment], skills: &[Skill]) -> Result<String, Error> {
+    let text = if skills.is_empty() {
+        text.to_owned()
+    } else {
+        let mentions = skills
+            .iter()
+            .map(|s| format!("${}", s.name))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if text.is_empty() {
+            mentions
+        } else {
+            format!("{mentions}\n\n{text}")
+        }
+    };
+    compose_text(&text, files)
 }
 
 fn follow_up_request(
@@ -689,6 +725,55 @@ pub async fn download_image(ssh: &Session, id: &str) -> Result<Vec<u8>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_skills_and_attachments_share_one_turn_input() {
+        let skills = vec![Skill {
+            name: "report".into(),
+            description: "Write a report".into(),
+            path: "/skills/report/SKILL.md".into(),
+        }];
+        let files = vec![Attachment {
+            id: "a".into(),
+            name: "sample.png".into(),
+            mime: "image/png".into(),
+            size: 3,
+            path: "/uploads/sample.png".into(),
+        }];
+        let model = Model {
+            model: "model".into(),
+            display_name: "Model".into(),
+            description: String::new(),
+            hidden: false,
+            is_default: true,
+            default_reasoning_effort: "low".into(),
+            supported_reasoning_efforts: vec![],
+            input_modalities: vec!["text".into(), "image".into()],
+        };
+        let text = compose_prompt("Explain this", &files, &skills).unwrap();
+        assert_eq!(
+            split_attachments(&text),
+            ("$report\n\nExplain this".into(), files.clone())
+        );
+        let input = turn_input(&text, &files, &skills, &model).unwrap();
+        assert_eq!(input[0], json!({"type":"text","text":text}));
+        assert_eq!(
+            input[1],
+            json!({"type":"skill","name":"report","path":"/skills/report/SKILL.md"})
+        );
+        assert_eq!(
+            input[2],
+            json!({"type":"localImage","path":"/uploads/sample.png"})
+        );
+        assert_eq!(compose_prompt("", &[], &skills).unwrap(), "$report");
+        assert_eq!(
+            compose_prompt("plain text", &[], &[]).unwrap(),
+            "plain text"
+        );
+        assert_eq!(
+            turn_input("plain text", &[], &[], &model).unwrap(),
+            vec![json!({"type":"text","text":"plain text"})]
+        );
+    }
     #[tokio::test]
     async fn rpc_frames_are_bounded_and_require_complete_json() {
         assert!(

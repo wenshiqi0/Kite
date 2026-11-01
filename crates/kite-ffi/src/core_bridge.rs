@@ -309,6 +309,40 @@ impl From<kite_app::AccountUsage> for AccountUsageInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct ChatSkillInfo {
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+impl From<kite_app::ChatSkill> for ChatSkillInfo {
+    fn from(s: kite_app::ChatSkill) -> Self {
+        Self {
+            name: s.name,
+            description: s.description,
+            path: s.path,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SkillDraftInfo {
+    pub available: Vec<ChatSkillInfo>,
+    pub selected: Vec<ChatSkillInfo>,
+    pub loaded: bool,
+    pub loading: bool,
+    pub details: String,
+}
+impl From<kite_app::SkillDraft> for SkillDraftInfo {
+    fn from(d: kite_app::SkillDraft) -> Self {
+        Self {
+            available: d.available.into_iter().map(Into::into).collect(),
+            selected: d.selected.into_iter().map(Into::into).collect(),
+            loaded: d.loaded,
+            loading: d.loading,
+            details: d.details,
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct ComposerInfo {
     pub ready: bool,
     pub loading: bool,
@@ -318,6 +352,7 @@ pub struct ComposerInfo {
     pub effort: String,
     pub uploads: Vec<UploadInfo>,
     pub usage: AccountUsageInfo,
+    pub skills: SkillDraftInfo,
 }
 impl From<kite_app::Composer> for ComposerInfo {
     fn from(c: kite_app::Composer) -> Self {
@@ -326,6 +361,7 @@ impl From<kite_app::Composer> for ComposerInfo {
             loading: c.loading,
             details: c.details,
             usage: c.usage.into(),
+            skills: c.skills.into(),
             model: c.selection.model,
             effort: c.selection.effort,
             models: c
@@ -967,6 +1003,23 @@ impl KiteCore {
     }
     pub async fn refresh_account_usage(&self) -> Result<(), KiteError> {
         self.inner.refresh_account_usage().await.map_err(Into::into)
+    }
+    pub async fn refresh_skills(&self, agent_id: String) -> Result<(), KiteError> {
+        self.inner
+            .refresh_skills(agent_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn select_skill(
+        &self,
+        agent_id: String,
+        path: String,
+        selected: bool,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .select_skill(agent_id, path, selected)
+            .await
+            .map_err(Into::into)
     }
     pub async fn set_chat_model(
         &self,
