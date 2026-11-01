@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
+      KITE_FIREBASE_CONFIG_JSON: ${{ vars.KITE_FIREBASE_CONFIG_JSON }}
       CARGO_BUILD_JOBS: 2
       CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
     outputs:

@@ -36,8 +36,10 @@ mod conversation;
 pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
+mod notifications;
 mod sessions;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
+pub use notifications::AgentNotice;
 use sessions::SessionBook;
 
 #[derive(Clone, Debug)]
@@ -193,6 +195,8 @@ pub struct Snapshot {
     pub composer: Composer,
     pub desktop: Desktop,
     pub failure: Option<Failure>,
+    pub notification_revision: u64,
+    pub notification_problem: Option<String>,
 }
 impl Default for Snapshot {
     fn default() -> Self {
@@ -226,6 +230,8 @@ impl Default for Snapshot {
             composer: Composer::default(),
             desktop: Desktop::default(),
             failure: None,
+            notification_revision: 0,
+            notification_problem: None,
         }
     }
 }
@@ -297,6 +303,9 @@ pub struct AppCore {
     session_book: Mutex<SessionBook>,
     dirty_histories: Mutex<BTreeSet<String>>,
     history_cache_written: Mutex<BTreeMap<String, Instant>>,
+    notifications: Mutex<notifications::NotificationInbox>,
+    notification_job: Mutex<Option<JoinHandle<()>>>,
+    notification_ready: std::sync::atomic::AtomicBool,
     clipboard_mirrors: Mutex<BTreeMap<String, clipboard::Mirror>>,
     clipboard_operations: AsyncMutex<()>,
 }
@@ -354,6 +363,9 @@ impl AppCore {
             session_book: Mutex::new(SessionBook::default()),
             dirty_histories: Mutex::new(BTreeSet::new()),
             history_cache_written: Mutex::new(BTreeMap::new()),
+            notifications: Mutex::new(notifications::NotificationInbox::default()),
+            notification_job: Mutex::new(None),
+            notification_ready: std::sync::atomic::AtomicBool::new(false),
             clipboard_mirrors: Mutex::new(BTreeMap::new()),
             clipboard_operations: AsyncMutex::new(()),
         })
@@ -413,6 +425,13 @@ impl AppCore {
                 *lock(&core.paused_processes) =
                     store.read_document("paused-processes")?.unwrap_or_default();
                 let book: SessionBook = store.read_document("sessions")?.unwrap_or_default();
+                match store.read_document::<notifications::NotificationInbox>("notifications") {
+                    Ok(notices) if notices.as_ref().is_none_or(|inbox|inbox.valid())=>{
+                        *lock(&core.notifications)=notices.unwrap_or_default();
+                        core.notification_ready.store(true,Ordering::SeqCst);
+                    }
+                    _=>core.update(|s|s.notification_problem=Some("Notification storage unavailable; existing file preserved. Chat remains available.".into())),
+                }
                 // One-shot migration: retain every old cache before removing its inline copy.
                 for (key, cache) in &book.histories {
                     store.write_document(&sessions::history_document(key), cache)?;
@@ -573,6 +592,7 @@ impl AppCore {
         match result {
             Ok(connection) => {
                 let connection = Arc::new(connection);
+                self.start_notification_sync(connection.clone(), generation);
                 *lock(&self.connected) = Some(connection.clone());
                 self.update(|s| {
                     s.connection_step = ConnectionStep::Agent;
@@ -1433,6 +1453,9 @@ impl AppCore {
         .await
     }
     async fn disconnect_inner(&self, notify: bool) -> Result<(), AppError> {
+        if let Some(job) = lock(&self.notification_job).take() {
+            job.abort();
+        }
         self.flush_history_caches(true)?;
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.reset_history_view();
@@ -2441,6 +2464,83 @@ mod tests {
             key.public_key_openssh
         );
         assert_eq!(secrets.writes.load(Ordering::Relaxed), 0);
+    }
+    #[tokio::test]
+    async fn push_hints_persist_deduplicate_and_cannot_navigate_unknown_hosts_or_start_a_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let (secrets, key) = fixture();
+        let core = AppCore::new(secrets.clone(), Arc::new(NoObserver));
+        core.initialize(dir.path().into(), "fixture".into(), legacy())
+            .await
+            .unwrap();
+        core.save_host(Host {
+            id: "host".into(),
+            host: "127.0.0.1".into(),
+            port: 22,
+            username: "kite".into(),
+            herdr_path: None,
+            stream_host: None,
+            sunshine_port: 47989,
+        })
+        .await
+        .unwrap();
+        let id = format!("host/{}", "a".repeat(64));
+        core.receive_push(
+            id.clone(),
+            kite_agent::notifications::Kind::Question,
+            "session".into(),
+            10,
+        )
+        .await
+        .unwrap();
+        core.receive_push(
+            id.clone(),
+            kite_agent::notifications::Kind::Question,
+            "session".into(),
+            10,
+        )
+        .await
+        .unwrap();
+        assert_eq!(core.notifications().len(), 1);
+        assert!(
+            core.notification_host(&format!("unknown/{}", "b".repeat(64)))
+                .is_err()
+        );
+        assert!(core.load_notification(id.clone()).await.is_err());
+        assert_eq!(core.snapshot().connection, ConnectionPhase::Disconnected);
+        assert!(core.snapshot().selected_agent.is_none());
+        core.acknowledge_notification(id, true, true).await.unwrap();
+        let next = AppCore::new(secrets.clone(), Arc::new(NoObserver));
+        next.initialize(dir.path().into(), "fixture".into(), legacy())
+            .await
+            .unwrap();
+        assert!(next.notifications()[0].read);
+        assert!(next.notifications()[0].alerted);
+        assert_eq!(next.snapshot().key.unwrap().fingerprint, key.fingerprint);
+        assert_eq!(secrets.writes.load(Ordering::Relaxed), 0);
+    }
+    #[tokio::test]
+    async fn broken_notification_document_preserves_bytes_and_does_not_block_normal_initialization()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let (secrets, key) = fixture();
+        std::fs::write(
+            dir.path().join("notifications.json"),
+            b"broken-notification-data",
+        )
+        .unwrap();
+        let core = AppCore::new(secrets.clone(), Arc::new(NoObserver));
+        core.initialize(dir.path().into(), "fixture".into(), legacy())
+            .await
+            .unwrap();
+        assert!(core.snapshot().initialized);
+        assert!(core.snapshot().notification_problem.is_some());
+        assert!(core.snapshot().failure.is_none());
+        assert_eq!(core.snapshot().key.unwrap().fingerprint, key.fingerprint);
+        assert_eq!(
+            std::fs::read(dir.path().join("notifications.json")).unwrap(),
+            b"broken-notification-data"
+        );
     }
     #[tokio::test]
     async fn saving_profiles_keeps_the_selected_host_until_explicit_connection() {

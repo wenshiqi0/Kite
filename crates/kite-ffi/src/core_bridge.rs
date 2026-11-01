@@ -494,6 +494,44 @@ pub struct HistoryInfo {
     pub waiting: bool,
     pub details: String,
 }
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum AgentNoticeKind {
+    Completed,
+    Attention,
+    Question,
+    Failed,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AgentNoticeInfo {
+    pub id: String,
+    pub host_id: String,
+    pub session_id: String,
+    pub title: String,
+    pub kind: AgentNoticeKind,
+    pub created_ms: i64,
+    pub read: bool,
+    pub alerted: bool,
+}
+impl From<kite_app::AgentNotice> for AgentNoticeInfo {
+    fn from(value: kite_app::AgentNotice) -> Self {
+        Self {
+            id: value.id,
+            host_id: value.host_id,
+            session_id: value.session_id,
+            title: value.title,
+            created_ms: value.created_ms,
+            read: value.read,
+            alerted: value.alerted,
+            kind: match value.kind {
+                kite_app::AgentNoticeKind::Completed => AgentNoticeKind::Completed,
+                kite_app::AgentNoticeKind::Attention => AgentNoticeKind::Attention,
+                kite_app::AgentNoticeKind::Question => AgentNoticeKind::Question,
+                kite_app::AgentNoticeKind::Failed => AgentNoticeKind::Failed,
+            },
+        }
+    }
+}
 impl From<kite_app::HistoryStatus> for HistoryInfo {
     fn from(v: kite_app::HistoryStatus) -> Self {
         Self {
@@ -544,6 +582,8 @@ fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CoreSnapshot {
+    pub notification_revision: u64,
+    pub notification_problem: Option<String>,
     pub revision: u64,
     pub initialized: bool,
     pub device_key: Option<DeviceKeyInfo>,
@@ -582,6 +622,8 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
         Self {
             revision: s.revision,
             initialized: s.initialized,
+            notification_revision: s.notification_revision,
+            notification_problem: s.notification_problem,
             device_key: s.key.map(|k| DeviceKeyInfo {
                 public_key_openssh: k.public_key,
                 fingerprint: k.fingerprint,
@@ -783,6 +825,64 @@ impl KiteCore {
     }
     pub fn snapshot(&self) -> Result<CoreSnapshot, KiteError> {
         Ok(self.inner.snapshot().into())
+    }
+    pub async fn register_push(
+        &self,
+        device_id: String,
+        token: Option<String>,
+        project_id: String,
+    ) -> Result<bool, KiteError> {
+        self.inner
+            .register_push(device_id, token, project_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn receive_push(
+        &self,
+        id: String,
+        kind: AgentNoticeKind,
+        session_id: String,
+        created_ms: i64,
+    ) -> Result<AgentNoticeInfo, KiteError> {
+        let kind = match kind {
+            AgentNoticeKind::Completed => kite_app::AgentNoticeKind::Completed,
+            AgentNoticeKind::Attention => kite_app::AgentNoticeKind::Attention,
+            AgentNoticeKind::Question => kite_app::AgentNoticeKind::Question,
+            AgentNoticeKind::Failed => kite_app::AgentNoticeKind::Failed,
+        };
+        self.inner
+            .receive_push(id, kind, session_id, created_ms)
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+    pub fn notifications(&self) -> Vec<AgentNoticeInfo> {
+        self.inner
+            .notifications()
+            .into_iter()
+            .map(Into::into)
+            .collect()
+    }
+    pub fn notification_host(&self, id: String) -> Result<String, KiteError> {
+        self.inner.notification_host(&id).map_err(Into::into)
+    }
+    pub async fn load_notification(&self, id: String) -> Result<AgentNoticeInfo, KiteError> {
+        self.inner
+            .load_notification(id)
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+    pub async fn acknowledge_notification(
+        &self,
+        id: String,
+        read: bool,
+        alerted: bool,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .acknowledge_notification(id, read, alerted)
+            .await
+            .map_err(Into::into)
     }
     pub async fn save_host(&self, host: HostRecord) -> Result<String, KiteError> {
         self.inner.save_host(host.into()).await.map_err(Into::into)

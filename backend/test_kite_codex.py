@@ -257,6 +257,26 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(received, [{"id": 1, "method": "initialize"}])
             self.assertEqual(json.loads(output.getvalue()), {"id": 1, "result": {}})
 
+    def test_notification_scan_excludes_archived_pending_and_unowned_sessions(self):
+        reference=dict(agent="codex",kind="id",value="01234567-0123-0123-0123-0123456789ab")
+        records=[dict(id="active",title="project",reference=reference),dict(id="archived",title="old",reference=reference,archived=True),dict(id="pending",title="pending",reference=None,terminal_id="pending"),dict(id="missing",title="missing",reference=None,terminal_id="missing")]
+        agent=dict(reference=reference,terminal_id="terminal",pane_id="pane",agent_status="working",state_change_seq=2)
+        with patch.object(backend,"api",return_value=dict(agents=[agent,dict(terminal_id="pending",launch_pending=True)])) as api,patch.object(backend,"catalog_read",return_value=dict(sessions=records)),patch.object(backend,"same_reference",side_effect=lambda a,r:a.get("reference") is not None and a.get("reference")==r.get("reference")):
+            result=json.loads(backend.notification_facts("herdr"))
+        self.assertEqual([row["session_id"] for row in result["facts"]],["active"])
+        self.assertTrue(result["facts"][0]["lifecycle"])
+        api.assert_called_once_with("herdr","agent.list",{})
+
+    def test_control_index_retains_only_latest_terminal_fact_without_model_message_body(self):
+        with tempfile.TemporaryDirectory() as temporary,patch.object(backend.Path,"home",return_value=Path(temporary)):
+            file=Path(temporary)/"thread.jsonl"
+            file.write_text("".join(json.dumps(dict(type="event_msg",payload=dict(type="task_complete",turn_id=str(i),last_agent_message="private answer")))+"\n" for i in range(400)))
+            records=backend.question_records(file)
+            self.assertEqual(len(records.splitlines()),1)
+            self.assertEqual(json.loads(records)["payload"],dict(type="task_complete",turn_id="399"))
+            self.assertNotIn(b"private answer",records)
+            self.assertEqual(backend.question_records(file),records)
+
 
 if __name__ == "__main__":
     unittest.main()

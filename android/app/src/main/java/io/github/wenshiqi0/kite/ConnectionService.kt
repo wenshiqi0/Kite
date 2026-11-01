@@ -23,7 +23,7 @@ class ConnectionService : Service() {
 
     private fun promote() {
         val type = if (Build.VERSION.SDK_INT >= 29) {
-            if (video) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            if (video) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         } else 0
         ServiceCompat.startForeground(this, 1, notification(), type)
     }

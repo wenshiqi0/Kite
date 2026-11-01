@@ -10,6 +10,9 @@ jna = "5.19.1"
 junit = "4.13.2"
 markwon = "4.6.2"
 testRunner = "1.7.0"
+firebaseMessaging = "26.0.1"
+playServicesBase = "18.9.0"
+fragment = "1.9.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -27,6 +30,10 @@ markwon-tables = { module = "io.noties.markwon:ext-tables", version.ref = "markw
 markwon-strikethrough = { module = "io.noties.markwon:ext-strikethrough", version.ref = "markwon" }
 markwon-tasklist = { module = "io.noties.markwon:ext-tasklist", version.ref = "markwon" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "testRunner" }
+
+play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "playServicesBase" }
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebaseMessaging" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

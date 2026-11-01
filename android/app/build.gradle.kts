@@ -31,6 +31,19 @@ android {
         }
         versionCode = appVersion.getProperty("versionCode").toInt()
         versionName = appVersion.getProperty("versionName")
+        // Firebase's Android client configuration is public. Service-account keys never enter this build.
+        val firebaseConfig=providers.environmentVariable("KITE_FIREBASE_CONFIG_JSON").orNull
+        if(!firebaseConfig.isNullOrBlank()) {
+            val config=groovy.json.JsonSlurper().parseText(firebaseConfig) as Map<*,*>
+            val project=config["project_info"] as Map<*,*>
+            val client=(config["client"] as List<*>).map{it as Map<*,*>}.single {
+                ((it["client_info"] as Map<*,*>)["android_client_info"] as Map<*,*>)["package_name"]=="io.github.wenshiqi0.kite"
+            }
+            resValue("string","google_app_id",(client["client_info"] as Map<*,*>)["mobilesdk_app_id"].toString())
+            resValue("string","gcm_defaultSenderId",project["project_number"].toString())
+            resValue("string","project_id",project["project_id"].toString())
+            resValue("string","google_api_key",((client["api_key"] as List<*>).first() as Map<*,*>)["current_key"].toString())
+        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += rustAbis.get()
@@ -57,6 +70,9 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    implementation(libs.firebase.messaging)
+    implementation(libs.play.services.base)
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

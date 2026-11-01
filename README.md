@@ -33,6 +33,7 @@ The [desktop product](docs/desktop.md) targets both client and host roles on Lin
 ## Documentation
 
 - [Host setup and troubleshooting](docs/backend-setup.md)
+- [Agent notifications and system push setup](docs/notifications.md)
 - [Desktop client and host](docs/desktop.md)
 - [Implementation status and next stages](docs/implementation-plan.md)
 - [Build and development](docs/development.md)

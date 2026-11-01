@@ -28,6 +28,12 @@ import io.github.wenshiqi0.kite.media.DesktopInput
 import io.github.wenshiqi0.kite.media.PointerMotion
 import io.github.wenshiqi0.kite.core.ClipboardPlatformInfo
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 
 enum class DesktopLayout { Closed, Floating, Docked, Split, Fullscreen }
 
@@ -93,6 +99,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     private val agentDrafts = mutableMapOf<String, String>()
     private val sendingAgents = androidx.compose.runtime.mutableStateListOf<String>()
     private var loaded = false
+    private var notificationRoute: Job? = null
+    private var noticeRouteSerial=0L
     private var foreground = true
     var localError by mutableStateOf<String?>(null)
         private set
@@ -105,7 +113,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     val saved = state.hosts.find { it.id == state.selectedHost } ?: state.hosts.firstOrNull()
                     if (saved == null) settingsVisible = true else {
                         form = saved.toForm()
-                        if (state.connection == ConnectionStatus.DISCONNECTED) connect()
+                        if (state.connection == ConnectionStatus.DISCONNECTED && !engine.notificationNavigationActive) connect()
                     }
                 }
                 if (state != null) {
@@ -143,6 +151,41 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun updateForm(value: HostForm) { form = value }
+    fun openAgentNotification(id: String) {
+        if(engine.stagedNoticeId==id&&notificationRoute?.isActive==true)return
+        notificationRoute?.cancel()
+        val serial=++noticeRouteSerial
+        engine.stageNotification(id)
+        notificationRoute = viewModelScope.launch {
+            try {
+                withTimeout(180_000) {
+                    val initial=engine.state.filterNotNull().first{it.initialized}
+                    val host=engine.core.notificationHost(id)
+                    form=initial.hosts.first{it.id==host}.toForm()
+                    if(showDesktop)closeDesktop()
+                    autoDesktop=false
+                    if(initial.selectedHost!=host||initial.connection!=ConnectionStatus.CONNECTED){
+                        engine.ensureForeground()
+                        engine.core.connect(host)
+                    }
+                    val connected=engine.state.filterNotNull().first{
+                        it.selectedHost==host&&(it.connection==ConnectionStatus.CONNECTED||it.connection==ConnectionStatus.FAILED)
+                    }
+                    check(connected.connection==ConnectionStatus.CONNECTED){getApplication<Application>().getString(R.string.notice_connect_failed)}
+                    val notice=engine.core.loadNotification(id)
+                    engine.core.openSession(notice.sessionId)
+                    engine.core.acknowledgeNotification(id,true,true)
+                    engine.agentNotifications.cancel(id)
+                    settingsVisible=false;hostEditorVisible=false
+                }
+            } catch(e:TimeoutCancellationException){localError=getApplication<Application>().getString(R.string.notice_open_failed)}
+            catch(e:CancellationException){throw e}
+            catch(e:Exception){localError=getApplication<Application>().getString(R.string.notice_open_failed)+"\n"+(e.message?:e.javaClass.simpleName)}
+            finally {
+                if(noticeRouteSerial==serial){engine.stagedNoticeId=null;engine.notificationNavigationActive=false;engine.refreshAgentNotifications()}
+            }
+        }
+    }
     fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
     fun newHost() {
         clearLocalError();form=HostForm();hostEditorVisible=true;settingsVisible=true

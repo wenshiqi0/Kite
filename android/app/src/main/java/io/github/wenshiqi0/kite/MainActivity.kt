@@ -12,6 +12,11 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import io.github.wenshiqi0.kite.core.ConnectionStatus
+import io.github.wenshiqi0.kite.data.AgentNotifications
 import androidx.compose.runtime.SideEffect
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -27,11 +32,26 @@ class MainActivity : ComponentActivity() {
     private var enteringPip = false
     private var started = false
     private val handler = Handler(Looper.getMainLooper())
+    private val noticePermission=registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        (application as KiteApplication).engine.let{it.refreshAgentNotifications();it.systemPush.refresh()}
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val engine=(application as KiteApplication).engine
+        (savedInstanceState?.getString(AgentNotifications.ID)?:AgentNotifications.target(intent))?.let(engine::stageNotification)
+        intent.removeExtra(AgentNotifications.ID)
         model = ViewModelProvider(this)[HostCheckViewModel::class.java]
+        engine.stagedNoticeId?.let(model::openAgentNotification)
+        lifecycleScope.launch {
+            engine.state.collect { state ->
+                if(started&&state?.connection==ConnectionStatus.CONNECTED&&engine.agentNotifications.shouldAskPermission()) {
+                    engine.agentNotifications.permissionAsked()
+                    noticePermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
         setContent {
             KiteTheme {
                 val immersive = model.layout == DesktopLayout.Fullscreen
@@ -55,9 +75,16 @@ class MainActivity : ComponentActivity() {
         model.engine.state.value?.desktop?.status == DesktopStatus.STREAMING &&
         packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
+    override fun onSaveInstanceState(outState:Bundle){
+        (application as KiteApplication).engine.stagedNoticeId?.let{outState.putString(AgentNotifications.ID,it)}
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        AgentNotifications.target(intent)?.let(model::openAgentNotification)
+        intent.removeExtra(AgentNotifications.ID)
         refreshPipParams()
     }
 
@@ -103,17 +130,19 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         enteringPip = false
         model.setPip(isInPictureInPictureMode)
+        model.engine.visible(started&&!isInPictureInPictureMode)
         if (!isInPictureInPictureMode && started) model.onForeground()
     }
 
     override fun onStart() {
         super.onStart()
         started = true
-        if (::model.isInitialized) model.onForeground()
+        if (::model.isInitialized) {model.engine.visible(!isInPictureInPictureMode);model.onForeground()}
     }
 
     override fun onStop() {
         started = false
+        if(::model.isInitialized)model.engine.visible(false)
         if (!isChangingConfigurations && ::model.isInitialized) {
             model.onBackground(isInPictureInPictureMode || enteringPip)
             if (enteringPip) handler.postDelayed({

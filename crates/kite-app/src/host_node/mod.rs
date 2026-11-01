@@ -22,6 +22,8 @@ use tokio::{
 
 mod bridge;
 mod mcp;
+mod notifications;
+mod push;
 mod wire;
 pub type Result<T> = std::result::Result<T, Error>;
 pub const API: u64 = 1;
@@ -65,6 +67,8 @@ pub struct Config {
     pub herdr: PathBuf,
     pub python: PathBuf,
     pub systemctl: PathBuf,
+    #[serde(default)]
+    pub push_service_account: Option<PathBuf>,
     pub services: Vec<Service>,
     #[serde(default)]
     pub environment: BTreeMap<String, String>,
@@ -78,6 +82,10 @@ impl Config {
             || !self.herdr.is_absolute()
             || !self.python.is_absolute()
             || !self.systemctl.is_absolute()
+            || self
+                .push_service_account
+                .as_ref()
+                .is_some_and(|path| !path.is_absolute())
         {
             return Err(Error::Config("absolute paths and node identity required"));
         }
@@ -132,6 +140,10 @@ struct Node {
     requests: AtomicU64,
     backend_calls: AtomicU64,
     permits: Arc<Semaphore>,
+    notifications: Option<notifications::Journal>,
+    push: Option<push::Push>,
+    notification_problem: Option<String>,
+    push_problem: Option<String>,
 }
 
 pub fn run(mut args: Vec<String>) -> Result<i32> {
@@ -188,11 +200,26 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 )
                 .await
             }
+            "push-register" => {
+                if args.len() != 1 {
+                    return Err(Error::Config("push registration uses stdin only"));
+                }
+                let mut request = NodeRequest::new("push-register");
+                request.params = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    read_json(&mut BufReader::new(tokio::io::stdin())),
+                )
+                .await
+                .map_err(|_| Error::Protocol("push registration input timed out"))??;
+                println!("{}", rpc(&socket, request).await?);
+                Ok(0)
+            }
             "mcp" => {
                 mcp::serve(&socket).await?;
                 Ok(0)
             }
-            "status" | "api-version" | "sessions" | "ensure" => {
+            "status" | "api-version" | "sessions" | "ensure" | "notifications"
+            | "notification-get" => {
                 let method = if command == "api-version" {
                     "status"
                 } else {
@@ -202,6 +229,19 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 if command == "ensure" {
                     request.params =
                         json!({"service":args.get(1).map(String::as_str).unwrap_or("all")});
+                }
+                if command == "notifications" {
+                    if args.len() == 3 && args[1] == "--after" {
+                        request.params = json!({"after":args[2]});
+                    } else if args.len() != 1 {
+                        return Err(Error::Config("notifications accepts only --after CURSOR"));
+                    }
+                }
+                if command == "notification-get" {
+                    if args.len() != 2 {
+                        return Err(Error::Config("notification-get requires ID"));
+                    }
+                    request.params = json!({"id":args[1]});
                 }
                 println!("{}", rpc(&socket, request).await?);
                 Ok(0)
@@ -312,15 +352,35 @@ async fn serve(config: Config) -> Result<()> {
     fs::write(&pending, kite_agent::composer::BACKEND_SOURCE)?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, &config.backend)?;
+    let push_backend = config.backend.with_file_name("push-v1.py");
+    let pending = push_backend.with_extension("pending");
+    fs::write(&pending, include_str!("../../../../backend/kite_push.py"))?;
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
+    fs::rename(pending, push_backend)?;
     let listener = UnixListener::bind(&config.socket)?;
     fs::set_permissions(&config.socket, fs::Permissions::from_mode(0o600))?;
+    let (journal, notification_problem) =
+        match notifications::Journal::open(directory, &config.node_id) {
+            Ok(journal) => (Some(journal), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+    let (push, push_problem) = match push::Push::open(directory) {
+        Ok(push) => (Some(push), None),
+        Err(error) => (None, Some(error.to_string())),
+    };
     let node = Arc::new(Node {
         config,
         started: Instant::now(),
         requests: AtomicU64::new(0),
         backend_calls: AtomicU64::new(0),
         permits: Arc::new(Semaphore::new(64)),
+        notifications: journal,
+        push,
+        notification_problem,
+        push_problem,
     });
+    let _notification_watch = notifications::start(&node);
+    let _push_watch = push::start(&node);
     loop {
         let (stream, _) = listener.accept().await?;
         let permit = match node.permits.clone().try_acquire_owned() {
@@ -338,6 +398,16 @@ async fn serve(config: Config) -> Result<()> {
 }
 
 impl Node {
+    fn notification_journal(&self) -> Result<&notifications::Journal> {
+        self.notifications.as_ref().ok_or(Error::Protocol(
+            "notification journal unavailable; existing file preserved",
+        ))
+    }
+    fn push_registry(&self) -> Result<&push::Push> {
+        self.push.as_ref().ok_or(Error::Protocol(
+            "push registry unavailable; existing file preserved",
+        ))
+    }
     async fn connection(&self, stream: UnixStream) -> Result<()> {
         let (read, mut write) = stream.into_split();
         let mut read = BufReader::new(read);
@@ -383,6 +453,19 @@ impl Node {
     }
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
         match request.method.as_str() {
+            "push-register" => self.push_registry()?.register(
+                &request.params,
+                self.notification_journal()?.page(None)?.cursor,
+                self.config.push_service_account.is_some(),
+            ),
+            "notification-get" => Ok(serde_json::to_value(
+                self.notification_journal()?
+                    .event(request.params["id"].as_str().unwrap_or_default())?,
+            )?),
+            "notifications" => Ok(serde_json::to_value(
+                self.notification_journal()?
+                    .page(request.params["after"].as_str())?,
+            )?),
             "status" => {
                 let mut services = vec![];
                 for service in &self.config.services {
@@ -394,7 +477,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"services":services}),
+                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {
@@ -585,6 +668,7 @@ mod tests {
             herdr: PathBuf::from("/bin/sh"),
             python: PathBuf::from("/usr/bin/python3"),
             systemctl: PathBuf::from("/usr/bin/false"),
+            push_service_account: None,
             services: vec![],
             environment: BTreeMap::new(),
         }

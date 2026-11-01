@@ -6,6 +6,7 @@ pub mod async_input;
 pub mod composer;
 pub mod history;
 pub mod interaction;
+pub mod notifications;
 pub mod process;
 pub mod sessions;
 pub mod usage;

@@ -115,6 +115,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var remoteKeyboard by remember { mutableStateOf(false) }
     var modelSettings by remember { mutableStateOf(false) }
     var usageDialog by remember { mutableStateOf(false) }
+    var noticeCenter by remember { mutableStateOf(false) }
     val videoReference=remember { mutableStateOf<VideoSurface?>(null) }
     var videoArea by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var mouseBounds by remember { mutableStateOf(emptyList<androidx.compose.ui.geometry.Rect>()) }
@@ -286,6 +287,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(if (session.archived) R.string.restore_session else R.string.archive_session)) }, onClick = { tools = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = agent != null)
+                            DropdownMenuItem(text={Text(stringResource(R.string.notice_center))},onClick={tools=false;noticeCenter=true;vm.engine.refreshAgentNotifications()})
                             DropdownMenuItem(text = { Text(stringResource(R.string.connection_diagnostics)) }, onClick = { tools = false; diagnostics = true })
                             DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.settingsVisible = true })
                         }
@@ -546,6 +548,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             }
         }
     }
+    if(noticeCenter&&!hideChrome)AgentNotificationCenter(vm,onOpen={id->noticeCenter=false;vm.openAgentNotification(id)},onClose={noticeCenter=false})
     if(modelSettings&&!hideChrome)AlertDialog(onDismissRequest={modelSettings=false},title={Text(stringResource(R.string.chat_model_settings))},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
         ComposerSettings(vm,state?.agents?.find{it.id==state.selectedAgent},state?.composer)
         AccountUsageAccess(state?.composer?.usage){modelSettings=false;usageDialog=true;vm.refreshUsage()}

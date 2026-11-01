@@ -25,10 +25,51 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import io.github.wenshiqi0.kite.ui.ChatTimelineState
+import io.github.wenshiqi0.kite.core.AgentNoticeInfo
 import java.io.File
 
 /** One process-wide Core and observer; no Activity-owned domain state. */
 class CoreController(private val context: Context) {
+    val agentNotifications=AgentNotifications(context)
+    val systemPush=SystemPush(context,this)
+    val notificationInbox=MutableStateFlow<List<AgentNoticeInfo>>(emptyList())
+    var notificationNavigationActive by androidx.compose.runtime.mutableStateOf(false)
+    var stagedNoticeId:String?=null
+    @Volatile private var visible=false
+    private var noticeRevision:ULong?=null
+    private var refreshingNotices=false
+    private var refreshNoticesAgain=false
+    fun visible(value:Boolean){visible=value;if(value){refreshAgentNotifications();systemPush.refresh()}}
+    fun stageNotification(id:String){stagedNoticeId=id;notificationNavigationActive=true}
+    fun enableAgentNotifications(value:Boolean){agentNotifications.enable(value);systemPush.enabledChanged(value);refreshAgentNotifications()}
+    fun refreshAgentNotifications(){
+        if(current.value?.initialized!=true)return
+        if(refreshingNotices){refreshNoticesAgain=true;return}
+        refreshingNotices=true
+        command{
+          try {
+            val notices=withContext(Dispatchers.Default){core.notifications()};notificationInbox.value=notices
+            val latest=notices.distinctBy{it.hostId to it.sessionId}.map{it.id}.toSet()
+            for(notice in notices) {
+                val state=current.value?:break
+                val reading=visible&&!notificationNavigationActive&&state.selectedHost==notice.hostId&&state?.selectedSession==notice.sessionId
+                if(reading&&!notice.read){core.acknowledgeNotification(notice.id,true,true);agentNotifications.cancel(notice.id)}
+                else if(!notice.alerted){
+                    if(notice.read||notice.id !in latest||System.currentTimeMillis()-notice.createdMs>3_600_000)core.acknowledgeNotification(notice.id,notice.read,true)
+                    else presentNotice(notice)
+                }
+            }
+          } finally { refreshingNotices=false;if(refreshNoticesAgain){refreshNoticesAgain=false;refreshAgentNotifications()} }
+        }
+    }
+    suspend fun presentNotice(notice:AgentNoticeInfo) {
+        val state=current.value
+        val reading=visible&&!notificationNavigationActive&&state?.selectedHost==notice.hostId&&state?.selectedSession==notice.sessionId
+        if(reading||notice.read){core.acknowledgeNotification(notice.id,true,true);agentNotifications.cancel(notice.id)}
+        else if(!notice.alerted){
+            if(System.currentTimeMillis()-notice.createdMs>3_600_000||agentNotifications.deliver(notice))core.acknowledgeNotification(notice.id,false,true)
+        }
+    }
     private val audioPreferences=context.getSharedPreferences("desktop-audio",Context.MODE_PRIVATE)
     var desktopAudioEnabled by androidx.compose.runtime.mutableStateOf(audioPreferences.getBoolean("enabled",true))
         private set
@@ -57,7 +98,10 @@ class CoreController(private val context: Context) {
                 if (lastRevision == null || snapshot.revision > lastRevision!!) {
                     lastRevision = snapshot.revision
                     timeline.prepareContext(snapshot.conversationContext)
+                    val previous=current.value
                     current.value = snapshot
+                    if(snapshot.initialized)systemPush.refresh()
+                    if(snapshot.initialized&&(noticeRevision!=snapshot.notificationRevision||previous?.selectedHost!=snapshot.selectedHost||previous?.selectedSession!=snapshot.selectedSession)){noticeRevision=snapshot.notificationRevision;refreshAgentNotifications()}
                     val requested=snapshot.conversationContext to snapshot.conversationRevision
                     if(requestedConversation!=requested){requestedConversation=requested;conversationRequests.trySend(Unit)}
                     refreshForeground(snapshot)
@@ -67,6 +111,7 @@ class CoreController(private val context: Context) {
     })
 
     init {
+        scope.launch{while(true){kotlinx.coroutines.delay(30_000);systemPush.refresh()}}
         scope.launch {
             for(signal in conversationRequests) {
                 val requestContext=timeline.appliedContext

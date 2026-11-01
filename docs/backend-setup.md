@@ -6,6 +6,8 @@ Kite connects to the [Linux desktop host node](linux-desktop.md). SSH authentica
 
 This guide covers the current Android Alpha's supported host path: **Linux with an active X11 desktop**, with SSH, herdr and Sunshine running as the same user. Automatic capture-size discovery currently requires Linux `/proc`, `ss` and `xrandr`. Wayland, Windows and macOS host discovery are not implemented in this Alpha, even where upstream herdr or Sunshine support them.
 
+Agent completion, attention and question notifications use the matching Node event journal. Background system push additionally requires Firebase/Google Play services and private sender configuration; see [Agent notifications](notifications.md).
+
 ## First connection from your phone
 
 For Alpha 17+, install and enable the matching [Linux host package](linux-desktop.md) first. Existing keys, trust, profiles, pairing and provider records are retained. A missing Node is reported explicitly; the APK does not fall back to an earlier adapter.

@@ -616,10 +616,10 @@ def question_records(file):
     limit = 2 * 1024 * 1024
     with file_lock(cache.with_suffix(".lock")), source.open("rb") as stream:
         info = os.fstat(stream.fileno())
-        index = {"version": 2, "device": info.st_dev, "inode": info.st_ino, "offset": 0, "rows": []}
+        index = {"version": 3, "device": info.st_dev, "inode": info.st_ino, "offset": 0, "rows": []}
         try:
             saved = json.loads(cache.read_text())
-            if saved["version"] == 2 and saved["device"] == info.st_dev and saved["inode"] == info.st_ino and 0 <= saved["offset"] <= info.st_size:
+            if saved["version"] == 3 and saved["device"] == info.st_dev and saved["inode"] == info.st_ino and 0 <= saved["offset"] <= info.st_size:
                 index = saved
         except (OSError, ValueError, KeyError, TypeError):
             pass
@@ -635,16 +635,19 @@ def question_records(file):
                 break
             index["offset"] = stream.tell()
             changed = True
-            if line is None or not any(token in line for token in (b'"function_call"', b'"function_call_output"', b'"user"')):
+            if line is None or not any(token in line for token in (b'"function_call"', b'"function_call_output"', b'"user"', b'"task_complete"', b'"task_aborted"')):
                 continue
             try:
                 record = json.loads(line)
-                if not isinstance(record, dict) or record.get("type") != "response_item" or not isinstance(record.get("payload"), dict):
+                if not isinstance(record, dict) or record.get("type") not in ("response_item", "event_msg") or not isinstance(record.get("payload"), dict):
                     continue
                 payload = record["payload"]
                 kind = payload.get("type")
                 keep = False
-                if kind == "function_call" and payload.get("name") == "request_user_input_async" and payload.get("call_id"):
+                if record.get("type")=="event_msg" and kind in ("task_complete","task_aborted"):
+                    record={"type":"event_msg","payload":{"type":kind,"turn_id":str(payload.get("turn_id") or start)}}
+                    keep=True
+                elif kind == "function_call" and payload.get("name") == "request_user_input_async" and payload.get("call_id"):
                     calls.add(payload["call_id"])
                     keep = True
                 elif kind == "function_call_output" and payload.get("call_id") in calls:
@@ -667,7 +670,9 @@ def question_records(file):
         # are equivalent for question resolution; don't grow this control index
         # with the entire ordinary conversation.
         compact = []
-        for row in index["rows"]:
+        last_terminal=next((i for i in range(len(index["rows"])-1,-1,-1) if index["rows"][i].get("type")=="event_msg"),None)
+        for i,row in enumerate(index["rows"]):
+            if row.get("type")=="event_msg" and i!=last_terminal:continue
             ordinary = row.get("payload", {}).get("role") == "user" and row["payload"].get("content") == []
             if ordinary and compact and row == compact[-1]:
                 continue
@@ -792,10 +797,51 @@ def history_projection(file, output, before=None, after=None):
         output.write(b"kite-codex-history-v2\n" + str(len(controls)).encode() + b"\n" + controls + body)
 
 
+def notification_facts(binary):
+    """Return bounded host facts; transition and pending-question policy stays in Rust."""
+    agents = api(binary, "agent.list", {})["agents"]
+    result = []
+    for record in catalog_read()["sessions"]:
+        if record.get("archived"):
+            continue
+        agent = next((a for a in agents if same_reference(a, record) or
+                      (not record.get("reference") and a["terminal_id"] == record.get("terminal_id"))), None)
+        if agent is None or agent.get("launch_pending"):
+            continue
+        reference = record.get("reference") or {}
+        source = agent["terminal_id"] + ":" + hashlib.sha256(json.dumps(reference, sort_keys=True).encode()).hexdigest()
+        controls, known = "", True
+        if reference.get("agent") == "codex":
+            root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
+            try:
+                if reference.get("kind") == "id" and re.fullmatch(r"[a-f0-9-]{36}", reference.get("value", "")):
+                    sources = list(root.rglob("rollout-*-" + reference["value"] + ".jsonl"))
+                    if len(sources) > 1:
+                        raise ValueError("ambiguous source")
+                    file = sources[0] if sources else None
+                elif reference.get("kind") == "path":
+                    file = Path(reference["value"]).resolve(strict=True)
+                else:
+                    file = None
+                if file is not None:
+                    if not file.resolve().is_relative_to(root.resolve()) or file.suffix != ".jsonl":
+                        raise ValueError("invalid history source")
+                    controls = question_records(file).decode("utf-8")
+            except (OSError, ValueError, KeyError, RuntimeError):
+                known = False
+        result.append(dict(session_id=record["id"], title=record["title"][:160], source=source,
+                           status=agent["agent_status"], revision=agent.get("state_change_seq", 0),
+                           thread=reference.get("value", ""), controls=controls, controls_known=known, lifecycle=reference.get("agent")=="codex"))
+    output = json.dumps(dict(facts=result), ensure_ascii=False)
+    if len(output.encode()) > 4 * 1024 * 1024:
+        raise ValueError("notification facts exceed transport capacity")
+    return output
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -824,6 +870,8 @@ def main():
                 history_projection(args.file, output, args.before, args.after)
         else:
             history_projection(args.file, sys.stdout.buffer, args.before, args.after)
+    elif args.action == "notification-facts":
+        print(notification_facts(args.herdr))
     elif args.action == "catalog-read":
         print(json.dumps(catalog_read()))
     elif args.action == "catalog-write":

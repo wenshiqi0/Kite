@@ -300,4 +300,27 @@
     <string name="desktop_pairing">等待桌面配对</string>
     <string name="desktop_audio_mute">关闭桌面声音</string>
     <string name="desktop_audio_enable">打开桌面声音</string>
+    <string name="notice_attention_channel">Agent 需要处理</string>
+    <string name="notice_complete_channel">Agent 已完成</string>
+    <string name="notice_completed">本轮任务已完成</string>
+    <string name="notice_question">Agent 有问题需要你回答</string>
+    <string name="notice_attention">Agent 需要你处理</string>
+    <string name="notice_failed">本轮任务遇到问题</string>
+    <string name="notice_private">Agent 有新的通知，打开 Kite 查看</string>
+    <string name="notice_title">Agent 通知</string>
+    <string name="notice_center">通知</string>
+    <string name="notice_enabled">接收 Agent 通知</string>
+    <string name="notice_permission_missing">系统通知尚未允许</string>
+    <string name="notice_system_settings">系统通知设置</string>
+    <string name="notice_empty">暂无通知</string>
+    <string name="notice_open_failed">无法打开这条通知，请检查主机连接或在会话列表中查看。</string>
+    <string name="notice_connect_failed">通知对应的主机暂时无法连接</string>
+    <string name="notice_connecting">正在打开通知对应的会话…</string>
+    <string name="notice_push_unconfigured">系统推送尚未配置；当前仅在连接保持时接收。</string>
+    <string name="notice_push_ready">系统推送已注册</string>
+    <string name="notice_push_no_play">当前设备没有可用的 Google Play 服务，FCM 推送不可用。</string>
+    <string name="notice_push_registering">正在注册系统推送…</string>
+    <string name="notice_push_host_missing">手机已注册，主机尚未配置推送凭据。</string>
+    <string name="notice_push_retry">推送注册暂时失败，稍后自动重试。</string>
+    <string name="notice_push_disabled">通知已关闭</string>
 </resources>
