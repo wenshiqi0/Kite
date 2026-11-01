@@ -52,7 +52,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(providerLabel(session.provider), fontSize = 10.sp, color = KiteColors.Muted)
-                                SessionStatusBadge(sessionStatus(session.status, state?.connection == ConnectionStatus.CONNECTED))
+                                val status = if (selected && state?.question != null) "question" else if (selected && state?.approval != null) "blocked" else session.status
+                                SessionStatusBadge(sessionStatus(status, state?.connection == ConnectionStatus.CONNECTED))
                             }
                             Text(sessionTitle(session), fontSize = 14.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val subtitle = session.preview.ifBlank { stringResource(if (session.provider == "claude" && session.agentId == null) R.string.claude_not_connected else if (session.recorded) R.string.session_recorded else R.string.session_new_hint) }

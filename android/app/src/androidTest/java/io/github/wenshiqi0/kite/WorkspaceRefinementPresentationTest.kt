@@ -123,6 +123,14 @@ class WorkspaceRefinementPresentationTest {
         }
     }
 
+    @Test fun pendingQuestionsReplaceThinkingWithAnExplicitWaitingLabel() {
+        overlay({ResponseFeedback(responsePresentationPhase(ResponsePhase.THINKING,false,true,false),false)}) {
+            waitFor("Waiting for an answer"){find(text="等待你的回答")!=null}
+            assertNull(find(text="正在思考"))
+            screenshot("question-waiting-instead-of-thinking.png")
+        }
+    }
+
     @Test fun actualWorkspaceKeepsSmallDragsQuietAndComposerHasBottomSpace() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("qa_native_history")=="true")
         val activity=test.startActivitySync(Intent(test.targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
@@ -154,7 +162,7 @@ class WorkspaceRefinementPresentationTest {
             assertTrue(actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Latest hidden after streamed update"){find(description="回到最新消息")==null}
             test.waitForIdleSync();SystemClock.sleep(400)
-            gesture(chat,170*density)
+            gesture(chat,320*density)
             waitFor("Latest button after meaningful drag"){find(description="回到最新消息")!=null}
             val latest=actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK);assertTrue(latest.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Latest hidden after returning"){find(description="回到最新消息")==null}

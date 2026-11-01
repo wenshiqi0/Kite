@@ -19,11 +19,11 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.ResponsePhase
 
 @Composable
-fun ResponseFeedback(phase: ResponsePhase, sending: Boolean) {
+fun ResponseFeedback(phase: ResponsePhase, sending: Boolean, waitingForApproval: Boolean = false) {
     val current = if (sending && phase == ResponsePhase.IDLE) ResponsePhase.SENDING else phase
-    val label = when (current) { ResponsePhase.SENDING -> R.string.response_sending; ResponsePhase.THINKING -> R.string.response_thinking; ResponsePhase.TOOL -> R.string.response_tools; ResponsePhase.RESPONDING -> R.string.response_replying; ResponsePhase.FAILED -> R.string.response_failed; else -> return }
+    val label = when (current) { ResponsePhase.SENDING -> R.string.response_sending; ResponsePhase.THINKING -> R.string.response_thinking; ResponsePhase.TOOL -> R.string.response_tools; ResponsePhase.RESPONDING -> R.string.response_replying; ResponsePhase.FAILED -> R.string.response_failed; ResponsePhase.WAITING -> if (waitingForApproval) R.string.response_waiting_approval else R.string.response_waiting_answer; else -> return }
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (current != ResponsePhase.FAILED) {
+        if (current != ResponsePhase.FAILED && current != ResponsePhase.WAITING) {
             val transition = rememberInfiniteTransition(label = "response feedback")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(3) { index ->
@@ -33,6 +33,6 @@ fun ResponseFeedback(phase: ResponsePhase, sending: Boolean) {
             }
             Spacer(Modifier.width(10.dp))
         }
-        Text(stringResource(label), color = KiteColors.Muted, fontSize = 12.sp)
+        Text(stringResource(label), color = if (current == ResponsePhase.WAITING) KiteColors.Warning else KiteColors.Muted, fontSize = 12.sp)
     }
 }

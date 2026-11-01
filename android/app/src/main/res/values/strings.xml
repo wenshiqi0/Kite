@@ -335,4 +335,6 @@
     <string name="generated_image_save">保存图片</string>
     <string name="generated_image_saved">图片已保存</string>
     <string name="generated_image_save_failed">图片保存失败</string>
+    <string name="response_waiting_answer">等待你的回答</string>
+    <string name="response_waiting_approval">等待你的确认</string>
 </resources>

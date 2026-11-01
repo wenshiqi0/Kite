@@ -87,7 +87,8 @@ private val Amber = KiteColors.Warning
 fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () -> Unit) {
     val current by vm.engine.state.collectAsState()
     val state = current
-    val responseInProgress = state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING)
+    val presentationPhase = responsePresentationPhase(state?.responsePhase ?: ResponsePhase.IDLE, vm.sending, state?.question != null, state?.approval != null)
+    val responseInProgress = presentationPhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING)
     val currentSession = state?.sessions?.find { it.id == state.selectedSession }
     val context = LocalContext.current
     val voiceUnavailable = stringResource(R.string.voice_unavailable)
@@ -152,21 +153,21 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     fun pauseHistory(){followTail=false}
     fun jumpToLatest(){tailMargin.reset();latestVisible=false;followTail=true}
     LaunchedEffect(draggingHistory){if(draggingHistory)followTail=false}
-    LaunchedEffect(conversationContext,chatScroll){
+    LaunchedEffect(conversationContext,chatScroll,inputDensity.density){
         snapshotFlow{
             val layout=chatScroll.layoutInfo
-            val last=layout.visibleItemsInfo.lastOrNull()
-            val gap=last?.let{item->
-                val lower=(item.offset+item.size+layout.afterContentPadding-layout.viewportEndOffset)/inputDensity.density
-                if(item.index>=layout.totalItemsCount-2){
-                    val trailing=if(item.index==layout.totalItemsCount-2)16f else 0f
-                    (lower+trailing).coerceAtLeast(0f)
-                }else lower.takeIf{it>=ChatTailMargin.SHOW_DP}
+            val measurement=layout.visibleItemsInfo.lastOrNull()?.let{item->
+                chatTailMeasurement(item.index,layout.totalItemsCount,
+                    (item.offset.toFloat()+item.size)/inputDensity.density,
+                    layout.viewportEndOffset/inputDensity.density,
+                    layout.afterContentPadding/inputDensity.density)
             }
-            Triple(chatScroll.isScrollInProgress,chatScroll.canScrollForward,gap)
-        }.collectLatest{(scrolling,canForward,gap)->
-            if(gap!=null)tailMargin.observe(gap)
-            if(!scrolling&&!canForward&&entries.isNotEmpty()){followTail=true;tailMargin.reset()}
+            Triple(chatScroll.isScrollInProgress,chatScroll.canScrollForward,measurement)
+        }.collectLatest{(scrolling,canForward,measurement)->
+            if(measurement!=null)tailMargin.observe(measurement)
+            if(measurement?.canResumeFollow(scrolling,canForward)==true&&entries.isNotEmpty()){
+                followTail=true;tailMargin.reset()
+            }
             latestVisible=tailMargin.visible
         }
     }
@@ -274,7 +275,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if(state?.history?.loading==true)CircularProgressIndicator(Modifier.padding(end=8.dp).size(14.dp),strokeWidth=1.5.dp,color=Muted)
                     if(state?.history?.failed==true)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试同步",fontSize=11.sp)}
-                    if (agent != null) { StatusDot(if (state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)) }
+                    if (agent != null) { StatusDot(if (state.question != null || state.approval != null || state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)) }
                     if(split&&state!=null)DesktopModeSwitch(takeover,state.desktop.status==DesktopStatus.STREAMING,vm::takeOver)
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
@@ -323,7 +324,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         followTail=false
                         do {val event=awaitPointerEvent(PointerEventPass.Initial)}while(event.changes.any{it.pressed})
                     }
-                }, state = chatScroll, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                }, state = chatScroll, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(CHAT_ROW_SPACING_DP.dp)) {
                     if (state?.failure?.kind == FailureKind.AGENT_START) item {
                         Surface(color = KiteColors.WarningSurface, shape = RoundedCornerShape(16.dp)) {
                             Column(Modifier.padding(16.dp)) {
@@ -351,11 +352,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     } }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
-                    if (state?.connection == ConnectionStatus.CONNECTED && (vm.sending || state.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.FAILED))) item(key = "response-feedback") { ResponseFeedback(state.responsePhase, vm.sending) }
+                    if (state?.connection == ConnectionStatus.CONNECTED && presentationPhase != ResponsePhase.IDLE) item(key = "response-feedback") { ResponseFeedback(presentationPhase, vm.sending, waitingForApproval = state.question == null && state.approval != null) }
                     if (agent?.status == "blocked" && state?.approval == null && state?.question == null && !responseInProgress) item {
                         TextButton(onClick = { terminal = true }) { Text(stringResource(R.string.agent_waiting_open_terminal), color = KiteColors.Warning) }
                     }
-                    item { Spacer(Modifier.height(8.dp)) }
+                    item(key = "conversation-tail") { Spacer(Modifier.height(CHAT_TAIL_SPACER_DP.dp)) }
                 }
                 if(entries.isEmpty()&&state?.selectedSession!=null&&state.question==null&&state.approval==null&&(state.history.loading||state.history.failed||state.history.waiting)){
                     Column(Modifier.align(Alignment.Center).padding(24.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
