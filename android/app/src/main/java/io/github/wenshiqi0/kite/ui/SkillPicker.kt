@@ -33,7 +33,7 @@ fun SkillPicker(
     var query by remember { mutableStateOf("") }
     val skills = remember(draft.available, query) {
         val search = query.trim()
-        draft.available.filter { it.name.contains(search, ignoreCase = true) || it.description.contains(search, ignoreCase = true) }
+        draft.available.filter { it.matchesSearch(search) }
     }
     val selected = draft.selected.map { it.path }.toSet()
     AlertDialog(
@@ -68,9 +68,9 @@ fun SkillPicker(
                         ) {
                             Checkbox(checked = skill.path in selected, onCheckedChange = null, modifier = Modifier.padding(end = 10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(skill.name, style = MaterialTheme.typography.titleSmall)
+                                Text(skill.presentationName, style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    if (skill.description.isBlank()) stringResource(R.string.skills_no_description) else skill.description,
+                                    skill.presentationDescription.ifBlank { stringResource(R.string.skills_no_description) },
                                     color = KiteColors.Muted, fontSize = 12.sp,
                                     maxLines = 3, overflow = TextOverflow.Ellipsis,
                                 )
@@ -94,10 +94,10 @@ fun SkillDrafts(skills: List<ChatSkillInfo>, enabled: Boolean, remove: (ChatSkil
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         skills.forEach { skill ->
-            val removeDescription = stringResource(R.string.skills_remove, skill.name)
+            val removeDescription = stringResource(R.string.skills_remove, skill.presentationName)
             InputChip(
                 selected = true, onClick = { remove(skill) }, enabled = enabled,
-                label = { Text(skill.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp)) },
+                label = { Text(skill.presentationName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp)) },
                 leadingIcon = { ProductIcon(Mark.Skill, modifier = Modifier.size(16.dp)) },
                 trailingIcon = { ProductIcon(Mark.Close, modifier = Modifier.size(14.dp)) },
                 modifier = Modifier.semantics { contentDescription = removeDescription },

@@ -313,6 +313,8 @@ pub struct ChatSkillInfo {
     pub name: String,
     pub description: String,
     pub path: String,
+    pub display_name: Option<String>,
+    pub short_description: Option<String>,
 }
 impl From<kite_app::ChatSkill> for ChatSkillInfo {
     fn from(s: kite_app::ChatSkill) -> Self {
@@ -320,6 +322,8 @@ impl From<kite_app::ChatSkill> for ChatSkillInfo {
             name: s.name,
             description: s.description,
             path: s.path,
+            display_name: s.display_name,
+            short_description: s.short_description,
         }
     }
 }

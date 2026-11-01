@@ -9,6 +9,8 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub path: String,
+    pub display_name: Option<String>,
+    pub short_description: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -86,6 +88,15 @@ struct Metadata {
     description: String,
     path: String,
     enabled: bool,
+    interface: Option<Interface>,
+    #[serde(rename = "shortDescription")]
+    short_description: Option<String>,
+}
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Interface {
+    display_name: Option<String>,
+    short_description: Option<String>,
 }
 #[derive(Deserialize)]
 struct SkillError {
@@ -113,13 +124,25 @@ fn decode(response: Value, cwd: &str) -> Result<(Vec<Skill>, String), Error> {
                 && !s.path.chars().any(char::is_control)
                 && paths.insert(s.path.clone())
         })
-        .map(|s| Skill {
-            name: s.name,
-            description: s.description,
-            path: s.path,
+        .map(|s| {
+            let interface = s.interface.unwrap_or_default();
+            Skill {
+                name: s.name,
+                description: s.description,
+                path: s.path,
+                display_name: non_blank(interface.display_name),
+                short_description: non_blank(interface.short_description)
+                    .or_else(|| non_blank(s.short_description)),
+            }
         })
         .collect();
-    skills.sort_by_cached_key(|s| (s.name.to_lowercase(), s.path.clone()));
+    skills.sort_by_cached_key(|s| {
+        (
+            s.display_name.as_deref().unwrap_or(&s.name).to_lowercase(),
+            s.name.clone(),
+            s.path.clone(),
+        )
+    });
     let details = entry
         .errors
         .into_iter()
@@ -128,6 +151,10 @@ fn decode(response: Value, cwd: &str) -> Result<(Vec<Skill>, String), Error> {
         .collect::<Vec<_>>()
         .join("\n");
     Ok((skills, details))
+}
+
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.filter(|s| !s.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -139,7 +166,47 @@ mod tests {
             name: name.into(),
             description: format!("Use {name}"),
             path: format!("/skills/{name}/SKILL.md"),
+            display_name: None,
+            short_description: None,
         }
+    }
+
+    #[test]
+    fn catalog_preserves_interface_metadata_and_machine_identity() {
+        let machine_name = "app-69312da8e4dc81919370cb86fd172b6c:adobe-batch-edit-photos";
+        let response = json!({"data":[{"cwd":"/project","errors":[],"skills":[
+            {"name":machine_name,"description":"Long model trigger instructions","path":"/skills/photos/SKILL.md","enabled":true,
+             "interface":{"displayName":"Batch edit photos","shortDescription":"Apply a consistent look to photos"},"shortDescription":"Legacy summary"},
+            {"name":"zzz","description":"Another skill","path":"/skills/zzz/SKILL.md","enabled":true,
+             "interface":{"displayName":"A friendly title"}},
+            {"name":"legacy","description":"Full description","path":"/skills/legacy/SKILL.md","enabled":true,
+             "interface":null,"shortDescription":"Legacy summary"},
+            {"name":"blank","description":"Fallback description","path":"/skills/blank/SKILL.md","enabled":true,
+             "interface":{"displayName":"  ","shortDescription":"\n\t"},"shortDescription":" "},
+            {"name":"blank-interface","description":"Full description","path":"/skills/blank-interface/SKILL.md","enabled":true,
+             "interface":{"shortDescription":" "},"shortDescription":"Usable legacy summary"}
+        ]}]});
+        let (skills, _) = decode(response, "/project").unwrap();
+        assert_eq!(skills[0].name, "zzz");
+        let photos = skills.iter().find(|s| s.name == machine_name).unwrap();
+        assert_eq!(photos.display_name.as_deref(), Some("Batch edit photos"));
+        assert_eq!(
+            photos.short_description.as_deref(),
+            Some("Apply a consistent look to photos")
+        );
+        assert_eq!(photos.description, "Long model trigger instructions");
+        assert_eq!(photos.path, "/skills/photos/SKILL.md");
+        let legacy = skills.iter().find(|s| s.name == "legacy").unwrap();
+        assert_eq!(legacy.display_name, None);
+        assert_eq!(legacy.short_description.as_deref(), Some("Legacy summary"));
+        let blank = skills.iter().find(|s| s.name == "blank").unwrap();
+        assert_eq!(blank.display_name, None);
+        assert_eq!(blank.short_description, None);
+        let blank_interface = skills.iter().find(|s| s.name == "blank-interface").unwrap();
+        assert_eq!(
+            blank_interface.short_description.as_deref(),
+            Some("Usable legacy summary")
+        );
     }
 
     #[test]

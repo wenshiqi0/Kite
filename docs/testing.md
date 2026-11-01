@@ -2,7 +2,7 @@
 
 ## Explicit Skills
 
-Rust composer regressions verify cwd-scoped enabled catalogs, duplicate removal, descriptions and partial failures, draft cancellation/refresh/success behavior, native skill references alongside attachments, and unchanged plain-text input. Core tests reject stale skill publications across hosts and provider threads and restore the original session's draft. `SkillPickerPresentationTest` uses synthetic metadata to check descriptions, search, multiple selections, removable chips and distinct empty/loading/error states without sending a model turn. Native test source compilation and device execution are separate checks.
+Rust composer regressions verify cwd-scoped enabled catalogs, duplicate removal, descriptions and partial failures, interface display metadata and legacy summary fallback, friendly-name ordering, draft cancellation/refresh/success behavior, native skill references alongside attachments, and unchanged plain-text input. Display metadata never replaces the machine name or path sent to Codex. Core tests reject stale skill publications across hosts and provider threads and restore the original session's draft. `SkillPresentationTest` checks friendly titles/summaries, search by both display and machine metadata, and fallback for absent/blank fields. `SkillPickerPresentationTest` uses synthetic plugin metadata to check friendly names and summaries without internal identifiers or trigger instructions, search, multiple selections, removable chips and distinct empty/loading/error states without sending a model turn. Native test source compilation and device execution are separate checks.
 
 ## Agent notifications
 
