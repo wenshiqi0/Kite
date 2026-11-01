@@ -65,7 +65,7 @@ class SessionImagesPresentationTest {
         assertEquals(file, runBlocking { engine.generatedImage(conversation, id) })
         val decoded = decodeGeneratedImage(file)
         assertEquals(512, decoded.width); assertEquals(320, decoded.height); decoded.recycle()
-        val activity = test.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val activity = test.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         val root = activity.findViewById<FrameLayout>(android.R.id.content)
         val hidden = mutableListOf<View>()
         lateinit var panel: ComposeView

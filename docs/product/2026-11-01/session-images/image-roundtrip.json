@@ -1,0 +1,15 @@
+{
+  "codex_version": "0.164.0",
+  "thread": "01a19697-41ef-7143-ba98-4b83a1fffbdd",
+  "source_bytes": 2825106,
+  "projected_record_bytes": 73814,
+  "images": 1,
+  "image_bytes": 987991,
+  "sha256": "3bc7a1cb4ddc9cee36654121026d245f20c781107a0d2c236ecbb697a5aec30f",
+  "dimensions": [
+    1536,
+    1024
+  ],
+  "format": "PNG",
+  "roundtrip_equal": true
+}

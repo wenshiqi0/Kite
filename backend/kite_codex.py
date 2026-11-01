@@ -747,7 +747,7 @@ def store_generated_bytes(data):
         raise ValueError("unsupported generated image format")
     identifier = hashlib.sha256(data).hexdigest()
     path = image_store() / identifier
-    if not path.exists():
+    if not path.is_file() or path.stat().st_size != len(data) or hashlib.sha256(path.read_bytes()).hexdigest() != identifier:
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
             output.write(data)
             temporary = Path(output.name)
@@ -786,14 +786,24 @@ def display_line(stream, limit):
         # Advance to the source boundary without growing memory.
         while line and not line.endswith(b"\n"):
             line = stream.readline(65536)
-        return None, bool(line)
+        if not line:
+            return None, False
+        # A too-large completed result must not make unrelated chat unreadable.
+        identity = re.search(rb'"(?:id|call_id)"\s*:\s*"([^"\\]{1,256})"', header)
+        payload = dict(type="image_generation_call", id=identity.group(1).decode() if identity else f"image-offset-{start}",
+                       status="completed", _kite_image_error="generated image exceeds 25 MiB")
+        return json.dumps(dict(type="response_item", payload=payload)).encode() + b"\n", True
     try:
         record = json.loads(line)
     except (ValueError, TypeError):
         return b"", True
-    payload = record.get("payload", {})
+    if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
+        return b"", True
+    payload = record["payload"]
     if record.get("type") == "event_msg" and payload.get("type") in ("item_completed", "item_started"):
         item = payload.get("item", {})
+        if not isinstance(item, dict):
+            return b"", True
         if item.get("type") == "ImageGeneration" or (item.get("type") == "Extension" and item.get("kind") == "image_gen.generation"):
             payload = dict(item, type="image_generation_call")
             payload["saved_path"] = payload.pop("savedPath", payload.get("saved_path"))

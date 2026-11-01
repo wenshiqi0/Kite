@@ -123,3 +123,10 @@ The completed [Alpha 12 acceptance](product/2026-10-31/compact-controls/acceptan
 The [Alpha 13 revision](product/2026-10-31/complete-transcript/acceptance.md) replaces UI-driven history pagination with independent full synchronization, complete per-session caches and versioned message edits. Native tests use 10,000 records and a 3MiB tool result, inspect actual rich-text view allocation and verify that telemetry does not replace message objects. The owned-source-unavailable check verifies local scrolling after a fresh cache reopen; the append check compares visible message text and pixel bounds. Large tool details use bounded virtual text chunks.
 
 The optional long-transcript test accepts qa_live, a strictly owned qa_session and qa_records (10000 by default). Never point these opt-in tests at a user's desktop. They do not establish physical-phone/WAN performance.
+
+
+## Session activity and generated images
+
+`SessionStatusTest` covers list labels and disconnected-state precedence. Rust session tests cover attention after completion, active requests, pause/start priority and failures. Host adapter tests cover native hosted/extension image records, large-result projection, byte-exact download, malformed/oversized images, cache repair and archived live sessions. The PR build also compiles debug Android instrumentation sources.
+
+`SessionImagesPresentationTest` uses an owned synthetic PNG and a native overlay to check offline image-cache reuse, explicit status badges, preview and expansion/dismissal. It submits no model turn and needs no host. Its device execution is separate from CI compilation. A controlled real Codex generation and local history/image round trip are recorded in [session/image acceptance](product/2026-11-01/session-images/acceptance.md).

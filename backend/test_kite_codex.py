@@ -358,3 +358,20 @@ class GeneratedImageTests(unittest.TestCase):
             self.assertEqual(len(json.loads(backend.notification_facts("herdr"))["facts"]), 1)
             facts = json.loads(backend.notification_facts("herdr", include_archived=True))["facts"]
             self.assertEqual([(f["session_id"], f["status"]) for f in facts], [("live", "working"), ("archived", "blocked")])
+
+    def test_oversized_image_keeps_following_chat_readable_and_cache_can_repair(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            row = {"type":"response_item", "payload":{"type":"image_generation_call", "id":"large", "status":"completed", "result":"A"*4096}}
+            stream = io.BytesIO((json.dumps(row)+"\n"+json.dumps({"type":"response_item", "payload":{"type":"message", "role":"assistant", "content":[{"text":"still readable"}]}})+"\n").encode())
+            with patch.object(backend, "MAX_FILE", 16):
+                line, complete = backend.display_line(stream, 64)
+            self.assertTrue(complete)
+            self.assertEqual(json.loads(line)["payload"]["id"], "large")
+            self.assertIn("still readable", stream.readline().decode())
+            data = b"\x89PNG\r\n\x1a\ntest"
+            image = backend.store_generated_bytes(data)
+            (backend.image_store() / image["id"]).write_bytes(b"corrupt")
+            backend.store_generated_bytes(data)
+            output = io.BytesIO()
+            backend.read_generated_image(image["id"], output)
+            self.assertEqual(output.getvalue(), data)

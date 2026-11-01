@@ -43,14 +43,14 @@ internal fun decodeGeneratedImage(file: File): Bitmap {
 }
 
 @Composable
-fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>, conversation: String = vm.engine.timeline.context) {
+fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>, conversation: String = vm.engine.timeline.context, onExternalActivityChanged: () -> Unit = {}) {
     images.forEach { image ->
-        key(conversation, image.id) { GeneratedImage(vm, conversation, image) }
+        key(conversation, image.id) { GeneratedImage(vm, conversation, image, onExternalActivityChanged) }
     }
 }
 
 @Composable
-private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: AttachmentInfo) {
+private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: AttachmentInfo, onExternalActivityChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var bitmap by remember(conversation, image.id) { mutableStateOf<Bitmap?>(null) }
@@ -72,6 +72,7 @@ private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: 
     var savingFile by remember { mutableStateOf<File?>(null) }
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(image.mime)) { uri ->
         vm.externalActivity = false
+        onExternalActivityChanged()
         val source = savingFile
         savingFile = null
         if (uri != null && source != null) scope.launch {
@@ -94,7 +95,8 @@ private fun GeneratedImage(vm: HostCheckViewModel, conversation: String, image: 
             TextButton(onClick = {
                 savingFile = file
                 vm.externalActivity = true
-                runCatching { save.launch(image.name) }.onFailure { vm.externalActivity = false; savingFile = null }
+                onExternalActivityChanged()
+                runCatching { save.launch(image.name) }.onFailure { vm.externalActivity = false; savingFile = null; onExternalActivityChanged() }
             }, enabled = file != null) { Text(stringResource(R.string.generated_image_save)) }
         } else if (failed) {
             Text(stringResource(R.string.generated_image_failed), color = MaterialTheme.colorScheme.error)
