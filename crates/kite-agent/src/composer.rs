@@ -769,6 +769,8 @@ mod tests {
             name: "report".into(),
             description: "Write a report".into(),
             path: "/skills/report/SKILL.md".into(),
+            display_name: Some("Project progress report".into()),
+            short_description: Some("Summarize project progress".into()),
         }];
         let files = vec![Attachment {
             id: "a".into(),
