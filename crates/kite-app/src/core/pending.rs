@@ -154,6 +154,21 @@ mod tests {
             .collect()
     }
     #[test]
+    fn prompt_transport_is_locked_until_launch_and_chat_setup_complete() {
+        let (core, _) = core();
+        let mut snapshot = core.snapshot();
+        let mut agent = snapshot.agents[0].clone();
+        agent.agent = Some("codex".into());
+        agent.launch_pending = true;
+        snapshot.composer.ready = true;
+        assert!(require_prompt_ready(&snapshot, &agent).is_err());
+        agent.launch_pending = false;
+        snapshot.composer.ready = false;
+        assert!(require_prompt_ready(&snapshot, &agent).is_err());
+        snapshot.composer.ready = true;
+        assert!(require_prompt_ready(&snapshot, &agent).is_ok());
+    }
+    #[test]
     fn echo_before_send_callback_never_publishes_a_second_bubble() {
         let (core, observed) = core();
         publish(&core, vec![row("server")]);

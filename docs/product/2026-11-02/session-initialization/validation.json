@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "rustTests": 140,
+  "jvmTests": 68,
+  "clippy": "all targets with denied warnings",
+  "androidLint": "Release",
+  "native": {
+    "api": 36,
+    "abi": "x86_64",
+    "variant": "debug harness with matching library and UniFFI",
+    "tests": 3,
+    "cases": [
+      "one plain initialization label",
+      "disabled editor rejects text changes",
+      "failure text replaces loading and retry fires once",
+      "icon-only latest target and single invocation",
+      "paired question styling retained"
+    ]
+  },
+  "submission": {
+    "whileCreatingWithOldReadyAgent": "locked",
+    "whileLaunchPending": "locked",
+    "whileComposerNotReady": "locked",
+    "onFailure": "locked",
+    "afterReady": "unlocked when no other operation is busy",
+    "nativeEntryGuard": true,
+    "queuedCommandRecheck": true,
+    "rustTransportGuard": true
+  },
+  "realModelTurns": 0
+}

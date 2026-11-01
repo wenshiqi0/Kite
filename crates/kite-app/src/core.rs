@@ -1547,6 +1547,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            require_prompt_ready(&core.snapshot(), &agent)?;
             if core.snapshot().selected_agent.as_deref() == Some(&id)
                 && core.snapshot().agent_pause != AgentPause::Running
             {
@@ -2309,6 +2310,17 @@ fn describe(error: &AppError) -> Failure {
 
 fn chat_key(c: &Connected, agent: &Agent) -> String {
     format!("{}/{}", c.host.id, source_key(agent))
+}
+
+fn require_prompt_ready(snapshot: &Snapshot, agent: &Agent) -> Result<(), AppError> {
+    if agent.launch_pending
+        || (snapshot.selected_agent.as_deref() == Some(&agent.terminal_id)
+            && agent.agent.as_deref() == Some("codex")
+            && !snapshot.composer.ready)
+    {
+        return Err(AppError::State("session is initializing".into()));
+    }
+    Ok(())
 }
 
 fn source_key(agent: &Agent) -> String {

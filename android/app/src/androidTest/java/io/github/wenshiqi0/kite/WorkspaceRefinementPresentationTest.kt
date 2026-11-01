@@ -38,7 +38,7 @@ class WorkspaceRefinementPresentationTest {
     private fun find(description:String?=null,text:String?=null):AccessibilityNodeInfo? {
         fun walk(node:AccessibilityNodeInfo?):AccessibilityNodeInfo?{
             node?:return null
-            if(description!=null&&node.contentDescription?.toString()==description || text!=null&&node.text?.toString()?.contains(text)==true)return node
+            if(node.isVisibleToUser && (description!=null&&node.contentDescription?.toString()==description || text!=null&&node.text?.toString()?.contains(text)==true))return node
             for(i in 0 until node.childCount)walk(node.getChild(i))?.let{return it}
             return null
         }
@@ -125,6 +125,36 @@ class WorkspaceRefinementPresentationTest {
             assertNotNull(find(text="1 次工具调用"))
             assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
             screenshot("commentary-visible-tools-collapsed.png")
+        }
+    }
+
+    @Test fun initializationShowsOneSimpleStatusAndKeepsDraftEditingLocked() {
+        val changes=java.util.concurrent.atomic.AtomicInteger()
+        overlay({ Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center) {
+            Column(horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally) {
+                SessionInitializationMessage()
+                ChatDraftField("",{changes.incrementAndGet()},Modifier.padding(20.dp),enabled=false)
+            }
+        } }) {
+            waitFor("Plain initialization status"){find(text="正在初始化会话…")!=null}
+            assertNull(find(text="正在准备 agent"));assertNull(find(text="记录同步"));assertNull(find(text="重试准备"))
+            val input=requireNotNull(find(description="消息输入框"))
+            val arguments=Bundle().apply{putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"must not replace the draft")}
+            fun attemptEdit(node:AccessibilityNodeInfo){
+                if(node.actionList.any{it.id==AccessibilityNodeInfo.ACTION_SET_TEXT})assertFalse("Disabled editor must reject text changes",node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,arguments))
+                for(i in 0 until node.childCount)node.getChild(i)?.let(::attemptEdit)
+            }
+            attemptEdit(input)
+            assertEquals("Initialization cannot mutate the preserved draft",0,changes.get())
+            screenshot("session-initialization.png")
+        }
+        val retries=java.util.concurrent.atomic.AtomicInteger()
+        overlay({ Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center) { SessionInitializationMessage(failed=true,onRetry={retries.incrementAndGet()}) } }) {
+            waitFor("Initialization failure remains actionable"){find(text="会话初始化未完成")!=null}
+            assertNull(find(text="正在初始化会话…"))
+            assertTrue(actionNode(requireNotNull(find(text="重试")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Retry invoked once"){retries.get()==1}
+            screenshot("session-initialization-failure.png")
         }
     }
 

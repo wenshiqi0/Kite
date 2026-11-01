@@ -143,6 +143,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var warning by remember { mutableStateOf<String?>(null) }
     val timeline=vm.engine.timeline
     val entries=timeline.rows
+    val initializingSession = vm.sessionStartup == SessionStartupPhase.INITIALIZING
+    val initializationFailed = vm.sessionStartup == SessionStartupPhase.FAILED
+    val showInitialization = (initializingSession || initializationFailed) && (vm.creatingAgent || entries.isEmpty())
     val conversationContext=timeline.context
     val streamingId=timeline.messages.lastOrNull{it.kind==MessageKind.ASSISTANT}?.id
     val cacheWindow=remember{LazyLayoutCacheWindow(1f,.5f)}
@@ -280,10 +283,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             if (!fullscreen && !hideChrome) Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
                 Row(Modifier.fillMaxWidth().height(48.dp).borderBottom(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { scope.launch { drawer.open() } }, modifier = Modifier.semantics { contentDescription = menuDescription }) { ProductIcon(Mark.Menu) }
-                    Text(currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if(state?.history?.loading==true)CircularProgressIndicator(Modifier.padding(end=8.dp).size(14.dp),strokeWidth=1.5.dp,color=Muted)
-                    if(state?.history?.failed==true)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试同步",fontSize=11.sp)}
-                    if (agent != null) { StatusDot(if (state.question != null || state.approval != null || state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)) }
+                    Text(if(vm.creatingAgent)stringResource(R.string.new_session) else currentSession?.let { sessionTitle(it) } ?: agent?.let(::agentTitle) ?: stringResource(R.string.app_name), modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if(!initializingSession&&!showInitialization&&state?.history?.loading==true)CircularProgressIndicator(Modifier.padding(end=8.dp).size(14.dp),strokeWidth=1.5.dp,color=Muted)
+                    if(!initializingSession&&!showInitialization&&state?.history?.failed==true)TextButton(onClick={vm.engine.command{vm.engine.core.retryHistory()}}){Text("重试同步",fontSize=11.sp)}
+                    if (!initializingSession && !showInitialization && agent != null) { StatusDot(if (state.question != null || state.approval != null || state.agentPause == AgentPauseStatus.PAUSED) "blocked" else if (responseInProgress) "working" else agent.status); Spacer(Modifier.width(6.dp)) }
                     if(split&&state!=null)DesktopModeSwitch(takeover,state.desktop.status==DesktopStatus.STREAMING,vm::takeOver)
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
@@ -326,6 +329,14 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
+                if (showInitialization) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
+                    SessionInitializationMessage(failed=initializationFailed,retryEnabled=!vm.sessionBusy,onRetry={
+                        if(currentSession!=null&&(agent==null||state?.failure?.kind==FailureKind.AGENT_START))vm.resumeSession(currentSession.id)
+                        else if(agent!=null)vm.engine.command{vm.engine.core.reloadComposer()}
+                        else newSession=true
+                    })
+                }
+                else {
                 LazyColumn(Modifier.fillMaxSize().nestedScroll(historyScroll).semantics { contentDescription="聊天记录" }.pointerInput(conversationContext) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
@@ -338,6 +349,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             Column(Modifier.padding(16.dp)) {
                                 Text(stringResource(R.string.agent_start_failed))
                                 Text(state.failure!!.details, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                currentSession?.let { session -> TextButton(onClick = { vm.resumeSession(session.id) }, enabled = !vm.sessionBusy) { Text(stringResource(R.string.retry)) } }
                                 TextButton(onClick = { vm.engine.command { vm.engine.core.clearFailure() } }) { Text(stringResource(R.string.dismiss)) }
                             }
                         }
@@ -374,10 +386,10 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                 }
                 if(!followTail&&latestVisible&&entries.isNotEmpty())LatestMessageButton(::jumpToLatest,Modifier.align(Alignment.BottomEnd).padding(8.dp))
-
+                }
                 }
                 Column(Modifier.fillMaxWidth().onSizeChanged{footerHeight=with(density){it.height.toDp()}}){
-                if (currentSession != null && (currentSession.archived || agent == null)) {
+                if (!initializingSession && !showInitialization && currentSession != null && (currentSession.archived || agent == null)) {
                     Row(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(if (currentSession.archived) R.string.session_archived_hint else if (currentSession.provider == "claude" && !currentSession.recorded) R.string.claude_not_connected else R.string.session_recorded), fontSize = 12.sp, color = Muted, modifier = Modifier.weight(1f))
                         TextButton(onClick = { vm.resumeSession(currentSession.id) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) {
@@ -397,7 +409,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
-                if (composeReason != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (initializingSession && !showInitialization) SessionInitializationMessage(Modifier.align(Alignment.CenterHorizontally))
+                if (!initializingSession && !showInitialization && composeReason != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     if (state?.question != null) TextButton(onClick = { answerRequest = state.question?.id }) { Text(stringResource(R.string.go_answer)) }
                     else if(composeReason==R.string.composer_backend_unavailable)TextButton(onClick={vm.engine.command{vm.engine.core.reloadComposer()}}){Text(stringResource(R.string.retry))}
@@ -410,7 +423,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 Row(Modifier.widthIn(max=680.dp).fillMaxWidth().align(Alignment.CenterHorizontally).padding(horizontal=10.dp,vertical=6.dp).padding(bottom=6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         var plus by remember { mutableStateOf(false) }
-                        IconButton(onClick = { plus = true }, modifier = Modifier.semantics { contentDescription = addDescription }) { ProductIcon(Mark.Plus) }
+                        IconButton(onClick = { plus = true }, enabled = !initializingSession, modifier = Modifier.semantics { contentDescription = addDescription }) { ProductIcon(Mark.Plus) }
                         DropdownMenu(plus, { plus = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.skills_title)) },
@@ -423,15 +436,15 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             }
                         }
                     }
-                    IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
-                    ChatDraftField(vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()})
-                    if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
-                        if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, Blue)
+                    IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=!initializingSession&&agent?.agent=="codex",modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
+                    ChatDraftField(if(vm.creatingAgent)"" else vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()},enabled=!initializingSession)
+                    if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = !vm.submissionLocked && agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
+                        if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, if(vm.submissionLocked)Muted else Blue)
                     } else IconButton(onClick = {
                         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                         vm.externalActivity = true; updatePip()
                         runCatching { voice.launch(intent) }.onFailure { vm.externalActivity = false; updatePip(); warning = voiceUnavailable }
-                    }, modifier = Modifier.semantics { contentDescription = voiceDescription }) { ProductIcon(Mark.Mic) }
+                    }, modifier = Modifier.semantics { contentDescription = voiceDescription }, enabled = !initializingSession) { ProductIcon(Mark.Mic) }
                 }
                 }
                 }

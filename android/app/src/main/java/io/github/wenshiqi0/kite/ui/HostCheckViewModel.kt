@@ -14,6 +14,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.wenshiqi0.kite.KiteApplication
 import io.github.wenshiqi0.kite.R
+import io.github.wenshiqi0.kite.core.FailureKind
 import io.github.wenshiqi0.kite.core.HostRecord
 import io.github.wenshiqi0.kite.core.ConnectionStatus
 import io.github.wenshiqi0.kite.core.DesktopStatus
@@ -57,6 +58,13 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var copyingAttachments by mutableStateOf(false)
         private set
     val sending: Boolean get() = engine.state.value?.selectedAgent?.let { it in sendingAgents } ?: false
+    val sessionStartup: SessionStartupPhase get() {
+        val state = engine.state.value
+        val agent = state?.agents?.find { it.id == state.selectedAgent }
+        val failed = state?.failure?.kind == FailureKind.AGENT_START || state?.composer?.let { !it.ready && !it.loading && it.details.isNotBlank() } == true
+        return sessionStartupPhase(creatingAgent, state?.connection == ConnectionStatus.CONNECTED, agent, state?.composer?.ready == true, failed)
+    }
+    val submissionLocked: Boolean get() = sessionBusy || !sessionStartup.canSubmit
     var splitAdjustment by mutableFloatStateOf(0f)
     var touchpadVisible by mutableStateOf(false)
         private set
@@ -265,14 +273,19 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun selectAgent(id: String) = engine.command { engine.core.selectAgent(id) }
     fun sendPrompt(id: String) {
-        if (engine.state.value?.selectedAgent != id) return
+        if (submissionLocked || engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
         val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty() && engine.state.value?.composer?.skills?.selected.isNullOrEmpty()) || sending || copyingAttachments || skillBusy) return
         val sentFiles = engine.state.value?.composer?.uploads.orEmpty().map { it.localPath }.filter { it.isNotBlank() }.distinct()
         sendingAgents.add(id)
         engine.command {
-            try { engine.core.promptAgent(id, value); sentFiles.forEach { java.io.File(it).delete() }; if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context) }
+            try {
+                if (submissionLocked || engine.state.value?.selectedAgent != id) return@command
+                engine.core.promptAgent(id, value)
+                sentFiles.forEach { java.io.File(it).delete() }
+                if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context)
+            }
             finally { sendingAgents.remove(id) }
         }
     }
@@ -320,7 +333,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if (state.selectedAgent != id) return
         engine.command { engine.core.setAgentPaused(id, state.agentPause == AgentPauseStatus.RUNNING) }
     }
-    fun promptAgent(id: String, text: String) = engine.command { engine.core.promptAgent(id, text) }
+    fun promptAgent(id: String, text: String) {
+        if (submissionLocked || engine.state.value?.selectedAgent != id) return
+        engine.command { if (!submissionLocked && engine.state.value?.selectedAgent == id) engine.core.promptAgent(id, text) }
+    }
     fun approve(pin: String) = engine.command { engine.core.approvePairing(pin) }
     fun takeOver(enabled: Boolean) {
         if(!enabled){flushRemoteText?.invoke();hideTouchpad();releaseMouseButtons();releaseModifiers()}
