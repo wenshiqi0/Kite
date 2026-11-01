@@ -65,7 +65,7 @@ jobs:
       - name: Check Linux native status lifecycle
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 xvfb dbus-x11
+          sudo apt-get install -y python3-gi python3-cairo python3-gi-cairo gir1.2-gtk-3.0 xvfb dbus-x11 xdotool
           GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
           GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/operations_probe.py
           GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/upgrade_probe.py
@@ -113,6 +113,17 @@ jobs:
           cargo fmt --all --check
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check agent desktop CLI and MCP on owned X11
+        run: |
+          cargo build -p kite-node --locked
+          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
+
+      - name: Check agent documentation token budgets
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kite-docs-budget"
+          "$RUNNER_TEMP/kite-docs-budget/bin/pip" install -r desktop/linux/qa/requirements.txt
+          "$RUNNER_TEMP/kite-docs-budget/bin/python" desktop/linux/qa/docs_budget.py --binary target/debug/kite-node
 
       - name: Check live Linux Node upgrade when a user manager is available
         run: |

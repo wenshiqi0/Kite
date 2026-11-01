@@ -1,0 +1,17 @@
+{
+  "standardSkill": true,
+  "modelTurns": 0,
+  "consumers": {
+    "codex": {
+      "skillDiscovered": true,
+      "modelInvoked": false
+    },
+    "deepseek_harness": {
+      "skillDiscovered": true,
+      "bodyLoaded": true,
+      "modelInvoked": false
+    }
+  },
+  "claude": "Standard Agent Skills frontmatter and standard MCP contract; no proprietary Claude fields or live model invocation.",
+  "status": "PASS"
+}

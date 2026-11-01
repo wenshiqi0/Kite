@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "actualX11": true,
+  "utf8Text": true,
+  "maxLengthUtf8Text": true,
+  "keyChordAndF8": true,
+  "leftAndRightClicks": true,
+  "scrollEvents": true,
+  "configuredTarget": true,
+  "launchEnvironmentSanitized": true,
+  "standardMcpImage": true,
+  "cropOriginAndPixels": true,
+  "privateArtifacts": true,
+  "unchangedImageOmitted": true,
+  "docsConditionalBody": true,
+  "actionOverrideRejected": true
+}

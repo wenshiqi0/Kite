@@ -49,6 +49,8 @@ Linux Node 的兼容升级按 [RFC 0018](docs/rfcs/0018-live-node-upgrade.md) �
 
 ## 2. 仓库布局
 
+Agent 能力按 [RFC 0019](docs/rfcs/0019-agent-docs-and-linux-desktop.md) 经统一 `kite docs`、CLI 和标准 MCP 暴露。文档正文仅维护一份，薄 SKILL 负责发现，按主题及调用方显式 revision 渐进返回；不得全局假定客户端已读。Linux X11 动作由应用层验证/选择目标，Python 平台适配器实现桌面机制；截图用私有制品和标准图像块，不以 base64 文本消耗模型上下文。新桌面接口允许任务授权范围内的输入与 argv 启动，不自动通过 shell 解释命令；既有只读 MCP 合同保留。
+
 ```
 SPEC.md                  本规范
 Cargo.toml, Cargo.lock   Rust workspace 根，成员是 crates/*

@@ -1,0 +1,53 @@
+{
+  "scope": "Named reference encodings, not a guarantee of native Claude/DeepSeek accounting; excludes images, model reasoning and unrelated harness context.",
+  "bytes": {
+    "skill_catalogue": 138,
+    "skill_body": 760,
+    "index": 942,
+    "desktop_guide": 2072,
+    "advanced_input_guide": 1949,
+    "conditional_unchanged": 56,
+    "mcp_tool_definitions": 1415,
+    "mcp_initial_instructions": 158,
+    "full_manual_once": 9263
+  },
+  "encodings": {
+    "cl100k_base": {
+      "parts": {
+        "skill_catalogue": 34,
+        "skill_body": 164,
+        "index": 207,
+        "desktop_guide": 470,
+        "advanced_input_guide": 469,
+        "conditional_unchanged": 18,
+        "mcp_tool_definitions": 297,
+        "mcp_initial_instructions": 31,
+        "full_manual_once": 2013
+      },
+      "first_desktop_cli": 668,
+      "first_desktop_mcp_if_schemas_eager": 996,
+      "desktop_then_advanced": 1137,
+      "body_recheck_saving_percent": 96.2,
+      "first_vs_bulk_once_saving_percent": 66.8
+    },
+    "o200k_base": {
+      "parts": {
+        "skill_catalogue": 30,
+        "skill_body": 156,
+        "index": 198,
+        "desktop_guide": 457,
+        "advanced_input_guide": 469,
+        "conditional_unchanged": 18,
+        "mcp_tool_definitions": 303,
+        "mcp_initial_instructions": 31,
+        "full_manual_once": 1976
+      },
+      "first_desktop_cli": 643,
+      "first_desktop_mcp_if_schemas_eager": 977,
+      "desktop_then_advanced": 1112,
+      "body_recheck_saving_percent": 96.1,
+      "first_vs_bulk_once_saving_percent": 67.5
+    }
+  },
+  "status": "PASS"
+}

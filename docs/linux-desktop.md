@@ -45,6 +45,21 @@ The current source adds **live Node handover**, described in [RFC 0018](rfcs/001
 
 Tray support currently targets Xfce/X11, using GTK 3's X11 notification-area adapter. Without a tray, the management window opens automatically; closing it exits the GUI and leaves Node running. Wayland/GNOME tray integration remains pending. [RFC 0014](rfcs/0014-linux-host-node.md) records the platform boundary.
 
+## Agent desktop access and docs
+
+The current source installs `kite` alongside `kite-node`. `kite docs` and `kite docs desktop` work offline and are the shared entry for shell-capable agents. Status, native PNG/crop capture, pointer/button/scroll, complete key chords, UTF-8 stdin text and argv app launch use `kite desktop`; only the configured X11 target is selected. Input requires `xdotool`; capture requires libX11. A matching graphical session supplies launch environment, while Node supervisor and unrelated agent identities are removed.
+
+```sh
+python3 install.py --enable --skill-dir ~/.agents/skills --skill-dir ~/.claude/skills
+kite docs desktop
+kite desktop status
+kite desktop screenshot
+```
+
+`--skill-dir` is optional and accepts any harness discovery root. The same standard `kite/SKILL.md` is installed into each; locally edited bundles are preserved rather than overwritten. No harness configuration or approval policy is changed. Codex and DeepSeek Harness can discover shared `.agents/skills`; Claude has its own discovery root. They remain consumers of CLI/MCP, not newly implemented chat providers. The package carries the Skill; Markdown bodies are embedded once in the binary and queried on demand. See [harness integration](agent/harnesses.md).
+
+The MCP tools are `kite_host_status`, `kite_sessions_list`, `kite_docs` and `kite_desktop`. Docs return only requested bodies; explicit known revisions omit unchanged content. A missing body after context compaction must be fetched again. Desktop screenshots use standard image blocks, including crop origin and SHA, and identical explicitly known captures omit the image. Consumers without image support must use their image viewer or report the limitation. Desktop input/launch modifies actual apps and requires the current task's authorization.
+
 ## Connection paths
 
 ```mermaid
@@ -61,7 +76,7 @@ flowchart LR
 
 ## MCP and diagnostics
 
-Run `~/.local/bin/kite-node mcp` locally or use `ssh YOUR_HOST ~/.local/bin/kite-node mcp` as an MCP client's command. Protocol revision is 2025-11-25. Tools are `kite_host_status` and `kite_sessions_list`; they query the local host without starting a model turn. Arbitrary shell execution, model-to-model delivery and durable cross-machine tasks are not exposed by this first stage. Stdout contains JSON-RPC only.
+Run `~/.local/bin/kite-node mcp` locally or use `ssh YOUR_HOST ~/.local/bin/kite-node mcp` as an MCP client's command. Protocol revision is 2025-11-25. Host queries use `kite_host_status` and `kite_sessions_list` without starting a model turn; `kite_docs` and `kite_desktop` add the agent documentation/desktop contract described above. Shell-string execution, model-to-model delivery and durable cross-machine tasks are not exposed by this first stage. Stdout contains JSON-RPC only.
 
 ```sh
 systemctl --user status kite-node.service

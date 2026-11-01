@@ -22,6 +22,8 @@ use tokio::{
 };
 
 mod bridge;
+mod desktop;
+mod docs;
 mod mcp;
 mod notifications;
 mod push;
@@ -163,13 +165,27 @@ impl Drop for NodeLock {
 }
 
 pub fn run(mut args: Vec<String>) -> Result<i32> {
+    let socket_option = leading_option(&mut args, "--socket")?.map(PathBuf::from);
+    match args.first().map(String::as_str) {
+        Some("docs") => return docs::cli(&args[1..]),
+        Some("--skill") => return docs::cli(&["skill".into()]),
+        Some("desktop") if args.get(1).is_some_and(|s| s == "--help" || s == "-h") => {
+            return docs::cli(&["desktop".into()]);
+        }
+        Some("--help" | "-h") => {
+            println!(
+                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured Linux X11 desktop\n  kite status | sessions | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
+            );
+            return Ok(0);
+        }
+        _ => {}
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()?;
     let result = runtime.block_on(async {
-        let socket = leading_option(&mut args, "--socket")?
-            .map(PathBuf::from)
+        let socket = socket_option
             .or_else(|| std::env::var_os("KITE_NODE_SOCKET").map(PathBuf::from))
             .unwrap_or(default_path(".local/state/kite/node/host.sock")?);
         let command = args.first().map(String::as_str).unwrap_or("status");
@@ -177,7 +193,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"liveUpgrade":1,"generationLaunch":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1})
                 );
                 Ok(0)
             }
@@ -270,6 +286,18 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 mcp::serve(&socket).await?;
                 Ok(0)
             }
+            "desktop" => {
+                let cli=desktop::cli(&args[1..])?;
+                let mut request=NodeRequest::new("desktop");request.params=serde_json::to_value(&cli.request)?;
+                let mut value=rpc(&socket,request).await?;
+                if let Some(output)=cli.output && let Some(bytes)=desktop::image(&socket,&value)? {
+                    let output=std::env::current_dir()?.join(output);
+                    if let Some(parent)=output.parent(){ fs::create_dir_all(parent)?; }
+                    fs::write(&output,bytes)?;fs::set_permissions(&output,fs::Permissions::from_mode(0o600))?;
+                    value["path"]=json!(output);
+                }
+                println!("{value}");Ok(0)
+            }
             "status" | "api-version" | "sessions" | "ensure" | "notifications"
             | "notification-get" => {
                 let method = if command == "api-version" {
@@ -329,12 +357,18 @@ pub async fn json_line<W: AsyncWrite + Unpin, T: Serialize>(out: &mut W, value: 
     Ok(())
 }
 pub async fn read_json<R: AsyncBufRead + Unpin>(input: &mut R) -> Result<Value> {
+    read_json_bounded(input, LIMIT).await
+}
+pub async fn read_json_bounded<R: AsyncBufRead + Unpin>(
+    input: &mut R,
+    limit: usize,
+) -> Result<Value> {
     let mut bytes = vec![];
     let n = input
-        .take((LIMIT + 1) as u64)
+        .take((limit + 1) as u64)
         .read_until(b'\n', &mut bytes)
         .await?;
-    if n == 0 || n > LIMIT || bytes.last() != Some(&b'\n') {
+    if n == 0 || n > limit || bytes.last() != Some(&b'\n') {
         return Err(Error::Protocol("invalid request size or boundary"));
     }
     Ok(serde_json::from_slice(&bytes)?)
@@ -419,9 +453,10 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     if activated.is_some() {
         let source = format!(
-            "{}{}",
+            "{}{}{}",
             String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
-            include_str!("../../../../backend/kite_push.py")
+            include_str!("../../../../backend/kite_push.py"),
+            desktop::SOURCE
         );
         let generation = config
             .backend
@@ -443,6 +478,11 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     fs::write(&pending, include_str!("../../../../backend/kite_push.py"))?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, push_backend)?;
+    let desktop_backend = config.backend.with_file_name("desktop-v1.py");
+    let pending = desktop_backend.with_extension("pending");
+    fs::write(&pending, desktop::SOURCE)?;
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
+    fs::rename(pending, desktop_backend)?;
     let listener = if activated.is_some() {
         upgrade::inherited_listener(&config.socket)?
     } else {
@@ -588,6 +628,9 @@ impl Node {
             None
         };
         match request.method.as_str() {
+            "desktop" => {
+                desktop::execute(&self.config, desktop::parse(request.params.clone())?).await
+            }
             "upgrade" => upgrade::handover(self, request).await,
             "push-register" => self.push_registry()?.register(
                 &request.params,
@@ -865,7 +908,7 @@ mod tests {
         );
         assert_eq!(args, ["status"]);
     }
-    fn config(root: &Path) -> Config {
+    pub(super) fn config(root: &Path) -> Config {
         Config {
             node_id: "controlled-node".into(),
             machine: "fixture".into(),

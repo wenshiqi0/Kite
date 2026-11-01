@@ -118,6 +118,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', type=Path, default=ROOT / 'kite-node')
     parser.add_argument('--enable', action='store_true')
+    parser.add_argument('--skill-dir', action='append', type=Path, default=[], help='Install the shared Kite SKILL.md into a harness discovery root')
     parser.add_argument('--migrate-node', action='store_true', help='Allow the first maintenance switch from a node without live handover')
     args = parser.parse_args()
     home = Path.home()
@@ -151,6 +152,19 @@ def main():
             raise RuntimeError('Running node has no live handover. First migration requires --migrate-node during a maintenance window; existing connections will reconnect.')
     # Read every asset and validate configuration before changing installed launchers.
     files = {name: (ROOT / name).read_bytes() for name in ['desktop.py', 'strings.json']}
+    files['skills/kite/SKILL.md']=(ROOT/'skills/kite/SKILL.md').read_bytes()
+    skill_digest=hashlib.sha256(files['skills/kite/SKILL.md']).hexdigest()
+    skill_targets=[directory.expanduser().resolve()/'kite' for directory in args.skill_dir]
+    for target in skill_targets:
+        existing=target/'SKILL.md'
+        marker=target/'.kite-source.sha256'
+        if existing.exists() and existing.read_bytes()!=files['skills/kite/SKILL.md']:
+            if not marker.is_file() or digest(existing)!=marker.read_text().strip():
+                raise RuntimeError('Existing Kite skill has local changes; preserve it before installing: '+str(existing))
+    alias=home/'.local/bin/kite'
+    if alias.exists() or alias.is_symlink():
+        if not alias.is_symlink() or alias.resolve()!=link.resolve():
+            raise RuntimeError('The kite command already belongs to another installation: '+str(alias))
     for state in ['ready', 'degraded', 'offline', 'busy']:
         name = 'icons/kite-' + state + '.png'
         files[name] = (ROOT / name).read_bytes()
@@ -165,6 +179,13 @@ def main():
     pending.unlink(missing_ok=True)
     pending.symlink_to(release / 'kite-node')
     pending.replace(link)
+    pending=alias.with_name('kite.new')
+    pending.unlink(missing_ok=True)
+    pending.symlink_to('kite-node')
+    pending.replace(alias)
+    for target in skill_targets:
+        atomic(target/'SKILL.md',files['skills/kite/SKILL.md'],0o644)
+        atomic(target/'.kite-source.sha256',(skill_digest+'\n').encode(),0o644)
     gui = home / '.local/bin/kite-desktop'
     atomic(gui, ('#!/bin/sh\nexec /usr/bin/python3 ' + "'" + str(release / 'desktop.py').replace("'", "'\\''") + "'" + ' "$@"\n').encode(), 0o700)
     config_path = home / '.config/kite/node.json'
