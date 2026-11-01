@@ -119,11 +119,10 @@ impl<'a> Repository<'a> {
     pub async fn observe(&self, agents: &[Agent]) -> Result<Catalog, Error> {
         self.change(|records, now| {
             for agent in agents {
-                let Some(reference) = agent
-                    .agent_session
-                    .as_ref()
-                    .filter(|r| matches!(r.agent.as_str(), "codex" | "claude"))
-                else {
+                let Some(reference) = agent.agent_session.as_ref().filter(|r| {
+                    crate::providers::registered(&r.agent)
+                        && (r.agent != "dsh" || r.source == "kite:harness")
+                }) else {
                     continue;
                 };
                 let index = records.iter().position(|r| r.matches(agent));
@@ -174,7 +173,7 @@ impl<'a> Repository<'a> {
         title: String,
         cwd: Option<String>,
     ) -> Result<Catalog, Error> {
-        if !matches!(provider.as_str(), "codex" | "claude") || title.len() > 512 {
+        if !crate::providers::registered(&provider) || title.len() > 512 {
             return Err(Error::Invalid("session parameters"));
         }
         self.change(|records, now| {

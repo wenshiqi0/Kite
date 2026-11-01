@@ -480,7 +480,7 @@ impl AppCore {
     fn ensure_history_sync(&self) {
         let (scope, reference) = self.history_context(&self.snapshot());
         let Some(reference) = reference else { return };
-        if reference.agent != "codex" {
+        if !providers::managed(&reference.agent) {
             return;
         }
         let mut job = lock(&self.history_sync_job);

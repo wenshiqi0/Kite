@@ -64,9 +64,13 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         val state = engine.state.value
         val agent = state?.agents?.find { it.id == state.selectedAgent }
         val failed = state?.failure?.kind == FailureKind.AGENT_START || state?.composer?.let { !it.ready && !it.loading && it.details.isNotBlank() } == true
-        return sessionStartupPhase(creatingAgent, state?.connection == ConnectionStatus.CONNECTED, agent, state?.composer?.ready == true, failed)
+        return sessionStartupPhase(creatingAgent, state?.connection == ConnectionStatus.CONNECTED, agent, state?.composer?.ready == true, failed, state?.providers?.any { it.id == agent?.agent && it.managedChat } == true)
     }
-    val submissionLocked: Boolean get() = sessionBusy || !sessionStartup.canSubmit
+    val submissionLocked: Boolean get() {
+        val state = engine.state.value
+        val agent = state?.agents?.find { it.id == state.selectedAgent }
+        return sessionBusy || !sessionStartup.canSubmit || state?.providers?.none { it.id == agent?.agent } != false
+    }
     var splitAdjustment by mutableFloatStateOf(0f)
     var touchpadVisible by mutableStateOf(false)
         private set

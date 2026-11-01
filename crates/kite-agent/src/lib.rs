@@ -8,6 +8,7 @@ pub mod history;
 pub mod interaction;
 pub mod notifications;
 pub mod process;
+pub mod providers;
 pub mod sessions;
 pub mod usage;
 
@@ -324,7 +325,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                     }
                 }
             }
-            "codex" => {
+            "codex" | "dsh" => {
                 if v["type"] != "response_item" {
                     continue;
                 }
@@ -422,7 +423,12 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         if let Some(call) = p["call_id"].as_str() {
                             let output = text_content(&p["output"]);
                             let answer = model_question_answer(&messages, call, &output);
-                            finish_tool(&mut messages, call, output, false);
+                            finish_tool(
+                                &mut messages,
+                                call,
+                                output,
+                                p["failed"].as_bool().unwrap_or(false),
+                            );
                             if let Some(answer) = answer {
                                 add_text(
                                     &mut messages,

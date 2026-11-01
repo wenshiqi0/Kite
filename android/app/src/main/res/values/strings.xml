@@ -398,4 +398,8 @@
     <string name="resource_other_process">其他服务</string>
     <string name="resource_all_processes">查看全部进程</string>
     <string name="resource_collapse_processes">收起进程列表</string>
+    <string name="provider_dsh">DSH</string>
+    <string name="no_available_harness">当前主机没有可用的智能体，请检查后端配置</string>
+    <string name="harness_session_hint">连接智能体后即可开始对话</string>
+    <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
 </resources>

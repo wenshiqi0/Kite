@@ -474,6 +474,13 @@ def session_open(identifier, binary):
     with file_lock(catalog_root() / ("session-" + identifier + ".lock")):
         record = next(r for r in catalog_read()["sessions"] if r["id"] == identifier)
         provider = record["provider"]
+        if provider in ("dsh",):
+            import kite_harness
+            managed = kite_harness.open_session(record)
+            patch_session(identifier, {"reference": managed["agent_session"],
+                "terminal_id": managed["terminal_id"], "pane_id": managed["pane_id"],
+                "workspace_id": managed["workspace_id"], "agent_name": managed.get("name", "")})
+            return {"agent": managed}
         if provider not in ("codex", "claude") or shutil.which(provider) is None:
             raise RuntimeError(provider + " backend is not installed or connected")
         agents = api(binary, "agent.list", {})["agents"]
@@ -649,6 +656,9 @@ def read_uploaded_attachment(identifier, name, output):
 
 
 def proxy(pane):
+    if pane and pane.startswith("kite-harness-"):
+        import kite_harness
+        return kite_harness.proxy(pane)
     """Adapt JSONL to the documented Unix WebSocket transport with bounded frames."""
     info = read_registry(pane)
     limit = 2 * 1024 * 1024
@@ -1107,8 +1117,11 @@ def history_projection(file, output, before=None, after=None):
 def notification_facts(binary, include_archived=False):
     """Return bounded host facts; transition and pending-question policy stays in Rust."""
     agents = api(binary, "agent.list", {})["agents"]
+    records = catalog_read()["sessions"]
+    import kite_harness
+    agents += kite_harness.agents(records)
     result = []
-    for record in catalog_read()["sessions"]:
+    for record in records:
         if record.get("archived") and not include_archived:
             continue
         agent = next((a for a in agents if same_reference(a, record) or
@@ -1118,6 +1131,14 @@ def notification_facts(binary, include_archived=False):
         reference = record.get("reference") or {}
         source = agent["terminal_id"] + ":" + hashlib.sha256(json.dumps(reference, sort_keys=True).encode()).hexdigest()
         controls, known = "", True
+        if reference.get("source") == "kite:harness" and reference.get("agent") == "dsh":
+            try:
+                state = json.loads((kite_harness.directory(reference["value"]) / "state.json").read_text())
+                if state.get("turn_id") and state.get("status") in ("done", "failed"):
+                    controls = json.dumps({"type": "event_msg", "payload": {
+                        "type": "task_complete" if state["status"] == "done" else "task_aborted", "turn_id": state["turn_id"]}})
+            except (OSError, ValueError, KeyError):
+                known = False
         if reference.get("agent") == "codex":
             root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
             try:
@@ -1138,7 +1159,7 @@ def notification_facts(binary, include_archived=False):
                 known = False
         result.append(dict(session_id=record["id"], title=record["title"][:160], source=source,
                            status=agent["agent_status"], revision=agent.get("state_change_seq", 0),
-                           thread=reference.get("value", ""), controls=controls, controls_known=known, lifecycle=reference.get("agent")=="codex"))
+                           thread=reference.get("value", ""), controls=controls, controls_known=known, lifecycle=reference.get("agent") in ("codex", "dsh")))
     output = json.dumps(dict(facts=result), ensure_ascii=False)
     if len(output.encode()) > 4 * 1024 * 1024:
         raise ValueError("notification facts exceed transport capacity")
@@ -1148,7 +1169,7 @@ def notification_facts(binary, include_archived=False):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "lifecycle-facts", "lifecycle-reap", "image-read", "attachment-read"])
+    parser.add_argument("action", choices=["ensure", "proxy", "upgrade", "upload", "bind", "identity", "tui", "history", "catalog-read", "catalog-write", "session-open", "notification-facts", "session-facts", "lifecycle-facts", "lifecycle-reap", "image-read", "attachment-read", "harness-scan", "harness-history"])
     parser.add_argument("--pane")
     parser.add_argument("--herdr")
     parser.add_argument("--thread")
@@ -1161,7 +1182,23 @@ def main():
     parser.add_argument("--size", type=int)
     parser.add_argument("--sha256")
     args = parser.parse_args()
-    if args.action == "proxy":
+    if args.action == "harness-scan":
+        import kite_harness
+        print(json.dumps({"providers": kite_harness.providers(),
+                          "agents": kite_harness.agents(catalog_read()["sessions"])}))
+    elif args.action == "harness-history":
+        import kite_harness
+        file = kite_harness.directory(args.thread) / "history.jsonl"
+        if not file.exists():
+            print("kite-history-pending-v1")
+            return
+        info = file.stat()
+        stamp = f"{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}"
+        print("kite-history-v1\n" + stamp, flush=True)
+        if stamp != args.name:
+            with gzip.GzipFile(fileobj=sys.stdout.buffer, mode="wb", compresslevel=1, mtime=0) as output:
+                history_projection(file, output, args.before, args.after)
+    elif args.action == "proxy":
         proxy(args.pane)
     elif args.action == "upload":
         print(json.dumps(upload(args.id, args.name, args.size, args.sha256)), flush=True)

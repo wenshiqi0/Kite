@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0-alpha.43",
+  "harnessApi": 1,
+  "health": "ready",
+  "providers": [
+    "codex",
+    "claude",
+    "dsh"
+  ],
+  "identityRetained": true,
+  "externalServicePidsRetained": true,
+  "liveUpgrade": true,
+  "privateDshProfile": true
+}

@@ -194,7 +194,7 @@ def main():
     unit = home / '.config/systemd/user/kite-node.service'
     units = ' '.join(s['unit'] for s in config['services'])
     quote = lambda p: '"' + str(p).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'
-    contents = '[Unit]\nDescription=Kite desktop host node\nRequires=kite-node.socket\nAfter=kite-node.socket network.target ' + units + '\nWants=' + units + '\n\n[Service]\nType=notify\nNotifyAccess=all\nSockets=kite-node.socket\nStandardInput=socket\nStandardOutput=journal\nStandardError=journal\nExecStart=' + quote(link) + ' serve --config ' + quote(config_path) + ' --activated\nRestart=on-failure\nRestartSec=2\nUMask=0077\nKillMode=process\nTimeoutStartSec=30\n\n[Install]\nWantedBy=default.target\n'
+    contents = '[Unit]\nDescription=Kite desktop host node\nRequires=kite-node.socket\nAfter=kite-node.socket network.target ' + units + '\nWants=' + units + '\n\n[Service]\nEnvironmentFile=-%h/.config/kite/harness.env\nType=notify\nNotifyAccess=all\nSockets=kite-node.socket\nStandardInput=socket\nStandardOutput=journal\nStandardError=journal\nExecStart=' + quote(link) + ' serve --config ' + quote(config_path) + ' --activated\nRestart=on-failure\nRestartSec=2\nUMask=0077\nKillMode=process\nTimeoutStartSec=30\n\n[Install]\nWantedBy=default.target\n'
     socket_contents = '[Unit]\nDescription=Kite private host listener\n\n[Socket]\nListenStream=' + str(config['socket']).replace('\\', '\\\\').replace('%', '%%') + '\nSocketMode=0600\nDirectoryMode=0700\nRemoveOnStop=true\n\n[Install]\nWantedBy=sockets.target\n'
     atomic(socket_unit, socket_contents.encode())
     atomic(unit, contents.encode())

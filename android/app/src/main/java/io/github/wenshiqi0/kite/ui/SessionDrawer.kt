@@ -24,7 +24,12 @@ import androidx.compose.ui.unit.sp
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
 
-@Composable fun providerLabel(provider: String) = stringResource(if (provider == "claude") R.string.provider_claude else R.string.provider_codex)
+@Composable fun providerLabel(provider: String): String = when (provider) {
+    "codex" -> stringResource(R.string.provider_codex)
+    "claude" -> stringResource(R.string.provider_claude)
+    "dsh" -> stringResource(R.string.provider_dsh)
+    else -> provider
+}
 @Composable fun sessionTitle(session: SessionInfo): String = session.title.ifBlank { providerLabel(session.provider) + " · " + stringResource(R.string.new_session_short) }
 
 @Composable

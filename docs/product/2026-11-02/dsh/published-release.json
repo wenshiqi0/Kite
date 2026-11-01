@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0-alpha.45",
+  "versionCode": 47,
+  "sourceCommit": "3c40b2dd44d9ffc98276b11adc790f34a8c3ab5d",
+  "checksums": true,
+  "signatures": true,
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "equalApkPayload": true,
+  "sameSigningIdentityAsAlpha42": true,
+  "abis": [
+    "arm64-v8a"
+  ],
+  "nativeZipAlignment16KiB": true,
+  "ci": "https://github.com/wenshiqi0/Kite/actions/runs/41345471617"
+}

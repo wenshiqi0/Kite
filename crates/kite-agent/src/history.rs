@@ -46,7 +46,7 @@ pub async fn page(
     cursor: &str,
     newer: bool,
 ) -> Arc<History> {
-    if reference.agent != "codex"
+    if !crate::providers::managed(&reference.agent)
         || cursor.len() > 128
         || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
     {
@@ -63,6 +63,42 @@ async fn request(
 ) -> Arc<History> {
     let cache_key = key(reference);
     let previous = previous.filter(|p| p.key == cache_key);
+    if matches!(reference.agent.as_str(), "dsh") {
+        if reference.source != "kite:harness"
+            || reference.kind != "id"
+            || reference.value.len() != 36
+            || !reference
+                .value
+                .bytes()
+                .all(|c| c.is_ascii_hexdigit() || c == b'-')
+        {
+            return unavailable(&cache_key, "invalid harness history reference".into());
+        }
+        let mut command = format!(
+            "harness-history --thread {}",
+            crate::composer::quote(&reference.value)
+        );
+        if let Some(old) = &previous {
+            command.push_str(&format!(" --name {}", crate::composer::quote(&old.stamp)));
+        }
+        if let Some((cursor, newer)) = page {
+            command.push_str(&format!(
+                " --{} {}",
+                if newer { "after" } else { "before" },
+                crate::composer::quote(cursor)
+            ));
+        }
+        let output = match tokio::time::timeout(
+            Duration::from_secs(30),
+            ssh.exec(&crate::composer::helper_command(&command), &[]),
+        )
+        .await
+        {
+            Ok(Ok(output)) => output,
+            _ => return unavailable(&cache_key, "harness history request failed".into()),
+        };
+        return response(reference, previous, output);
+    }
     if !matches!(reference.agent.as_str(), "claude" | "codex")
         || !matches!(reference.kind.as_str(), "id" | "path")
     {
@@ -183,7 +219,7 @@ fn response(
     }
     let bytes = lines.next().unwrap_or_default();
     let decoded;
-    let bytes = if reference.agent == "codex" {
+    let bytes = if crate::providers::managed(&reference.agent) {
         let Some(value) = decode_history(bytes) else {
             return unavailable(&cache_key, "invalid compressed history response".into());
         };
@@ -192,7 +228,7 @@ fn response(
     } else {
         bytes
     };
-    let (controls, bytes, page) = if reference.agent == "codex" {
+    let (controls, bytes, page) = if crate::providers::managed(&reference.agent) {
         let Some(parts) = codex_projection(bytes) else {
             return unavailable(&cache_key, "invalid provider history projection".into());
         };

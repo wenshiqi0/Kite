@@ -25,6 +25,8 @@
 
 会话、归档、模型提问和响应阶段按 [RFC 0007](docs/rfcs/0007-sessions-and-interactions.md) 管理：Rust 持有持久记录、提供方、选中会话、回答关联和运行阶段；主机会话索引使用原子修订号写入，辅助程序承担单会话恢复租约及 Linux 终端启动。原始 provider 历史不移动。进程生命周期按 [RFC 0020](docs/rfcs/0020-session-owner-lifecycle.md)：归档保留执行中的任务，任务结束落盘后回收 TUI、app-server 及其子进程；未归档会话空闲一小时后回收，保活与状态轮询不延长期限。继续会话按原 provider thread 恢复。Android 负责相邻工具调用折叠、公开文本直显、题目输入及阶段动画，Claude 未连接时明确显示待连接状态。
 
+新增聊天 provider 按 [RFC 0021](docs/rfcs/0021-dsh-provider.md) 使用主机验证过的可用目录和 Rust 能力快照驱动客户端选项。DSH 需主机环境变量显式启用并通过探测；细节仅在接入或排查时读取[内部实施规范](docs/development/harness-integration.md)。
+
 模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
 
 聊天中的异步问题按 [RFC 0009](docs/rfcs/0009-async-questions-in-chat.md) 处理：Rust 关联真实 call ID、恢复待答表单，并通过同一线程的 TUI 回答信封提交；阻塞问题继续使用其 RPC 响应。提问控制记录通过同步升级的 Codex 历史体 v2 独立传输，主机只索引原始事实，Rust 决定待答状态，避免最近聊天窗口截断旧问题。Android 在聊天和输入区提供回答入口，异步问题不暂停 agent 或禁用普通消息。

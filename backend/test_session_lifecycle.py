@@ -190,7 +190,7 @@ class LifecycleTests(unittest.TestCase):
                 return dict(agent=restored)
             raise AssertionError(method)
         before = hashlib.sha256(self.history.read_bytes()).hexdigest()
-        with patch.object(backend, "api", side_effect=api), patch.object(backend, "ensure", return_value=self.owner), patch.object(backend, "note_session_open"), patch.object(backend, "backend_rpc", return_value={}), patch.object(backend, "bind"):
+        with patch.object(backend.shutil, "which", return_value="/fixture/codex"), patch.object(backend, "api", side_effect=api), patch.object(backend, "ensure", return_value=self.owner), patch.object(backend, "note_session_open"), patch.object(backend, "backend_rpc", return_value={}), patch.object(backend, "bind"):
             result = backend.session_open(self.record["id"], "herdr")
         self.assertEqual(result["agent"]["agent_session"], self.reference)
         self.assertEqual(started["args"][-2:], ["resume", self.thread])

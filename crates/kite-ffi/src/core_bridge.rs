@@ -247,6 +247,32 @@ pub struct FailureInfo {
     pub presented_fingerprint: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub managed_chat: bool,
+    pub models: bool,
+    pub attachments: bool,
+    pub skills: bool,
+    pub usage: bool,
+    pub pause: bool,
+    pub terminal: bool,
+}
+impl From<kite_app::Provider> for ProviderInfo {
+    fn from(p: kite_app::Provider) -> Self {
+        Self {
+            id: p.id,
+            managed_chat: p.managed_chat,
+            models: p.models,
+            attachments: p.attachments,
+            skills: p.skills,
+            usage: p.usage,
+            pause: p.pause,
+            terminal: p.terminal,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct AgentInfo {
     pub id: String,
     pub name: Option<String>,
@@ -788,6 +814,7 @@ pub struct CoreSnapshot {
     pub host_key_fingerprint: Option<String>,
     pub host_resources: Option<HostResourcesInfo>,
     pub agents: Vec<AgentInfo>,
+    pub providers: Vec<ProviderInfo>,
     pub selected_agent: Option<String>,
     pub sessions: Vec<SessionInfo>,
     pub selected_session: Option<String>,
@@ -850,13 +877,10 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 .agents
                 .into_iter()
                 .map(|a| AgentInfo {
-                    can_pause: a
-                        .agent_session
-                        .as_ref()
-                        .is_some_and(|s| matches!(s.agent.as_str(), "claude" | "codex"))
-                        || a.agent
-                            .as_deref()
-                            .is_some_and(|s| matches!(s, "claude" | "codex")),
+                    can_pause: s
+                        .providers
+                        .iter()
+                        .any(|p| Some(p.id.as_str()) == a.agent.as_deref() && p.pause),
                     launch_pending: a.launch_pending,
                     managed_ready: a.interactive_ready,
                     id: a.terminal_id,
@@ -868,6 +892,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                     cwd: a.cwd,
                 })
                 .collect(),
+            providers: s.providers.into_iter().map(Into::into).collect(),
             selected_agent: s.selected_agent,
             sessions: s.sessions.into_iter().map(Into::into).collect(),
             selected_session: s.selected_session,

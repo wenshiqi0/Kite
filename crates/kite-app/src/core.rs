@@ -4,7 +4,7 @@ use kite_agent::{
     Approval, Message, Role,
     composer::skills::SkillDraft,
     composer::{self, Client as ChatClient, Composer, Selection, Upload},
-    fingerprint, history, process,
+    fingerprint, history, process, providers,
 };
 use kite_herdr::{
     api::{Agent, Api},
@@ -185,6 +185,7 @@ pub struct Snapshot {
     pub host_key_fingerprint: Option<String>,
     pub host_resources: Option<crate::resources::HostResources>,
     pub agents: Vec<Agent>,
+    pub providers: Vec<providers::Provider>,
     pub selected_agent: Option<String>,
     pub sessions: Vec<ConversationSession>,
     pub selected_session: Option<String>,
@@ -221,6 +222,7 @@ impl Default for Snapshot {
             host_key_fingerprint: None,
             host_resources: None,
             agents: Vec::new(),
+            providers: Vec::new(),
             selected_agent: None,
             sessions: Vec::new(),
             selected_session: None,
@@ -255,6 +257,7 @@ pub struct LegacyImport {
     pub trusted_keys: Vec<(String, String)>,
 }
 struct Connected {
+    generation: u64,
     host: Host,
     ssh: Arc<Session>,
     api: Arc<Api>,
@@ -343,6 +346,20 @@ async fn dispatch<T: Send + 'static>(
 }
 
 impl AppCore {
+    async fn fetch_agents(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
+        let mut agents = c.api.agents().await?;
+        // DSH is managed through its SDK owner, not an unverified Herdr TUI.
+        agents.retain(|agent| agent.agent.as_deref() != Some("dsh"));
+        let scan = providers::scan(&c.ssh).await?;
+        agents.extend(scan.agents);
+        if self.generation.load(Ordering::SeqCst) == c.generation
+            && self.snapshot().providers != scan.providers
+        {
+            self.update(|s| s.providers = scan.providers);
+        }
+        Ok(agents)
+    }
+
     pub fn new(secrets: Arc<dyn SecretStorage>, observer: Arc<dyn Observer>) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
             self_weak: weak.clone(),
@@ -704,6 +721,7 @@ impl AppCore {
         let api = Arc::new(Api::new(ssh.clone(), &checked.herdr_path));
         let version = api.ping().await?;
         Ok(Connected {
+            generation,
             host: host.clone(),
             ssh,
             api,
@@ -713,15 +731,24 @@ impl AppCore {
         })
     }
     async fn prepare_agent(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
-        let mut agents = c.api.agents().await?;
+        let mut agents = self.fetch_agents(c).await?;
         let repository = kite_agent::sessions::Repository::new(&c.ssh);
         let catalog = repository.observe(&agents).await?;
         self.install_catalog(&c.host.id, &catalog)?;
         if agents.is_empty() {
             let agent = if catalog.sessions.is_empty() {
+                let available = self.snapshot().providers;
+                let Some(provider) = available
+                    .iter()
+                    .find(|p| p.id == "codex")
+                    .or_else(|| available.iter().find(|p| p.managed_chat))
+                    .or_else(|| available.first())
+                else {
+                    return Ok(agents);
+                };
                 let id = format!("{}{}", new_device_id()?, new_device_id()?);
                 let catalog = repository
-                    .create(id.clone(), "codex".into(), String::new(), None)
+                    .create(id.clone(), provider.id.clone(), String::new(), None)
                     .await?;
                 self.install_catalog(&c.host.id, &catalog)?;
                 Some(repository.resume(&id, &c.path).await?)
@@ -739,7 +766,7 @@ impl AppCore {
                         },
                     );
                 }
-                agents = c.api.agents().await?;
+                agents = self.fetch_agents(c).await?;
                 if !agents.iter().any(|a| a.terminal_id == agent.terminal_id) {
                     agents.push(agent);
                 }
@@ -824,7 +851,7 @@ impl AppCore {
                 }
                 return;
             }
-            match connection.api.agents().await {
+            match self.fetch_agents(&connection).await {
                 Ok(mut agents) => {
                     let mut failed_starts = Vec::new();
                     {
@@ -894,7 +921,7 @@ impl AppCore {
                 }
                 Err(e) => {
                     if self.generation.load(Ordering::SeqCst) == generation {
-                        self.report(&e.into());
+                        self.report(&e);
                     }
                 }
             }
@@ -949,8 +976,13 @@ impl AppCore {
             .await
             .get(&chat_key(c, &agent))
             .cloned();
-        let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
-            return;
+        let text = if matches!(agent.agent.as_deref(), Some("dsh")) {
+            String::new()
+        } else {
+            let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
+                return;
+            };
+            text
         };
         let cached = lock(&self.history).clone();
         let history = if let Some(reference) = &agent.agent_session {
@@ -1053,7 +1085,7 @@ impl AppCore {
         let Some(reference) = agent
             .agent_session
             .as_ref()
-            .filter(|r| r.agent == "codex" && r.kind == "id")
+            .filter(|r| providers::managed(&r.agent) && r.kind == "id")
         else {
             return;
         };
@@ -1098,7 +1130,14 @@ impl AppCore {
             return;
         };
         drop(clients);
-        client.refresh_usage(false);
+        if self
+            .snapshot()
+            .providers
+            .iter()
+            .any(|p| p.id == reference.agent && p.usage)
+        {
+            client.refresh_usage(false);
+        }
         let _ = client.observe_thread().await;
         let stored = lock(&self.store)
             .as_ref()
@@ -1265,6 +1304,16 @@ impl AppCore {
             let key = chat_key(&c, &agent);
             if !core.chat_clients.lock().await.contains_key(&key) {
                 return Err(AppError::State("chat backend unavailable".into()));
+            }
+            if !core
+                .snapshot()
+                .providers
+                .iter()
+                .any(|p| Some(p.id.as_str()) == agent.agent.as_deref() && p.attachments)
+            {
+                return Err(AppError::State(
+                    "attachments are unavailable for this harness".into(),
+                ));
             }
             let upload_id = format!("{}{}", new_device_id()?, new_device_id()?);
             let size = tokio::fs::metadata(&local_path)
@@ -1475,6 +1524,7 @@ impl AppCore {
             s.host_key_fingerprint = None;
             s.host_resources = None;
             s.agents.clear();
+            s.providers.clear();
             s.selected_agent = None;
             s.history_status = HistoryStatus::default();
             s.agent_output.clear();
@@ -1598,7 +1648,15 @@ impl AppCore {
                     s.response_activity = ResponseActivity::Sending;
                 }
             });
-            let result = if agent.agent.as_deref() == Some("codex") {
+            if !core
+                .snapshot()
+                .providers
+                .iter()
+                .any(|p| Some(p.id.as_str()) == agent.agent.as_deref())
+            {
+                return Err(AppError::State("selected harness is unavailable".into()));
+            }
+            let result = if agent.agent.as_deref().is_some_and(providers::managed) {
                 let client = core
                     .chat_clients
                     .lock()

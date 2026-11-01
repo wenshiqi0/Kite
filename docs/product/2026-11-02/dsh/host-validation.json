@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0-alpha.45",
+  "harnessApi": 1,
+  "sessionLifecycleRetained": true,
+  "identityRetained": true,
+  "externalServicePidsRetained": true,
+  "providers": [
+    "codex",
+    "claude",
+    "dsh"
+  ],
+  "health": "ready",
+  "liveUpgrade": true
+}
