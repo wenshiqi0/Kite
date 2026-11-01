@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "ownedEmulatorStopped": true,
+  "ownedDownloadAndUiDumpRemoved": true,
+  "mainApkAndDataRetained": true,
+  "primaryDirtyFilesPreserved": 5,
+  "newTemporaryAuthorization": false
+}

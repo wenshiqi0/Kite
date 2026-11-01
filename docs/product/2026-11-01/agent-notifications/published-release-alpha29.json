@@ -1,0 +1,72 @@
+{
+  "status": "PASS",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.29",
+  "prerelease": true,
+  "draft": false,
+  "manifest": {
+    "versionName": "0.2.0-alpha.29",
+    "versionCode": 31,
+    "sourceCommit": "8d0e8372ec8207133b4cc2e6178ae81b6e5bae7c",
+    "variant": "release",
+    "debuggable": false,
+    "abis": [
+      "arm64-v8a"
+    ],
+    "apk": "kite-0.2.0-alpha.29-arm64-v8a.apk",
+    "bytes": 23387232,
+    "sha256": "290d230bec0c74adc4307ab54c71a5e0d9056b0cc6d03121727a7ab93d0d63f8",
+    "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+    "signingSchemes": [
+      1,
+      2,
+      3
+    ],
+    "apkSigningStep": "explicit-sdk-resign",
+    "applicationPayloadUnchangedByResign": true,
+    "zipAlignmentKiB": 16,
+    "androidLint": "passed",
+    "linuxHostNode": {
+      "asset": "kite-host-0.2.0-alpha.29-linux-x86_64.tar.gz",
+      "bytes": 2660790,
+      "sha256": "24eab5f8103518178da8b1fd5d55ff93883336a71314c0c63cfaf45ae87b828e",
+      "target": "x86_64-unknown-linux-gnu",
+      "nodeApi": 1,
+      "backendProtocol": 5
+    }
+  },
+  "abis": [
+    "arm64-v8a"
+  ],
+  "certificate": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signingSchemes": [
+    1,
+    2,
+    3
+  ],
+  "alignmentKiB": 16,
+  "ciRuns": [
+    {
+      "conclusion": "success",
+      "databaseId": 41294994860,
+      "headBranch": "v0.2.0-alpha.29",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41294994860"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 41294967167,
+      "headBranch": "main",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41294967167"
+    }
+  ],
+  "checks": {
+    "rustTests": 106,
+    "releaseJvmTests": "PASS",
+    "releaseLint": "PASS",
+    "rustFmt": "PASS",
+    "rustClippy": "PASS",
+    "linuxPackage": "PASS",
+    "nativeGtk": "PASS"
+  }
+}

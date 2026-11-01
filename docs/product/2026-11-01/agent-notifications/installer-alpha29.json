@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "systemPackageInstaller": true,
+  "fromVersion": "0.2.0-alpha.28",
+  "toVersion": "0.2.0-alpha.29",
+  "versionCode": 31,
+  "privateFilesRetained": 38,
+  "uninstalled": false,
+  "dataReset": false
+}
