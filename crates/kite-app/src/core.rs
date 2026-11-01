@@ -2,6 +2,7 @@
 use crate::AppError;
 use kite_agent::{
     Approval, Message, Role,
+    composer::skills::SkillDraft,
     composer::{self, Client as ChatClient, Composer, Selection, Upload},
     fingerprint, history, process,
 };
@@ -39,6 +40,7 @@ pub use conversation::{
 };
 mod notifications;
 mod sessions;
+mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
@@ -301,6 +303,7 @@ pub struct AppCore {
     chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
     chat_failures: Mutex<BTreeMap<String, Instant>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
+    skill_drafts: Mutex<BTreeMap<String, SkillDraft>>,
     session_book: Mutex<SessionBook>,
     dirty_histories: Mutex<BTreeSet<String>>,
     history_cache_written: Mutex<BTreeMap<String, Instant>>,
@@ -361,6 +364,7 @@ impl AppCore {
             chat_clients: AsyncMutex::new(BTreeMap::new()),
             chat_failures: Mutex::new(BTreeMap::new()),
             uploads: Mutex::new(BTreeMap::new()),
+            skill_drafts: Mutex::new(BTreeMap::new()),
             session_book: Mutex::new(SessionBook::default()),
             dirty_histories: Mutex::new(BTreeSet::new()),
             history_cache_written: Mutex::new(BTreeMap::new()),
@@ -1141,6 +1145,10 @@ impl AppCore {
                         models: client.models.clone(),
                         selection: selected,
                         uploads,
+                        skills: lock(&self.skill_drafts)
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or_default(),
                         usage: client.usage(),
                         ..Composer::default()
                     };
@@ -1556,9 +1564,7 @@ impl AppCore {
                     "resume the tracked agent process before submitting input".into(),
                 ));
             }
-            if (text.trim().is_empty() && core.snapshot().composer.uploads.is_empty())
-                || text.len() > 65536
-            {
+            if text.len() > 65536 {
                 return Err(AppError::State("invalid prompt length".into()));
             }
             let agent = core
@@ -1582,6 +1588,13 @@ impl AppCore {
                 .collect();
             let key = chat_key(&c, &agent);
             let files = lock(&core.uploads).get(&key).cloned().unwrap_or_default();
+            let skills = lock(&core.skill_drafts)
+                .get(&key)
+                .map(|d| d.selected.clone())
+                .unwrap_or_default();
+            if text.trim().is_empty() && files.is_empty() && skills.is_empty() {
+                return Err(AppError::State("invalid prompt length".into()));
+            }
             if files
                 .iter()
                 .any(|u| u.failed || u.attachment.path.is_empty())
@@ -1622,14 +1635,14 @@ impl AppCore {
                     .and_then(|m| m.get(&key).cloned())
                     .unwrap_or_else(|| client.initial.clone());
                 client
-                    .send(&text, &attachments, &selected)
+                    .send(&text, &attachments, &selected, &skills)
                     .await
                     .map(|_| ())
                     .map_err(AppError::from)
             } else {
-                if !files.is_empty() {
+                if !files.is_empty() || !skills.is_empty() {
                     return Err(AppError::State(
-                        "attachments require the Codex backend".into(),
+                        "attachments and skills require the Codex backend".into(),
                     ));
                 }
                 c.api
@@ -1653,7 +1666,7 @@ impl AppCore {
                     s.response_activity = activity;
                 }
             });
-            let text = composer::compose_text(&text, &attachments)?;
+            let text = composer::compose_prompt(&text, &attachments, &skills)?;
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Err(AppError::State(
                     "host changed during prompt submission".into(),
@@ -1674,6 +1687,10 @@ impl AppCore {
                     });
                 }
                 core.publish_uploads(&id, &key);
+                if let Some(draft) = lock(&core.skill_drafts).get_mut(&key) {
+                    draft.sent(&skills);
+                }
+                core.publish_skills(&id, &key);
                 let message = Message {
                     id: format!("local-{}", new_device_id()?),
                     role: Role::User,

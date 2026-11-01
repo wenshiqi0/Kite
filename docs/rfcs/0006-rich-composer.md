@@ -19,7 +19,13 @@
 
 输入框左侧加号只提供图片、文件和音频资源，桌面浮窗、上下分屏与全屏不再放入附件菜单。桌面入口留在顶栏更多菜单，布局由桌面控件切换。
 
-当前 Kite 尚无 skills 目录查询或显式选择入口；`kite-agent::composer` 只发送文本、图片及受支持的音频输入。远端运行时的 skill 行为不作为客户端选择器的实现证明。此轮不增加 skills 接口或更改已有会话、附件、身份与信任的保存格式。
+Alpha 16 当时尚无 skills 查询或显式选择入口；后续实现见下节。
+
+## 显式选择 Skills
+
+Android 输入框加号增加“选择 Skills”，弹出可搜索、多选的名称与简介列表。打开及手动刷新时从当前 Codex pane 的 `skills/list` 查询该会话 cwd，禁用项不展示；加载、失败、部分错误和空列表分别呈现。列表与本次消息选择由 Rust 按主机和 provider 会话隔离，原生只保留弹窗和搜索词。输入框上方用紧凑标签展示已选项，点击可逐个取消。
+
+`turn/start.input` 同时提交 `$name` 文本标记和 `type=skill` 的名称/主机绝对路径，路径只能来自服务端目录，可与附件混合发送，也可只发送 skill。成功后清除本次选择，失败保留草稿且不自动重发；刷新会移除失效选择。不写全局 skills 配置、不传整份 skill 正文、不修改身份或历史保存格式。依据 [官方 Skills 协议](https://learn.chatgpt.com/docs/app-server#skills) 及 Codex 0.164.0 生成的 `SkillsListResponse` / `TurnStartParams` schema。
 
 ## 套餐余量
 

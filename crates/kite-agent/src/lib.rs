@@ -320,6 +320,12 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         };
                         if text.starts_with("<environment_context>")
                             || text.starts_with("<turn_aborted>")
+                            // Codex injects the explicitly selected skill body as
+                            // user-role context; keep the actual $name prompt visible.
+                            || (role == Role::User
+                                && text.starts_with("<skill>\n<name>")
+                                && text.contains("</name>\n<path>")
+                                && text.trim_end().ends_with("</skill>"))
                         {
                             continue;
                         }
@@ -476,6 +482,26 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn selected_skill_instructions_do_not_appear_as_extra_user_prompts() {
+        let context = "<skill>\n<name>report</name>\n<path>/skills/report/SKILL.md</path>\nWrite a report.\n</skill>";
+        let wire = |role: &str, text: &str| {
+            serde_json::json!({"type":"response_item","payload":{"type":"message","role":role,"content":[{"type":"input_text","text":text}]}}).to_string()
+        };
+        let lines = [
+            wire("user", "$report\n\nSummarize changes"),
+            wire("user", context),
+            wire("assistant", context),
+            wire("user", "Explain <skill> tags"),
+        ]
+        .join("\n");
+        let messages = parse_history("codex", lines.as_bytes());
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].text, "$report\n\nSummarize changes");
+        assert_eq!(messages[1].role, Role::Assistant);
+        assert_eq!(messages[1].text, context);
+        assert_eq!(messages[2].text, "Explain <skill> tags");
+    }
     #[test]
     fn generated_images_render_as_assistant_attachments_with_stable_identity() {
         let bytes = br#"{"type":"response_item","_kite_offset":100,"payload":{"type":"image_generation_call","id":"ig-test","status":"completed","_kite_images":[{"id":"abc","name":"generated.png","mime":"image/png","size":1024,"path":"kite-image:abc"}]}}

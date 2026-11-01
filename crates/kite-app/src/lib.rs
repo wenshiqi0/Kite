@@ -12,6 +12,7 @@ pub mod core;
 pub mod host_node;
 pub use core::clipboard::{ClipboardPlatform, RemoteClipboard};
 pub use core::*;
+pub use kite_agent::composer::skills::{Skill as ChatSkill, SkillDraft};
 pub use kite_agent::composer::split_attachments as split_chat_attachments;
 pub use kite_agent::composer::{
     Attachment as ChatAttachment, Composer, Effort as ChatEffort, Model as ChatModel,
