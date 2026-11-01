@@ -733,9 +733,18 @@ impl AppCore {
         self.install_catalog(&c.host.id, &catalog)?;
         if agents.is_empty() {
             let agent = if catalog.sessions.is_empty() {
+                let available = self.snapshot().providers;
+                let Some(provider) = available
+                    .iter()
+                    .find(|p| p.id == "codex")
+                    .or_else(|| available.iter().find(|p| p.managed_chat))
+                    .or_else(|| available.first())
+                else {
+                    return Ok(agents);
+                };
                 let id = format!("{}{}", new_device_id()?, new_device_id()?);
                 let catalog = repository
-                    .create(id.clone(), "codex".into(), String::new(), None)
+                    .create(id.clone(), provider.id.clone(), String::new(), None)
                     .await?;
                 self.install_catalog(&c.host.id, &catalog)?;
                 Some(repository.resume(&id, &c.path).await?)

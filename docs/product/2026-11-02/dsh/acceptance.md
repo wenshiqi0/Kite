@@ -4,8 +4,8 @@ Source branch: `feat/dsh-harness`. Delivery candidate: Android/Linux `0.2.0-alph
 
 ## Verified source and protocol checks
 
-- 140 Rust workspace tests, Clippy with warnings denied and formatting checks passed.
-- Android Kotlin, 69 JVM tests, lint and native-test source compilation passed. DSH initialization explicitly waits for its own managed chat connection.
+- 141 Rust workspace tests, Clippy with warnings denied and formatting checks passed.
+- Android Kotlin, 71 JVM tests, lint and native-test source compilation passed. DSH initialization explicitly waits for its own managed chat connection.
 - 40 host-adapter tests passed, including DSH opt-in and credential gates, authenticated model discovery, SDK identity checks, subprocess chat and tools, unique-owner reconnect, cross-session rejection and notification facts without message bodies. Five installer/package tests and eight publisher tests passed.
 - Internal harness instructions remain behind one AGENTS trigger and development links. Detailed server/client/DSH guides are not loaded into common Skill, MCP initialization or desktop tool instructions.
 

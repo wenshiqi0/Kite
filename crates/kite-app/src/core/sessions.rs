@@ -488,8 +488,11 @@ impl AppCore {
                         .filter(|r| !r.archived)
                         .max_by_key(|r| r.updated_ms)
                 });
-            if let Some(record) = record.filter(|r| r.provider == "codex" && r.reference.is_some())
-            {
+            if let Some(record) = record.filter(|r| {
+                r.provider == "codex"
+                    && r.reference.is_some()
+                    && self.snapshot().providers.iter().any(|p| p.id == r.provider)
+            }) {
                 return Ok(Some(
                     Repository::new(&c.ssh).resume(&record.id, &c.path).await?,
                 ));
