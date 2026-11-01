@@ -23,7 +23,7 @@
 
 套餐额度同样按 RFC 0006 从当前会话 owner 只读查询；Rust 负责窗口、剩余百分比、更新代次与过期状态，原生在输入框左侧模型选择面板展示。查询任务独立于聊天且随客户端销毁取消，不保存账户标识或凭据，不用缺失字段猜测余额，不通过重置时间推断可发送权限。
 
-会话、归档、模型提问和响应阶段按 [RFC 0007](docs/rfcs/0007-sessions-and-interactions.md) 管理：Rust 持有持久记录、提供方、选中会话、回答关联和运行阶段；主机会话索引使用原子修订号写入，辅助程序承担单会话恢复租约及 Linux 终端启动。原始 provider 历史不移动，逻辑归档不停止后台任务。Android 负责相邻工具调用折叠、公开文本直显、题目输入及阶段动画，Claude 未连接时明确显示待连接状态。
+会话、归档、模型提问和响应阶段按 [RFC 0007](docs/rfcs/0007-sessions-and-interactions.md) 管理：Rust 持有持久记录、提供方、选中会话、回答关联和运行阶段；主机会话索引使用原子修订号写入，辅助程序承担单会话恢复租约及 Linux 终端启动。原始 provider 历史不移动。进程生命周期按 [RFC 0020](docs/rfcs/0020-session-owner-lifecycle.md)：归档保留执行中的任务，任务结束落盘后回收 TUI、app-server 及其子进程；未归档会话空闲一小时后回收，保活与状态轮询不延长期限。继续会话按原 provider thread 恢复。Android 负责相邻工具调用折叠、公开文本直显、题目输入及阶段动画，Claude 未连接时明确显示待连接状态。
 
 模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
 
