@@ -363,4 +363,8 @@
     <string name="answered_reply">你的回答</string>
     <string name="session_initializing">正在初始化会话…</string>
     <string name="session_initialization_failed">会话初始化未完成</string>
+    <string name="provider_dsh">DSH</string>
+    <string name="no_available_harness">当前主机没有可用的智能体，请检查后端配置</string>
+    <string name="harness_session_hint">连接智能体后即可开始对话</string>
+    <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
 </resources>

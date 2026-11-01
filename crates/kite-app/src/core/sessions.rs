@@ -658,7 +658,7 @@ impl AppCore {
             .selected
             .insert(c.host.id.clone(), Some(id.into()));
         self.persist_session_book()?;
-        let mut agents = c.api.agents().await?;
+        let mut agents = self.fetch_agents(c).await?;
         if !agents.iter().any(|a| a.terminal_id == agent.terminal_id) {
             agents.push(agent.clone());
         }
@@ -756,7 +756,7 @@ impl AppCore {
             let c = core.connection()?;
             let cwd = cwd.trim();
             let title = title.trim();
-            if !matches!(provider.as_str(), "codex" | "claude")
+            if !core.snapshot().providers.iter().any(|p| p.id == provider)
                 || title.len() > 512
                 || (!cwd.is_empty()
                     && (!cwd.starts_with('/')
@@ -797,7 +797,7 @@ impl AppCore {
                 s.response_activity = ResponseActivity::Idle;
                 s.failure = None;
             });
-            if provider == "codex" {
+            if providers::managed(&provider) {
                 core.activate_session(&c, &id).await?;
             }
             let agents = core.snapshot().agents;

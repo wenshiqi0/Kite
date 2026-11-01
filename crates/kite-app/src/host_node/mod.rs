@@ -116,6 +116,14 @@ impl Config {
                 "XDG_RUNTIME_DIR",
                 "DBUS_SESSION_BUS_ADDRESS",
                 "PATH",
+                "KITE_ENABLE_DSH",
+                "KITE_DSH_COMMAND",
+                "KITE_DSH_PROVIDER",
+                "KITE_DSH_MODEL",
+                "KITE_DSH_HEALTH_URL",
+                "DEEPSEEK_API_KEY",
+                "MIMO_API_KEY",
+                "DSH_HOME",
             ]
             .contains(&k.as_str())
         }) {
@@ -193,7 +201,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":1,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1})
                 );
                 Ok(0)
             }
@@ -453,10 +461,13 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     if activated.is_some() {
         let source = format!(
-            "{}{}{}",
+            "{}{}{}{}{}{}",
             String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
             include_str!("../../../../backend/kite_push.py"),
-            desktop::SOURCE
+            desktop::SOURCE,
+            include_str!("../../../../backend/kite_harness.py"),
+            include_str!("../../../../backend/kite_harness_native.py"),
+            include_str!("../../../../backend/kite_harness_runtime.py")
         );
         let generation = config
             .backend
@@ -473,6 +484,26 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     fs::write(&pending, kite_agent::composer::BACKEND_SOURCE)?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, &config.backend)?;
+    for (name, source) in [
+        (
+            "kite_harness.py",
+            include_str!("../../../../backend/kite_harness.py"),
+        ),
+        (
+            "kite_harness_native.py",
+            include_str!("../../../../backend/kite_harness_native.py"),
+        ),
+        (
+            "kite_harness_runtime.py",
+            include_str!("../../../../backend/kite_harness_runtime.py"),
+        ),
+    ] {
+        let target = config.backend.with_file_name(name);
+        let pending = target.with_extension("pending");
+        fs::write(&pending, source)?;
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
+        fs::rename(pending, target)?;
+    }
     let push_backend = config.backend.with_file_name("push-v1.py");
     let pending = push_backend.with_extension("pending");
     fs::write(&pending, include_str!("../../../../backend/kite_push.py"))?;
@@ -653,7 +684,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {
@@ -806,6 +837,8 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
                     | "session-facts"
                     | "image-read"
                     | "attachment-read"
+                    | "harness-scan"
+                    | "harness-history"
             )
         ) {
             return Err(Error::Protocol("backend action denied"));

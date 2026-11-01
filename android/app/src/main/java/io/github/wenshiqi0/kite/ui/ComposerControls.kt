@@ -23,8 +23,8 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
 
 @Composable
-fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: ComposerInfo?) {
-    if (agent?.agent != "codex" || composer == null) return
+fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: ComposerInfo?, supported: Boolean = agent?.agent == "codex") {
+    if (!supported || agent == null || composer == null) return
     if (!composer.ready) {
         var details by remember { mutableStateOf(false) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -78,6 +78,23 @@ class WorkspaceRefinementPresentationTest {
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
         if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,null,System.currentTimeMillis())
 
+    @Test fun verifiedDshIsSelectableAndUnavailableProvidersAreAbsent() {
+        val selected=java.util.concurrent.atomic.AtomicReference("")
+        val dsh=ProviderInfo("dsh",true,false,false,false,false,false,false)
+        overlay({HarnessChoices(listOf(dsh),"dsh",selected::set)}) {
+            waitFor("Verified DSH appears"){find(text="DSH")!=null}
+            assertNull(find(text="Codex"));assertNull(find(text="Claude"));assertNull(find(text="Ply"))
+            assertTrue(actionNode(requireNotNull(find(text="DSH")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Stable provider ID submitted"){selected.get()=="dsh"}
+            screenshot("dsh-verified-provider.png")
+        }
+        overlay({HarnessChoices(emptyList(),"dsh",selected::set)}) {
+            waitFor("Empty host catalogue"){find(text="当前主机没有可用的智能体")!=null}
+            assertNull(find(text="DSH"));assertNull(find(text="Ply"))
+            screenshot("dsh-unavailable-hidden.png")
+        }
+    }
+
     @Test fun modelPanelUsageShowsIndependentPeriodsAndMissingDataIsNotZero() {
         overlay({AccountUsageDialog(usage(),"codex",true,{},{})}) {
             waitFor("5-hour quota"){find(text="5小时 · 剩余 73%")!=null}

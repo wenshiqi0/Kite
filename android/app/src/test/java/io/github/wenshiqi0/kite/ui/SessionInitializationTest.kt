@@ -32,4 +32,12 @@ class SessionInitializationTest {
         assertEquals(SessionStartupPhase.INACTIVE,disconnected)
         assertFalse(disconnected.canSubmit)
     }
+    @Test fun dshWaitsForItsOwnManagedConnectionAndClaudeCanUseTextWithoutIt() {
+        val dsh = agent().copy(agent = "dsh")
+        assertFalse(sessionStartupPhase(false,true,dsh,false,false,managedChat=true).canSubmit)
+        assertTrue(sessionStartupPhase(false,true,dsh,true,false,managedChat=true).canSubmit)
+        val claude = agent().copy(agent = "claude")
+        assertTrue(sessionStartupPhase(false,true,claude,false,false,managedChat=false).canSubmit)
+        assertFalse(sessionStartupPhase(false,false,dsh,true,false,managedChat=true).canSubmit)
+    }
 }

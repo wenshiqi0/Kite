@@ -19,12 +19,12 @@ enum class SessionStartupPhase {
     val canSubmit: Boolean get() = this == READY
 }
 
-fun sessionStartupPhase(creating: Boolean, connected: Boolean, agent: AgentInfo?, composerReady: Boolean, failed: Boolean): SessionStartupPhase = when {
+fun sessionStartupPhase(creating: Boolean, connected: Boolean, agent: AgentInfo?, composerReady: Boolean, failed: Boolean, managedChat: Boolean = agent?.agent == "codex"): SessionStartupPhase = when {
     creating -> SessionStartupPhase.INITIALIZING
     !connected -> SessionStartupPhase.INACTIVE
     failed -> SessionStartupPhase.FAILED
     agent == null -> SessionStartupPhase.INACTIVE
-    agent.launchPending || agent.agent == "codex" && !composerReady -> SessionStartupPhase.INITIALIZING
+    agent.launchPending || managedChat && !composerReady -> SessionStartupPhase.INITIALIZING
     else -> SessionStartupPhase.READY
 }
 
