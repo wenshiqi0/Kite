@@ -93,7 +93,7 @@ internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, att
     LaunchedEffect(conversation,attachment.id,attempt,localFile?.path) {
         failed=false
         try {
-            val file=localFile ?: vm.engine.messageAttachment(conversation,attachment)
+            val file=localFile?.takeIf { it.isFile } ?: vm.engine.messageAttachment(conversation,attachment)
             withContext(Dispatchers.IO) {
                 if(kind==AttachmentPreviewKind.Image) bitmap=decodeGeneratedImage(file)
                 if(kind==AttachmentPreviewKind.Text) {

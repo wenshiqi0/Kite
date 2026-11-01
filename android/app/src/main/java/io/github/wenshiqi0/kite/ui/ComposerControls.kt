@@ -88,7 +88,7 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             files.forEach { upload ->
                 Surface(color = KiteColors.Surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.widthIn(max = 235.dp)) {
-                    Row(Modifier.clickable(enabled = upload.localPath.isNotBlank()) { inspect(); preview = upload }.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.clickable(enabled = upload.localPath.isNotBlank() && !vm.sending) { inspect(); preview = upload }.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         ProductIcon(attachmentMark(upload.file.mime), KiteColors.Muted, Modifier.size(20.dp))
                         Column(Modifier.widthIn(max = 154.dp).padding(start = 9.dp, top = 9.dp, bottom = 9.dp)) {
                             Text(upload.file.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

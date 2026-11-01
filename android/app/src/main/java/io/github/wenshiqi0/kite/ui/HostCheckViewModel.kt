@@ -269,9 +269,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         val value = draft.trim()
         val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty()) || sending || copyingAttachments) return
+        val sentFiles = engine.state.value?.composer?.uploads.orEmpty().map { it.localPath }.filter { it.isNotBlank() }.distinct()
         sendingAgents.add(id)
         engine.command {
-            try { engine.core.promptAgent(id, value); if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context) }
+            try { engine.core.promptAgent(id, value); sentFiles.forEach { java.io.File(it).delete() }; if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context) }
             finally { sendingAgents.remove(id) }
         }
     }
@@ -287,7 +288,6 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                 for (uri in uris.take(5)) {
                     val file = cacheAttachment(getApplication(), uri)
                     engine.core.uploadAttachment(id, file.path, file.name, file.mime, null)
-                    java.io.File(file.path).delete()
                 }
             } finally { copyingAttachments = false }
         }

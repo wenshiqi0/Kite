@@ -17,6 +17,14 @@ impl AppCore {
                 .conversation
                 .iter()
                 .flat_map(|m| composer::split_attachments(&m.text).1)
+                .chain(
+                    snapshot
+                        .composer
+                        .uploads
+                        .iter()
+                        .filter(|u| !u.failed)
+                        .map(|u| u.attachment.clone()),
+                )
                 .find(|file| {
                     file.id == id
                         && file.path.ends_with(&format!(
