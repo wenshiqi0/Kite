@@ -9,3 +9,5 @@ The duplicate-bubble race occurs when a provider echo is published while `prompt
 ## Published Alpha 40
 
 [Alpha 40](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.40), versionCode **42**, source `11499996d5054714c7b35cce7d0be516e1c96943`, is published by [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41329973337). Independent downloads match all public checksums, the pinned signing identity, API 23–36 / API 36-only verification, equal primary/compatibility application payloads and native ZIP alignment. The public DEX contains the icon-only component. [Public checks](published-release.json). The subsequently requested initialization presentation and submit lock are added in the next immutable Alpha; Alpha 40's source and assets stay unchanged.
+
+The initial Alpha 40 main run hit the existing Linux X11 distinct-Unicode stress check (494/512 characters); its unchanged-source rerun [passes](https://github.com/wenshiqi0/Kite/actions/runs/41329945432). The independent Alpha 40 tag run passed originally. No unrelated desktop source was changed for these Android fixes.
