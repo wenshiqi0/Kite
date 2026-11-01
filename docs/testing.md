@@ -51,6 +51,19 @@ This probe installs into a temporary user tree, routes manager operations only t
 
 ## Offline checks
 
+Agent docs/desktop acceptance uses an owned Node and X11 fixture:
+
+```sh
+cargo build -p kite-node --locked
+xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
+uv run --no-project --with tiktoken python desktop/linux/qa/docs_budget.py --binary target/debug/kite-node
+python3 desktop/linux/qa/skill_consumers.py --binary target/debug/kite-node --dsh-source /path/to/installed/deepseek-harness
+```
+
+The desktop fixture receives actual mouse, key/chord and UTF-8 events, including the maximum documented text size; screenshots verify PNG bytes, crop origin, private permissions, image blocks and conditional omission. Its process identity/focus is checked before input, it records only counters and known-text hashes, and it never uses real catalogue facts. Run it on a real desktop only through that desktop's launch environment and keep interaction confined to the owned window. The live-upgrade probe additionally checks managed-skill installation and preservation of user edits. Documentation tests cover missing-node access, multi-topic cache invalidation and fresh-context refetch; no global read marker is permitted.
+
+Token budgets use pinned `tiktoken` reference encodings (`desktop/linux/qa/requirements.txt`). They report bytes, common first-load paths, unchanged responses and MCP schemas separately; they do not claim native Claude/DeepSeek token accounting or include image/reasoning costs. Consumer-loader tests use installed Codex/DeepSeek Harness metadata APIs without a model turn or harness config edits; missing optional installations are not evidence of live-model compatibility. Claude's common Agent Skills/MCP contract is separately documented.
+
 The domain and foundation suites use in-process SSH / HTTP fixtures and do not require an external host:
 
 ```bash

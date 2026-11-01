@@ -28,6 +28,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0016](0016-desktop-audio.md) | Android 远程桌面声音与播放生命周期 | 已实现（Android Alpha 26） |
 | [0017](0017-agent-notifications.md) | agent 通知、系统提醒与会话回访 | 已采纳，实施中 |
 | [0018](0018-live-node-upgrade.md) | 保留连接的 Linux Node 升级 | 已实现，尚未发布 |
+| [0019](0019-agent-docs-and-linux-desktop.md) | 统一 Agent 文档、渐进披露与 Linux 桌面操作 | 已实现，待发布 |
 
 ## 什么时候写 RFC
 

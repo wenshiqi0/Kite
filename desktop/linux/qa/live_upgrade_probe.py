@@ -85,6 +85,8 @@ unit_root.mkdir(parents=True, exist_ok=True)
 service_path, socket_path = [unit_root / (unit_name + suffix) for suffix in ['.service', '.socket']]
 with tempfile.TemporaryDirectory(prefix='kite-live-upgrade-') as directory:
     root = Path(directory)
+    stable_binary=root/'test-node'
+    shutil.copyfile(binary,stable_binary);stable_binary.chmod(0o700);binary=stable_binary
     node_dir = root / 'node'
     node_dir.mkdir(mode=0o700)
     address = node_dir / 'host.sock'
@@ -155,6 +157,7 @@ print(json.dumps(facts))
     for name in ['desktop.py', 'strings.json']:
         shutil.copyfile(source_root / name, package / name)
     shutil.copytree(source_root / 'icons', package / 'icons')
+    shutil.copytree(source_root.parent.parent / 'skills', package / 'skills')
     installed_config = home / '.config/kite/node.json'
     installed_config.parent.mkdir(parents=True)
     shutil.copyfile(config, installed_config)
@@ -180,7 +183,7 @@ print(json.dumps(facts))
 
     def install():
         with patch.object(installer, 'ROOT', package), patch.object(Path, 'home', return_value=home), \
-                patch('sys.argv', ['install.py', '--enable']), patch.object(subprocess, 'run', side_effect=install_run), \
+                patch('sys.argv', ['install.py', '--enable','--skill-dir',str(home/'.agents/skills')]), patch.object(subprocess, 'run', side_effect=install_run), \
                 patch.object(installer, 'refresh_gui'), contextlib.redirect_stdout(io.StringIO()):
             installer.main()
     stop = threading.Event()
@@ -198,6 +201,15 @@ print(json.dumps(facts))
             return json.loads(value)
 
         old_pid = status()['pid']
+        installed_skill=home/'.agents/skills/kite/SKILL.md'
+        skill_body=installed_skill.read_bytes();installed_skill.write_bytes(skill_body+b'\nOwned custom skill edit\n')
+        try:
+            install()
+            raise AssertionError('An edited user skill must be preserved')
+        except RuntimeError as error:
+            assert 'local changes' in str(error)
+        assert installed_skill.read_bytes().endswith(b'Owned custom skill edit\n') and status()['pid']==old_pid
+        installed_skill.write_bytes(skill_body)
         deadline = time.monotonic() + 5
         while not status()['notificationLastScanMs']:
             assert time.monotonic() < deadline
@@ -363,6 +375,7 @@ print(json.dumps(facts))
         result['concurrentPushRegistrationRetained'] = True
         result['replacementAdoptedByUserManager'] = True
         result['newGenerationCrashAutomaticallyRecovered'] = True
+        result['customizedSkillPreserved'] = True
         print(json.dumps(result), flush=True)
         if args.evidence:
             args.evidence.parent.mkdir(parents=True, exist_ok=True)

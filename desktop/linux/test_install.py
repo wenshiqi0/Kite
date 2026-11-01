@@ -22,6 +22,8 @@ class InstallTests(unittest.TestCase):
             source = Path(directory) / 'package'
             source.mkdir()
             (source / 'kite-node').write_bytes(b'new binary')
+            (source/'skills/kite').mkdir(parents=True)
+            (source/'skills/kite/SKILL.md').write_bytes((Path(__file__).resolve().parents[2]/'skills/kite/SKILL.md').read_bytes())
             for name in ['desktop.py', 'strings.json', *['icons/kite-' + state + '.png' for state in ['ready', 'degraded', 'offline', 'busy']]]:
                 target = source / name
                 target.parent.mkdir(exist_ok=True)
