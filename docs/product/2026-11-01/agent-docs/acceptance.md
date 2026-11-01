@@ -6,7 +6,7 @@ Kite now owns the CLI/docs/MCP desktop contract described in [RFC 0019](../../..
 
 ## Cost measurements
 
-[Pinned reference tokenizer measurements](token-budget.json) distinguish discovery, first use, optional detail and unchanged rechecks. These are `cl100k_base` / `o200k_base` counts, not Claude/DeepSeek's native accounting. They exclude image tokens, model reasoning and unrelated harness context.
+[Pinned reference tokenizer measurements](token-budget.json) distinguish discovery, first use, optional detail and unchanged rechecks. These are `cl100k_base` / `o200k_base` counts, not Claude/DeepSeek's native accounting. They count emitted documentation/metadata artifacts and exclude request arguments, tool-call wrappers, image tokens, model reasoning and unrelated harness context. The 18-token figure is the unchanged response body, not the entire request/response transaction.
 
 | Path | Reference token count |
 | --- | ---: |
