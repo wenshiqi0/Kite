@@ -611,8 +611,8 @@ private fun agentTitle(a: AgentInfo): String {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                MessageAttachments(message.attachments.filterNot { it.path.startsWith("kite-image:") })
-                GeneratedImages(vm, message.attachments.filter { it.path.startsWith("kite-image:") })
+                MessageAttachments(message.attachments.filterNot { it.generatedImage })
+                GeneratedImages(vm, message.attachments.filter { it.generatedImage })
                 if (message.text.isNotBlank()) {
                     if (user) SelectionContainer { Text(message.text, color = KiteColors.Accent, fontSize = 16.sp, lineHeight = 25.sp) }
                     else {

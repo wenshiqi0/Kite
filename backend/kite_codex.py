@@ -778,7 +778,7 @@ def display_line(stream, limit):
     start = stream.tell()
     header = stream.read(1024)
     stream.seek(start)
-    if b'"image_generation_call"' not in header and b'"image_generation_end"' not in header:
+    if not any(token in header for token in (b'"image_generation_call"', b'"image_generation_end"', b'"ImageGeneration"', b'"image_gen.generation"')):
         return control_line(stream, limit)
     line = stream.readline((MAX_FILE + 2) // 3 * 4 + limit + 1)
     complete = line.endswith(b"\n")
@@ -792,6 +792,12 @@ def display_line(stream, limit):
     except (ValueError, TypeError):
         return b"", True
     payload = record.get("payload", {})
+    if record.get("type") == "event_msg" and payload.get("type") in ("item_completed", "item_started"):
+        item = payload.get("item", {})
+        if item.get("type") == "ImageGeneration" or (item.get("type") == "Extension" and item.get("kind") == "image_gen.generation"):
+            payload = dict(item, type="image_generation_call")
+            payload["saved_path"] = payload.pop("savedPath", payload.get("saved_path"))
+            record.update(type="response_item", payload=payload)
     if record.get("type") == "event_msg" and payload.get("type") == "image_generation_end":
         record["type"] = "response_item"
         payload["type"] = "image_generation_call"

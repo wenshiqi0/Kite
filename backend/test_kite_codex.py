@@ -334,3 +334,27 @@ class GeneratedImageTests(unittest.TestCase):
             image = backend.store_generated_bytes(b"\xff\xd8\xfftest")
             (backend.image_store() / image["id"]).write_bytes(b"changed")
             with self.assertRaises(ValueError): backend.read_generated_image(image["id"], io.BytesIO())
+
+    def test_extension_and_hosted_item_completions_preserve_one_image_identity(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(backend.Path, "home", return_value=Path(temporary)):
+            data = b"\x89PNG\r\n\x1a\ntest"
+            source = Path(temporary) / "history.jsonl"
+            saved = Path(temporary) / "saved.png"
+            saved.write_bytes(data)
+            for item in (
+                {"type":"ImageGeneration", "id":"ig-item", "status":"completed", "result":base64.b64encode(data).decode()},
+                {"type":"Extension", "kind":"image_gen.generation", "id":"ig-item", "status":"completed", "fileId":"file_1", "savedPath":str(saved)},
+            ):
+                source.write_text(json.dumps({"type":"event_msg", "payload":{"type":"item_completed", "item":item}}) + "\n")
+                payload = json.loads(self.page(source)[2])["payload"]
+                self.assertEqual(payload["id"], "ig-item")
+                self.assertEqual(payload["type"], "image_generation_call")
+                self.assertEqual(payload["_kite_images"][0]["id"], hashlib.sha256(data).hexdigest())
+
+    def test_session_facts_include_archived_running_sessions(self):
+        records = [dict(id="live", title="Live", terminal_id="t1"), dict(id="archived", title="Archived", terminal_id="t2", archived=True)]
+        agents = [dict(terminal_id="t1", agent_status="working"), dict(terminal_id="t2", agent_status="blocked")]
+        with patch.object(backend, "catalog_read", return_value={"sessions":records}), patch.object(backend, "api", return_value={"agents":agents}):
+            self.assertEqual(len(json.loads(backend.notification_facts("herdr"))["facts"]), 1)
+            facts = json.loads(backend.notification_facts("herdr", include_archived=True))["facts"]
+            self.assertEqual([(f["session_id"], f["status"]) for f in facts], [("live", "working"), ("archived", "blocked")])

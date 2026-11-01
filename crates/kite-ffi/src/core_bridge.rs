@@ -178,10 +178,13 @@ pub struct AttachmentInfo {
     pub name: String,
     pub mime: String,
     pub size: u64,
+    pub generated_image: bool,
 }
 impl From<kite_app::ChatAttachment> for AttachmentInfo {
     fn from(a: kite_app::ChatAttachment) -> Self {
         Self {
+            generated_image: a.path == format!("kite-image:{}", a.id)
+                && a.mime.starts_with("image/"),
             id: a.id,
             name: a.name,
             mime: a.mime,

@@ -43,8 +43,7 @@ internal fun decodeGeneratedImage(file: File): Bitmap {
 }
 
 @Composable
-fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>) {
-    val conversation = vm.engine.timeline.context
+fun GeneratedImages(vm: HostCheckViewModel, images: List<AttachmentInfo>, conversation: String = vm.engine.timeline.context) {
     images.forEach { image ->
         key(conversation, image.id) { GeneratedImage(vm, conversation, image) }
     }
