@@ -14,3 +14,11 @@ Generated images are assistant attachment messages with immutable SHA-256 identi
 - `SessionStatusTest` covers native label selection and disconnected-state precedence. `SessionImagesPresentationTest` uses an owned synthetic PNG to check offline caching, actual native status badges, preview, expansion and dismissal. CI compiles native presentation tests; device execution remains pending.
 
 The Android app and Linux host must both be updated to the matching release for the new host projection and image-download commands. The change uses the existing Codex host configuration and account. Protocol references: [official OpenAI App Server documentation](https://learn.chatgpt.com/docs/app-server), verified against the installed 0.164.0 generated JSON schema and upstream OpenAI protocol/extension source.
+
+## Published Alpha 31
+
+[0.2.0-alpha.31](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.31), versionCode 33, source `2850a07a7581736c6279fc70d5622102359c21c8`, is published as a prerelease. The source is merged into `main`. Alpha 30 remains an unpublished superseded candidate; its tag was not moved.
+
+The [main build](https://github.com/wenshiqi0/Kite/actions/runs/41297487280), [tag build/publication](https://github.com/wenshiqi0/Kite/actions/runs/41297512179) and [PR/native-source compilation](https://github.com/wenshiqi0/Kite/actions/runs/41297155674) passed. Public APK/archive/manifest checksums match. Independent public-byte checks confirm the existing certificate, v2/v3 block presence and native ZIP alignment; CI performs the full v1/v2/v3 verification. The downloaded host archive reports Alpha 31 and, in an isolated owned Node instance, returns the real generated 987,991-byte PNG with the original SHA-256 and accepts the session-facts route. No production host configuration or services were changed by this check. [Exact public-package evidence](published-release.json).
+
+Android device execution, system Documents export and physical-phone pinch interaction remain pending. Native-test compilation, public-package verification and real host/SSH image transport are distinct evidence.
