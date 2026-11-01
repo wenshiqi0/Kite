@@ -1,6 +1,6 @@
 # DSH integration acceptance
 
-Source branch: `feat/dsh-harness`; published source `4daad6d66bf18603a26164a15c809c6aa23c458d`. Verified delivery: Android/Linux `0.2.0-alpha.43`, versionCode 45. This record separates source checks, real model execution, native presentation and public artifacts.
+Source branch: `feat/dsh-harness`; published source `3c40b2dd44d9ffc98276b11adc790f34a8c3ab5d`. Verified final delivery: Android/Linux `0.2.0-alpha.45`, versionCode 47. This record separates source checks, real model execution, native presentation and public artifacts.
 
 ## Verified source and protocol checks
 
@@ -24,8 +24,16 @@ DSH SDK exposes creation, prompt and notifications rather than an SDK resume RPC
 
 Two native API 36 tests passed on an isolated x86_64 emulator: verified DSH is selectable with ID `dsh`, absent providers do not appear, and initialization prevents input until ready. These are actual component/initialization checks with synthetic display metadata, not a claim of a full physical-phone model turn. The x86 UI harness uses a temporary portable Reed–Solomon CPU-dispatch header for an existing nanors/Clang link limitation; production ARM64 sources and optimization settings are unchanged. [Native record](native-validation.json).
 
-[Alpha 43](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.43) was published by [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41342566322). Independent public downloads passed checksum, version/code, stable certificate versus Alpha 42, primary/v2-compatible payload identity and 16 KiB ZIP-alignment checks. [Public artifact record](published-release.json).
+[Alpha 43](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.43) was published by [tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41342566322). Independent public downloads passed checksum, version/code, stable certificate versus Alpha 42, primary/v2-compatible payload identity and 16 KiB ZIP-alignment checks. [Initial Alpha 43 artifact record](published-alpha43.json).
 
-The verified matching Linux package was installed through compatible live handover. Node reports `0.2.0-alpha.43`, `harnessApi=1`, ready health and available `codex`, `claude`, `dsh`. Host identity and external service PIDs were retained. DSH uses private Node environment and a Kite-only SDK profile, leaving global DSH model settings unchanged. [Host record](host-validation.json).
+The verified matching Linux package was installed through compatible live handover. Node reports `0.2.0-alpha.43`, `harnessApi=1`, ready health and available `codex`, `claude`, `dsh`. Host identity and external service PIDs were retained. DSH uses private Node environment and a Kite-only SDK profile, leaving global DSH model settings unchanged. [Initial Alpha 43 host record](host-alpha43.json).
 
 Physical-handset installation, WAN conditions and newly delivered system push remain separate from the isolated model and emulator checks. DSH supports the declared text/tool/history flow; unsupported interaction and input features remain unavailable.
+
+## Final combined delivery — Alpha 45
+
+[Alpha 45](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.45), versionCode 47, combines DSH with the existing session-owner lifecycle API and its idle-stop protections. [Tag CI](https://github.com/wenshiqi0/Kite/actions/runs/41345471617) passed; local combined validation passed 145 Rust tests, 52 backend tests and all-target Clippy. The backend suite also passed with CI-like executable lookup and system Python.
+
+Android product/shared-client sources are unchanged from the verified Alpha 43 UI; the 71 JVM checks and two native component/initialization checks remain applicable. Public primary/compatibility APKs were independently downloaded and verified for source/version, checksums, stable certificate versus Alpha 42, equal contents and alignment. [Final package record](published-release.json).
+
+The official matching Alpha 45 host was installed by live handover. It reports ready health, available DSH, `harnessApi=1` and the retained `sessionLifecycle` API. Host identity and external Herdr/Sunshine PIDs were retained. [Final host record](host-validation.json). No physical-handset execution is claimed; the signed compatibility APK is ready for an in-place user update.

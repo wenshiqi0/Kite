@@ -26,3 +26,5 @@ Stage completion includes updating this plan, the documentation index, affected 
 ## Managed DSH conversations — 2026-11-02
 
 Alpha 43 adds opt-in DSH SDK sessions with host-verified provider availability, shared Rust/FFI operation metadata and Android choices/initialization controls. Text, tools, history and same-owner reconnect are verified; unsupported input/settings/control features remain unavailable. Real-model, native-component, public-package and matching-host checks are recorded separately in the [delivery evidence](product/2026-11-02/dsh/acceptance.md). Configuration details remain in the [on-demand DSH guide](development/dsh.md).
+
+Final combined DSH delivery is Alpha 45: it also retains the existing session lifecycle API, passes CI/public artifact verification, and is installed on the live host with both APIs and DSH availability confirmed.
