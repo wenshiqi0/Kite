@@ -939,6 +939,7 @@ mod tests {
             text: "retained history".into(),
             intermediate: false,
             tool: None,
+            question_replies: Vec::new(),
         };
         core.cache_conversation(
             "host",
@@ -971,6 +972,7 @@ mod tests {
                 text: format!("record {i}"),
                 intermediate: false,
                 tool: None,
+                question_replies: Vec::new(),
             })
             .collect();
         let record = Record::draft("session".into(), "codex".into(), "saved".into(), None, 1);
@@ -1027,6 +1029,7 @@ mod tests {
                 text: format!("conversation {i}"),
                 intermediate: false,
                 tool: None,
+                question_replies: Vec::new(),
             })]);
             core.cache_conversation("host", &format!("s-{i}"), &records, true)
                 .unwrap();

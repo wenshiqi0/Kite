@@ -697,6 +697,7 @@ mod tests {
             text: format!("record {i}"),
             intermediate: false,
             tool: None,
+            question_replies: Vec::new(),
         }
     }
     fn page(start: usize, end: usize, total: usize) -> history::History {

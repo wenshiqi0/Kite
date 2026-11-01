@@ -5,8 +5,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatTimelineStateTest {
-    private fun message(i:Int)=MessageInfo(emptyList(),"m"+i,MessageKind.ASSISTANT,"message "+i,false,null)
-    private fun tool(id:String)=MessageInfo(emptyList(),id,MessageKind.TOOL,"",false,ToolInfo("Bash","command","Bash","echo test","",false,false,false))
+    private fun message(i:Int)=MessageInfo(emptyList(),emptyList(),"m"+i,MessageKind.ASSISTANT,"message "+i,false,null)
+    private fun tool(id:String)=MessageInfo(emptyList(),emptyList(),id,MessageKind.TOOL,"",false,ToolInfo("Bash","command","Bash","echo test","",false,false,false))
     private fun delta(revision:ULong,reset:Boolean=false,at:Int=0,remove:Int=0,items:List<MessageInfo>,context:String="host/thread")=
         ConversationDeltaInfo(context,revision,reset,listOf(ConversationEditInfo(at.toULong(),remove.toULong(),items)))
     @Test fun tenThousandMessagesStayAvailableAndTailEditsPreserveOtherRows() {

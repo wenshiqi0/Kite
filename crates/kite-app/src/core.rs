@@ -1697,6 +1697,7 @@ impl AppCore {
                     intermediate: false,
                     text,
                     tool: None,
+                    question_replies: Vec::new(),
                 };
                 let mut pending = lock(&core.pending_messages);
                 if pending.len() >= 32 {
@@ -1856,12 +1857,49 @@ impl AppCore {
                 .get(&chat_key(&c, agent))
                 .cloned()
                 .ok_or_else(|| AppError::State("question connection unavailable".into()))?;
+            let generation = core.generation.load(Ordering::SeqCst);
+            let replies = snapshot.question.as_ref().unwrap().reply_records(&answers);
             client.answer(&request, &answers).await?;
+            if core.generation.load(Ordering::SeqCst) != generation {
+                return Ok(());
+            }
+            let message = Message {
+                id: format!("local-question-{}", fingerprint(&request)),
+                role: Role::User,
+                text: kite_agent::question_reply_text(&replies),
+                intermediate: false,
+                tool: None,
+                question_replies: replies,
+            };
+            let previous = snapshot
+                .conversation
+                .iter()
+                .map(|m| m.id.clone())
+                .collect::<BTreeSet<_>>();
+            let already_synced = core.snapshot().conversation.iter().any(|m| {
+                m.role == Role::User && m.text == message.text && !previous.contains(&m.id)
+            });
+            if !already_synced {
+                let mut pending = lock(&core.pending_messages);
+                if pending.len() >= 32 {
+                    pending.remove(0);
+                }
+                pending.push(PendingMessage {
+                    key: format!("{}/{}/{}", c.host.id, id, source_key(agent)),
+                    message: message.clone(),
+                    previous,
+                });
+            }
             let runtime = client.runtime();
             core.update(|s| {
                 if s.selected_agent.as_ref() == Some(&id) {
                     s.question = runtime.question();
                     s.response_activity = runtime.phase();
+                    if !already_synced {
+                        let mut messages = s.conversation.as_ref().clone();
+                        messages.push(Arc::new(message));
+                        s.replace_shared_conversation(messages, true);
+                    }
                 }
             });
             Ok(())

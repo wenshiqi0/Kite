@@ -177,6 +177,44 @@ class NativePresentationTest {
         assertTrue("Replacing a reply must shrink its old height", view.measuredHeight < height)
     }
 
+    @Test fun inlineCodeBackgroundsStayCompactAcrossWrappedListsAndLargeFonts() = onMain {
+        val view = MarkdownTextView(instrumentation.targetContext)
+        val density = view.resources.displayMetrics.density
+        val source = """
+            是的，都已包含在远端最新 `main`。
+
+            - `main` 最新提交：[ `fccdfa3` ](https://example.com/commit)
+            - Alpha 38 源码提交：`7442493`，已完整合入 `main`
+            - 长路径：`/home/example/workspace/kite/android/app/src/main/java/MarkdownMessage.kt`
+            - 混排：مرحبا `main` 中文测试
+        """.trimIndent()
+        for (scale in listOf(1f, 1.3f, 2f)) for (width in listOf(240, 320, 400)) {
+            view.textSize = 16 * density * scale
+            view.bind(source)
+            measureText(view, (width * density).toInt())
+            val boxes = view.inlineCodeBackgrounds()
+            assertTrue("Wrapped code must retain a background on each line", boxes.size >= 7)
+            for (box in boxes) {
+                assertTrue("Background is too tall: $box", box.height() <= view.paint.fontSpacing * 1.06f)
+                assertTrue("Background outside text layout: $box", box.top >= 0 && box.bottom <= view.height)
+            }
+            for (a in boxes) for (b in boxes) {
+                if (a.top < b.top && a.left < b.right && b.left < a.right) {
+                    assertTrue("Adjacent line backgrounds overlap: $a / $b", a.bottom <= b.top)
+                }
+            }
+            val spans = view.text as Spanned
+            assertEquals(1, spans.getSpans(0, spans.length, URLSpan::class.java).size)
+            assertTrue("Long code still wraps within the text column", view.layout.lineCount > 6)
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap); canvas.drawColor(0xFF191C20.toInt()); view.draw(canvas)
+            if (scale == 1f && width == 320 || scale == 2f && width == 240) {
+                File(instrumentation.targetContext.getExternalFilesDir(null), "inline-code-${width}-${scale}.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            bitmap.recycle()
+        }
+    }
+
     @Test fun onlyExplicitExternalLinkSchemesOpen() = onMain {
         for (link in listOf("https://example.com/a?q=1", "HTTP://example.com", "mailto:test@example.com")) assertTrue(link, MarkdownRenderer.isExternalLink(link))
         for (link in listOf("/home/me/file", "file:///sdcard/a", "content://a", "intent://a", "javascript:alert(1)", "https:", "#section")) assertFalse(link, MarkdownRenderer.isExternalLink(link))

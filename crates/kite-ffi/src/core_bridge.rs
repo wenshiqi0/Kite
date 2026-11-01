@@ -395,7 +395,14 @@ impl From<kite_app::Composer> for ComposerInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct QuestionReplyInfo {
+    pub id: String,
+    pub question: String,
+    pub answer: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageInfo {
+    pub question_replies: Vec<QuestionReplyInfo>,
     pub attachments: Vec<AttachmentInfo>,
     pub id: String,
     pub kind: MessageKind,
@@ -610,6 +617,15 @@ pub struct ConversationDeltaInfo {
 fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
     let (text, attachments) = kite_app::split_chat_attachments(&m.text);
     MessageInfo {
+        question_replies: m
+            .question_replies
+            .iter()
+            .map(|r| QuestionReplyInfo {
+                id: r.id.clone(),
+                question: r.question.clone(),
+                answer: r.answer.clone(),
+            })
+            .collect(),
         attachments: attachments.into_iter().map(Into::into).collect(),
         id: m.id.clone(),
         kind: match m.role {

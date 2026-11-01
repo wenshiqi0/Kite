@@ -263,6 +263,9 @@ fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 /// Merge chronological pages, retaining tool details split across a page boundary.
 pub fn merge_message(older: &Message, newer: &Message) -> Message {
     let mut next = newer.clone();
+    if next.question_replies.is_empty() {
+        next.question_replies = older.question_replies.clone();
+    }
     if let (Some(old), Some(new)) = (&older.tool, &mut next.tool) {
         if new.name == "tool" {
             new.name = old.name.clone();

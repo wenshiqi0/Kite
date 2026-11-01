@@ -359,4 +359,6 @@
     <string name="attachment_audio_pause">暂停</string>
     <string name="attachment_saved">附件已保存</string>
     <string name="attachment_save_failed">附件保存失败</string>
+    <string name="answered_question">模型提问</string>
+    <string name="answered_reply">你的回答</string>
 </resources>
