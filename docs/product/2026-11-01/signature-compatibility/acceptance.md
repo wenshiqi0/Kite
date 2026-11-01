@@ -13,3 +13,11 @@ The publisher independently requires v1 verification on API 23, v2 verification 
 This is an isolation test for the phone's signature-verification path, not a confirmed finding of a device v3 defect. It preserves the Alpha 32 features and existing signing identity. A handset installation result remains necessary to establish whether this variant resolves the reported failure.
 
 Sources: [Android verifier](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/util/apk/ApkSignatureVerifier.java), [v2 format and integrity](https://source.android.com/docs/security/features/apksigning/v2), [v3 format and rotation](https://source.android.com/docs/security/features/apksigning/v3), [SDK verifier controls](https://developer.android.com/tools/apksigner).
+
+## Published Alpha 33
+
+[Alpha 33 compatibility APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.33/kite-0.2.0-alpha.33-arm64-v8a-compat-v2.apk), versionCode 35, is published from `2d582141b439aa37e6b67fdbee902b7dd4cc6af0`. [Main CI](https://github.com/wenshiqi0/Kite/actions/runs/41302380248) and [tag publication](https://github.com/wenshiqi0/Kite/actions/runs/41302385318) pass. Eight publisher regressions include the v2-only configuration, API-36 verification and retained certificate/payload rules.
+
+The downloaded compatibility asset is 23,481,440 bytes, SHA-256 `4fafd181f2125a99fee4766122451e82f29de9010ac6e9408171dba9d1147acc`. Independent verification passes v1/v2 across APIs 23–36 and selects v2 on API 36; v3/v3.1 blocks are absent. Its v1 signature advertises only scheme 2. The primary asset selects v3 on API 36. Both public APKs retain the original certificate and byte-identical non-signing entry contents, and both pass ZIP CRC/native alignment checks. [Complete public evidence](published-release.json).
+
+No handset install was performed by the agent. Whether the compatibility asset resolves the user's `-103` remains pending the phone's installation result; the generic SDK checks must not be presented as handset acceptance.

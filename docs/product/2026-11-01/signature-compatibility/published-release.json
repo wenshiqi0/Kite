@@ -1,0 +1,52 @@
+{
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.33",
+  "sourceCommit": "2d582141b439aa37e6b67fdbee902b7dd4cc6af0",
+  "versionCode": 35,
+  "compatibilityDownload": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.33/kite-0.2.0-alpha.33-arm64-v8a-compat-v2.apk",
+  "publicChecksumsMatch": true,
+  "sameApplicationPayload": true,
+  "sameSigningIdentity": true,
+  "apk": {
+    "kite-0.2.0-alpha.33-arm64-v8a.apk": {
+      "bytes": 23481440,
+      "sha256": "9742b8d9697ffb577303ac6a4df4282f9d206324d784888e93bb40c3da7c52ab",
+      "checks": {
+        "api23to36": {
+          "1": true,
+          "2": true,
+          "3": true
+        },
+        "api36to36": {
+          "1": false,
+          "2": false,
+          "3": true
+        }
+      },
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+      "nativeAlignmentKiB": 16
+    },
+    "kite-0.2.0-alpha.33-arm64-v8a-compat-v2.apk": {
+      "bytes": 23481440,
+      "sha256": "4fafd181f2125a99fee4766122451e82f29de9010ac6e9408171dba9d1147acc",
+      "checks": {
+        "api23to36": {
+          "1": true,
+          "2": true,
+          "3": false
+        },
+        "api36to36": {
+          "1": false,
+          "2": true,
+          "3": false
+        }
+      },
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+      "nativeAlignmentKiB": 16
+    }
+  },
+  "handsetInstallResult": "pending",
+  "android16VerificationOnly": true,
+  "mainCI": "https://github.com/wenshiqi0/Kite/actions/runs/41302380248",
+  "tagCI": "https://github.com/wenshiqi0/Kite/actions/runs/41302385318",
+  "independentVerifier": "Debian apksigner 35.0.2-1 with Temurin JRE 21.0.13"
+}
