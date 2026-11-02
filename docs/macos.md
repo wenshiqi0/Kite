@@ -13,7 +13,9 @@ security find-identity -v -p codesigning
 macos/scripts/configure-signing.sh <certificate-SHA-1>
 macos/scripts/install-keychain-helper.sh
 macos/scripts/build.sh
-open macos/build/DerivedData/Build/Products/Debug/Kite.app
+# Quit any running Kite before replacing the installed bundle.
+ditto macos/build/DerivedData/Build/Products/Debug/Kite.app "$HOME/Applications/Kite.app"
+open "$HOME/Applications/Kite.app"
 ```
 
 The build generates Swift bindings from the same Rust static library it links. Generated projects, bindings and build output stay outside version control. The build script serializes the Rust/binding stage across concurrent Xcode builds. Local installation pins a persistent code-signing certificate in the user's application-support directory. The certificate and bundle ID keep the app's designated requirement stable across updates. An unavailable identity fails the signing step; CI explicitly sets `KITE_MAC_ADHOC=1` for disposable compilation builds. Developer ID distribution and notarization are separate.
@@ -54,6 +56,10 @@ Text clipboard sharing is off by default and can be enabled in Settings. Synchro
 The Dock/Finder icon is the existing four-panel orange Kite mark in native Mac icon sizes. Its editable generator is `macos/scripts/generate-icon.swift`.
 
 ## Validation boundaries
+
+Desktop UI validation defaults to Codex Computer Use (`cua_repl`). Select the installed app by its full path rather than bundle ID when generated build copies exist. Use Tactero only when the user explicitly requests it. Record actual host SSH, Chat, visible desktop frames and controlled input separately from isolated media-fixture results.
+
+The [real-host Computer Use run](product/2026-11-02/macos-client/computer-use-validation.md) verifies the installed app's SSH, new Codex conversation, reply, history reconnect and actual desktop picture. It records the built-in CUA coordinate-input limitation separately; physical keyboard/mouse acceptance is still outstanding.
 
 Run `macos/scripts/test.sh` for offline native H.264 decoding/restart, Opus packet decoding, Annex B framing and display/input geometry. Live tests skip unless an explicit owned-host configuration is supplied. They require an isolated 1920×1080 QA Sunshine instance on port 48200 and a disposable project; never point them at an active user desktop. The test host uses a distinct bundle identifier.
 
