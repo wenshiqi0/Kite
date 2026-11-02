@@ -19,7 +19,11 @@ import { command } from "../../src/command";
 import { keyboardMapHash, keyboardMapSummary } from "./x11";
 
 const { values } = parseArgs({
-  options: { binary: { type: "string" }, evidence: { type: "string" } },
+  options: {
+    binary: { type: "string" },
+    evidence: { type: "string" },
+    "busy-input-ms": { type: "string" },
+  },
   strict: true,
 });
 check(values.binary && process.env.DISPLAY, "owned X11 display and --binary are required");
@@ -28,10 +32,12 @@ const root = mkdtempSync(join(tmpdir(), "kite-desktop-api-")),
   statePath = join(root, "fixture.json"),
   socket = join(root, "node/host.sock"),
   config = join(root, "node.json"),
+  control = join(root, "input-control.json"),
   interpreter = join(root, "interpreter");
 copyFileSync(resolve(values.binary), binary);
 chmodSync(binary, 0o700);
 mkdirSync(join(root, "node"), { mode: 0o700 });
+atomic(control, { dispatchMs: 5 });
 writeFileSync(
   interpreter,
   `#!${process.execPath}\nif(process.argv[3]==="notification-facts")console.log('{"facts":[]}');else {const r=Bun.spawnSync([${JSON.stringify(process.execPath)},...process.argv.slice(2)],{stdin:"inherit",stdout:"inherit",stderr:"inherit"});process.exit(r.exitCode);}\n`,
@@ -110,6 +116,8 @@ try {
     resolve("packages/linux-host/test/qa/desktop-fixture.ts"),
     "--state",
     statePath,
+    "--control",
+    control,
   ]);
   fixturePid = Number(launched.pid);
   await waitFor(
@@ -133,10 +141,19 @@ try {
   await cli(["key", "ctrl+a"]);
   await cli(["type", "--stdin"], "Kite 你好 19");
   await waitFor(() => Boolean(fixture().text_matched), "UTF-8 input");
-  for (const body of [
+  for (const [sample, body] of [
     "你好".repeat(256),
     Array.from({ length: 512 }, (_, i) => String.fromCharCode(0x4e00 + i)).join(""),
-  ]) {
+  ].entries()) {
+    if (values["busy-input-ms"] && sample === 1) {
+      const delay = Number(values["busy-input-ms"]);
+      check(
+        Number.isSafeInteger(delay) && delay >= 1 && delay <= 250,
+        "invalid owned target dispatch delay",
+      );
+      atomic(control, { dispatchMs: delay });
+      await waitFor(() => fixture().dispatch_ms === delay, "busy target dispatch setup");
+    }
     await ownFocus();
     await cli(["key", "ctrl+a"]);
     await cli(["type", "--stdin"], body);
@@ -145,6 +162,8 @@ try {
       `Unicode batch length=${[...body].length} sha256=${sha256(body)}`,
     );
   }
+  atomic(control, { dispatchMs: 5 });
+  await waitFor(() => fixture().dispatch_ms === 5, "target dispatch reset");
   check(keyboardMapHash() === before, "temporary keyboard mappings were not restored");
   await ownFocus();
   await cli(["key", "F8"]);
@@ -234,6 +253,7 @@ try {
   check(Array.isArray((await cli(["windows"])).windows), "window enumeration invalid");
   const result = {
     status: "PASS",
+    busyInputDispatchMs: Number(values["busy-input-ms"] || 5),
     actualX11: true,
     utf8Text: true,
     maxLengthUtf8Text: true,

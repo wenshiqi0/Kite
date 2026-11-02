@@ -131,7 +131,7 @@ jobs:
         run: |
           cargo build -p kite-node --locked
           mkdir -p "$RUNNER_TEMP/kite-x11"
-          KITE_QA_DEBUG_OBSERVATIONS="$RUNNER_TEMP/kite-x11/known-input.json" xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node --evidence "$RUNNER_TEMP/kite-x11"
+          KITE_QA_DEBUG_OBSERVATIONS="$RUNNER_TEMP/kite-x11/known-input.json" xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node --busy-input-ms 200 --evidence "$RUNNER_TEMP/kite-x11"
 
       - name: Retain owned X11 failure evidence
         if: failure()

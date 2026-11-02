@@ -17,4 +17,16 @@ class ResponsePresentationTest {
         assertEquals(ResponsePhase.SENDING,responsePresentationPhase(ResponsePhase.IDLE,true,false,false))
         assertEquals(ResponsePhase.IDLE,responsePresentationPhase(ResponsePhase.IDLE,false,false,false))
     }
+    @Test fun terminalFailureShowsTheActualReasonAndHidesStaleErrorsDuringWork() {
+        val error="serverOverloaded: Selected model is at capacity. Please try a different model."
+        assertEquals(error,responseFailureDetails(ResponsePhase.FAILED,error))
+        assertNull(responseFailureDetails(ResponsePhase.THINKING,error))
+        assertNull(responseFailureDetails(ResponsePhase.IDLE,error))
+        assertNull(responseFailureDetails(ResponsePhase.FAILED,"  "))
+    }
+    @Test fun modelCapacityKeepsItsSpecificPresentation() {
+        assertTrue(responseIsModelCapacity("serverOverloaded: unavailable"))
+        assertTrue(responseIsModelCapacity("Selected model is at capacity. Please try a different model."))
+        assertFalse(responseIsModelCapacity("chat connection closed"))
+    }
 }

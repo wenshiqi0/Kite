@@ -189,7 +189,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
-    LaunchedEffect(conversationContext,entries.lastOrNull(),state?.approval?.id,state?.question?.id,state?.responsePhase,chatHeight,vm.inPip,vm.pipTransition,followTail){
+    LaunchedEffect(conversationContext,entries.lastOrNull(),state?.approval?.id,state?.question?.id,state?.responsePhase,state?.composer?.details,chatHeight,vm.inPip,vm.pipTransition,followTail){
         if(vm.inPip||vm.pipTransition||chatHeight<16||!followTail||chatScroll.isScrollInProgress||entries.isEmpty())return@LaunchedEffect
         withFrameNanos{};withFrameNanos{}
         if(followTail&&!chatScroll.isScrollInProgress)chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount-1).coerceAtLeast(0))
@@ -382,7 +382,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     } }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
-                    if (state?.connection == ConnectionStatus.CONNECTED && presentationPhase != ResponsePhase.IDLE) item(key = "response-feedback") { ResponseFeedback(presentationPhase, vm.sending, waitingForApproval = state.question == null && state.approval != null) }
+                    if (state?.connection == ConnectionStatus.CONNECTED && presentationPhase != ResponsePhase.IDLE) item(key = "response-feedback") { ResponseFeedback(presentationPhase, vm.sending, waitingForApproval = state.question == null && state.approval != null, details = state.composer.details) }
                     if (agent?.status == "blocked" && state?.approval == null && state?.question == null && !responseInProgress) item {
                         TextButton(onClick = { terminal = true }, enabled = providerInfo?.terminal == true) { Text(stringResource(R.string.agent_waiting_open_terminal), color = KiteColors.Warning) }
                     }

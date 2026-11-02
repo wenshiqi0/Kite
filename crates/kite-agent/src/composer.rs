@@ -404,6 +404,14 @@ impl Client {
                 if value["thread"].get("status").is_some() {
                     lock(&self.runtime).ingest(&json!({"method":"thread/status/changed","params":{"threadId":self.thread,"status":value["thread"]["status"]}}),&self.thread);
                 }
+                if value["thread"]["status"]["type"] == "idle" {
+                    let revision = lock(&self.runtime).turn_revision();
+                    if let Ok(page) = self.request("thread/turns/list", json!({"threadId":self.thread,"limit":1,"itemsView":"notLoaded","sortDirection":"desc"})).await
+                        && let Some(turn) = page["data"].as_array().and_then(|turns| turns.first())
+                    {
+                        lock(&self.runtime).restore_failed_turn(revision, turn);
+                    }
+                }
                 Ok(())
             }
             Err(Error::Remote(details)) if details.contains("no rollout found for thread id") => {

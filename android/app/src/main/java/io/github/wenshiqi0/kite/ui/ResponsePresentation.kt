@@ -8,3 +8,10 @@ internal fun responsePresentationPhase(phase: ResponsePhase, sending: Boolean, h
     sending && phase == ResponsePhase.IDLE -> ResponsePhase.SENDING
     else -> phase
 }
+
+internal fun responseFailureDetails(phase: ResponsePhase, details: String): String? =
+    details.trim().takeIf { phase == ResponsePhase.FAILED && it.isNotEmpty() }
+
+internal fun responseIsModelCapacity(details: String): Boolean =
+    details.contains("serverOverloaded", ignoreCase = true) ||
+        details.contains("Selected model is at capacity", ignoreCase = true)

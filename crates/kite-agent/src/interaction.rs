@@ -82,8 +82,36 @@ pub struct RuntimeState {
     questions: Vec<PendingQuestion>,
     approval: Option<PendingApproval>,
     answered_async: Vec<String>,
+    turn_revision: u64,
+}
+fn error_details(value: &Value) -> Option<String> {
+    let message = value["message"].as_str()?.trim();
+    if message.is_empty() {
+        return None;
+    }
+    let code = value["codexErrorInfo"]
+        .as_str()
+        .or_else(|| value["code"].as_str());
+    let text = match code.filter(|code| !code.is_empty()) {
+        Some(code) => format!("{code}: {message}"),
+        None => message.to_owned(),
+    };
+    Some(text.chars().take(2048).collect())
 }
 impl RuntimeState {
+    pub fn turn_revision(&self) -> u64 {
+        self.turn_revision
+    }
+    pub fn restore_failed_turn(&mut self, revision: u64, turn: &Value) {
+        if self.turn_revision == revision
+            && self.phase() == Activity::Idle
+            && turn["status"] == "failed"
+        {
+            self.failed(
+                error_details(&turn["error"]).unwrap_or_else(|| "agent turn failed".into()),
+            );
+        }
+    }
     pub fn question(&self) -> Option<QuestionPrompt> {
         self.questions
             .iter()
@@ -102,6 +130,7 @@ impl RuntimeState {
         }
     }
     pub fn begin(&mut self) {
+        self.turn_revision = self.turn_revision.wrapping_add(1);
         self.activity = Activity::Sending;
         self.error = None;
     }
@@ -111,6 +140,7 @@ impl RuntimeState {
         }
     }
     pub fn failed(&mut self, details: String) {
+        self.turn_revision = self.turn_revision.wrapping_add(1);
         self.activity = Activity::Failed;
         self.error = Some(details);
     }
@@ -231,10 +261,12 @@ impl RuntimeState {
                 });
             }
             "turn/started" => {
+                self.turn_revision = self.turn_revision.wrapping_add(1);
                 self.activity = Activity::Thinking;
                 self.error = None;
             }
             "turn/completed" => {
+                self.turn_revision = self.turn_revision.wrapping_add(1);
                 let turn = p["turn"]["id"].as_str().unwrap_or_default();
                 let terminal_failure =
                     p["turn"]["status"] == "failed" || p["turn"]["status"] == "interrupted";
@@ -251,7 +283,7 @@ impl RuntimeState {
                 } else {
                     Activity::Idle
                 };
-                self.error = p["turn"]["error"]["message"].as_str().map(str::to_owned);
+                self.error = error_details(&p["turn"]["error"]);
             }
             "item/started" => match p["item"]["type"].as_str() {
                 Some("reasoning") => self.activity = Activity::Thinking,
@@ -265,17 +297,16 @@ impl RuntimeState {
             "item/agentMessage/delta" => self.activity = Activity::Responding,
             "thread/status/changed" => {
                 if p["status"]["type"] == "idle" || p["status"]["type"] == "notLoaded" {
-                    self.activity = Activity::Idle;
+                    if self.activity != Activity::Failed {
+                        self.activity = Activity::Idle;
+                    }
                 } else if p["status"]["type"] == "active" && self.activity == Activity::Idle {
                     self.activity = Activity::Thinking;
                 }
             }
             "error" if p["willRetry"] != true => {
                 self.failed(
-                    p["error"]["message"]
-                        .as_str()
-                        .unwrap_or("agent turn failed")
-                        .into(),
+                    error_details(&p["error"]).unwrap_or_else(|| "agent turn failed".into()),
                 );
             }
             _ if value.get("id").is_some() => self.activity = Activity::Waiting,
@@ -594,5 +625,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(reply["id"], 99);
+    }
+
+    #[test]
+    fn terminal_model_error_remains_visible_until_the_next_turn() {
+        let mut state = RuntimeState::default();
+        state.ingest(&json!({"method":"turn/completed","params":{"threadId":"t","turn":{"id":"failed","status":"failed","error":{"message":"Selected model is at capacity. Please try a different model.","codexErrorInfo":"serverOverloaded"}}}}), "t");
+        state.ingest(&json!({"method":"thread/status/changed","params":{"threadId":"t","status":{"type":"idle"}}}), "t");
+        assert_eq!(state.phase(), Activity::Failed);
+        assert!(state.error.as_ref().unwrap().contains("serverOverloaded"));
+        assert!(state.error.as_ref().unwrap().contains("at capacity"));
+        state.ingest(
+            &json!({"method":"turn/started","params":{"threadId":"t","turn":{"id":"next"}}}),
+            "t",
+        );
+        assert_eq!(state.phase(), Activity::Thinking);
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn reconnect_restores_the_last_terminal_failure() {
+        let mut state = RuntimeState::default();
+        let revision = state.turn_revision();
+        state.restore_failed_turn(revision, &json!({"status":"failed","error":{"message":"provider unavailable","codexErrorInfo":"serverOverloaded"}}));
+        assert_eq!(state.phase(), Activity::Failed);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("serverOverloaded: provider unavailable")
+        );
+    }
+
+    #[test]
+    fn late_failure_lookup_cannot_replace_a_new_turn() {
+        let mut state = RuntimeState::default();
+        let revision = state.turn_revision();
+        state.begin();
+        state.accepted();
+        state.restore_failed_turn(
+            revision,
+            &json!({"status":"failed","error":{"message":"old failure"}}),
+        );
+        assert_eq!(state.phase(), Activity::Thinking);
+        assert!(state.error.is_none());
     }
 }
