@@ -1,6 +1,6 @@
 # DSH 主机配置与验证
 
-> 内部开发与排查资料；按需从 [Harness 接入规范](harness-integration.md) 进入。客户端能力合同见 [RFC 0022](../rfcs/0022-harness-capability-parity.md)，Linux Ply 另见 [Ply 配置](ply.md)。
+> 内部开发与排查资料；按需从 [Harness 接入规范](harness-integration.md) 进入。客户端能力合同见 [RFC 0023](../rfcs/0023-harness-capability-parity.md)，Linux Ply 另见 [Ply 配置](ply.md)。
 
 ## 启用
 

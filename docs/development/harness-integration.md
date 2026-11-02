@@ -1,7 +1,7 @@
 # Agent harness 接入规范
 
 > 范围：内部开发；仅在新增、修改或排查聊天 harness/provider 接入时读取。
-> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 与 Ply 的能力对齐见 [RFC 0022](../rfcs/0022-harness-capability-parity.md)，配置按需读取 [DSH](dsh.md) / [Ply](ply.md)。
+> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 与 Ply 的能力对齐见 [RFC 0023](../rfcs/0023-harness-capability-parity.md)，配置按需读取 [DSH](dsh.md) / [Ply](ply.md)。
 
 Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Claude、DSH 与 Ply。新增 harness 需要完成相应适配与验收，不能只把名字加入列表。本文不定义新的传输协议；架构与依赖边界以 [SPEC](../../SPEC.md) 为准，引入新外部协议等变更仍按 [RFC 规则](../rfcs/README.md) 处理。
 

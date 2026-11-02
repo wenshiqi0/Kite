@@ -69,7 +69,7 @@ pub async fn require_node(ssh: &Session) -> Result<(), Error> {
         ));
     }
     let info: Value = serde_json::from_slice(&output.stdout)?;
-    if info["api"] != 1 || info["backendProtocol"] != 5 || info["harnessApi"] != 1 {
+    if info["api"] != 1 || info["backendProtocol"] != 5 || info["harnessApi"] != 2 {
         return Err(Error::NodeUnavailable("host node protocol mismatch"));
     }
     Ok(())

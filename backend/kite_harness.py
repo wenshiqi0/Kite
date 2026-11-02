@@ -235,6 +235,11 @@ def proxy(pane):
     path = directory(pane.removeprefix("kite-harness-"))
     info = json.loads((path / "session.json").read_text())
     configuration(info["provider"])
+    state = json.loads((path / "state.json").read_text())
+    if state.get("protocol") != 2:
+        # A chat connection is an explicit activation. Never reconnect a new
+        # client to an idle legacy SDK owner with its old fixed capabilities.
+        open_session(dict(info, reference=dict(source="kite:harness", agent=info["provider"], kind="id", value=info["thread"])))
     with socket.socket(socket.AF_UNIX) as connection:
         connection.connect(str(path / "owner.sock"))
         sources = [sys.stdin.buffer, connection]

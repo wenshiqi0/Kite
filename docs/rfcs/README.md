@@ -32,6 +32,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0020](0020-session-owner-lifecycle.md) | 闲置会话进程回收与按需恢复 | 已实现 |
 | [0021](0021-dsh-provider.md) | 可用 provider 目录与 DSH 托管会话 | 已实现（Alpha 45） |
 | [0022](0022-host-resources-and-agent-budget.md) | 主机资源概览与共享 Agent 内存预算 | 已实现 |
+| [0023](0023-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已实现 |
 
 ## 什么时候写 RFC
 
@@ -70,4 +71,3 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 已采纳的 RFC 不再大改。要推翻或大幅修改，写一份新的 RFC，把旧的标成"已被取代"。
 
-| [0022](0022-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已采纳 |

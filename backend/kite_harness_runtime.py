@@ -199,7 +199,7 @@ class Owner:
         if method == "initialize":
             with self.mutex:
                 self.ensure_native()
-            return {"serverInfo": {"name": "kite-harness", "version": "1"}}
+            return {"serverInfo": {"name": "kite-harness", "version": "2"}}
         if method == "initialized":
             return {}
         if method == "model/list":

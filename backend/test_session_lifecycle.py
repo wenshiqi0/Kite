@@ -18,7 +18,7 @@ class LifecycleTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.home = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         self.stack.enter_context(patch.object(backend.Path, "home", return_value=self.home))
-        self.stack.enter_context(patch.dict(os.environ, {"CODEX_HOME": str(self.home / ".codex")}))
+        self.stack.enter_context(patch.dict(os.environ, {"CODEX_HOME": str(self.home / ".codex"), "KITE_AGENT_RESOURCE_CONTROL": "0"}))
         self.thread = "00000000-0000-0000-0000-000000000001"
         self.reference = dict(agent="codex", kind="id", source="herdr:codex", value=self.thread)
         self.record = dict(id="a" * 32, provider="codex", reference=self.reference,
