@@ -177,8 +177,11 @@ def main():
     repo, tag = match[1], "v" + version
     existing_tag = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"],
                                   cwd=ROOT, text=True, capture_output=True)
-    require(existing_tag.returncode != 0 or existing_tag.stdout.strip() == head,
-            "This tag belongs to another commit; increment the Alpha version.")
+    # PR merge commits and main build artifacts are validation, not publication.
+    # The source/tag binding remains mandatory when launching or publishing CI.
+    if not (args.check_only or args.build_only):
+        require(existing_tag.returncode != 0 or existing_tag.stdout.strip() == head,
+                "This tag belongs to another commit; increment the Alpha version.")
     if os.environ.get("GITHUB_REF_TYPE") == "tag":
         require(os.environ.get("GITHUB_REF_NAME") == tag, "Git tag must match the APK version.")
     if args.check_only:

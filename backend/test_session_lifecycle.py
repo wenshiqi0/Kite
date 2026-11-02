@@ -6,10 +6,13 @@ import os
 from pathlib import Path
 import signal
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 import kite_codex as backend
+import kite_harness as harness
+from kite_harness_runtime import Owner
 
 
 class LifecycleTests(unittest.TestCase):
@@ -174,6 +177,31 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(backend.lifecycle_reap(expected, "herdr")["reason"], "shared_owner")
         kill.assert_not_called()
 
+    def test_idle_timeout_requests_are_rejected_even_if_an_old_client_sends_one(self):
+        expected, kill, _ = self.reap_fixture()
+        expected["reason"] = "idle_timeout"
+        with self.assertRaises(ValueError):
+            backend.lifecycle_reap(expected, "herdr")
+        kill.assert_not_called()
+
+    def test_release_dispatch_uses_the_harness_contract_without_provider_branches(self):
+        record = dict(self.record, provider="fixture-harness")
+        backend.catalog_write(dict(backend.catalog_read(), sessions=[record]))
+        fact = dict(self.fact(), reference=record["reference"])
+        class Adapter:
+            def snapshot(self, record, agents=None): return fact
+            def owner_lock(self, record): return self_path / "fixture-owner.lock"
+            def shares_owner(self, record, owner, other): return False
+            def release(self, record, expected):
+                self.released = expected
+                return dict(reclaimed=True, session_id=record["id"])
+        self_path = self.home
+        adapter = Adapter()
+        with patch.object(backend, "lifecycle_adapters", return_value={"fixture-harness": adapter}):
+            result = backend.lifecycle_reap(dict(fact, reason="archived"), "herdr")
+        self.assertTrue(result["reclaimed"])
+        self.assertEqual(adapter.released, fact)
+
     def test_cold_continue_uses_original_thread_and_context(self):
         self.registry.unlink()
         self.agent = None
@@ -196,6 +224,77 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(started["args"][-2:], ["resume", self.thread])
         self.assertEqual(backend.catalog_read()["sessions"][0]["reference"], self.reference)
         self.assertEqual(hashlib.sha256(self.history.read_bytes()).hexdigest(), before)
+
+
+class ManagedLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.home = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
+        self.stack.enter_context(patch.object(backend.Path, "home", return_value=self.home))
+        self.stack.enter_context(patch.dict(os.environ, {"KITE_HARNESS_STATE_DIR": str(self.home / "harnesses")}))
+        self.stack.enter_context(patch.object(harness, "start_ticks", return_value="1"))
+        self.record = dict(id="b" * 32, provider="dsh", pane_id="kite-harness-00000000-0000-0000-0000-000000000001",
+                           reference=dict(source="kite:harness", agent="dsh", kind="id", value="00000000-0000-0000-0000-000000000001"), archived=True)
+        self.path = harness.directory(self.record["reference"]["value"])
+        self.path.mkdir()
+        self.state = dict(protocol=2, status="done", pid=424242, start_ticks="1", revision=3)
+        harness.atomic(self.path / "state.json", self.state)
+        harness.atomic(self.path / "native.json", "original-native-session")
+        harness.atomic(self.path / "queued.json", [])
+        (self.path / "history.jsonl").write_text('preserved public context\n')
+
+    def install(self, provider):
+        self.record["provider"] = provider
+        self.record["reference"]["agent"] = provider
+        harness.atomic(self.path / "session.json", dict(id=self.record["id"], thread=self.record["reference"]["value"], provider=provider))
+        backend.catalog_write(dict(backend.catalog_read(), sessions=[self.record]))
+
+    def test_dsh_and_ply_release_through_the_same_contract_preserving_context(self):
+        for provider in ("dsh", "ply"):
+            with self.subTest(provider=provider):
+                self.install(provider)
+                fact = backend.lifecycle_fact(self.record, "unused")
+                before = {p.name: p.read_bytes() for p in self.path.iterdir() if p.is_file()}
+                with patch.object(harness, "stop_owner") as stop:
+                    result = backend.lifecycle_reap(dict(fact, reason="archived"), "unused")
+                self.assertTrue(result["reclaimed"])
+                stop.assert_called_once_with(self.record, fact["owner"])
+                self.assertEqual({name: (self.path / name).read_bytes() for name in before}, before)
+                self.assertEqual(backend.catalog_read()["sessions"][0]["reference"], self.record["reference"])
+
+    def test_busy_blocked_and_unsaved_context_are_retained(self):
+        self.install("dsh")
+        for status in ("working", "blocked", "unknown"):
+            harness.atomic(self.path / "state.json", dict(self.state, status=status))
+            self.assertFalse(backend.lifecycle_fact(self.record, "unused")["idle"])
+        harness.atomic(self.path / "state.json", self.state)
+        (self.path / "native.json").unlink()
+        fact = backend.lifecycle_fact(self.record, "unused")
+        self.assertFalse(fact["persisted"])
+        with patch.object(harness, "stop_owner") as stop:
+            self.assertFalse(backend.lifecycle_reap(dict(fact, reason="archived"), "unused")["reclaimed"])
+        stop.assert_not_called()
+
+    def test_never_used_owner_is_restorable_from_its_session_metadata(self):
+        self.install("ply")
+        (self.path / "native.json").unlink()
+        (self.path / "history.jsonl").unlink()
+        harness.atomic(self.path / "state.json", dict(self.state, status="idle"))
+        fact = backend.lifecycle_fact(self.record, "unused")
+        self.assertTrue(fact["idle"] and fact["persisted"])
+
+    def test_new_input_waits_for_the_same_owner_lease_as_release(self):
+        owner = Owner.__new__(Owner)
+        owner.path = self.path
+        accepted = threading.Event()
+        owner.request_locked = lambda *_: accepted.set()
+        with harness.owner_lease(self.path):
+            request = threading.Thread(target=owner.request, args=("turn/start", {}))
+            request.start()
+            self.assertFalse(accepted.wait(.05))
+        request.join(1)
+        self.assertTrue(accepted.is_set())
 
 
 if __name__ == "__main__":

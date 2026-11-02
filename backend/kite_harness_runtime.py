@@ -7,7 +7,7 @@ import threading
 import uuid
 import signal
 
-from kite_harness import atomic, directory, start_ticks, model_ids
+from kite_harness import atomic, directory, start_ticks, model_ids, owner_lease
 from kite_harness_native import LIMIT, Native
 from kite_harness_input import native_input
 from kite_rpc import TurnCancelled
@@ -196,6 +196,14 @@ class Owner:
             self.native = self.connect_native()
 
     def request(self, method, params):
+        # The same lease protects cold restore and release. An input accepted
+        # just before archive must become working before a reaper can inspect it.
+        if method in ("initialize", "turn/start"):
+            with owner_lease(self.path):
+                return self.request_locked(method, params)
+        return self.request_locked(method, params)
+
+    def request_locked(self, method, params):
         if method == "initialize":
             with self.mutex:
                 self.ensure_native()

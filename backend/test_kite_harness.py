@@ -134,6 +134,40 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(len([r for r in rows if r["payload"].get("role") == "user"]), 2)
         self.assertNotIn("PRIVATE REASONING", json.dumps(rows))
 
+    def test_release_then_cold_restore_retains_dsh_and_ply_native_context(self):
+        for provider in ("dsh", "ply"):
+            with self.subTest(provider=provider):
+                record, agent = self.open(provider)
+                thread = agent["agent_session"]["value"]
+                path = harness.directory(thread)
+                catalog = self.rpc(thread, "model/list", {})["result"]["data"]
+                response = self.rpc(thread, "turn/start", {"threadId": thread, "model": catalog[0]["model"],
+                    "effort": catalog[0]["defaultReasoningEffort"], "input": [{"type": "text", "text": "owned context before release"}]})
+                self.assertIn("result", response)
+                for _ in range(100):
+                    state = json.loads((path / "state.json").read_text())
+                    if state["status"] == "done": break
+                    time.sleep(.02)
+                self.assertEqual(state["status"], "done")
+                native = (path / "native.json").read_bytes()
+                history = (path / "history.jsonl").read_bytes()
+                pid = state["pid"]
+                os.kill(pid, signal.SIGTERM)
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    # open_session's owned waiter may have reaped it first.
+                    pass
+                for _ in range(100):
+                    if harness.start_ticks(pid) != state["start_ticks"]: break
+                    time.sleep(.02)
+                self.assertNotEqual(harness.start_ticks(pid), state["start_ticks"])
+                restored = harness.open_session(record)
+                self.assertEqual(restored["agent_session"], agent["agent_session"])
+                self.assertNotEqual(json.loads((path / "state.json").read_text())["pid"], pid)
+                self.assertEqual((path / "native.json").read_bytes(), native)
+                self.assertEqual((path / "history.jsonl").read_bytes(), history)
+
     def test_cross_session_and_unsupported_inputs_are_rejected(self):
         _, agent = self.open("dsh")
         thread = agent["agent_session"]["value"]

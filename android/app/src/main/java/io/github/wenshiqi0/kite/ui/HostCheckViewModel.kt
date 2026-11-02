@@ -88,6 +88,12 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var sessionBusy by mutableStateOf(false)
         private set
+    var releasingArchived by mutableStateOf(false)
+        private set
+    var archiveReleaseStatus by mutableStateOf<String?>(null)
+        private set
+    var archiveReleaseHost by mutableStateOf<String?>(null)
+        private set
     var answeringQuestion by mutableStateOf(false)
         private set
     private val questionDrafts = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateMap<String, String>>()
@@ -273,6 +279,22 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if (sessionBusy) return
         sessionBusy = true
         engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
+    }
+    fun releaseArchivedSessions() {
+        if (releasingArchived) return
+        val host = engine.state.value?.selectedHost ?: return
+        releasingArchived = true
+        archiveReleaseStatus = null
+        archiveReleaseHost = host
+        engine.command {
+            try {
+                val result = engine.core.releaseArchivedSessions(host)
+                if (engine.state.value?.selectedHost == host) {
+                    archiveReleaseStatus = getApplication<Application>().getString(
+                        R.string.archived_release_result, result.reclaimed.toInt(), result.retained.toInt(), result.failed.toInt())
+                }
+            } finally { releasingArchived = false }
+        }
     }
     fun updateAgentMemoryLimit(bytes: ULong) {
         if (updatingMemoryLimit) return

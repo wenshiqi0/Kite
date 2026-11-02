@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 import uuid
 import tempfile
 import urllib.request
@@ -48,6 +49,14 @@ def atomic(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     pending.replace(path)
+
+
+@contextmanager
+def owner_lease(path):
+    import fcntl
+    with (path / "owner.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def configuration(provider):
@@ -125,7 +134,8 @@ def providers():
             return dict(id=provider, managed_chat=provider != "claude",
                         models=provider != "claude", attachments=provider != "claude",
                         skills=provider == "codex", usage=provider == "codex",
-                        pause=provider in ("codex", "claude"), terminal=provider in ("codex", "claude"))
+                        pause=provider in ("codex", "claude"), terminal=provider in ("codex", "claude"),
+                        release=provider in ("codex", "dsh", "ply"))
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             return None
     from concurrent.futures import ThreadPoolExecutor
@@ -162,6 +172,75 @@ def agents(records):
         except (OSError, ValueError, KeyError):
             continue
     return result
+
+
+def lifecycle_fact(record):
+    """Read owner identity and durable context without starting a harness."""
+    reference = record.get("reference") or {}
+    if (record["provider"] not in ("dsh", "ply") or reference.get("source") != "kite:harness"
+            or reference.get("agent") != record["provider"] or reference.get("kind") != "id"):
+        raise ValueError("unmanaged harness reference")
+    path = directory(reference["value"])
+    info = json.loads((path / "session.json").read_text())
+    state = json.loads((path / "state.json").read_text())
+    pid = state["pid"]
+    if (info["id"] != record["id"] or info["thread"] != reference["value"]
+            or info["provider"] != record["provider"] or start_ticks(pid) != state["start_ticks"]):
+        raise RuntimeError("harness owner identity changed")
+    import kite_resources
+    owner = dict(pid=pid, start_ticks=state["start_ticks"],
+                 budget_unit=kite_resources.scope_name(record["pane_id"], pid, state["start_ticks"]))
+    histories = []
+    for name in ("history.jsonl", "native.json", "queued.json"):
+        file = path / name
+        if file.exists():
+            stat = file.stat()
+            histories.append([name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns])
+    queued = path / "queued.json"
+    queue_empty = not queued.exists() or json.loads(queued.read_text()) == []
+    context = path / "native.json"
+    # A never-used owner has no conversation to save; its session metadata is
+    # sufficient for a cold start. Completed/failed turns still require context.
+    restorable = (bool(json.loads(context.read_text())) if context.is_file()
+                  else state.get("status") == "idle" and not (path / "history.jsonl").exists())
+    import hashlib
+    activity = hashlib.sha256(json.dumps([state, sorted(histories)]).encode()).hexdigest()
+    return dict(session_id=record["id"], pane=record["pane_id"], owner=owner,
+                reference=reference, archived=bool(record.get("archived")),
+                idle=state.get("protocol") == 2 and state.get("status") in ("idle", "done", "failed", "cancelled") and queue_empty,
+                persisted=restorable and queue_empty,
+                activity=activity, last_activity_ms=max([0] + [h[4] // 1000000 for h in histories]),
+                tui_pid=None)
+
+
+def stop_owner(record, owner):
+    import kite_resources
+    if lifecycle_fact(record)["owner"] != owner or start_ticks(owner["pid"]) != owner["start_ticks"]:
+        raise RuntimeError("harness owner changed before release")
+    cgroup = Path(f"/proc/{owner['pid']}/cgroup").read_text().strip()
+    if not cgroup.endswith("/kite-agents.slice/" + owner["budget_unit"]):
+        raise RuntimeError("harness owner is outside its managed scope")
+    kite_resources.reclaim_cache(owner["budget_unit"])
+    kite_resources.kill_scope(owner["budget_unit"])
+
+
+class ManagedLifecycle:
+    """DSH and Ply implement the same release contract through their owner."""
+    def snapshot(self, record, agents=None):
+        return lifecycle_fact(record)
+
+    def owner_lock(self, record):
+        return directory(record["reference"]["value"]) / "owner.lock"
+
+    def shares_owner(self, record, owner, other):
+        return other.get("reference") == record.get("reference")
+
+    def release(self, record, expected):
+        fresh = self.snapshot(record)
+        if any(fresh[k] != expected[k] for k in ("owner", "reference", "activity")) or not fresh["idle"] or not fresh["persisted"]:
+            return dict(reclaimed=False, reason="activity_changed")
+        stop_owner(record, fresh["owner"])
+        return dict(reclaimed=True, session_id=record["id"])
 
 
 def open_session(record):

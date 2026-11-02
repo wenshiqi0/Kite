@@ -308,6 +308,21 @@ def configure(limit, high, binary, adopt=True, extra=None):
         return dict(applied=True, reserved_bytes=reserved, effective_limit_bytes=maximum)
 
 
+def reclaim_cache(unit):
+    """Discard only this released owner's file cache, without swapping live heaps."""
+    path = group(unit)
+    if not path or not unit.startswith("kite-agent-") or not unit.endswith(".scope"):
+        return
+    try:
+        stats = dict(line.split() for line in (path / "memory.stat").read_text().splitlines())
+        size = int(stats.get("file", 0)) - int(stats.get("shmem", 0))
+        if size > 0:
+            (path / "memory.reclaim").write_text(f"{size} swappiness=0\n")
+    except OSError:
+        # Older kernels and memory that remains in use can reject proactive reclaim.
+        pass
+
+
 def kill_scope(unit):
     path = group(unit)
     if not path:
@@ -333,6 +348,7 @@ def stop_owner(owner):
     unit = scope_name(owner["pane"], owner["pid"], owner["start_ticks"])
     if current != owner or owner.get("budget_unit") != unit or not proc(owner["pid"])["cgroup"].endswith("/" + unit):
         raise RuntimeError("resource owner identity changed")
+    reclaim_cache(unit)
     kill_scope(unit)
 
 
