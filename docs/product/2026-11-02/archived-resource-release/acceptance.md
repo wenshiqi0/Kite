@@ -14,4 +14,10 @@
 
 另修正只读/构建预检把 PR 合并提交误判为已发布标签冲突的问题。9 项发布器回归通过；正式发布和启动发布仍严格核对标签与源码，不允许移动标签或替换附件。
 
-公开包验证在发布完成后追加记录。
+## 最终交付
+
+[Alpha 51](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.51)，versionCode **53**，发布源提交 `8084dd4d107d903afb0f8c5338df4133883a425f`。[标签 CI](https://github.com/wenshiqi0/Kite/actions/runs/41381423123) 与 [PR 检查](https://github.com/wenshiqi0/Kite/actions/runs/41382146214) 均通过；源码经 [PR #7](https://github.com/wenshiqi0/Kite/pull/7) 合入 main。
+
+公开 APK 与 Linux 包的校验和、稳定证书、v1/v2/v3 签名、主包/兼容包载荷一致性与 16KiB 对齐独立验证通过。[公开包记录](public-verification.json)。正式 CI Linux 包已再次通过兼容交接安装；运行中二进制与公开包校验和一致，ready、归档专用策略、身份和原服务 PID 保留，清理命令报告零失败。[正式主机记录](official-host-verification.json)。
+
+[Android 兼容安装包](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.51/kite-0.2.0-alpha.51-arm64-v8a-compat-v2.apk)。不声称实体手机或 Android 模拟器执行验收。
