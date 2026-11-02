@@ -153,6 +153,8 @@ export interface NativeAdapter {
   models: Model[];
   currentModel: string;
   currentEffort: string;
+  settings?: SessionSetting[];
+  configure?(values: Record<string, string>): Promise<void>;
   alive(): boolean;
   prepare(): void;
   run(blocks: NativeBlock[], model: string, effort: string): Promise<string | undefined>;
@@ -160,6 +162,12 @@ export interface NativeAdapter {
   cancel(): void;
   approve(request: ObjectValue, accepted: boolean): Promise<void>;
   close(): void;
+}
+export interface SessionSetting {
+  id: string;
+  name: string;
+  currentValue: string;
+  options: { value: string; name: string }[];
 }
 export interface NativeOptions {
   command: string[];

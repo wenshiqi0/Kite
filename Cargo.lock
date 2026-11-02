@@ -1141,6 +1141,7 @@ dependencies = [
  "kite-store",
  "kite-stream",
  "log",
+ "russh",
  "serde",
  "serde_json",
  "tempfile",

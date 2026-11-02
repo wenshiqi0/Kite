@@ -19,7 +19,9 @@ use tokio::{
     task::JoinHandle,
 };
 
+pub mod settings;
 pub mod skills;
+pub use settings::SessionSetting;
 use skills::{Skill, SkillDraft};
 
 const DEADLINE: Duration = Duration::from_secs(25);
@@ -129,6 +131,8 @@ pub struct Model {
 pub struct Selection {
     pub model: String,
     pub effort: String,
+    #[serde(default)]
+    pub settings: BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Attachment {
@@ -152,6 +156,7 @@ pub struct Composer {
     pub details: String,
     pub models: Vec<Model>,
     pub selection: Selection,
+    pub settings: Vec<SessionSetting>,
     pub uploads: Vec<Upload>,
     pub usage: AccountUsage,
     pub skills: SkillDraft,
@@ -174,6 +179,9 @@ pub struct Client {
     pub thread: String,
     pub models: Vec<Model>,
     pub initial: Selection,
+    pub settings: Vec<SessionSetting>,
+    managed_settings: bool,
+    configuration: Value,
 }
 impl Rpc {
     async fn write(&self, value: Value) -> Result<(), Error> {
@@ -289,6 +297,9 @@ impl Client {
             thread: thread.into(),
             models: vec![],
             initial: Selection::default(),
+            settings: vec![],
+            managed_settings: false,
+            configuration: Value::Null,
         };
         client
             .request(
@@ -335,7 +346,16 @@ impl Client {
                 .as_str()
                 .unwrap_or_default()
                 .into(),
+            settings: BTreeMap::new(),
         };
+        client.configuration = configuration["config"].clone();
+        if let Some(settings) = configuration["config"].get("session_settings") {
+            client.managed_settings = true;
+            client.settings = settings::decode_native(settings)?;
+        } else if let Ok(requirements) = client.request("configRequirements/read", json!({})).await
+        {
+            client.settings = settings::codex(&client.configuration, &requirements["requirements"]);
+        }
         client.initial = selection(&client.models, &client.initial)?;
         client.observe_thread().await?;
         Ok(client)
@@ -466,9 +486,18 @@ impl Client {
         if lock(&self.runtime).question().is_some_and(|q| q.blocking) {
             return Err(Error::Invalid("answer the pending model question"));
         }
+        settings::validate(&self.settings, &selected.settings)?;
         lock(&self.runtime).begin();
-        if let Err(error)=self.request("turn/start", json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort})).await {
-            lock(&self.runtime).failed(error.to_string());return Err(error);
+        let mut params = json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort});
+        settings::apply(
+            &mut params,
+            &selected.settings,
+            self.managed_settings,
+            &self.configuration,
+        );
+        if let Err(error) = self.request("turn/start", params).await {
+            lock(&self.runtime).failed(error.to_string());
+            return Err(error);
         }
         lock(&self.runtime).accepted();
         for _ in 0..3 {
@@ -571,6 +600,7 @@ pub fn selection(models: &[Model], selected: &Selection) -> Result<Selection, Er
     Ok(Selection {
         model: model.model.clone(),
         effort: effort.clone(),
+        settings: selected.settings.clone(),
     })
 }
 

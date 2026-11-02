@@ -43,6 +43,9 @@ mod pending;
 mod resources;
 mod sessions;
 pub use sessions::SessionCleanup;
+#[cfg(test)]
+mod approval_tests;
+mod permissions;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use notifications::AgentNotice;
@@ -1156,9 +1159,15 @@ impl AppCore {
                     .flatten()
             })
             .and_then(|m| m.get(&key).cloned());
-        let selected =
+        let mut selected =
             composer::selection(&client.models, stored.as_ref().unwrap_or(&client.initial))
                 .unwrap_or_else(|_| client.initial.clone());
+        selected.settings.retain(|id, value| {
+            client.settings.iter().any(|setting| {
+                setting.id == *id && setting.options.iter().any(|option| option.value == *value)
+            })
+        });
+        let settings = composer::settings::display(&client.settings, &selected.settings);
         let uploads = lock(&self.uploads).get(&key).cloned().unwrap_or_default();
         let error_details = client.runtime().error.unwrap_or_default();
         if self.generation.load(Ordering::SeqCst) == generation {
@@ -1173,6 +1182,7 @@ impl AppCore {
                         details: error_details,
                         models: client.models.clone(),
                         selection: selected,
+                        settings,
                         uploads,
                         skills: lock(&self.skill_drafts)
                             .get(&key)
@@ -1274,7 +1284,11 @@ impl AppCore {
             {
                 return Err(AppError::State("reasoning effort unavailable".into()));
             }
-            let selected = Selection { model, effort };
+            let mut selected = Selection {
+                model,
+                effort,
+                settings: BTreeMap::new(),
+            };
             {
                 let store = lock(&core.store);
                 let store = store
@@ -1282,6 +1296,10 @@ impl AppCore {
                     .ok_or_else(|| AppError::State("store unavailable".into()))?;
                 let mut settings: BTreeMap<String, Selection> =
                     store.read_document("chat-settings")?.unwrap_or_default();
+                selected.settings = settings
+                    .get(&key)
+                    .map(|previous| previous.settings.clone())
+                    .unwrap_or_default();
                 settings.insert(key, selected.clone());
                 store.write_document("chat-settings", &settings)?;
             }
@@ -1821,9 +1839,8 @@ impl AppCore {
                     "resume the tracked agent process before submitting input".into(),
                 ));
             }
-            let agent = c
-                .api
-                .agents()
+            let agent = core
+                .fetch_agents(&c)
                 .await?
                 .into_iter()
                 .find(|a| a.terminal_id == id)

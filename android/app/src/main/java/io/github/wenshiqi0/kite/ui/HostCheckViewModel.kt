@@ -337,6 +337,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
+    fun selectPermission(id: String, setting: String, value: String) = engine.command { engine.core.setChatSetting(id, setting, value) }
     fun reloadComposer() = engine.command { engine.core.reloadComposer() }
     fun refreshUsage() { if (engine.state.value?.composer?.ready == true) engine.command { engine.core.refreshAccountUsage() } }
     var skillBusy by mutableStateOf(false)

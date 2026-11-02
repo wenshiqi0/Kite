@@ -231,6 +231,7 @@ impl RuntimeState {
                     p["command"].as_str(),
                     p["cwd"].as_str(),
                     p["grantRoot"].as_str(),
+                    p["toolName"].as_str(),
                 ]
                 .into_iter()
                 .flatten()
@@ -249,6 +250,24 @@ impl RuntimeState {
                         explanation: p["reason"].as_str().map(str::to_owned),
                         command: p["command"].as_str().map(str::to_owned),
                         working_directory: p["cwd"].as_str().map(str::to_owned),
+                        operation: p["toolName"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .or_else(|| p["command"].as_str().map(|_| "bash".into())),
+                        details: p["toolInput"]
+                            .as_object()
+                            .into_iter()
+                            .flatten()
+                            .filter(|(key, _)| {
+                                !matches!(key.as_str(), "command" | "cwd" | "justification")
+                            })
+                            .map(|(name, value)| crate::ApprovalDetail {
+                                name: name.clone(),
+                                value: value.as_str().map(str::to_owned).unwrap_or_else(|| {
+                                    serde_json::to_string_pretty(value).unwrap_or_default()
+                                }),
+                            })
+                            .collect(),
                         choices: decisions
                             .iter()
                             .map(|d| Choice {

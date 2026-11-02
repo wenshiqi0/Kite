@@ -467,7 +467,14 @@ pub struct Approval {
     pub explanation: Option<String>,
     pub command: Option<String>,
     pub working_directory: Option<String>,
+    pub operation: Option<String>,
+    pub details: Vec<ApprovalDetail>,
     pub choices: Vec<Choice>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApprovalDetail {
+    pub name: String,
+    pub value: String,
 }
 
 /// Only expose numbered choices from an actually blocked terminal. Never invent approval semantics.
@@ -528,6 +535,8 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
         explanation: None,
         command: None,
         working_directory: None,
+        operation: None,
+        details: vec![],
         choices,
     })
 }

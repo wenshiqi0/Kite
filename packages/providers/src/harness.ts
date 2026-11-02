@@ -78,8 +78,7 @@ export function configuration(provider: ManagedProvider): {
       ? ["dsh", "--profile", "acp"]
       : [
           "ply",
-          "mcp",
-          "--host-chat",
+          "acp",
           "--approval-mode",
           "ask",
           "--model",

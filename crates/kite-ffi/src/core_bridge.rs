@@ -511,6 +511,19 @@ pub struct ComposerInfo {
     pub uploads: Vec<UploadInfo>,
     pub usage: AccountUsageInfo,
     pub skills: SkillDraftInfo,
+    pub settings: Vec<SessionSettingInfo>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SettingChoiceInfo {
+    pub value: String,
+    pub name: String,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SessionSettingInfo {
+    pub id: String,
+    pub name: String,
+    pub current_value: String,
+    pub options: Vec<SettingChoiceInfo>,
 }
 impl From<kite_app::Composer> for ComposerInfo {
     fn from(c: kite_app::Composer) -> Self {
@@ -520,6 +533,23 @@ impl From<kite_app::Composer> for ComposerInfo {
             details: c.details,
             usage: c.usage.into(),
             skills: c.skills.into(),
+            settings: c
+                .settings
+                .into_iter()
+                .map(|setting| SessionSettingInfo {
+                    id: setting.id,
+                    name: setting.name,
+                    current_value: setting.current_value,
+                    options: setting
+                        .options
+                        .into_iter()
+                        .map(|option| SettingChoiceInfo {
+                            value: option.value,
+                            name: option.name,
+                        })
+                        .collect(),
+                })
+                .collect(),
             model: c.selection.model,
             effort: c.selection.effort,
             models: c
@@ -580,6 +610,13 @@ pub struct ApprovalInfo {
     pub command: Option<String>,
     pub working_directory: Option<String>,
     pub choices: Vec<ApprovalChoice>,
+    pub operation: Option<String>,
+    pub details: Vec<ApprovalDetailInfo>,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ApprovalDetailInfo {
+    pub name: String,
+    pub value: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct DesktopInfo {
@@ -920,6 +957,15 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 explanation: a.explanation,
                 command: a.command,
                 working_directory: a.working_directory,
+                operation: a.operation,
+                details: a
+                    .details
+                    .into_iter()
+                    .map(|detail| ApprovalDetailInfo {
+                        name: detail.name,
+                        value: detail.value,
+                    })
+                    .collect(),
                 choices: a
                     .choices
                     .into_iter()
@@ -1237,6 +1283,17 @@ impl KiteCore {
     pub async fn chat_attachment(&self, context: String, id: String) -> Result<Vec<u8>, KiteError> {
         self.inner
             .chat_attachment(context, id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn set_chat_setting(
+        &self,
+        agent_id: String,
+        setting: String,
+        value: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .set_chat_setting(agent_id, setting, value)
             .await
             .map_err(Into::into)
     }
