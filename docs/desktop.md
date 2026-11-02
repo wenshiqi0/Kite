@@ -8,7 +8,7 @@ The roles have independent lifecycles. Disconnecting a remote machine releases i
 
 ## Current delivery
 
-Alpha 26 includes the [Linux host node, panel and taskbar status](linux-desktop.md). It does **not yet include a desktop remote client**. Android remains the delivered remote-desktop client. Linux client functionality is the next desktop stage; macOS client and host adapters remain in scope afterward.
+The Linux Alpha includes the [host node, panel and taskbar status](linux-desktop.md). The [macOS client](macos.md) now has a SwiftUI remote workspace with shared Core/FFI, Apple media decoding and physical input. The user requested Mac first; [RFC 0027](rfcs/0027-macos-client.md) records this change in implementation order. Its [dated acceptance](product/2026-11-02/macos-client/acceptance.md) distinguishes tested functionality from release and remaining platform scope. Linux client UI and macOS host adapters remain pending.
 
 Desktop client acceptance requires a real connection between distinct machines: sessions and history, chat and interactive questions, actual decoded desktop video, mapped input, reconnection and independent local-service lifetime. Host status, CLI access and MCP queries alone do not demonstrate this capability.
 

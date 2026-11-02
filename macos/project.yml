@@ -1,0 +1,72 @@
+name: Kite
+options:
+  bundleIdPrefix: io.github.wenshiqi0
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: zh-Hans
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    KITE_APP_BUNDLE_IDENTIFIER: io.github.wenshiqi0.kite.mac
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  Kite:
+    type: application
+    platform: macOS
+    sources:
+      - path: Kite
+      - path: Generated/kite_ffi.swift
+    preBuildScripts:
+      - name: Build Rust core and Swift bindings
+        script: '"${SRCROOT}/scripts/build-rust.sh"'
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - sdk: Security.framework
+      - sdk: VideoToolbox.framework
+      - sdk: MetalKit.framework
+      - sdk: CoreImage.framework
+      - sdk: AVFoundation.framework
+      - sdk: SystemConfiguration.framework
+    info:
+      path: Kite/Info.plist
+      properties:
+        CFBundleDisplayName: Kite
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSLocalNetworkUsageDescription: Kite 需要通过 SSH 和桌面串流连接局域网内的远程机器。
+        NSHighResolutionCapable: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KITE_APP_BUNDLE_IDENTIFIER)
+        PRODUCT_NAME: Kite
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: NO
+        SWIFT_OBJC_BRIDGING_HEADER: Kite/Media/BridgingHeader.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/kite-ffi/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Generated/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/build/rust/$(CURRENT_ARCH)/$(CONFIGURATION)
+        OTHER_LDFLAGS: -lkite_ffi -lresolv
+  KiteTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: Kite
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Kite/Media/BridgingHeader.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/kite-ffi/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Generated/include
+schemes:
+  Kite:
+    build:
+      targets:
+        Kite: all
+    test:
+      targets: [KiteTests]
+      environmentVariables:
+        KITE_MAC_LIVE_CONFIG: $(KITE_MAC_LIVE_CONFIG)

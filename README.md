@@ -4,6 +4,8 @@ A native workspace for local and remote coding agents, built around [herdr](http
 
 [Download Alpha packages](https://github.com/wenshiqi0/Kite/releases) · [Set up your host](docs/backend-setup.md) · [Linux desktop host](docs/linux-desktop.md)
 
+[Build the macOS client](docs/macos.md) — native SwiftUI workspace, shared Rust Core and Apple desktop decoding.
+
 ## What you can do
 
 - Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.
@@ -29,7 +31,7 @@ A native workspace for local and remote coding agents, built around [herdr](http
 
 The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Android supports remote desktop sound; host local playback stays enabled. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
 
-The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS, including connections to other desktop machines. The current Linux Alpha delivers the host node and management panel; desktop client functionality is the next stage.
+The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS. The Linux Alpha delivers the host node and management panel. The new [macOS client](docs/macos.md) provides a native remote workspace; see its validation boundaries before treating it as a distributed release. Linux client UI and macOS hosting remain separate stages.
 
 ## Documentation
 

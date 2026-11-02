@@ -1,5 +1,7 @@
 # Documentation
 
+- [macOS client](macos.md): native workspace, LAN host names, desktop input, build and validation scope.
+
 - [Host setup](backend-setup.md): SSH, herdr, Sunshine, pairing and troubleshooting.
 - [Desktop client and host](desktop.md): dual roles, connections to other machines and independent local-service lifetime; current delivery and pending client acceptance.
 - [Linux desktop host](linux-desktop.md): install Kite Node, its native panel and taskbar status, reuse services and expose MCP queries.

@@ -67,6 +67,7 @@ desktop/linux/           Linux 原生主机控制面板与用户级安装入口
 target/                  构建输出，不提交
 android/                 Android 应用（Gradle 工程）
 ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
+macos/                   macOS 原生客户端（XcodeGen 工程，描述文件是 macos/project.yml）
 docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
 
@@ -239,6 +240,12 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 - **布局必须由尺寸类别（size class）和可用宽度决定，不得由设备型号决定。** iPad 在分屏、侧拉或者台前调度的小窗口里是紧凑宽度，这时必须使用和 iPhone 一样的布局。
 - 设备型号只能用来判断能力，例如是否支持多窗口。硬件键盘和指针在 iPhone 上也可能连接，所以按"是否连接"判断，不按设备型号判断。
 - 同一功能在紧凑宽度和常规宽度下的差异，写在对应功能的 RFC 里。总体原则见 [RFC 0002](docs/rfcs/0002-ios.md)。
+
+### 5.5 macOS
+
+按 [RFC 0027](docs/rfcs/0027-macos-client.md) 优先实现 macOS 14+ 原生客户端，Linux 客户端与 macOS 主机适配独立推进。使用 SwiftUI/AppKit、独立本机 Keychain 身份和应用支持目录；不迁移其他设备私钥。XcodeGen 维护 `macos/project.yml`，生成的工程、绑定和构建目录不提交。界面更新使用 MainActor，文案使用平台字符串资源。
+
+Apple 媒体在 FFI 的 `apple` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
 
 ## 6. 当前实现与 M1 升级
 

@@ -1377,7 +1377,11 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
     {
         crate::android::media_sink(id).ok_or(KiteError::MediaUnavailable)
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        crate::apple::media_sink(id).ok_or(KiteError::MediaUnavailable)
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "ios")))]
     {
         let _ = id;
         Err(KiteError::MediaUnavailable)

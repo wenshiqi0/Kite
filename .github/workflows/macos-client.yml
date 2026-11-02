@@ -1,0 +1,44 @@
+name: macOS Client
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'macos/**'
+      - 'crates/**'
+      - 'packages/**'
+      - 'Cargo.*'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/macos-client.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-client-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - name: Install server bundle dependencies
+        run: bun install --frozen-lockfile
+      - name: Check shared client Core
+        run: cargo test -p kite-ffi -p kite-app -p kite-stream -p kite-ssh -p kite-herdr -p kite-store -p kite-agent
+      - name: Check native decoders and viewport
+        run: macos/scripts/test.sh
+      - name: Build locally signed client
+        run: macos/scripts/build.sh
