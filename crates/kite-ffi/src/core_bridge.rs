@@ -1226,6 +1226,16 @@ impl KiteCore {
             .await
             .map_err(Into::into)
     }
+    pub async fn delete_session(
+        &self,
+        host_id: String,
+        session_id: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .delete_session(host_id, session_id)
+            .await
+            .map_err(Into::into)
+    }
     pub async fn release_archived_sessions(
         &self,
         host_id: String,

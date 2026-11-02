@@ -75,6 +75,7 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                             IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = label }) { ProductIcon(Mark.More, modifier = Modifier.size(17.dp)) }
                             DropdownMenu(menu, { menu = false }) {
                                 DropdownMenuItem(text = { Text(stringResource(if (archived) R.string.restore_session else R.string.archive_session)) }, onClick = { menu = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
+                                DropdownMenuItem(text = { Text(stringResource(R.string.delete_session), color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; vm.requestSessionDeletion(session) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
                             }
                         }
                     }
@@ -110,4 +111,15 @@ internal fun ArchivedReleaseControls(enabled: Boolean, releasing: Boolean, resul
         }
         result?.let { Text(it, fontSize = 12.sp, color = KiteColors.Muted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
     }
+}
+
+@Composable
+internal fun DeleteSessionDialog(title: String, enabled: Boolean, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.delete_session)) },
+        text = { Text(stringResource(R.string.delete_session_confirmation, title)) },
+        confirmButton = { TextButton(onClick = onDelete, enabled = enabled) { Text(stringResource(R.string.delete_session), color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }

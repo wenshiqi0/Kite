@@ -400,7 +400,12 @@ export async function killScope(unit: string): Promise<void> {
   };
   const deadline = Date.now() + 3000;
   while (populated() && Date.now() < deadline) await sleep(50);
-  if (populated()) await bus("KillUnit", "ssi", unit, "all", 9);
+  if (populated()) {
+    await bus("KillUnit", "ssi", unit, "all", 9);
+    const killedDeadline = Date.now() + 2000;
+    while (populated() && Date.now() < killedDeadline) await sleep(50);
+  }
+  check(!populated(), "resource scope is still populated");
 }
 export async function stopOwner(owner: OwnerIdentity): Promise<void> {
   const current = host().readRegistry(owner.pane),

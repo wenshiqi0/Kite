@@ -167,6 +167,25 @@ impl<'a> Repository<'a> {
         .await
         .map(|(c, ())| c)
     }
+    pub async fn delete(&self, id: &str, herdr: &str) -> Result<Catalog, Error> {
+        let output = self
+            .ssh
+            .exec(
+                &composer::helper_command(&format!(
+                    "session-delete --id {} --herdr {}",
+                    composer::quote(id),
+                    composer::quote(herdr),
+                )),
+                &[],
+            )
+            .await?;
+        if output.exit_status != Some(0) || output.stdout.len() > 1024 * 1024 {
+            return Err(Error::Remote(
+                "session deletion failed; refresh sessions before retrying".into(),
+            ));
+        }
+        Ok(serde_json::from_slice(&output.stdout)?)
+    }
     pub async fn create(
         &self,
         id: String,
