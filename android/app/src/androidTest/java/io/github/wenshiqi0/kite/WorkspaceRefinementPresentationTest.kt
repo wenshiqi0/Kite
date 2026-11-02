@@ -88,7 +88,14 @@ class WorkspaceRefinementPresentationTest {
         val send = test.targetContext.getString(R.string.send_prompt)
         val stop = test.targetContext.getString(R.string.interrupt_agent)
         fun button(description: String) = actionNode(requireNotNull(find(description=description)), AccessibilityNodeInfo.ACTION_CLICK)
-        overlay({ComposerActionButton(working.value,hasInput.value,ready.value,ready.value,false,interrupting.value,{sends.incrementAndGet()},{stops.incrementAndGet()})}) {
+        overlay({
+            Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
+                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=32.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                    ChatDraftField(if(hasInput.value)"追加指令" else "",{},Modifier.weight(1f),enabled=ready.value)
+                    ComposerActionButton(working.value,hasInput.value,ready.value,ready.value,false,interrupting.value,{sends.incrementAndGet()},{stops.incrementAndGet()})
+                }
+            }
+        }) {
             waitFor("Initialization shows a normal disabled send action"){find(description=send)!=null}
             assertFalse(requireNotNull(find(description=send)).isEnabled)
             assertNull(find(description=stop))
