@@ -62,5 +62,13 @@ class ResourceTests(unittest.TestCase):
                 self.assertEqual(values[0][0]["pane"], "kite-harness-"+identifier)
                 self.assertEqual({row["pid"] for row in values[0][1]}, {42, 43})
 
+    def test_unbound_harness_drafts_do_not_disable_resource_admission(self):
+        from types import SimpleNamespace
+        for provider in ("dsh", "ply"):
+            for reference in (None, {}):
+                record = dict(id="owned-draft", provider=provider, reference=reference)
+                with patch.object(resources, "codex_module", return_value=SimpleNamespace(catalog_read=lambda: dict(sessions=[record]))):
+                    self.assertEqual(resources.managed("unused", {}), [])
+
 
 if __name__ == "__main__": unittest.main()

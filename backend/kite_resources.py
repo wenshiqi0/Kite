@@ -179,7 +179,7 @@ def managed(binary, table):
         if record.get("provider") in ("dsh", "ply"):
             try:
                 import kite_harness
-                reference = record["reference"]
+                reference = record.get("reference") or {}
                 if reference.get("source") != "kite:harness" or reference.get("agent") != record["provider"]:
                     continue
                 directory = kite_harness.directory(reference["value"])
