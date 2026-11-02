@@ -40,8 +40,8 @@ Fixture tests use temporary homes, Unix sockets, local model catalogs and determ
 ## Local verification (2026-11-02)
 
 - Frozen Bun installation; strict typecheck; Biome; AST-based package dependency validation: PASS.
-- Bun package and distribution tests: 37 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
-- Workspace Rust tests: 157 passed; Rustfmt and Clippy with warnings denied: PASS.
+- Bun package and distribution tests: 43 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
+- Workspace Rust tests: 160 passed; Rustfmt and Clippy with warnings denied: PASS.
 - Linux installer/package coverage is included in the Bun suite; Android Alpha publisher tests: 9 passed.
 - Native Rust/GTK panel on owned X11/private D-Bus: screenshot visually checked, single-instance and GApplication actions passed.
 - Real Rust Node → Bun → X11/standard MCP: pixels/crop metadata, UTF-8 and max-length typing, distinct Unicode batches with restored keymap, keyboard/chords, clicks, scroll and sanitized launch environment passed.

@@ -20,7 +20,9 @@ export interface PackageOptions {
 }
 function tar(files: Map<string, { bytes: Uint8Array; mode: number }>, prefix: string): Buffer {
   const parts: Uint8Array[] = [];
-  for (const [path, { bytes, mode }] of [...files].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [path, { bytes, mode }] of [...files].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
     const name = `${prefix}/${path}`,
       header = Buffer.alloc(512);
     check(

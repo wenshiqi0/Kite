@@ -1,10 +1,10 @@
 /** Kernel verification on a unique transient slice and disposable native child. */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { prepareMemoryLimit, proc, reclaimableMemory, scopeName } from "@kite/platform";
+import { join, resolve } from "node:path";
 import { check, object, parse } from "@kite/protocol";
 import { run, sleep } from "@kite/runtime";
+import { prepareMemoryLimit, proc, reclaimableMemory, scopeName } from "../../src/index";
 
 const cacheRoot = join(homedir(), ".cache");
 mkdirSync(cacheRoot, { recursive: true });
@@ -12,33 +12,13 @@ const unit = `kitequotaqa${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}
   limit = 256 * 1024 * 1024,
   residentLimit = 64 * 1024 * 1024,
   root = mkdtempSync(join(cacheRoot, "kite-memory-probe-"));
-const child = Bun.spawn(
-  [
-    "/usr/bin/python3",
-    "-u",
-    "-c",
-    `import os,sys
-print('ready',flush=True)
-resident=[]
-for command in sys.stdin:
- if command.strip()=='cache':
-  with open(sys.argv[1],'wb') as f:
-   block=b'x'*(1024*1024)
-   for _ in range(160): f.write(block)
-   f.flush();os.fsync(f.fileno())
-   del block
-  print('cached',flush=True)
- else:
-  size=(32 if command.strip()=='resident' else 256)*1024*1024
-  data=bytearray(size)
-  for i in range(0,size,4096): data[i]=1
-  resident.append(data)
-  print('resident',flush=True)
-`,
-    join(root, "cache"),
-  ],
-  { stdin: "pipe", stdout: "pipe", stderr: "inherit", detached: true },
-);
+const helper = resolve(process.env.CARGO_TARGET_DIR || "target", "debug/examples/resource_probe");
+const child = Bun.spawn([helper, join(root, "cache")], {
+  stdin: "pipe",
+  stdout: "pipe",
+  stderr: "inherit",
+  detached: true,
+});
 let scope = "";
 const call = (...args: string[]) => run(["systemctl", "--user", ...args]);
 try {

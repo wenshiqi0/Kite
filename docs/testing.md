@@ -50,6 +50,15 @@ bun run packages/linux-host/test/qa/live-upgrade.ts --binary target/debug/kite-n
 
 This probe installs into a temporary user tree, routes manager operations only to uniquely named `kite-qa-upgrade-*` socket/service units and uses the actual installer and generated units. It continuously verifies duplex framed data across an executable replacement, a blocked exactly-once write, the same controlled detached agent PID/heartbeat, new connections on the new generation, old-generation drain, incompatible/broken candidates, corrupt persistent state, MAINPID notification failure/rollback, replacement adoption and automatic recovery after its death while old streams remain open, a notification transition without duplicate writers and concurrent push-registration retention. The interpreter supplies only owned notification facts; no real model, catalogue, FCM credentials, Herdr or Sunshine service is used. All owned processes/units are removed. CI runs it only when a user manager is available and explicitly reports a skip otherwise. This is transport/control acceptance, not actual mobile video, physical network latency or real-model generation acceptance.
 
+The resident-memory kernel probe uses a small owned Rust allocation peer, so its 64 MiB test limit measures native allocations rather than an interpreter's baseline:
+
+```sh
+cargo build -p kite-node --example resource_probe --locked
+bun run packages/platform/test/qa/resource-budget.ts
+```
+
+It verifies cache exclusion, safe cache reclamation, a charged resident allocation and an OOM only in its disposable transient cgroup. It never changes the production agent budget.
+
 ## Offline checks
 
 Agent docs/desktop acceptance uses an owned Node and X11 fixture:

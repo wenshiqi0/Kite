@@ -113,7 +113,7 @@ If a publish step is interrupted, rerun that failed job from GitHub Actions so i
 
 ## Synchronized Linux host package
 
-Alpha 17+ packages the Linux x86_64 host from the same commit as Android. Trusted CI builds `kite-node`, packages only the binary/native panel/installer/license/host manifest, and records its checksum in the release manifest. Both artifacts are uploaded and verified before the prerelease becomes public. Install the matching [Linux host](linux-desktop.md) before updating Android. Local `--build-only` runs on Linux; macOS development can use the Gradle debug tasks and launch trusted CI for a distribution.
+Alpha 17+ packages the Linux x86_64 host from the same commit as Android. Trusted CI builds `kite-node`, packages only the binary/native panel/bundled Bun installer (`install.js`)/license/host manifest, and records its checksum in the release manifest. Both artifacts are uploaded and verified before the prerelease becomes public. Install the matching [Linux host](linux-desktop.md) before updating Android. Local `--build-only` runs on Linux; macOS development can use the Gradle debug tasks and launch trusted CI for a distribution.
 
 ## Local preflight
 
