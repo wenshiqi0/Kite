@@ -101,7 +101,7 @@
     <string name="agent_waiting_open_terminal">需要处理其他交互 · 查看终端</string>
     <string name="composer_blocked">补充说明…</string>
     <string name="composer_hint">发消息给 agent</string>
-    <string name="voice_unavailable">当前设备没有可用的语音识别服务。</string>
+    <string name="interrupt_agent">中断 agent 运行</string>
     <string name="desktop_live">live</string>
     <string name="desktop_connecting">连接中</string>
     <string name="resize_split">调整分屏比例</string>
@@ -183,7 +183,6 @@
     <string name="skills_done">完成</string>
     <string name="skills_refresh">刷新</string>
     <string name="skills_remove">取消选择 %1$s</string>
-    <string name="voice_input">语音转文字</string>
     <string name="key_ctrl">Ctrl</string>
     <string name="key_cmd">Cmd</string>
     <string name="arrow_keys">方向键</string>

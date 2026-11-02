@@ -277,6 +277,18 @@ for (const provider of ["dsh", "ply"] as const)
           client.call("thread/resume", { threadId: crypto.randomUUID() }),
         ).rejects.toBeInstanceOf(Error);
         const first = object(object(await turn("wait then approve")).turn);
+        const currentTurn = object(
+          await client.call("thread/turns/list", {
+            threadId: thread,
+            limit: 1,
+            itemsView: "notLoaded",
+            sortDirection: "desc",
+          }),
+        );
+        expect(currentTurn.data).toEqual([{ id: first.id, status: "inProgress", items: [] }]);
+        await expect(
+          client.call("turn/interrupt", { threadId: thread, turnId: "expired-turn" }),
+        ).rejects.toBeInstanceOf(Error);
         await turn("second queued input");
         await waitStatus(path, "blocked");
         client.close();
@@ -305,6 +317,9 @@ for (const provider of ["dsh", "ply"] as const)
         reconnect.write({ id: request.id, result: { decision: "accept" } });
         await reconnect.call("turn/interrupt", { threadId: thread, turnId: first.id });
         await waitStatus(path, "cancelled");
+        expect(
+          object(await reconnect.call("thread/turns/list", { threadId: thread, limit: 1 })).data,
+        ).toEqual([]);
         // A new normal turn succeeds after cancellation and carries native image bytes.
         const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]),
           uploadId = "e".repeat(32);
