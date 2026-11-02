@@ -22,7 +22,7 @@ The completed validation conversation is retained for inspection. Test authoriza
 
 Built-in Computer Use subsequently reported **Mac locked; automatic unlock failed**. A user-unlock request is pending. No Tactero or alternate UI driver was used. Fresh background Codex session creation still times out, while the same SDK starts under the development app. TCC logs record a denied AllFiles preflight attributed to the earlier generation-path node; this establishes the identity problem but does not by itself prove the entire timeout cause. The fixed signed host app has been installed; a fresh grant and cold-start recheck await the unlocked Mac. Mac Sunshine screen-recording/accessibility/audio permission setup, actual incoming video/input/audio, simultaneous three-device GUI acceptance and handset installation remain unaccepted. An online management endpoint is not a media pass.
 
-Mac kernel-enforced aggregate agent budgets, process pause and X11 desktop MCP actions are intentionally unavailable. WAN/Tailscale quality, Intel Macs and Developer ID/notarized Mac distribution remain separate work. The Android Alpha 67 delivery is published only after tagged CI succeeds; its signed Release assets and manifest are authoritative.
+Mac kernel-enforced aggregate agent budgets, process pause and X11 desktop MCP actions are intentionally unavailable. WAN/Tailscale quality, Intel Macs and Developer ID/notarized Mac distribution remain separate work. The Android Alpha 68 delivery is published only after tagged CI succeeds; its signed Release assets and manifest are authoritative.
 
 ## Sources
 
