@@ -179,10 +179,9 @@ impl ResourceTracker {
         }
         let used = raw
             .agent_current_bytes
-            .saturating_add(raw.agent_reserved_bytes);
-        let allocated = used
             .saturating_sub(raw.agent_reclaimable_bytes)
-            .saturating_add(startup_reserved);
+            .saturating_add(raw.agent_reserved_bytes);
+        let allocated = used.saturating_add(startup_reserved);
         let enforced = configured
             && raw.enforced
             && raw.uncontained_owners == 0
@@ -372,6 +371,39 @@ mod tests {
         let blocked = tracker.observe(value, 10 * GIB, GIB, true);
         assert_eq!(blocked.memory_pressure, MemoryPressure::Critical);
         assert!(!blocked.can_start_agents);
+    }
+
+    #[test]
+    fn displayed_usage_and_admission_exclude_cache_exactly_once() {
+        let mut tracker = ResourceTracker::default();
+        let mut value = raw();
+        value.agent_current_bytes = 9 * GIB;
+        value.agent_reclaimable_bytes = 6 * GIB;
+        value.agent_reserved_bytes = GIB;
+        value.agent_effective_limit_bytes = 9 * GIB;
+        let profile = tracker.observe(value.clone(), 10 * GIB, GIB, true);
+        assert_eq!(profile.agent_memory_used_bytes, 4 * GIB);
+        assert_eq!(profile.agent_reclaimable_bytes, 6 * GIB);
+        assert_eq!(profile.memory_pressure, MemoryPressure::Normal);
+        assert!(profile.limit_enforced);
+        assert!(profile.can_start_agents);
+
+        value.agent_reclaimable_bytes = GIB;
+        let profile = tracker.observe(value, 10 * GIB, 0, true);
+        assert_eq!(profile.agent_memory_used_bytes, 9 * GIB);
+        assert_eq!(profile.memory_pressure, MemoryPressure::Critical);
+        assert!(!profile.can_start_agents);
+    }
+
+    #[test]
+    fn cache_counter_skew_cannot_discount_migration_reservations() {
+        let mut tracker = ResourceTracker::default();
+        let mut value = raw();
+        value.agent_reclaimable_bytes = 2 * GIB;
+        value.agent_reserved_bytes = GIB;
+        value.agent_effective_limit_bytes = 9 * GIB;
+        let profile = tracker.observe(value, 10 * GIB, 0, true);
+        assert_eq!(profile.agent_memory_used_bytes, GIB);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 /** Linux mechanisms only. Rust remains responsible for memory admission and thresholds. */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import { check, integer, type Json, object, type SessionRecord, string } from "@kite/protocol";
@@ -313,9 +314,8 @@ export async function configure(
     const reserved = Object.values(value.legacy).reduce((n, p) => n + p.reserved, 0),
       maximum = limit - reserved;
     check(maximum >= MIN_CGROUP, "agent memory budget is below existing allocations");
-    const existing = await group(SLICE),
-      current = existing ? readInteger(join(existing, "memory.current")) : 0;
-    check(maximum >= current + MIN_CGROUP, "agent memory budget cannot shrink below current use");
+    const existing = await group(SLICE);
+    if (existing) await prepareMemoryLimit(existing, maximum);
     value.limit_bytes = limit;
     value.high_bytes = high;
     atomic(join(resourceRoot(), "budget.json"), value);
@@ -479,6 +479,38 @@ function pairs(path: string): Record<string, number> {
     return {};
   }
 }
+/** Keep resident mappings, tmpfs and pending writes charged to the budget. */
+export function reclaimableMemory(current: number, stats: Record<string, number>): number {
+  const file = Math.max(
+    0,
+    (stats.file || 0) -
+      (stats.shmem || 0) -
+      (stats.file_mapped || 0) -
+      (stats.file_dirty || 0) -
+      (stats.file_writeback || 0),
+  );
+  return Math.min(current, file + (stats.slab_reclaimable || 0));
+}
+/** Lowering memory.max must reclaim cache first, without risking a shrink-time OOM. */
+export async function prepareMemoryLimit(path: string, maximum: number): Promise<void> {
+  const previous = readFileSync(join(path, "memory.max"), "utf8").trim();
+  // Reasserting or raising an enforced ceiling needs no free space beneath it.
+  if (previous !== "max" && maximum >= Number(previous)) return;
+  const target = maximum - MIN_CGROUP,
+    current = readInteger(join(path, "memory.current"));
+  if (current <= target) return;
+  const reclaimable = reclaimableMemory(current, pairs(join(path, "memory.stat")));
+  check(current - reclaimable <= target, "agent memory budget cannot shrink below resident use");
+  try {
+    await writeFile(join(path, "memory.reclaim"), `${current - target} swappiness=0\n`);
+  } catch {
+    // EAGAIN can still reclaim part of the requested amount; verify actual headroom.
+  }
+  check(
+    readInteger(join(path, "memory.current")) <= target,
+    "agent cache could not be reclaimed before shrinking memory budget",
+  );
+}
 export async function userManagerCgroup(
   current: string | undefined,
   lookup: () => Promise<string> = () =>
@@ -549,7 +581,7 @@ export async function sample(): Promise<Json> {
     memory_pressure_some: pressure.some?.avg10 ?? 0,
     memory_pressure_full: pressure.full?.avg10 ?? 0,
     agent_current_bytes: current,
-    agent_reclaimable_bytes: Math.min(current, memory.inactive_file || 0),
+    agent_reclaimable_bytes: reclaimableMemory(current, memory),
     agent_reserved_bytes: reserved,
     agent_effective_limit_bytes: readInteger(join(budget, "memory.max")),
     agent_cpu_usage_usec: stats.usage_usec ?? 0,
