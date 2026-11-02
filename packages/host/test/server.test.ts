@@ -58,6 +58,70 @@ const row = (id = "a".repeat(32), provider = "ply") => ({
   cwd: root,
 });
 describe("catalog and owned upload CLI", () => {
+  test("accepts the Rust Catalog wire DTO without an on-disk version field", async () => {
+    const home = fresh();
+    const result = await command(
+      home,
+      ["catalog-write"],
+      JSON.stringify({ revision: 0, now_ms: 1, sessions: [row()] }),
+    );
+    expect(result.code).toBe(0);
+    const saved = object(parse(result.stdout.toString()));
+    expect(saved.version).toBe(1);
+    expect(saved.revision).toBe(1);
+    expect(array(saved.sessions)).toHaveLength(1);
+  });
+  test("returns the upload receipt while the client input stream remains open", async () => {
+    const home = fresh(),
+      data = Buffer.from("owned upload with an open input stream"),
+      id = "e".repeat(32);
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        cli,
+        "upload",
+        "--id",
+        id,
+        "--name",
+        "owned.bin",
+        "--size",
+        String(data.length),
+        "--sha256",
+        sha256(data),
+      ],
+      { env: env(home), stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    );
+    const reader = child.stdout.getReader();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      child.stdin.write(data);
+      await child.stdin.flush();
+      const response = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("receipt waited for EOF")), 2000);
+        }),
+      ]);
+      clearTimeout(timer);
+      expect(response.done).toBe(false);
+      const receipt = object(
+        parse(
+          Buffer.from(response.value || [])
+            .toString()
+            .trim(),
+        ),
+      );
+      expect(receipt.sha256).toBe(sha256(data));
+      expect(receipt.size).toBe(data.length);
+      child.stdin.end();
+      expect(await child.exited).toBe(0);
+    } finally {
+      clearTimeout(timer);
+      reader.releaseLock();
+      if (child.exitCode === null) child.kill();
+      await child.exited;
+    }
+  });
   test("concurrent revision writes have one winner and preserve extra session fields", async () => {
     const home = fresh(),
       value = { version: 1, revision: 0, sessions: [{ ...row(), preview: "retained" }] };

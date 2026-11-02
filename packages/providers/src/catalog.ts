@@ -1,6 +1,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type Catalog, catalog, check, SESSION_ID, type SessionRecord } from "@kite/protocol";
+import {
+  type Catalog,
+  catalog,
+  check,
+  object,
+  SESSION_ID,
+  type SessionRecord,
+} from "@kite/protocol";
 import { atomic, home, locked, privateDir, readJson } from "@kite/runtime";
 export const catalogRoot = () => privateDir(join(home(), ".local/share/kite"));
 export const stateDir = () => privateDir(join(home(), ".local/state/kite/codex"));
@@ -19,7 +26,9 @@ export const sessionLock = (id: string) => {
   return join(catalogRoot(), `session-${id}.lock`);
 };
 export async function catalogWrite(value: unknown): Promise<Catalog | { conflict: true }> {
-  const incoming = catalog(value);
+  // The Rust Catalog wire DTO omits the on-disk schema version.
+  const request = object(value);
+  const incoming = catalog({ version: 1, ...request });
   return locked(join(catalogRoot(), "sessions.lock"), () => {
     const current = catalogUnlocked();
     if (current.revision !== incoming.revision) return { conflict: true };

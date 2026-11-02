@@ -53,11 +53,17 @@ export async function upload(
   mkdirSync(dir, { mode: 0o700 });
   const tmp = join(dir, ".part");
   let fd: number | undefined;
+  const reader = source.getReader();
   try {
     fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
     const hasher = new Bun.CryptoHasher("sha256");
     let count = 0;
-    for await (const bytes of source) {
+    // The SSH client waits for this receipt before closing its input stream.
+    // The declared length frames the body; EOF is not part of this protocol.
+    while (count < size) {
+      const next = await reader.read();
+      check(!next.done, "incomplete upload");
+      const bytes = next.value;
       count += bytes.length;
       check(count <= size, "upload exceeds declared size");
       hasher.update(bytes);
@@ -75,6 +81,8 @@ export async function upload(
     if (fd !== undefined) closeSync(fd);
     rmSync(dir, { recursive: true, force: true });
     throw error;
+  } finally {
+    reader.releaseLock();
   }
 }
 export function uploadedFile(id: string, name: string): Buffer {

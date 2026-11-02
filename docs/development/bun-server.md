@@ -40,7 +40,7 @@ Fixture tests use temporary homes, Unix sockets, local model catalogs and determ
 ## Local verification (2026-11-02)
 
 - Frozen Bun installation; strict typecheck; Biome; AST-based package dependency validation: PASS.
-- Bun package and distribution tests: 43 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
+- Bun package and distribution tests: 45 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
 - Workspace Rust tests: 160 passed; Rustfmt and Clippy with warnings denied: PASS.
 - Linux installer/package coverage is included in the Bun suite; Android Alpha publisher tests: 9 passed.
 - Native Rust/GTK panel on owned X11/private D-Bus: screenshot visually checked, single-instance and GApplication actions passed.
@@ -48,4 +48,4 @@ Fixture tests use temporary homes, Unix sockets, local model catalogs and determ
 - Disposable cgroup kernel probe: a 128 MiB limit was enforced; the owned excessive allocation produced one OOM kill; the temporary scope/slice was removed.
 - Real user-systemd Node/installer handover probe: continuous frames, exactly-once in-flight mutation, preserved agent PID, new-generation routing, failed-candidate recovery and single-writer notification/push handover passed.
 
-The Bun server refactor was published and installed on wen.linux as Alpha 55. Its public host binary matched the running executable, Codex/DSH/Ply real requests passed, the existing Codex connection survived handover, and session 31d3 retained its original owner/thread. Alpha 58 adds the source/test layout and Python-free Linux distribution/QA tools. These checks do not claim physical-phone UI/media acceptance.
+The Bun server refactor was published and installed on wen.linux as Alpha 55. Its public host binary matched the running executable, Codex/DSH/Ply real requests passed, the existing Codex connection survived handover, and session 31d3 retained its original owner/thread. Alpha 59 adds the source/test layout and Python-free Linux distribution/QA tools. These checks do not claim physical-phone UI/media acceptance.
