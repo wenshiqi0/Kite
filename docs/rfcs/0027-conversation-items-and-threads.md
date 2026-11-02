@@ -57,10 +57,10 @@ Kite 沿用自己的名字，但一一对应 Medeo 概念：
 
 | Kite 名称 | 对应 | 定义 | 所在 crate |
 |---|---|---|---|
-| `Conversation` | Room | 一条持久记录：`Record` 原有字段 + `origin: Option<Origin>`。`Record.id` 就是 `ConversationId` | `kite-agent::sessions` |
+| `Conversation` | Room | 一条持久记录：`Record` 原有字段 + `origin: Option<Origin>`。`Record.id` 就是 `ConversationId`；还没有记录的 pane 见第 2 节 | `kite-agent::sessions` |
 | `ConversationKey { host, conversation }` | Room 的全局 ID | 所有会话作用域键的唯一来源 | `kite-app::core::key`（新） |
 | `LiveSession` | Session | 一个会话的运行态：provider owner/agent 引用、transcript、pending、composer、审批、问题、活动、暂停 | `kite-app::core::live`（新） |
-| `Item` | Chat Item | `{ id, role, blocks: Vec<Block>, intermediate, position, origin: Option<ItemOrigin> }`，取代 `Message` | `kite-agent` |
+| `Item` | Chat Item | `{ id, role, blocks: Vec<Block>, intermediate, origin: Option<ItemOrigin> }`，取代 `Message`。排序仍由 `History.positions` 决定，不进入 `Item` | `kite-agent` |
 | `Block` | 容器内对象 | `Text`、`Attachment`、`Tool`、`QuestionReply`、`Embed(Reference)`；`Plan/Progress/Task` 留作保留变体，本稿不实现 | `kite-agent` |
 | `Thread` | Chat Thread | `{ id, conversation, title, items: Vec<ItemRef>, created_ms }`，有序、可不连续 | `kite-agent::threads`（新） |
 | `Reference` | 两种引用 | `Live { conversation, item }` 渲染时解析；`Snapshot { origin, captured_ms, blocks }` 不可变副本 | `kite-agent` |
@@ -71,7 +71,13 @@ Kite 沿用自己的名字，但一一对应 Medeo 概念：
 
 ### 2. 一个键
 
-`ConversationKey` 是一个小型值类型，提供：`context()`（替代 `conversation_context`）、`cache_document()`（替代 `cache_key`/`history_document`）、`history_key()`（替代 `history::key`，内部仍按 `AgentSession` 推导）。`chat_key`/`source_key` 退化为 `LiveSession` 内部对 agent 的查找，不再对外。`selected_agent` 从 `Snapshot` 移除，改为 `LiveSession.agent`。
+`ConversationKey` 是一个小型值类型，提供：`context()`（替代 `conversation_context`）、`cache_document()`（替代 `cache_key`/`history_document`）、`history_key()`（替代 `history::key`，内部仍按 `AgentSession` 推导）。`history::key` 留在 `kite-agent`，因为它在那里生成 `Record.id`，而 SPEC 3.3 不允许向上依赖；`kite-app` 只经 `key.rs` 使用它。持久化的缓存文档名、`chat-settings` 与 `paused-processes` 的键逐字节不变。
+
+`chat_key`/`source_key` 退化为 `key.rs` 内部的 `AgentKey`，不再是会话键：chat client、上传、skill 草稿和持久化的 `chat-settings` 跟随 provider thread，所以仍留在 `AppCore` 上按它查找。
+
+`selected_agent` 不再是主键，由选中会话的 `LiveSession.agent` 投影；是否从 `CoreSnapshot` 移除留待原生不再依赖时决定。
+
+没有记录的 pane（尚无 `agent_session` 时，`select_agent` 也能选中）用 terminal ID 作为 `conversation`；记录出现后，下一次目录同步把选中项移到记录键上。旧的 terminal 键 `LiveSession` 留到 LRU 淘汰，无害但短暂冗余。
 
 规则：任何新函数不得自己拼 `host/…` 字符串。
 
@@ -85,17 +91,21 @@ AppCore
   └─ selected: Option<ConversationKey>
 ```
 
-- `LiveSession` 持有今天散落的 `history`、`history_window`、`pending_messages`、`composer`、`approval`、`question`、`response_activity`、`agent_pause`、`turn_revision`，以及它自己的同步任务句柄（RFC 0013 的后台同步按会话隔离、可取消）。
-- 切换会话 = `selected` 改指向；被挤出的 `LiveSession` 先落盘再丢弃。`open_session`、`archive_session`、`create_session`、`activate_session`、`sync_sessions` 不再各自清字段。
+- `LiveSession` 持有今天散落的 `history`、`history_window`、`pending_messages`、`composer`、`approval`、`question`、`response_activity`、`agent_pause`，以及它自己的同步任务句柄（RFC 0013 的后台同步按会话隔离、可取消）。`turn_revision` 不在其中：它在 `kite_agent::interaction::RuntimeState` 里，由该会话的 `ChatClient` 持有，已按会话隔离。
+- `live` 与 `selected` 和 `Snapshot` 同在 `AppCore.state: Mutex<CoreState>` 这一把发布锁内，保持 echo 对账与发布的原子性。
+- 切换会话 = `selected` 改指向；被挤出的 `LiveSession` 先落盘再丢弃。`open_session`、`archive_session`、`create_session`、`activate_session`、`sync_sessions` 不再各自清字段。淘汰规则见待定问题 5。切换时投影共享会话日志的 `Arc`，下一次编辑按写时复制拷贝这份有界日志，开销与基线等价。
+- 绑定规则：每次发布时由目录和实时 agent 重新推导 `LiveSession.agent`。同一终端从无 thread 到有 thread，或暂时丢失 thread，仍是同一个 agent，运行态不重置，只更新查找用的 `AgentKey`；只有终端变化、已知 thread 被另一个不同的值替换（中间丢失过也算），或不再有 agent 服务该会话时才重新绑定并清空运行态。
+- 慢恢复：`session-open` 可能在窗格上报 thread 前返回（有界等待后返回 `launch_pending` 窗格）。此时 `activate_session` 把返回的终端记为该 `LiveSession` 的临时绑定 `launching`，直到该窗格上报 thread，之后只按记录匹配；等待期间继续读记录已有 thread 的历史，不报同步失败。不放宽 `Record::matches`：记录里的 `terminal_id` 可能已过期（同一窗格 `/new` 后两条记录指向同一终端），Claude 窗格又可能长时间没有 session，放宽会把无关窗格绑到旧会话上，用户的输入可能发错 thread。临时绑定只在内存中，重连后回到按记录匹配。
 - `Snapshot` 仍然只发布选中会话的投影，`CoreSnapshot` 的字段先不变（Phase 1 不触碰 FFI），因此 Android 在这一步不改。
-- 审批、问题、通知到达时按 `ConversationKey` 路由到对应 `LiveSession`，不再只能命中"当前选中"。非选中会话的审批进入该会话的运行态，并通过 Subscription 变成未读提示，而不是丢弃。
+- 审批、问题、通知到达时按 `ConversationKey` 路由到对应 `LiveSession`，不再只能命中"当前选中"。路由覆盖已有 client 的未归档会话；终端审批和未开过的会话在切换时读取，它们的状态继续由 `session-facts` 提供。非选中会话的审批进入该会话的运行态，并通过 Subscription（阶段 5）变成未读提示，而不是丢弃。新到通知按 `AgentNotice::conversation()` 找到会话并立刻读取其 client 的运行态，阶段 5 之前不增加单独字段。
 
 ### 4. Item 与 Block
 
 - `kite-agent::parse_history` 直接产出 `Vec<Item>`；id 与 `positions` 排序规则不变（RFC 0013：传输位置不参与 ID）。
-- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 Codex `turn/start input[]` 和 ACP prompt 的 blocks。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，新增 `kite_embed` 信封承载快照引用）。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
+- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 `turn/start input[]`，ACP prompt 的 blocks 由主机适配器从 `input[]` 转换（[uploads.ts](../../packages/providers/src/uploads.ts) 的 `nativeInput`）。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，阶段 4 新增 `kite_embed` 信封承载快照引用）；信封无法表示的块在编码时报错，不静默丢弃。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
+- 本地缓存里的旧 `Message` 记录继续能读，读入时转为 blocks，下次保存时写成新格式；其中可能有 provider 已压缩掉的内容，不能丢。不支持降级。
 - FFI：`MessageInfo` → `ItemInfo { id, role, blocks: Vec<BlockInfo>, intermediate, origin }`，`BlockInfo` 为 UniFFI enum。`ConversationEditInfo.items` 改为 `Vec<ItemInfo>`。增量协议（`conversation_since`）不变。
-- Android：`ChatEntry.Message` 从 blocks 渲染；`ToolGroupCard` 读 `BlockInfo.Tool`；附件卡读 `BlockInfo.Attachment`；新增 `EmbedCard`。
+- Android：`ChatEntry.Message` 从 blocks 渲染；`ToolGroupCard` 读 `BlockInfo.Tool`；附件卡读 `BlockInfo.Attachment`；阶段 4 新增 `EmbedCard`。
 
 ### 5. Origin 与分叉
 
@@ -140,7 +150,7 @@ Rust 仍不产生用户文案；"不可用引用""来自 X 的第 N 条"都是�
 |---|---|---|---|---|
 | 0 键统一 | `ConversationKey` 落地，删除五种键的拼接；`selected_agent` 改为派生 | `kite-app/core/key.rs`（新）、`core.rs`、`core/sessions.rs`、`core/conversation.rs`、`kite-agent/history.rs` | 现有 Rust 测试全绿；FFI 不变；真机切换会话、重连、归档无回归 | S |
 | 1 LiveSession | 运行态从 `AppCore` 拆到 `LiveSession`，有界多会话；审批/问题按键路由 | `core/live.rs`（新）、`core.rs` 瘦身、`core/sessions.rs` 删除五份清零代码、`core/pending.rs` 按会话 | 同上；新增测试：非选中会话收到审批不丢失，切回后可见；`core.rs` 行数下降并记录数字 | M |
-| 2 Item/Block | `Message` → `Item` + `Block`；附件走块；FFI `ItemInfo`；Android 按块渲染 | `kite-agent/lib.rs`、`composer.rs`（envelope 模块）、`kite-ffi/core_bridge.rs`、Android `ChatTimeline.kt`、`KiteWorkspace.kt` | RFC 0013 的一万条缓存重开测试通过；附件、生成图片、工具分组、问答回复在真机渲染一致；旧历史里的附件信封仍能读 | M |
+| 2 Item/Block | `Message` → `Item` + `Block`；附件走块；FFI `ItemInfo`；Android 按块渲染。`Block::Embed` 只定义类型，`EmbedCard` 与 `kite_embed` 属于阶段 4 | `kite-agent/lib.rs`、`composer.rs`（envelope 模块）、`kite-ffi/core_bridge.rs`、Android `ChatTimeline.kt`、`KiteWorkspace.kt` | RFC 0013 的一万条缓存重开测试通过；附件、生成图片、工具分组、问答回复在真机渲染一致；旧历史里的附件信封仍能读 | M |
 | 3 Origin/分叉 | `Record.origin`、`ForkSupport` 能力、Codex `thread/fork`、Claude `--fork-session`、ACP 快照拷贝、Android "从这条开始新会话" | `packages/protocol`、`packages/providers/{harness,codex,owner}.ts`、`kite-agent/providers.rs`、`core/sessions.rs`、Android 会话菜单 | 三类 provider 各一条真实分叉：Codex 截到中间一轮后新会话只含前半段；Claude 整会话分叉；Ply 新会话首轮带结构化快照；能力缺失时入口不出现 | M |
 | 4 Thread/引用 | `ThreadRecord`、叠加记录、`Block::Embed`、`kite_embed` 信封、Android 多选→保存 Thread/引用到… | `kite-agent/threads.rs`（新）、`catalog.ts`、`kite-ffi`、Android 抽屉与多选 | 活引用在源会话归档且 owner 回收后仍可渲染；源不可达显示不可用状态；快照进入 provider 后能从历史还原并跳回源 Item；目录 CAS 冲突重试覆盖 threads | L |
 | 5 Subscription | 本机阅读状态、未读、置顶、静音，与 RFC 0017 对接 | `kite-store`、`core/sessions.rs views()`、`SessionDrawer.kt` | 通知到达→未读；打开并滚到底→清除；置顶排序持久；静音不弹通知但保留未读 | S |
@@ -171,5 +181,5 @@ Rust 仍不产生用户文案；"不可用引用""来自 X 的第 N 条"都是�
 2. **Codex `thread/fork` 的分叉粒度是轮（turn），Item 是消息。** 用户选中 assistant 的中间一条时，截到它所在轮的上一轮还是本轮，需要定义并在界面上说明。
 3. **目录大小上限。** 现有 1 MB/1024 条（`catalog.ts`）。Thread 条目与叠加记录是否单独文件，取决于真实会话数；先在阶段 4 前用 wen.linux 的目录体积估算。
 4. **快照的大小边界。** `kite_embed` 进入 provider 输入会占用模型上下文；需要一个有界截断策略（按字节与条数）并在原生显示"已截断"状态。
-5. **有界 LiveSession 的淘汰策略。** 默认 4 个与现有 histories 一致，但带未完成审批的会话不应被淘汰；是否改为"选中 + 有待办的全部保留"。
+5. **有界 LiveSession 的淘汰策略（已定）。** 默认 4 个，与现有 histories 一致。选中的会话和带待办审批或问题的会话都不淘汰，全部受保护时允许暂时超过 4 个。其余按最近一次被选中的时间淘汰，路由不算查看；先写入缓存再丢弃。未确认的本地待发行不受保护，淘汰后回显到达时仍会显示。终端解析出的审批只在选中时读取，不受淘汰保护，与基线等价。
 6. **iOS。** 本稿的原生部分只描述 Android；iOS 在阶段 2 起同步 `ItemInfo` 渲染，不单独排期。
