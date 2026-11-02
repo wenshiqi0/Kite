@@ -18,6 +18,7 @@ import {
   startTicks,
   tryLock,
 } from "@kite/runtime";
+import { darwinProcess, darwinProcessIds } from "@kite/runtime/darwin";
 export const SLICE = "kite-agents.slice",
   MIN_CGROUP = 16 * 1024 * 1024;
 export interface ProcessFact {
@@ -89,6 +90,23 @@ export const scopeName = (_pane: string, pid: number, started: string) => {
 };
 export const insideBudget = (p: ProcessFact) => p.cgroup.includes(`/${SLICE}/`);
 export function proc(pid: number): ProcessFact {
+  if (process.platform === "darwin") {
+    const fact = darwinProcess(pid);
+    check(fact && fact.status !== 5, "process is unavailable");
+    // Only identity/ancestry are used for Mac lifecycle control. Resource
+    // sampling is not advertised on Mac; Linux accounting fields stay unset.
+    return {
+      pid,
+      ppid: fact.ppid,
+      started: fact.started,
+      uid: fact.uid,
+      name: fact.name,
+      ticks: 0,
+      rss: 0,
+      reserved: 0,
+      cgroup: "",
+    };
+  }
   const root = `/proc/${pid}`,
     stat = readFileSync(`${root}/stat`, "utf8").split(") ").at(-1)?.trim().split(/\s+/);
   check(stat && stat.length > 19, "invalid process stat");
@@ -116,7 +134,9 @@ export function proc(pid: number): ProcessFact {
 }
 export function processes(): Map<number, ProcessFact> {
   const table = new Map<number, ProcessFact>();
-  for (const file of readdirSync("/proc")) {
+  const entries =
+    process.platform === "darwin" ? darwinProcessIds().map(String) : readdirSync("/proc");
+  for (const file of entries) {
     if (!/^\d+$/.test(file)) continue;
     try {
       const p = proc(Number(file));

@@ -31,7 +31,7 @@ struct KiteApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu(tr("connection")) {
-                Button(tr("disconnect")) { model.disconnect() }.disabled(!model.connected)
+                Button(tr("disconnect")) { model.disconnect() }.disabled(!model.connected && !model.recovering)
                 Button(tr("watch")) { model.takeover(false) }.keyboardShortcut("w", modifiers: [.command, .option])
             }
             CommandGroup(after: .appSettings) { HostWindowButton() }

@@ -35,7 +35,7 @@ struct LocalHostView: View {
                                     Button(tr("host_update")) { host.run("update") }
                                 } else if report.configured {
                                     Button(tr("host_enable")) { host.run("enable") }.buttonStyle(.borderedProminent)
-                                    Button(tr("host_reinstall")) { host.run("install") }
+                                    Button(tr("host_reinstall")) { host.run("update") }
                                 } else {
                                     Button(tr("host_install")) { host.run("install") }.buttonStyle(.borderedProminent)
                                         .disabled(report.dependencies.herdr == nil || report.dependencies.bun == nil)

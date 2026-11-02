@@ -35,6 +35,7 @@ final class ClientModel {
 
     var destination: Destination { Destination(host: snapshot?.selectedHost, agent: snapshot?.selectedAgent, conversation: snapshot?.conversationContext ?? "") }
     var connected: Bool { snapshot?.connection == .connected }
+    var recovering: Bool { snapshot?.connection == .reconnecting }
     var canSend: Bool {
         guard connected, let state = snapshot, let id = state.selectedAgent,
               let agent = state.agents.first(where: { $0.id == id }), !agent.launchPending else { return false }
@@ -144,7 +145,11 @@ final class ClientModel {
     }
     func disconnect() {
         media.input.cancel()
-        command { try await $0.disconnect() }
+        let host = snapshot?.selectedHost
+        command(scoped: false) { [weak self] core in
+            guard self?.snapshot?.selectedHost == host else { return }
+            try await core.disconnect()
+        }
     }
     func open(_ session: SessionInfo) {
         guard !busy else { return }

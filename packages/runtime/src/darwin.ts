@@ -4,6 +4,10 @@ import { check } from "@kite/protocol";
 
 const library = () =>
   dlopen("/usr/lib/libSystem.B.dylib", {
+    proc_listpids: {
+      args: [FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.i32],
+      returns: FFIType.i32,
+    },
     proc_pidinfo: {
       args: [FFIType.i32, FFIType.i32, FFIType.u64, FFIType.ptr, FFIType.i32],
       returns: FFIType.i32,
@@ -15,7 +19,9 @@ const library = () =>
   });
 export function darwinProcess(
   pid: number,
-): { started: string; status: number; uid: number; pgid: number } | undefined {
+):
+  | { started: string; status: number; uid: number; pgid: number; ppid: number; name: string }
+  | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
   const lib = library(),
     bytes = Buffer.alloc(136);
@@ -29,7 +35,30 @@ export function darwinProcess(
       status: bytes.readUInt32LE(4),
       uid: bytes.readUInt32LE(20),
       pgid: bytes.readUInt32LE(100),
+      ppid: bytes.readUInt32LE(16),
+      name:
+        bytes.toString("utf8", 64, 96).split("\0")[0] ||
+        bytes.toString("utf8", 48, 64).split("\0")[0] ||
+        "",
     };
+  } finally {
+    lib.close();
+  }
+}
+export function darwinProcessIds(): number[] {
+  const lib = library();
+  try {
+    const size = lib.symbols.proc_listpids(1, 0, null, 0);
+    check(size > 0 && size <= 1024 * 1024, "process table unavailable");
+    const bytes = Buffer.alloc(size + 65536),
+      used = lib.symbols.proc_listpids(1, 0, ptr(bytes), bytes.length);
+    check(used > 0 && used <= bytes.length, "process table changed beyond its limit");
+    const result: number[] = [];
+    for (let i = 0; i + 4 <= used; i += 4) {
+      const pid = bytes.readInt32LE(i);
+      if (pid > 0) result.push(pid);
+    }
+    return result;
   } finally {
     lib.close();
   }

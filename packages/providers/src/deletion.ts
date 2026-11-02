@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
+  descendants,
   killScope,
   type OwnerIdentity,
   processes,
@@ -20,7 +21,7 @@ import {
   type SessionRecord,
   string,
 } from "@kite/protocol";
-import { live, locked, pgid, readJson, same, sleep, startTicks } from "@kite/runtime";
+import { live, locked, pgid, processArgv, readJson, same, sleep, startTicks } from "@kite/runtime";
 import { listening } from "@kite/runtime/socket";
 import {
   catalogRead,
@@ -54,12 +55,32 @@ async function stopProcessGroup(owner: OwnerIdentity): Promise<void> {
     live(owner.pid, owner.start_ticks) && pgid(owner.pid) === owner.pid,
     "session process group changed",
   );
-  const members = () =>
-    [...processes().values()].filter(
-      (p) => p.uid === process.getuid?.() && pgid(p.pid) === owner.pid,
+  const known = new Map<number, string>([[owner.pid, owner.start_ticks]]);
+  const members = () => {
+    const table = processes(),
+      roots = [...known]
+        .filter(([pid, ticks]) => table.get(pid)?.started === ticks)
+        .map(([pid]) => pid),
+      tree = new Set(
+        process.platform === "darwin" ? descendants(table, roots).map((p) => p.pid) : [],
+      );
+    return [...table.values()].filter(
+      (p) =>
+        p.uid === process.getuid?.() &&
+        (process.platform === "darwin"
+          ? tree.has(p.pid) || (live(owner.pid, owner.start_ticks) && pgid(p.pid) === owner.pid)
+          : pgid(p.pid) === owner.pid),
     );
+  };
   const remaining = members();
+  check(
+    remaining.some((p) => p.pid === owner.pid && p.started === owner.start_ticks),
+    "session process owner changed",
+  );
+  for (const p of remaining) known.set(p.pid, p.started);
   process.kill(-owner.pid, "SIGTERM");
+  if (process.platform === "darwin")
+    for (const p of remaining) if (live(p.pid, p.started)) process.kill(p.pid, "SIGTERM");
   const deadline = Date.now() + 1500;
   while (remaining.some((p) => live(p.pid, p.started)) && Date.now() < deadline) await sleep(50);
   // A group leader can exit before its tools; track their start identities and stop those too.
@@ -110,7 +131,7 @@ async function terminateTerminal(
       front.some((p) => p.pid === pid),
     "terminal process identity changed",
   );
-  const args = readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+  const args = processArgv(pid);
   if (record.provider === "codex")
     check(
       front.some((p) => p.pid === pid && p.name === "codex") &&
@@ -121,10 +142,19 @@ async function terminateTerminal(
     );
   // A managed terminal shares the owner's scope, which also includes local tool descendants.
   if (
+    process.platform === "linux" &&
     owner?.budget_unit &&
     readFileSync(`/proc/${pid}/cgroup`, "utf8").trim().endsWith(`/${owner.budget_unit}`)
   )
     return;
+  if (process.platform === "darwin" && record.provider === "claude") {
+    check(
+      args.some((a) => a.toLowerCase().includes("claude")),
+      "terminal provider identity changed",
+    );
+    await stopProcessGroup({ pane, pid, start_ticks: ticks });
+    return;
+  }
   check(record.provider === "codex" && owner, "terminal has no managed resource owner");
   await stopProcessGroup({ pane, pid, start_ticks: ticks });
 }
@@ -163,7 +193,7 @@ export function sessionTerminators(binary: string): Record<Provider, SessionTerm
         );
       } else if (saved?.socket)
         check(!(await listening(saved.socket)), "session backend identity changed");
-      if (record.provider === "claude") {
+      if (record.provider === "claude" && process.platform === "linux") {
         // Claude's managed scope is rooted in its verified pane shell, not an app-server.
         let info: ObjectValue;
         try {
@@ -225,16 +255,24 @@ export function sessionTerminators(binary: string): Record<Provider, SessionTerm
         check(!(await listening(join(path, "owner.sock"))), "harness owner identity changed");
         return;
       }
-      const args = readFileSync(`/proc/${pid}/cmdline`).toString().split("\0"),
+      const args = processArgv(pid),
         unit = scopeName(string(record.pane_id), pid, ticks);
       check(
         args.includes("harness-owner") &&
           args.includes(ref.value) &&
-          readFileSync(`/proc/${pid}/cgroup`, "utf8").trim().endsWith(`/kite-agents.slice/${unit}`),
+          (process.platform === "darwin"
+            ? pgid(pid) === pid
+            : readFileSync(`/proc/${pid}/cgroup`, "utf8")
+                .trim()
+                .endsWith(`/kite-agents.slice/${unit}`)),
         "harness is outside its managed scope",
       );
-      await reclaimCache(unit);
-      await killScope(unit);
+      if (process.platform === "darwin")
+        await stopProcessGroup({ pane: string(record.pane_id), pid, start_ticks: ticks });
+      else {
+        await reclaimCache(unit);
+        await killScope(unit);
+      }
       await waitStopped({ pane: string(record.pane_id), pid, start_ticks: ticks });
       return undefined;
     },

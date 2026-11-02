@@ -40,6 +40,9 @@ struct WorkspaceView: View {
             .toolbar {
                 ToolbarItemGroup {
                     Button { openWindow(id: "local-host") } label: { Label(tr("local_host"), systemImage: "server.rack") }
+                    if model.recovering {
+                        Button(tr("cancel_reconnect")) { model.disconnect() }
+                    }
                     if model.connected {
                         Button { creatingSession = true } label: { Label(tr("new_session"), systemImage: "square.and.pencil") }
                         Button { model.disconnect() } label: { Label(tr("disconnect"), systemImage: "bolt.slash") }
@@ -134,6 +137,7 @@ struct WorkspaceView: View {
         switch model.snapshot?.connection {
         case .connected: tr("connected")
         case .connecting: tr("connecting")
+        case .reconnecting: tr("reconnecting")
         case .awaitingTrust: tr("awaiting_trust")
         case .failed: tr("connection_failed")
         default: tr("disconnected")
