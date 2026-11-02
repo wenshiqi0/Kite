@@ -34,6 +34,8 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0022](0022-host-resources-and-agent-budget.md) | 主机资源概览与共享 Agent 内存预算 | 已实现 |
 | [0023](0023-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已实现 |
 
+| [0025](0025-ply-acp.md) | Ply ACP 插件接入 | 已实现，待发布 |
+
 ## 什么时候写 RFC
 
 下面这些改动，先写 RFC：

@@ -56,8 +56,25 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
           agentInfo: { name: "deepseek-harness-acp" },
           agentCapabilities: { promptCapabilities: { image: true } },
         }
-      : { serverInfo: { name: "ply" }, capabilities: { experimental: { plyAgent: 1 } } };
-  if (method === "session/new" || method === "session/resume") {
+      : {
+          protocolVersion: 1,
+          agentInfo: { name: "ply" },
+          agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
+          _meta: {
+            ply: {
+              models: [
+                {
+                  id,
+                  name: "Fixture native model",
+                  input: ["text", "image"],
+                  efforts: ["off", "high"],
+                  defaultEffort: "high",
+                },
+              ],
+            },
+          },
+        };
+  if (method === "session/new" || method === "session/resume" || method === "session/load") {
     session = typeof p.sessionId === "string" ? p.sessionId : session;
     return { sessionId: session, configOptions: config() };
   }
@@ -65,39 +82,10 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
     if (p.configId === "reasoning_effort") effort = string(p.value);
     return { configOptions: config() };
   }
-  if (method === "ply/agent/catalog")
-    return [
-      {
-        id,
-        name: "Fixture native model",
-        input: ["text", "image"],
-        efforts: ["off", "high"],
-        defaultEffort: "high",
-      },
-    ];
-  if (method === "ply/agent/state")
-    return {
-      pending: [...pending.keys()].map((id) => ({
-        id,
-        tool: "bash",
-        command: "fixture owned operation",
-        input: {},
-      })),
-    };
-  if (method === "ply/agent/approve") {
-    pending.get(String(p.id))?.resolve();
-    pending.delete(String(p.id));
-    return {};
-  }
-  if (method === "session/prompt" || method === "ply/agent/chat") {
+  if (method === "session/prompt") {
     active = rid;
-    if (mode === "ply" && p.snapshot)
-      counter = Math.max(counter, Number(object(p.snapshot).counter) || 0);
     counter++;
-    const blocks =
-      method === "session/prompt"
-        ? array(p.prompt)
-        : [{ type: "text", text: p.prompt }, ...array(p.images ?? [])];
+    const blocks = array(p.prompt);
     const text = blocks
         .map(object)
         .filter((b) => b.type === "text")
@@ -109,36 +97,34 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
         record,
         `${JSON.stringify({ event: "spawn", fiber: { id: call, plugin: "bash", input: { owned: true } } })}\n`,
       );
-    if (mode === "dsh")
-      send({
-        method: "session/update",
-        params: {
-          sessionId: session,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: call,
-            title: "bash",
-            rawInput: { owned: true },
-          },
+    send({
+      method: "session/update",
+      params: {
+        sessionId: session,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: call,
+          title: "bash",
+          rawInput: { owned: true },
         },
-      });
+      },
+    });
     if (text.includes("delay")) await Bun.sleep(100);
     if (text.includes("approve"))
       await new Promise<void>((resolve, reject) => {
         pending.set(call, { resolve, reject });
-        if (mode === "dsh")
-          send({
-            id: `permit-${call}`,
-            method: "session/request_permission",
-            params: {
-              sessionId: session,
-              toolCall: { toolCallId: call },
-              options: [
-                { kind: "allow_once", optionId: "allow" },
-                { kind: "reject_once", optionId: "deny" },
-              ],
-            },
-          });
+        send({
+          id: `permit-${call}`,
+          method: "session/request_permission",
+          params: {
+            sessionId: session,
+            toolCall: { toolCallId: call },
+            options: [
+              { kind: "allow_once", optionId: "allow" },
+              { kind: "reject_once", optionId: "deny" },
+            ],
+          },
+        });
       });
     if (text.includes("wait"))
       await new Promise<void>((resolve, reject) => pending.set("waiting", { resolve, reject }));
@@ -148,40 +134,37 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
         record,
         `${JSON.stringify({ event: "exit", id: call, exit: { status: "done", output: { owned: true } } })}\n`,
       );
-    if (mode === "dsh") {
-      send({
-        method: "session/update",
-        params: {
-          sessionId: session,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: call,
-            status: "completed",
-            content: [{ type: "content", content: { type: "text", text: "owned result" } }],
-          },
+    send({
+      method: "session/update",
+      params: {
+        sessionId: session,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: call,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "owned result" } }],
         },
-      });
-      send({
-        method: "session/update",
-        params: {
-          sessionId: session,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            messageId: `message-${counter}`,
-            content: { type: "text", text: output },
-          },
+      },
+    });
+    send({
+      method: "session/update",
+      params: {
+        sessionId: session,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: `message-${counter}`,
+          content: { type: "text", text: output },
         },
-      });
-      return { stopReason: "end_turn" };
-    }
-    return { result: { status: "done", text: output }, snapshot: { counter } };
+      },
+    });
+    return { stopReason: "end_turn" };
   }
   return {};
 }
 for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
   const value = object(parse(line));
   const method = value.method;
-  if (method === "session/cancel" || method === "notifications/cancelled") {
+  if (method === "session/cancel") {
     for (const p of pending.values()) p.reject();
     pending.clear();
     continue;
@@ -195,7 +178,13 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
     const rid = value.id;
     void request(string(method), object(value.params ?? {}), rid)
       .then((result) => send({ id: rid, result }))
-      .catch(() => send({ id: rid, error: { code: -32800, message: "cancelled" } }));
+      .catch(() =>
+        send(
+          mode === "ply" && method === "session/prompt"
+            ? { id: rid, result: { stopReason: "cancelled" } }
+            : { id: rid, error: { code: -32800, message: "cancelled" } },
+        ),
+      );
   }
 }
 void active;

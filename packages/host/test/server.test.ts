@@ -23,6 +23,7 @@ afterAll(() => {
 });
 const env = (home: string, extra: NodeJS.ProcessEnv = {}) => ({
   ...process.env,
+  KITE_HOST_BACKEND_PATH: cli,
   HOME: home,
   KITE_AGENT_RESOURCE_CONTROL: "0",
   KITE_ENABLE_DSH: "0",
