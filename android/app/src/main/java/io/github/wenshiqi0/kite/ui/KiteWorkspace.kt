@@ -297,6 +297,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                 }
+                if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connection_reconnecting), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = vm::disconnect) { Text(stringResource(R.string.disconnect)) }
+                }
                 if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                     ResourceWarning(state?.hostResources) {
                         state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.settingsVisible = true }

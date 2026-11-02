@@ -40,7 +40,7 @@ class CoreController(private val context: Context) {
     private var noticeRevision:ULong?=null
     private var refreshingNotices=false
     private var refreshNoticesAgain=false
-    fun visible(value:Boolean){visible=value;if(value){refreshAgentNotifications();systemPush.refresh()}}
+    fun visible(value:Boolean){visible=value;if(value){networkMonitor.refresh();refreshAgentNotifications();systemPush.refresh()}}
     fun stageNotification(id:String){stagedNoticeId=id;notificationNavigationActive=true}
     fun enableAgentNotifications(value:Boolean){agentNotifications.enable(value);systemPush.enabledChanged(value);refreshAgentNotifications()}
     fun refreshAgentNotifications(){
@@ -92,6 +92,7 @@ class CoreController(private val context: Context) {
     private var foregroundWanted = false
     private var foregroundRequested = false
     private var service: ConnectionService? = null
+    private var initializing = true
 
     private val imageDownloads = kotlinx.coroutines.sync.Mutex()
     suspend fun generatedImage(conversation: String, id: String): File = withContext(Dispatchers.IO) {
@@ -164,6 +165,8 @@ class CoreController(private val context: Context) {
         }
     })
 
+    private val networkMonitor = ConnectionNetworkMonitor(context, main) { available -> core.networkChanged(available) }
+
     init {
         scope.launch{while(true){kotlinx.coroutines.delay(30_000);systemPush.refresh()}}
         scope.launch {
@@ -184,7 +187,10 @@ class CoreController(private val context: Context) {
     }
 
     fun initialize() = command {
-        core.initialize(File(context.filesDir, "core").absolutePath, "kite@${Build.MODEL}", HostStore(context).legacyData())
+        try {
+            core.initialize(File(context.filesDir, "core").absolutePath, "kite@${Build.MODEL}", HostStore(context).legacyData())
+            core.restoreConnection()
+        } finally { main.post { initializing = false; current.value?.let(::refreshForeground) } }
     }
 
     fun command(action: suspend () -> Unit) {
@@ -211,7 +217,8 @@ class CoreController(private val context: Context) {
 
     fun foregroundReady(instance: ConnectionService) {
         service = instance
-        if (!foregroundWanted) instance.stopSelf()
+        foregroundRequested = true
+        if (!foregroundWanted && !initializing) instance.stopSelf()
         else instance.setVideoActive(current.value?.desktop?.status == DesktopStatus.STREAMING)
     }
 
@@ -229,10 +236,11 @@ class CoreController(private val context: Context) {
     }
 
     private fun refreshForeground(snapshot: CoreSnapshot) {
+        service?.setReconnecting(snapshot.connection == ConnectionStatus.RECONNECTING)
         service?.setVideoActive(snapshot.desktop.status == DesktopStatus.STREAMING || snapshot.desktop.status == DesktopStatus.STARTING)
-        if (snapshot.connection == ConnectionStatus.CONNECTING || snapshot.connection == ConnectionStatus.CONNECTED) {
+        if (snapshot.connection == ConnectionStatus.CONNECTING || snapshot.connection == ConnectionStatus.RECONNECTING || snapshot.connection == ConnectionStatus.CONNECTED) {
             ensureForeground()
-        } else {
+        } else if (!initializing) {
             foregroundWanted = false
             // Do not cancel a pending startForegroundService before onCreate promotes it.
             service?.stopSelf()
