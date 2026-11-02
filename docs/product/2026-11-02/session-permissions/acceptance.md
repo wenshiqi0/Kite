@@ -15,3 +15,7 @@
 - 对应 Ply 源码：bd59d958db0c668a1af95a38264adeb667df8c10。npm check 和完整 Rust workspace（包括 Node 兼容、PTY、ACP、真实工具门禁）通过；安装后的 ACP 握手与策略切换通过，未发起供应商模型 turn。
 
 Android Debug/JNI/测试 APK、Lint 与 75 项 JVM 测试通过；Android 16 原生界面三项测试通过，覆盖完整命令卡片、文件读取/拒绝、模型思考选择以及模型浮层里的权限菜单和原生值回传。已查看 [命令审批](screens/readable-command-approval.png)、[文件审批](screens/readable-file-approval.png)、[权限菜单](screens/permission-policy-menu.png) 和 [权限选择](screens/permission-policy-selected.png) 截图。原生测试使用隔离只读 AVD 和 KVM 容器，未操作用户桌面或发起模型请求。最终公开发行与实体手机安装分别验证。x86 QA 库显式链接 NDK compiler-rt builtins 解决现有 CPU feature symbol 链接问题；ARM64 发布继续使用常规 CI 构建。
+
+## 发布候选
+
+Alpha 62 标签保留且未发布：发现缺少主线 Alpha 61 的 desktop 观察隔离改动后取消了构建。合并完整主线，仅版本文件发生冲突，使用 Alpha 63 / versionCode 65 解决；不会移动或覆盖 Alpha 62 标签。Android 功能代码和已验收的 FFI/原生组件保持一致。
