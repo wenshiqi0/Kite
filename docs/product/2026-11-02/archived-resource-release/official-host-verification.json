@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0-alpha.51",
+  "health": "ready",
+  "officialPackageInstalled": true,
+  "runningBinaryMatchesPublicPackage": true,
+  "identityRetained": true,
+  "externalServicesRetained": true,
+  "sessionLifecycle": {
+    "archivedOnly": true,
+    "lastScanMs": 1793589675568,
+    "reclaimed": 0,
+    "scanIntervalSeconds": 30
+  },
+  "command": {
+    "failed": 0,
+    "reclaimed": 0,
+    "retained": 0
+  }
+}

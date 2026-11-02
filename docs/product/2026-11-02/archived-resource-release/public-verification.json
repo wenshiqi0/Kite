@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0-alpha.51",
+  "versionCode": 53,
+  "sourceCommit": "8084dd4d107d903afb0f8c5338df4133883a425f",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.51",
+  "workflow": "https://github.com/wenshiqi0/Kite/actions/runs/41381423123",
+  "checksumsVerified": true,
+  "stableCertificateVerified": true,
+  "signingSchemesVerified": [
+    1,
+    2,
+    3
+  ],
+  "compatibilityPayloadMatches": true,
+  "zipAlignmentKiB": 16
+}

@@ -1,5 +1,9 @@
 """Publication regressions from real tagged CI failures; no network or writes."""
 import importlib.util
+import contextlib
+import io
+import os
+import sys
 from pathlib import Path
 import subprocess
 import unittest
@@ -13,6 +17,34 @@ spec.loader.exec_module(release_alpha)
 
 
 class DraftPublicationTests(unittest.TestCase):
+    def test_validation_of_a_merge_commit_does_not_weaken_publication_tag_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+            git("init")
+            git("config", "user.name", "Release fixture")
+            git("config", "user.email", "release-fixture@example.invalid")
+            git("remote", "add", "origin", "https://github.com/fixture/kite.git")
+            (root / "android").mkdir()
+            (root / "android/version.properties").write_text("versionName=0.2.0-alpha.1\nversionCode=3\n")
+            git("add", ".")
+            git("commit", "-m", "tagged source")
+            git("tag", "v0.2.0-alpha.1")
+            (root / "validation.txt").write_text("merge validation")
+            git("add", ".")
+            git("commit", "-m", "validation commit")
+            with patch.object(release_alpha, "ROOT", root), patch.dict(os.environ, {"GITHUB_REF_TYPE": "branch"}), contextlib.redirect_stdout(io.StringIO()):
+                with patch.object(sys, "argv", ["release-alpha.py", "--check-only"]):
+                    release_alpha.main()
+                with patch.object(sys, "argv", ["release-alpha.py", "--build-only"]), patch.dict(os.environ, {"KITE_ALPHA_KEYSTORE": str(root / "missing.keystore")}):
+                    with self.assertRaisesRegex(RuntimeError, "signing keystore"):
+                        release_alpha.main()
+                for mode in ([], ["--publish-only"]):
+                    with patch.object(sys, "argv", ["release-alpha.py", *mode]):
+                        with self.assertRaisesRegex(RuntimeError, "tag belongs to another commit"):
+                            release_alpha.main()
+
     def test_explicit_resign_preserves_payload_and_uses_password_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); built = root / "built.apk"; output = root / "signed.apk"
