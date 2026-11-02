@@ -75,4 +75,3 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 - [0024 — Bun server packages and native Linux UI](0024-bun-server-monorepo.md)
 - [0026 — 会话权限设置与可读审批](0026-session-permissions.md)
-- [0027 — Unicode 键盘映射的消费时序](0027-unicode-mapping-settle.md)

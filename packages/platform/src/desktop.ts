@@ -124,6 +124,11 @@ function library() {
     XDisplayHeight: { args: [T.ptr, T.i32], returns: T.i32 },
     XCloseDisplay: { args: [T.ptr], returns: T.i32 },
     XSync: { args: [T.ptr, T.i32], returns: T.i32 },
+    XGetInputFocus: { args: [T.ptr, T.ptr, T.ptr], returns: T.i32 },
+    XQueryTree: { args: [T.ptr, T.u64, T.ptr, T.ptr, T.ptr, T.ptr], returns: T.i32 },
+    XSelectInput: { args: [T.ptr, T.u64, T.i64], returns: T.i32 },
+    XSendEvent: { args: [T.ptr, T.u64, T.i32, T.i64, T.ptr], returns: T.i32 },
+    XCheckTypedEvent: { args: [T.ptr, T.i32, T.ptr], returns: T.i32 },
     XSetErrorHandler: { args: [T.ptr], returns: T.ptr },
     XDisplayKeycodes: { args: [T.ptr, T.ptr, T.ptr], returns: T.i32 },
     XGetKeyboardMapping: { args: [T.ptr, T.u8, T.i32, T.ptr], returns: T.ptr },
@@ -322,6 +327,65 @@ export class X11 {
       this.x.XDestroyImage(image);
     }
   }
+  private inputTarget(): number | undefined {
+    const focus = Buffer.alloc(8),
+      revert = Buffer.alloc(4),
+      ping = Number(this.x.XInternAtom(this.display, cstr("_NET_WM_PING"), 1));
+    if (!ping) return;
+    this.x.XGetInputFocus(this.display, ptr(focus), ptr(revert));
+    let window = Number(focus.readBigUInt64LE());
+    for (let depth = 0; depth < 32 && window > 1 && window !== Number(this.root); depth++) {
+      const protocols = this.property(window, "WM_PROTOCOLS");
+      if (Array.isArray(protocols) && protocols.includes(ping)) return window;
+      const root = Buffer.alloc(8),
+        parent = Buffer.alloc(8),
+        children = Buffer.alloc(8),
+        count = Buffer.alloc(4);
+      if (
+        !this.x.XQueryTree(this.display, window, ptr(root), ptr(parent), ptr(children), ptr(count))
+      )
+        return;
+      const address = Number(children.readBigUInt64LE()) as Pointer;
+      if (address) this.x.XFree(address);
+      const next = Number(parent.readBigUInt64LE());
+      if (next === window) return;
+      window = next;
+    }
+    return;
+  }
+  private async inputBarrier(window: number): Promise<void> {
+    // EWMH ping is echoed after the client consumes preceding X events. XSync
+    // alone only acknowledges the server, so a paused client can decode queued
+    // keys using the next batch's mapping. Keep each mapping until this reply.
+    // https://specifications.freedesktop.org/wm/latest-single/#NET_WM_PING
+    const protocols = Number(this.x.XInternAtom(this.display, cstr("WM_PROTOCOLS"), 0)),
+      ping = Number(this.x.XInternAtom(this.display, cstr("_NET_WM_PING"), 0)),
+      nonce = (crypto.getRandomValues(new Uint32Array(1))[0] || 1) & 0x7fffffff || 1,
+      event = Buffer.alloc(192);
+    event.writeInt32LE(33, 0);
+    event.writeBigUInt64LE(BigInt(window), 32);
+    event.writeBigUInt64LE(BigInt(protocols), 40);
+    event.writeInt32LE(32, 48);
+    event.writeBigUInt64LE(BigInt(ping), 56);
+    event.writeBigUInt64LE(BigInt(nonce), 64);
+    event.writeBigUInt64LE(BigInt(window), 72);
+    this.x.XSelectInput(this.display, this.root, 1 << 19);
+    check(this.x.XSendEvent(this.display, window, 0, 0, ptr(event)), "unicode_target_unavailable");
+    this.x.XSync(this.display, 0);
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      while (this.x.XCheckTypedEvent(this.display, 33, ptr(event)))
+        if (
+          Number(event.readBigUInt64LE(40)) === protocols &&
+          Number(event.readBigUInt64LE(56)) === ping &&
+          Number(event.readBigUInt64LE(64)) === nonce &&
+          Number(event.readBigUInt64LE(72)) === window
+        )
+          return;
+      await sleep(5);
+    }
+    throw new Error("unicode_target_unresponsive");
+  }
   async type(text: string, env: NodeJS.ProcessEnv, artifacts: string): Promise<void> {
     const symbols = new Map(
       [...text]
@@ -374,6 +438,7 @@ export class X11 {
         batch += char;
       }
       batches.push(batch);
+      const target = this.inputTarget();
       for (const part of batches) {
         const assigned: { code: number; before: Buffer; applied: Buffer }[] = [];
         try {
@@ -398,19 +463,15 @@ export class X11 {
             }
           }
           this.x.XSync(this.display, 0);
-          // XSync finishes the server update; GTK/Xlib clients still need an
-          // event-loop turn to consume MappingNotify before the first key.
-          // Match the retention window so a 200–250ms busy target can refresh
-          // its keymap before any key in this batch is queued.
-          await sleep(350);
+          if (target) await this.inputBarrier(target);
+          else await sleep(50);
           await inputCommand(
             ["type", "--clearmodifiers", "--delay", "2", "--file", "-"],
             env,
             part,
           );
-          // A short batch can still be queued in a busy application's event
-          // loop. Keep its mapping stable before reusing the limited key pool.
-          await sleep(batches.length > 1 ? 350 : Math.min(500, 50 + part.length));
+          if (target) await this.inputBarrier(target);
+          else await sleep(batches.length > 1 ? 350 : Math.min(500, 50 + part.length));
         } finally {
           for (const slot of assigned) {
             const currentWidth = Buffer.alloc(4),
