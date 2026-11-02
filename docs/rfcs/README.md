@@ -34,6 +34,8 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0022](0022-host-resources-and-agent-budget.md) | 主机资源概览与共享 Agent 内存预算 | 已实现 |
 | [0023](0023-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已实现 |
 
+| [0025](0025-ply-acp.md) | Ply ACP 插件接入 | 已实现，待发布 |
+
 ## 什么时候写 RFC
 
 下面这些改动，先写 RFC：
@@ -72,4 +74,5 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 已采纳的 RFC 不再大改。要推翻或大幅修改，写一份新的 RFC，把旧的标成"已被取代"。
 
 - [0024 — Bun server packages and native Linux UI](0024-bun-server-monorepo.md)
+- [0026 — 会话权限设置与可读审批](0026-session-permissions.md)
 - [0027 — macOS 原生远程客户端](0027-macos-client.md)

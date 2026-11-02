@@ -34,9 +34,10 @@ import {
   modelIds,
 } from "./harness";
 import { connectNative } from "./native";
+import { approvalFields, permissionValues } from "./permissions";
 import { nativeInput } from "./uploads";
 
-type Queued = [NativeBlock[], string, string];
+type Queued = [NativeBlock[], string, string, Record<string, string>];
 const textContent = (blocks: Json | NativeBlock[] | undefined): string =>
   typeof blocks === "string"
     ? blocks
@@ -54,7 +55,7 @@ export class Owner {
   private native: NativeAdapter | undefined;
   private pending = new Map<string, ObjectValue>();
   private queued: Queued[] = [];
-  private selection: [string, string] | undefined;
+  private selection: [string, string, Record<string, string>] | undefined;
   private turn: string | undefined;
   private lastTurn: string | undefined;
   private revision = 0;
@@ -161,9 +162,7 @@ export class Owner {
           threadId: this.info.thread,
           turnId: this.turn,
           itemId: tool.toolCallId ?? id,
-          command: tool.title ?? "Tool request",
-          reason: JSON.stringify(tool.rawInput ?? {}),
-          cwd: this.info.cwd,
+          ...approvalFields(tool, this.info.cwd),
           availableDecisions: ["accept", "decline"],
         },
       });
@@ -232,7 +231,8 @@ export class Owner {
     let current = first;
     try {
       while (true) {
-        let [blocks, model, effort] = current;
+        let [blocks, model, effort, settings] = current;
+        await this.adapter.configure?.(settings);
         if (this.migration) {
           blocks = [
             {
@@ -249,7 +249,7 @@ export class Owner {
           const pending = !this.cancelled ? this.queued.shift() : undefined;
           if (pending) {
             atomic(join(this.path, "queued.json"), this.queued);
-            this.selection = [pending[1], pending[2]];
+            this.selection = [pending[1], pending[2], pending[3]];
             this.adapter.prepare();
             return pending;
           }
@@ -290,12 +290,13 @@ export class Owner {
     if (method === "initialized") return {};
     if (method === "model/list") return json({ data: this.adapter.models, nextCursor: null });
     if (method === "config/read")
-      return {
+      return json({
         config: {
           model: this.adapter.currentModel,
           model_reasoning_effort: this.adapter.currentEffort,
+          session_settings: this.adapter.settings ?? [],
         },
-      };
+      });
     if (method === "account/read") return { account: null, requiresOpenaiAuth: false };
     if (method === "thread/loaded/list") return { data: [this.info.thread] };
     check(p.threadId === this.info.thread, "harness thread mismatch");
@@ -328,15 +329,16 @@ export class Owner {
     const efforts = row.supportedReasoningEfforts.map((e) => e.reasoningEffort);
     check(efforts.includes(effort) || (!efforts.length && !effort), "reasoning effort unavailable");
     const blocks = nativeInput(p.input, row),
-      prompt = textContent(blocks);
+      prompt = textContent(blocks),
+      settings = permissionValues(p.sessionSettings, this.adapter.settings ?? []);
     if (this.turn) {
       check(!this.cancelled && this.appends < 16, "pending input limit reached");
       const delivered =
-        same(this.selection, [model, effort]) &&
+        same(this.selection, [model, effort, settings]) &&
         !this.queued.length &&
         (await this.adapter.steer(blocks));
       if (!delivered) {
-        const pending: Queued[] = [...this.queued, [blocks, model, effort]];
+        const pending: Queued[] = [...this.queued, [blocks, model, effort, settings]];
         check(
           Buffer.byteLength(JSON.stringify(pending)) <= 36 * 1024 * 1024,
           "pending input exceeds limit",
@@ -353,7 +355,7 @@ export class Owner {
       await this.connect();
     }
     this.adapter.prepare();
-    this.selection = [model, effort];
+    this.selection = [model, effort, settings];
     this.cancelled = false;
     this.appends = 0;
     const turn = crypto.randomUUID();
@@ -361,7 +363,7 @@ export class Owner {
     this.state("working");
     this.message("user", prompt, `${turn}:user`);
     queueMicrotask(() => {
-      void this.run([blocks, model, effort], turn);
+      void this.run([blocks, model, effort, settings], turn);
     });
     return { turn: { id: turn, status: "inProgress" } };
   }

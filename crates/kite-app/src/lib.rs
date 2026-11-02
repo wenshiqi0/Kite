@@ -17,7 +17,7 @@ pub use kite_agent::composer::skills::{Skill as ChatSkill, SkillDraft};
 pub use kite_agent::composer::split_attachments as split_chat_attachments;
 pub use kite_agent::composer::{
     Attachment as ChatAttachment, Composer, Effort as ChatEffort, Model as ChatModel,
-    Selection as ChatSelection, Upload as ChatUpload,
+    Selection as ChatSelection, SessionSetting, Upload as ChatUpload,
 };
 pub use kite_agent::interaction::{
     Activity as ResponseActivity, Answer as QuestionAnswer, OptionItem as QuestionOption, Question,

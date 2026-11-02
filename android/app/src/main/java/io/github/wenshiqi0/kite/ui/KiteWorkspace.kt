@@ -676,30 +676,3 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
         }
     }
 }
-@Composable private fun ApprovalCard(approval: ApprovalInfo, enabled: Boolean, choose: (Int) -> Unit) {
-    val requestScroll = remember(approval.id) { ScrollState(0) }
-    Surface(color = KiteColors.WarningSurface, shape = RoundedCornerShape(19.dp), border = androidx.compose.foundation.BorderStroke(1.dp, KiteColors.Warning), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.approval_title), fontWeight = FontWeight.SemiBold, color = KiteColors.Warning)
-            Column(Modifier.heightIn(max = 250.dp).verticalScroll(requestScroll), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                approval.explanation?.takeIf {it.isNotBlank()}?.let { MarkdownMessage(it,color=KiteColors.Warning,size=14f) }
-                approval.workingDirectory?.takeIf {it.isNotBlank()}?.let { Text(it,fontFamily=FontFamily.Monospace,fontSize=12.sp,color=KiteColors.Warning) }
-                if(approval.command==null && approval.explanation!=null)Text(stringResource(R.string.approval_original),fontSize=11.sp,color=KiteColors.Warning)
-                SelectionContainer { Text(approval.command ?: approval.prompt, color=KiteColors.Warning,fontFamily=FontFamily.Monospace,fontSize=13.sp) }
-            }
-            if (approval.choices.size == 2) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                approval.choices.forEachIndexed { index, choice ->
-                    Button(onClick = { choose(index) }, enabled = enabled, modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = if (index == 0) Blue else KiteColors.Raised, contentColor = if (index == 0) KiteColors.OnAccent else Ink)) { Text(choiceLabel(choice.label)) }
-                }
-            } else approval.choices.forEachIndexed { index, choice ->
-                Button(onClick = { choose(index) }, enabled = enabled, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = if (index == 0) Blue else KiteColors.Raised, contentColor = if (index == 0) KiteColors.OnAccent else Ink)) { Text(choiceLabel(choice.label)) }
-            }
-        }
-    }
-}
-
-@Composable private fun choiceLabel(value: String): String = when (value.trim().lowercase()) {
-    "yes" -> stringResource(R.string.approval_allow)
-    "no" -> stringResource(R.string.approval_deny)
-    else -> value
-}

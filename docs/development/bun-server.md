@@ -7,7 +7,7 @@ Clients use native languages: Kotlin on Android, Swift on Apple platforms, Rust/
 | `@kite/protocol` | Checked JSON boundaries, session/model/native protocol types |
 | `@kite/runtime` | Bounded subprocess/stream IO, native advisory locks, atomic state, process identity and JSON-RPC |
 | `@kite/platform` | Linux X11 and keyboard mechanics, clipboard, cgroup mechanisms, private FCM transport |
-| `@kite/providers` | Catalog, uploads/history, Codex WebSocket app-server, Claude terminal restore, DSH ACP, Ply MCP and durable session owners |
+| `@kite/providers` | Catalog, uploads/history, Codex WebSocket app-server, Claude terminal restore, DSH ACP, Ply ACP and durable session owners |
 | `@kite/host` | Composition of the existing backend actions and platform entrypoints |
 | `@kite/linux-host` | Standalone Bun installer, reproducible host packaging and owned Linux acceptance tools |
 

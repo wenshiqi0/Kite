@@ -229,7 +229,8 @@ api.gtk_widget_grab_focus(entry);
 const started = Date.now();
 let saved = 0,
   focused = false,
-  dispatchMs = 5;
+  dispatchMs = 5,
+  lastStallMs = 0;
 try {
   while (running) {
     while (api.gtk_events_pending()) api.gtk_main_iteration_do(0);
@@ -248,14 +249,22 @@ try {
       }
     }
     if (Date.now() - saved >= 100) {
+      let stallMs = 0;
       if (values.control && existsSync(values.control)) {
-        const requested = Number(JSON.parse(readFileSync(values.control, "utf8")).dispatchMs);
+        const control = JSON.parse(readFileSync(values.control, "utf8")),
+          requested = Number(control.dispatchMs),
+          stall = Number(control.stallMs);
         if (Number.isSafeInteger(requested) && requested >= 1 && requested <= 250)
           dispatchMs = requested;
+        if (Number.isSafeInteger(stall) && stall > 0 && stall <= 2000 && stall !== lastStallMs) {
+          lastStallMs = stall;
+          stallMs = stall;
+        }
       }
       state.dispatch_ms = dispatchMs;
       save();
       saved = Date.now();
+      if (stallMs) await sleep(stallMs);
     }
     await sleep(dispatchMs);
   }
