@@ -22,6 +22,7 @@ impl Observer for ObserverSink {
 }
 struct Peer {
     agent: Value,
+    catalog: Arc<Mutex<Value>>,
     seen: Arc<Mutex<Vec<Value>>>,
     channels: BTreeMap<ChannelId, (String, Vec<u8>)>,
 }
@@ -70,6 +71,19 @@ impl server::Handler for Peer {
                 channel,
                 json!({"api":1,"backendProtocol":5,"harnessApi":2}),
             );
+        }
+        if command.ends_with("session-facts --herdr 'fixture-herdr'") {
+            return finish(session, channel, json!({"facts":[]}));
+        }
+        if command.ends_with("catalog-read") {
+            let catalog = lock(&self.catalog).clone();
+            return finish(session, channel, catalog);
+        }
+        if command.contains("harness-history") {
+            session.data(channel, b"kite-history-pending-v1\n".to_vec())?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            return session.close(channel);
         }
         if command.ends_with("harness-scan") {
             let managed = matches!(self.agent["agent"].as_str(), Some("ply" | "dsh"));
@@ -150,6 +164,8 @@ struct Fixture {
     core: Arc<AppCore>,
     client: Arc<ChatClient>,
     agent: Agent,
+    catalog: Arc<Mutex<Value>>,
+    connection: Arc<Connected>,
     seen: Arc<Mutex<Vec<Value>>>,
     ssh: Arc<Session>,
     listener: JoinHandle<()>,
@@ -166,6 +182,8 @@ impl Fixture {
         });
         let agent = json!({"terminal_id":format!("kite-harness-{THREAD}"),"pane_id":format!("kite-harness-{THREAD}"),"workspace_id":"owned","tab_id":"owned","agent":provider,"agent_status":"blocked","revision":1,"interactive_ready":true,"agent_session":{"source":"kite:harness","agent":provider,"kind":"id","value":THREAD}});
         let seen = Arc::new(Mutex::new(vec![]));
+        let catalog = Arc::new(Mutex::new(json!({"revision":1,"now_ms":1,"sessions":[]})));
+        let shared_catalog = catalog.clone();
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let records = seen.clone();
@@ -174,6 +192,7 @@ impl Fixture {
             while let Ok((socket, _)) = listener.accept().await {
                 let handler = Peer {
                     agent: native_agent.clone(),
+                    catalog: shared_catalog.clone(),
                     seen: records.clone(),
                     channels: BTreeMap::new(),
                 };
@@ -228,18 +247,27 @@ impl Fixture {
             .lock()
             .await
             .insert(AgentKey::new(&connection.host.id, &agent), client.clone());
-        *lock(&core.connected) = Some(connection);
-        core.update(|state| {
-            state.selected_host = Some("owned-host".into());
-            state.selected = Some(ConversationKey::new("owned-host", &agent.terminal_id));
-            state.agents = vec![agent.clone()];
-            state.approval = client.runtime().approval();
-            state.composer.selection = client.initial.clone();
-        });
+        *lock(&core.connected) = Some(connection.clone());
+        core.select(
+            Some(ConversationKey::new("owned-host", &agent.terminal_id)),
+            |state| {
+                state.selected_host = Some("owned-host".into());
+                state.agents = vec![agent.clone()];
+            },
+        );
+        core.update_live(
+            &ConversationKey::new("owned-host", &agent.terminal_id),
+            |live| {
+                live.approval = client.runtime().approval();
+                live.composer.selection = client.initial.clone();
+            },
+        );
         Self {
             core,
             client,
             agent,
+            catalog,
+            connection,
             seen,
             ssh,
             listener,
@@ -350,6 +378,110 @@ async fn permission_choice_survives_model_changes_and_reaches_next_native_turn()
     assert_eq!(
         stored.values().next().unwrap().settings["approval_mode"],
         "risk"
+    );
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn approval_of_an_unselected_conversation_waits_and_shows_after_switching_back() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    let request = fixture.client.runtime().approval().unwrap().id;
+    let waiting = ConversationKey::new("owned-host", "waiting");
+    let other = ConversationKey::new("owned-host", "other");
+    let mut bound =
+        kite_agent::sessions::Record::draft("waiting".into(), "ply".into(), String::new(), None, 1);
+    bound.reference = fixture.agent.agent_session.clone();
+    let idle =
+        kite_agent::sessions::Record::draft("other".into(), "ply".into(), String::new(), None, 1);
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 1,
+        now_ms: 1,
+        sessions: vec![bound.clone(), idle.clone()],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    core.install_catalog("owned-host", &catalog).unwrap();
+    core.select(Some(other.clone()), |s| {
+        s.sessions = sessions::views(&catalog.sessions, &s.agents);
+    });
+    assert!(core.read_live(&waiting, |_| ()).is_none());
+    assert!(core.snapshot().approval.is_none());
+
+    // The request arrives while another conversation is on screen.
+    core.refresh_session_activity(&fixture.connection, 0).await;
+    let on_screen = core.snapshot();
+    assert_eq!(on_screen.conversation_context(), "owned-host/other");
+    assert!(on_screen.approval.is_none());
+    assert_eq!(
+        core.read_live(&waiting, |live| live
+            .approval
+            .as_ref()
+            .map(|a| a.id.clone())),
+        Some(Some(request.clone()))
+    );
+
+    // Switching back shows it at once, before any refresh reads it again.
+    core.select(Some(waiting.clone()), |_| {});
+    let back = core.snapshot();
+    assert_eq!(back.conversation_context(), "owned-host/waiting");
+    assert_eq!(
+        back.selected_agent.as_ref(),
+        Some(&fixture.agent.terminal_id)
+    );
+    assert_eq!(back.approval.as_ref().unwrap().id, request);
+
+    // A real open keeps it, and it is answered through the owning conversation.
+    core.select(Some(other.clone()), |_| {});
+    assert!(core.snapshot().approval.is_none());
+    core.open_session("waiting".into()).await.unwrap();
+    assert_eq!(core.snapshot().approval.as_ref().unwrap().id, request);
+    core.respond_approval(fixture.agent.terminal_id.clone(), request, 0)
+        .await
+        .unwrap();
+    assert!(core.snapshot().approval.is_none());
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn a_notice_routes_a_waiting_request_to_its_own_conversation() {
+    let fixture = Fixture::start("dsh").await;
+    let core = &fixture.core;
+    let request = fixture.client.runtime().approval().unwrap().id;
+    let waiting = ConversationKey::new("owned-host", "waiting");
+    let mut bound =
+        kite_agent::sessions::Record::draft("waiting".into(), "dsh".into(), String::new(), None, 1);
+    bound.reference = fixture.agent.agent_session.clone();
+    core.install_catalog(
+        "owned-host",
+        &kite_agent::sessions::Catalog {
+            revision: 1,
+            now_ms: 1,
+            sessions: vec![bound],
+        },
+    )
+    .unwrap();
+    core.select(
+        Some(ConversationKey::new("owned-host", "elsewhere")),
+        |_| {},
+    );
+    core.route_notice(&fixture.connection, &waiting).await;
+    assert!(core.snapshot().approval.is_none());
+    assert_eq!(
+        core.read_live(&waiting, |live| live
+            .approval
+            .as_ref()
+            .map(|a| a.id.clone())),
+        Some(Some(request))
+    );
+    // A notice about an unknown conversation changes nothing.
+    core.route_notice(
+        &fixture.connection,
+        &ConversationKey::new("owned-host", "gone"),
+    )
+    .await;
+    assert!(
+        core.read_live(&ConversationKey::new("owned-host", "gone"), |_| ())
+            .is_none()
     );
     fixture.stop().await;
 }

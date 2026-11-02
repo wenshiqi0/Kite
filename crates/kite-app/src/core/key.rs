@@ -91,15 +91,6 @@ pub(super) fn approval_token(host: &str, terminal: &str, request: &str) -> Strin
     format!("{}/{request}", pane_key(host, terminal))
 }
 
-/// Optimistic rows stay with the pane and provider source that accepted them.
-pub(super) fn pending_scope(host: &str, agent: &Agent) -> String {
-    format!(
-        "{}/{}",
-        pane_key(host, &agent.terminal_id),
-        agent_source(agent)
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

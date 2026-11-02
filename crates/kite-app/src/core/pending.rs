@@ -1,61 +1,44 @@
 //! Reconcile optimistic rows and provider echoes at the serialized publication boundary.
 use super::*;
 
-fn selected_key(s: &Snapshot) -> Option<String> {
-    let host = s.selected_host.as_ref()?;
-    let id = s.selected_agent.as_ref()?;
-    let agent = s.agents.iter().find(|a| &a.terminal_id == id)?;
-    Some(pending_scope(host, agent))
-}
-
-impl AppCore {
-    /// Called inside update: the canonical snapshot cannot change between the
-    /// echo check and adding an optimistic row. All producers use the same path.
-    pub(super) fn stage_pending_message(&self, s: &mut Snapshot, message: PendingMessage) {
-        let key = message.key.clone();
+impl LiveSession {
+    /// Called under the publication lock: the conversation cannot change between
+    /// the echo check and adding an optimistic row. All producers use the same path.
+    pub(super) fn stage_pending(&mut self, message: PendingMessage) {
+        if self
+            .pending
+            .iter()
+            .any(|p| p.message.id == message.message.id)
         {
-            let mut pending = lock(&self.pending_messages);
-            if pending.iter().any(|p| p.message.id == message.message.id) {
-                return;
-            }
-            if pending.len() >= 32 {
-                let index = pending
-                    .iter()
-                    .position(|p| p.receipt.is_some())
-                    .unwrap_or(0);
-                pending.remove(index);
-            }
-            pending.push(message);
+            return;
         }
-        if selected_key(s).as_ref() == Some(&key) {
-            self.publish_conversation(s, s.conversation.as_ref().clone(), true);
+        if self.pending.len() >= 32 {
+            let index = self
+                .pending
+                .iter()
+                .position(|p| p.receipt.is_some())
+                .unwrap_or(0);
+            self.pending.remove(index);
         }
+        self.pending.push(message);
+        self.publish_conversation(self.conversation.as_ref().clone(), true);
     }
 
     /// Keep a bounded acknowledgement receipt so an already prepared history
     /// page cannot resurrect a local row or briefly erase its canonical echo.
-    pub(super) fn publish_conversation(
-        &self,
-        s: &mut Snapshot,
-        mut proposed: Vec<MessageRef>,
-        available: bool,
-    ) {
-        let key = selected_key(s);
+    pub(super) fn publish_conversation(&mut self, mut proposed: Vec<MessageRef>, available: bool) {
         proposed.retain(|m| !m.id.starts_with("local-"));
         let mut messages = proposed;
-        let mut pending = lock(&self.pending_messages);
-        let active = |p: &&PendingMessage| Some(&p.key) == key.as_ref();
-        if !pending.iter().any(|p| Some(&p.key) == key.as_ref()) {
-            drop(pending);
-            s.replace_shared_conversation(messages, available);
+        if self.pending.is_empty() {
+            self.replace_conversation(messages, available);
             return;
         }
-        let mut acknowledged: BTreeSet<_> = pending
+        let mut acknowledged: BTreeSet<_> = self
+            .pending
             .iter()
-            .filter(active)
             .filter_map(|p| p.receipt.as_ref().map(|m| m.id.clone()))
             .collect();
-        for p in pending.iter_mut().filter(|p| Some(&p.key) == key.as_ref()) {
+        for p in &mut self.pending {
             if let Some(receipt) = &p.receipt {
                 if let Some(current) = messages.iter().find(|m| m.id == receipt.id) {
                     p.receipt = Some(current.clone());
@@ -73,9 +56,9 @@ impl AppCore {
         }
         let visible: std::collections::HashSet<_> =
             messages.iter().map(|m| m.id.as_str()).collect();
-        let missing: Vec<_> = pending
+        let missing: Vec<_> = self
+            .pending
             .iter()
-            .filter(active)
             .map(|p| {
                 p.receipt
                     .clone()
@@ -84,8 +67,7 @@ impl AppCore {
             .filter(|row| !visible.contains(row.id.as_str()))
             .collect();
         messages.extend(missing);
-        drop(pending);
-        s.replace_shared_conversation(messages, available);
+        self.replace_conversation(messages, available);
     }
 }
 
@@ -108,12 +90,14 @@ mod tests {
             lock(&self.0).push(s.conversation.iter().map(|m| m.id.clone()).collect());
         }
     }
+    fn key() -> ConversationKey {
+        ConversationKey::new("host", "terminal")
+    }
     fn core() -> (Arc<AppCore>, Arc<Recording>) {
         let observer = Arc::new(Recording::default());
         let core = AppCore::new(Arc::new(Secrets), observer.clone());
-        core.update(|s| {
+        core.select(Some(key()), |s| {
             s.selected_host = Some("host".into());
-            s.selected = Some(ConversationKey::new("host", "terminal"));
             s.agents = vec![serde_json::from_value(serde_json::json!({
                 "terminal_id":"terminal","agent_status":"working","workspace_id":"workspace","tab_id":"tab","pane_id":"workspace:p1","revision":1
             })).unwrap()];
@@ -131,20 +115,17 @@ mod tests {
         })
     }
     fn stage(core: &AppCore, id: &str, previous: &[&str]) {
-        core.update(|s| {
-            core.stage_pending_message(
-                s,
-                PendingMessage {
-                    key: selected_key(s).unwrap(),
-                    message: row(id).as_ref().clone(),
-                    previous: previous.iter().map(|id| (*id).into()).collect(),
-                    receipt: None,
-                },
-            );
+        core.update_live(&key(), |live| {
+            live.stage_pending(PendingMessage {
+                message: row(id).as_ref().clone(),
+                previous: previous.iter().map(|id| (*id).into()).collect(),
+                receipt: None,
+            });
         });
     }
     fn publish(core: &AppCore, rows: Vec<MessageRef>) {
-        core.update(|s| core.publish_conversation(s, rows, true));
+        let selected = core.selected().unwrap();
+        core.update_live(&selected, |live| live.publish_conversation(rows, true));
     }
     fn ids(core: &AppCore) -> Vec<String> {
         core.snapshot()
@@ -211,18 +192,23 @@ mod tests {
     fn another_host_or_assistant_text_cannot_acknowledge_the_prompt() {
         let (core, _) = core();
         stage(&core, "local-prompt", &[]);
-        core.update(|s| s.selected_host = Some("another-host".into()));
+        core.select(
+            Some(ConversationKey::new("another-host", "terminal")),
+            |s| {
+                s.selected_host = Some("another-host".into());
+            },
+        );
         publish(&core, vec![row("other-host-echo")]);
         assert_eq!(ids(&core), ["other-host-echo"]);
-        core.update(|s| {
-            s.selected_host = Some("host".into());
-            s.selected = Some(ConversationKey::new("host", "terminal"));
-        });
+        core.select(Some(key()), |s| s.selected_host = Some("host".into()));
         let mut assistant = row("assistant").as_ref().clone();
         assistant.role = Role::Assistant;
         publish(&core, vec![Arc::new(assistant)]);
         assert_eq!(ids(&core), ["assistant", "local-prompt"]);
-        assert!(lock(&core.pending_messages)[0].receipt.is_none());
+        assert_eq!(
+            core.read_live(&key(), |live| live.pending[0].receipt.is_none()),
+            Some(true)
+        );
     }
     #[test]
     fn simultaneous_echo_and_send_callbacks_publish_only_one_row() {
@@ -252,16 +238,12 @@ mod tests {
             question: "Which choice?".into(),
             answer: "First".into(),
         }];
-        core.update(|s| {
-            core.stage_pending_message(
-                s,
-                PendingMessage {
-                    key: selected_key(s).unwrap(),
-                    message: answer.clone(),
-                    previous: BTreeSet::new(),
-                    receipt: None,
-                },
-            )
+        core.update_live(&key(), |live| {
+            live.stage_pending(PendingMessage {
+                message: answer.clone(),
+                previous: BTreeSet::new(),
+                receipt: None,
+            })
         });
         let mut echo = answer.clone();
         echo.id = "answer-echo".into();

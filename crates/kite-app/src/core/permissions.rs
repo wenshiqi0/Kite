@@ -45,13 +45,14 @@ impl AppCore {
                 selected
             };
             if core.generation.load(Ordering::SeqCst) == connection.generation {
-                core.update(|snapshot| {
-                    if snapshot.selected_agent.as_ref() == Some(&id) {
-                        snapshot.composer.settings =
+                core.update_live(
+                    &core.agent_conversation(&connection.host.id, &agent),
+                    |live| {
+                        live.composer.settings =
                             composer::settings::display(&client.settings, &selected.settings);
-                        snapshot.composer.selection = selected;
-                    }
-                });
+                        live.composer.selection = selected;
+                    },
+                );
             }
             Ok(())
         })

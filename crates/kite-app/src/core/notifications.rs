@@ -29,6 +29,12 @@ impl Default for NotificationInbox {
         }
     }
 }
+impl AgentNotice {
+    /// The conversation whose runtime this event concerns.
+    pub fn conversation(&self) -> ConversationKey {
+        ConversationKey::new(&self.host_id, &self.session_id)
+    }
+}
 impl NotificationInbox {
     pub(super) fn valid(&self) -> bool {
         self.version == 1
@@ -298,14 +304,25 @@ impl AppCore {
                     if output.exit_status!=Some(0){return Err(AppError::State("host notification service unavailable; check the matching host version".into()))}
                     let page:Page=serde_json::from_slice(&output.stdout).map_err(|_|AppError::State("invalid notification page".into()))?;
                     if !page.valid(){return Err(AppError::State("invalid notification page identity, ordering or limits".into()))}
-                    if core.generation.load(Ordering::SeqCst)!=generation{return Ok(())}
+                    if core.generation.load(Ordering::SeqCst)!=generation{return Ok(Vec::new())}
                     let mut inbox=lock(&core.notifications);let mut next=inbox.clone();
-                    if next.ingest(&connection.host.id,page){core.save_notifications(&next)?;*inbox=next;drop(inbox);core.update(|s|s.notification_revision=s.notification_revision.wrapping_add(1));}
-                    Ok::<_,AppError>(())
+                    let mut fresh=Vec::new();
+                    if next.ingest(&connection.host.id,page){
+                        fresh=next.items.iter().filter(|item|!inbox.items.iter().any(|old|old.id==item.id)).map(AgentNotice::conversation).collect();
+                        core.save_notifications(&next)?;*inbox=next;drop(inbox);core.update(|s|s.notification_revision=s.notification_revision.wrapping_add(1));
+                    }
+                    Ok::<_,AppError>(fresh)
                 }.await;
-                let problem = result
-                    .err()
-                    .map(|error| error.to_string().chars().take(256).collect::<String>());
+                let (fresh, problem) = match result {
+                    Ok(fresh) => (fresh, None),
+                    Err(error) => (
+                        Vec::new(),
+                        Some(error.to_string().chars().take(256).collect::<String>()),
+                    ),
+                };
+                for key in &fresh {
+                    core.route_notice(&connection, key).await;
+                }
                 if core.generation.load(Ordering::SeqCst) == generation
                     && core.snapshot().notification_problem != problem
                 {
