@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Delivery — 2026-11-03
+
+[0.2.0-alpha.67](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.67) / versionCode **69** combines direct session deletion and Android automatic connection recovery from PRs #13 and #14. Deletion stops verified owners and tools before removing Kite records; failures retain the record, and stale clients cannot recreate deleted entries. Android retains its foreground service during recovery, wakes on network/foreground changes, and restores explicit connection intent without replaying model work. Manual disconnect cancels recovery. Both client and host must be updated. Source checks include 147 combined Rust tests, 59 server tests, 77 JVM tests, native test-source compilation and lint; tagged CI signs and verifies the published assets. Physical-device Doze/OEM battery policy and network handover remain separate acceptance.
+
 ## Verified delivery — 2026-11-02
 
 [0.2.0-alpha.65](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.65) / versionCode **67**, source `9e6f72625146739982208f08d74c30339ae06cda`, rebuilds the installers following the handset's Alpha 64 `-103`. Main/tag CI and fresh public checksum, original-certificate, API-23/36 signature and 16 KiB alignment checks pass. Only the manifest and signing data differ from Alpha 64; DEX, resources and native libraries match. Prefer the [v2 compatibility APK](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.65/kite-0.2.0-alpha.65-arm64-v8a-compat-v2.apk). Handset installation remains pending; the running host need not change. [Evidence](product/2026-11-02/apk-resign-alpha65/acceptance.md).
