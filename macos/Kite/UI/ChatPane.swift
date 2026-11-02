@@ -56,7 +56,7 @@ struct ChatPane: View {
                     .coordinateSpace(name: "conversation")
                     .onPreferenceChange(TailPosition.self) { y in following = y < geometry.size.height + 70 }
                     .onChange(of: model.messageRevision) { _, _ in if following { proxy.scrollTo("tail", anchor: .bottom) } }
-                    .onChange(of: model.snapshot?.conversationContext) { _, _ in following = true; proxy.scrollTo("tail", anchor: .bottom) }
+                    .onChange(of: model.snapshot?.conversationContext) { _, _ in following = true; showSkills = false; proxy.scrollTo("tail", anchor: .bottom) }
                     .overlay(alignment: .bottomTrailing) {
                         if !following {
                             Button { following = true; proxy.scrollTo("tail", anchor: .bottom) } label: { Label(tr("latest"), systemImage: "arrow.down") }
@@ -72,6 +72,20 @@ struct ChatPane: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let state = model.snapshot, let agent = state.selectedAgent {
+                if !state.composer.settings.isEmpty {
+                    HStack {
+                        ForEach(state.composer.settings, id: \.id) { setting in
+                            Menu {
+                                ForEach(setting.options, id: \.value) { choice in
+                                    Button(choice.name) { model.command { try await $0.setChatSetting(agentId: agent, setting: setting.id, value: choice.value) } }
+                                }
+                            } label: {
+                                Label(setting.options.first(where: { $0.value == setting.currentValue })?.name ?? setting.name, systemImage: "lock.shield")
+                            }.menuStyle(.borderlessButton).fixedSize().disabled(!state.composer.ready || state.composer.loading)
+                        }
+                        Spacer()
+                    }.font(.caption)
+                }
                 HStack(spacing: 8) {
                     Menu {
                         ForEach(state.composer.models, id: \.model) { choice in
@@ -195,9 +209,11 @@ struct AttachmentRow: View {
             if let image { Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 260) }
             Button { save() } label: { Label(file.name, systemImage: "arrow.down.doc") }.buttonStyle(.link)
         }.task(id: context + file.id) {
+            image = nil
             guard file.mime.hasPrefix("image/") else { return }
             model.command { core in
                 let data = try await core.chatAttachment(context: context, id: file.id)
+                guard model.snapshot?.conversationContext == context else { return }
                 image = NSImage(data: data)
             }
         }
@@ -222,6 +238,13 @@ struct ApprovalCard: View {
             Text(approval.prompt).textSelection(.enabled)
             if let command = approval.command { Text(command).font(.callout.monospaced()).textSelection(.enabled) }
             if let explanation = approval.explanation { Text(explanation).foregroundStyle(.secondary) }
+            if let operation = approval.operation { Text(operation).font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(approval.details.enumerated()), id: \.offset) { _, detail in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(detail.name).font(.caption).foregroundStyle(.secondary)
+                    Text(detail.value).font(.callout.monospaced()).textSelection(.enabled)
+                }
+            }
             HStack {
                 ForEach(Array(approval.choices.enumerated()), id: \.offset) { index, choice in
                     Button(choice.label) { model.command { try await $0.respondApproval(agentId: agent, requestId: approval.id, choice: UInt32(index)) } }

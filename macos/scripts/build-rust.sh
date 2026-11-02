@@ -27,6 +27,8 @@ export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 # Both build scripts and the library target macOS. Xcode's direct clang needs
 # an explicit SDK (the /usr/bin compiler shim otherwise hides this difference).
 export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+export CC="$(xcrun --sdk macosx --find clang)"
+export AR="$(xcrun --sdk macosx --find ar)"
 PATH="$HOME/.cargo/bin:$PATH"
 cd "$WORKSPACE"
 cargo rustc -p kite-ffi --lib --crate-type staticlib --target "$TARGET" "$@"

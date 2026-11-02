@@ -188,13 +188,13 @@ final class ClientModel {
         }
     }
     func synchronizeClipboard() async {
-        guard clipboardEnabled, NSApp.isActive, let core, let host = snapshot?.selectedHost,
+        guard clipboardEnabled, NSApp.isActive, windowFocused, let core, let host = snapshot?.selectedHost,
               snapshot?.desktop.takeover == true else { return }
         let target = destination, board = NSPasteboard.general, change = board.changeCount
         let text = board.string(forType: .string)
         do {
             let remote = try await core.synchronizeClipboard(hostId: host, local: text)
-            guard clipboardEnabled, NSApp.isActive, destination == target, snapshot?.desktop.takeover == true,
+            guard clipboardEnabled, NSApp.isActive, windowFocused, destination == target, snapshot?.desktop.takeover == true,
                   board.changeCount == change, let remote, remote != text else { return }
             board.clearContents(); board.setString(remote, forType: .string)
         } catch { /* Transient clipboard failure must not interrupt Chat. */ }

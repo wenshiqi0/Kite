@@ -142,7 +142,11 @@ struct WorkspaceView: View {
             Image(systemName: "laptopcomputer.and.arrow.down").font(.system(size: 56, weight: .ultraLight)).foregroundStyle(.tint)
             Text(tr("welcome_title")).font(.largeTitle.weight(.semibold))
             Text(tr("welcome_description")).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 440)
-            if model.snapshot?.connection == .connecting { ProgressView(tr("connecting")) }
+            if model.snapshot?.initialized != true {
+                if model.nativeError != nil {
+                    Button(tr("retry")) { Task { await model.initialize() } }.buttonStyle(.borderedProminent)
+                } else { ProgressView(tr("initializing_identity")) }
+            } else if model.snapshot?.connection == .connecting { ProgressView(tr("connecting")) }
             else if let host = model.selectedHost {
                 Button(tr("connect")) { model.connect(host.id) }.buttonStyle(.borderedProminent).controlSize(.large)
             } else { Button(tr("add_host")) { editor = HostDraft() }.buttonStyle(.borderedProminent).controlSize(.large) }

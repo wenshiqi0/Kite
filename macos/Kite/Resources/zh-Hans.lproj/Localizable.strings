@@ -88,3 +88,5 @@
 "clipboard_hint" = "仅在操作模式、窗口位于前台时，与当前连接的机器同步文字。";
 "device_identity" = "本机身份";
 "identity_hint" = "设备私钥保存在这台 Mac 的钥匙串中，不会同步到其他设备。";
+"initializing_identity" = "正在准备本机连接身份…";
+"retry" = "重试";

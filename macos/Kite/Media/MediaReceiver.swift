@@ -223,7 +223,7 @@ final class VideoCanvas: MTKView, MTKViewDelegate, @preconcurrency NSTextInputCl
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard takeover, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         // A local escape hatch always stays available.
-        if event.modifierFlags.contains([.command, .option]), event.keyCode == 53 {
+        if event.modifierFlags.contains([.command, .option]), event.keyCode == 13 {
             resetInput(); receiver.leaveOperation?(); return true
         }
         keyDown(with: event); return true

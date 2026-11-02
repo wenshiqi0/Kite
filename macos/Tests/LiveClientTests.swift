@@ -43,7 +43,7 @@ final class LiveClientTests: XCTestCase {
         }
         let output = URL(fileURLWithPath: config.output, isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let directory = output.appendingPathComponent("core-" + UUID().uuidString)
+        let directory = output.appendingPathComponent("core")
         // A disposable test identity avoids asking Keychain to authorize the
         // test runner as the user's production Mac client.
         let core = try KiteCore(secretStore: LiveSecrets(root: URL(fileURLWithPath: config.secrets)), observer: LiveObserver())
@@ -51,7 +51,8 @@ final class LiveClientTests: XCTestCase {
         var window: NSWindow?
         do {
             try await core.initialize(dataDirectory: directory.path, deviceName: "kite@macOS", legacy: LegacyData(source: "owned-mac-qa", host: nil, trustedKeys: []))
-            let id = try await core.saveHost(host: HostRecord(id: "", host: config.host, port: 22, username: config.username,
+            let existing = try core.snapshot().hosts.first { $0.host == config.host && $0.username == config.username && $0.sunshinePort == 48200 }
+            let id = try await core.saveHost(host: HostRecord(id: existing?.id ?? "", host: config.host, port: 22, username: config.username,
                 herdrPath: nil, streamHost: config.host, sunshinePort: 48200))
             try await core.connect(hostId: id)
             var state = try await wait(core) { $0.pendingHostKey != nil || $0.connection == .connected || $0.connection == .failed }
@@ -90,6 +91,7 @@ final class LiveClientTests: XCTestCase {
             canvas.source = CGSize(width: 1920, height: 1080)
             receiver.presenter.view = canvas
             let panel = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 960, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
             panel.title = "Kite Mac owned integration"; panel.contentView = canvas
             panel.makeKeyAndOrderFront(nil); window = panel
             try await core.startDesktop(mediaTarget: receiver.handle)

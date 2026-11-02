@@ -40,7 +40,7 @@ Also include the specific local name in `[General]`'s `always-real-ip` list to a
 
 The sidebar contains machines and remote sessions, including archived sessions. New sessions use the host's reported harness catalog. Chat shows full synchronized history, native Markdown, collapsible tool output, attachments, approvals and questions. The composer offers the selected harness's models, reasoning levels, attachments and skills. Initialization gates sending until the actual session is ready. Command-Return sends a message.
 
-The desktop opens separately and defaults to Watch. Operate enables physical mouse, keyboard and committed IME text. Watch-mode dragging/scrolling pans a zoomed image without sending remote input. Video and pointer mapping share the same aspect-fit/zoom transform. Window deactivation or closure releases keys and buttons; Command-Option-Escape exits operation from the video surface. Agent pause is a separate control.
+The desktop opens separately and defaults to Watch. Operate enables physical mouse, keyboard and committed IME text. Watch-mode dragging/scrolling pans a zoomed image without sending remote input. Video and pointer mapping share the same aspect-fit/zoom transform. Window deactivation or closure releases keys and buttons; Command-Option-W exits operation from the video surface. Agent pause is a separate control.
 
 Text clipboard sharing is off by default and can be enabled in Settings. Synchronization requires the foreground workspace and Operate mode. Disconnecting/closing the Mac client leaves remote agents and independently running host services alive.
 
