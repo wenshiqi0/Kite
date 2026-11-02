@@ -289,6 +289,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             if(vm.showDesktop||state?.desktop?.status in listOf(DesktopStatus.STARTING,DesktopStatus.STREAMING,DesktopStatus.PAIRING))DropdownMenuItem(text={Text(stringResource(R.string.desktop_disconnect))},leadingIcon={ProductIcon(Mark.Close)},onClick={tools=false;videoReference.value?.closeRemoteKeyboard();softwareKeyboard?.hide();focusManager.clearFocus();vm.closeDesktop();updatePip()})
                             if(vm.showDesktop)DropdownMenuItem(text={Text(stringResource(if(vm.engine.desktopAudioEnabled)R.string.desktop_audio_mute else R.string.desktop_audio_enable))},onClick={vm.engine.setDesktopAudio(!vm.engine.desktopAudioEnabled);tools=false})
                             currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(if (session.archived) R.string.restore_session else R.string.archive_session)) }, onClick = { tools = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
+                            currentSession?.let { session -> DropdownMenuItem(text = { Text(stringResource(R.string.delete_session), color = MaterialTheme.colorScheme.error) }, onClick = { tools = false; vm.requestSessionDeletion(session) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy) }
                             if (agent?.canPause == true) DropdownMenuItem(text = { Text(stringResource(if (state.agentPause == AgentPauseStatus.RUNNING) R.string.pause_agent else R.string.resume_agent)) }, onClick = { tools = false; vm.pauseAgent(agent.id) })
                             if (providerInfo?.terminal == true) DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = providerInfo?.terminal == true)
                             DropdownMenuItem(text={Text(stringResource(R.string.notice_center))},onClick={tools=false;noticeCenter=true;vm.engine.refreshAgentNotifications()})
@@ -296,6 +297,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.settingsVisible = true })
                         }
                     }
+                }
+                if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.connection_reconnecting), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = vm::disconnect) { Text(stringResource(R.string.disconnect)) }
                 }
                 if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                     ResourceWarning(state?.hostResources) {
@@ -608,6 +615,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })
     val platformError by vm.engine.platformError.collectAsState()
     val error = warning ?: platformError
+    vm.sessionToDelete?.takeIf { !hideChrome }?.let { (host, session) ->
+        DeleteSessionDialog(sessionTitle(session), state?.selectedHost == host && state.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy, vm::deleteSession, vm::dismissSessionDeletion)
+    }
     if (error != null && !hideChrome) AlertDialog(onDismissRequest = { warning = null; vm.clearLocalError() }, title = { Text(stringResource(R.string.error_action)) }, text = { Text(error) }, confirmButton = { TextButton(onClick = { warning = null; vm.clearLocalError() }) { Text(stringResource(R.string.dismiss)) } })
 }
 

@@ -90,10 +90,11 @@ fun HostSetupScreen(vm: HostCheckViewModel, onBack: () -> Unit) {
 @Composable
 internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enabled: Boolean, activate: () -> Unit, edit: () -> Unit) {
     val connected = status == ConnectionStatus.CONNECTED
-    val busy = status == ConnectionStatus.CONNECTING || status == ConnectionStatus.AWAITING_TRUST
+    val busy = status == ConnectionStatus.CONNECTING || status == ConnectionStatus.RECONNECTING || status == ConnectionStatus.AWAITING_TRUST
     val statusLabel = stringResource(when (status) {
         ConnectionStatus.CONNECTED -> R.string.host_online
         ConnectionStatus.CONNECTING -> R.string.host_connecting
+        ConnectionStatus.RECONNECTING -> R.string.connection_reconnecting
         ConnectionStatus.AWAITING_TRUST -> R.string.host_confirm
         ConnectionStatus.FAILED -> R.string.host_failed
         ConnectionStatus.DISCONNECTED -> R.string.host_not_connected
@@ -101,7 +102,7 @@ internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enab
     val color = when (status) {
         ConnectionStatus.CONNECTED -> KiteColors.Success
         ConnectionStatus.FAILED -> MaterialTheme.colorScheme.error
-        ConnectionStatus.CONNECTING, ConnectionStatus.AWAITING_TRUST -> KiteColors.Warning
+        ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING, ConnectionStatus.AWAITING_TRUST -> KiteColors.Warning
         ConnectionStatus.DISCONNECTED -> KiteColors.Muted
     }
     val editLabel = stringResource(R.string.host_edit_named, host.host)

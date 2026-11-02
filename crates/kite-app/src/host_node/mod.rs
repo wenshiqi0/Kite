@@ -670,7 +670,9 @@ impl Node {
                     let result = bridge::server(read, write, command).await;
                     if result.is_ok()
                         && request.args.first().is_some_and(|action| {
-                            action == "catalog-write" || action == "session-facts"
+                            action == "catalog-write"
+                                || action == "session-facts"
+                                || action == "session-delete"
                         })
                     {
                         self.lifecycle_wake.notify_one();
@@ -967,6 +969,7 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
                     | "catalog-read"
                     | "catalog-write"
                     | "session-open"
+                    | "session-delete"
                     | "session-facts"
                     | "image-read"
                     | "attachment-read"
@@ -1146,10 +1149,17 @@ mod tests {
         validate_args(&c, &request).unwrap();
     }
     #[test]
-    fn session_facts_and_image_downloads_are_allowed_through_the_host_bridge() {
+    fn session_deletion_facts_and_image_downloads_are_allowed_through_the_host_bridge() {
         let root = tempfile::tempdir().unwrap();
         let config = config(root.path());
         for args in [
+            vec![
+                "session-delete".into(),
+                "--id".into(),
+                "a".repeat(32),
+                "--herdr".into(),
+                "/bin/sh".into(),
+            ],
             vec!["session-facts".into(), "--herdr".into(), "/bin/sh".into()],
             vec!["image-read".into(), "--id".into(), "a".repeat(64)],
             vec!["attachment-read".into(), "--id".into(), "b".repeat(32)],

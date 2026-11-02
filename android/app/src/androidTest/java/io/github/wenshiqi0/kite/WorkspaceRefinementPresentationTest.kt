@@ -133,6 +133,20 @@ class WorkspaceRefinementPresentationTest {
         }
     }
 
+    @Test fun deletionNamesTheSessionAndRequiresAnExplicitChoice() {
+        val deletes=java.util.concurrent.atomic.AtomicInteger()
+        val dismisses=java.util.concurrent.atomic.AtomicInteger()
+        overlay({DeleteSessionDialog("待删除的会话",true,{deletes.incrementAndGet()},{dismisses.incrementAndGet()})}) {
+            waitFor("Deletion identifies the session"){find(text="待删除的会话")!=null}
+            assertNotNull(find(text="立即停止"))
+            assertNotNull(find(text="释放资源"))
+            assertEquals(0,deletes.get())
+            assertTrue(actionNode(requireNotNull(find(text=test.targetContext.getString(R.string.cancel))),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Cancel only dismisses"){dismisses.get()==1}
+            assertEquals(0,deletes.get())
+        }
+    }
+
     @Test fun archivedReleaseUsesOneActionAndShowsProgressAndResult() {
         val calls = java.util.concurrent.atomic.AtomicInteger()
         overlay({ArchivedReleaseControls(true,false,null){calls.incrementAndGet()}}) {

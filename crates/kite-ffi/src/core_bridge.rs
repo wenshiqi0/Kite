@@ -208,6 +208,7 @@ pub struct HostKeyConfirmation {
 pub enum ConnectionStatus {
     Disconnected,
     Connecting,
+    Reconnecting,
     AwaitingTrust,
     Connected,
     Failed,
@@ -897,6 +898,7 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
             connection: match s.connection {
                 C::Disconnected => ConnectionStatus::Disconnected,
                 C::Connecting => ConnectionStatus::Connecting,
+                C::Reconnecting => ConnectionStatus::Reconnecting,
                 C::AwaitingTrust => ConnectionStatus::AwaitingTrust,
                 C::Connected => ConnectionStatus::Connected,
                 C::Failed => ConnectionStatus::Failed,
@@ -1162,6 +1164,13 @@ impl KiteCore {
     pub async fn connect(&self, host_id: String) -> Result<(), KiteError> {
         self.inner.connect(host_id).await.map_err(Into::into)
     }
+    pub async fn restore_connection(&self) -> Result<(), KiteError> {
+        self.inner.restore_connection().await.map_err(Into::into)
+    }
+    pub fn network_changed(&self, available: bool) -> Result<(), KiteError> {
+        self.inner.network_changed(available);
+        Ok(())
+    }
     pub async fn refresh_host_resources(&self) -> Result<(), KiteError> {
         self.inner
             .refresh_host_resources()
@@ -1223,6 +1232,16 @@ impl KiteCore {
     ) -> Result<(), KiteError> {
         self.inner
             .archive_session(session_id, archived)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn delete_session(
+        &self,
+        host_id: String,
+        session_id: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .delete_session(host_id, session_id)
             .await
             .map_err(Into::into)
     }

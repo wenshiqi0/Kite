@@ -16,6 +16,8 @@ import androidx.core.app.ServiceCompat
 class ConnectionService : Service() {
     private val engine get() = (application as KiteApplication).engine
     private var video = false
+    private var reconnecting = false
+    fun setReconnecting(value: Boolean) { if (reconnecting != value) { reconnecting = value; promote() } }
 
     fun setVideoActive(active: Boolean) {
         if (video != active) { video = active; promote() }
@@ -38,8 +40,11 @@ class ConnectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == DISCONNECT) engine.command { engine.core.disconnect() }
-        return START_NOT_STICKY
+        if (intent?.action == DISCONNECT) {
+            engine.command { engine.core.disconnect() }
+            return START_NOT_STICKY
+        }
+        return START_STICKY
     }
 
     private fun notification(): Notification {
@@ -49,7 +54,7 @@ class ConnectionService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(getString(R.string.connection_notification_title))
-            .setContentText(getString(R.string.connection_notification_text))
+            .setContentText(getString(if (reconnecting) R.string.connection_reconnecting else R.string.connection_notification_text))
             .setContentIntent(open).setOngoing(true).setSilent(true)
             .addAction(0, getString(R.string.disconnect), disconnect).build()
     }

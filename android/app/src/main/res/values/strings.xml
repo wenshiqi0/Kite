@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="connection_reconnecting">正在自动重连…</string>
     <string name="history_older">加载更早的消息</string>
     <string name="history_newer">加载更新的消息</string>
     <string name="history_retry">历史暂不可用，点此重试</string>
@@ -288,6 +289,8 @@
     <string name="no_archived_sessions">没有已归档的会话</string>
     <string name="session_actions">会话操作</string>
     <string name="archive_session">归档会话</string>
+    <string name="delete_session">删除会话</string>
+    <string name="delete_session_confirmation">删除“%1$s”？这会立即停止该会话的后台任务、释放资源，并移除会话记录及聊天缓存。删除后无法在 Kite 中恢复。</string>
     <string name="restore_session">恢复会话</string>
     <string name="restore_and_continue">恢复并继续</string>
     <string name="continue_session">继续会话</string>

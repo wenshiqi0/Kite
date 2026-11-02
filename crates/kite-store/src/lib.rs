@@ -135,6 +135,16 @@ impl Store {
         Ok(())
     }
 
+    pub fn remove_document(&self, name: &str) -> Result<(), StoreError> {
+        let path = self.document_path(name)?;
+        match fs::remove_file(&path) {
+            Ok(()) => File::open(path.parent().expect("document parent"))?.sync_all()?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(())
+    }
+
     /// Commit a complete replacement before exposing it to readers.
     pub fn commit(&mut self, data: Data) -> Result<(), StoreError> {
         let directory = self.path.parent().expect("store always has a parent");

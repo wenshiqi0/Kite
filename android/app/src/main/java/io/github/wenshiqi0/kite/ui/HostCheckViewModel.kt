@@ -24,6 +24,7 @@ import io.github.wenshiqi0.kite.data.toForm
 import io.github.wenshiqi0.kite.data.cacheAttachment
 import io.github.wenshiqi0.kite.core.UploadInfo
 import io.github.wenshiqi0.kite.core.QuestionInfo
+import io.github.wenshiqi0.kite.core.SessionInfo
 import io.github.wenshiqi0.kite.core.QuestionAnswerInfo
 import io.github.wenshiqi0.kite.media.DesktopInput
 import io.github.wenshiqi0.kite.media.PointerMotion
@@ -89,6 +90,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var sessionBusy by mutableStateOf(false)
         private set
+    var sessionToDelete by mutableStateOf<Pair<String, SessionInfo>?>(null)
+        private set
     var releasingArchived by mutableStateOf(false)
         private set
     var archiveReleaseStatus by mutableStateOf<String?>(null)
@@ -135,14 +138,23 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     val saved = state.hosts.find { it.id == state.selectedHost } ?: state.hosts.firstOrNull()
                     if (saved == null) settingsVisible = true else {
                         form = saved.toForm()
-                        if (state.connection == ConnectionStatus.DISCONNECTED && !engine.notificationNavigationActive) connect()
+                        if (state.connection == ConnectionStatus.DISCONNECTED && !engine.notificationNavigationActive) engine.command { engine.core.restoreConnection() }
                     }
                 }
                 if (state != null) {
-                    if (lastConnection == ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.CONNECTED) {
+                    if (lastConnection == ConnectionStatus.CONNECTED && state.connection == ConnectionStatus.RECONNECTING) {
+                        releaseMouseButtons()
+                        videoSuspended = showDesktop
+                    }
+                    if (lastConnection == ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.RECONNECTING) {
                         if (showDesktop) closeDesktop()
                         settingsVisible = true
                     }
+                    if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.CONNECTED && videoSuspended && foreground && target != 0L && showDesktop) {
+                        videoSuspended = false
+                        retryDesktop()
+                    }
+                    if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.FAILED) settingsVisible = true
                     lastConnection = state.connection
                     if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
                     if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { if(form.id==state.selectedHost){settingsVisible = false;hostEditorVisible=false}; wasConnecting = false }
@@ -282,7 +294,20 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         sessionBusy = true
         engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
     }
+    fun requestSessionDeletion(session: SessionInfo) {
+        val host = engine.state.value?.selectedHost ?: return
+        if (!sessionBusy) sessionToDelete = host to session
+    }
+    fun dismissSessionDeletion() { sessionToDelete = null }
+    fun deleteSession() {
+        val (host, session) = sessionToDelete ?: return
+        if (sessionBusy) return
+        sessionToDelete = null
+        sessionBusy = true
+        engine.command { try { engine.core.deleteSession(host, session.id) } finally { sessionBusy = false } }
+    }
     fun releaseArchivedSessions() {
+        if (sessionBusy) return
         if (releasingArchived) return
         val host = engine.state.value?.selectedHost ?: return
         releasingArchived = true
@@ -447,10 +472,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun videoGone(id: Long) { if (target == id) { releaseMouseButtons(); target = 0; engine.command { engine.core.stopDesktop() } } }
     fun retryDesktop() {
         val id = target
-        if (id != 0L) engine.command { engine.core.startDesktop(id.toULong()) }
+        if (id != 0L && engine.state.value?.connection == ConnectionStatus.CONNECTED) engine.command { engine.core.startDesktop(id.toULong()) }
     }
     fun onBackground(keepVideo: Boolean = false) { releaseMouseButtons(); foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop() } } }
-    fun onForeground() { foreground = true; if (showDesktop && target != 0L && (videoSuspended || engine.state.value?.desktop?.status == DesktopStatus.IDLE)) { videoSuspended = false; retryDesktop() } }
+    fun onForeground() { foreground = true; if (engine.state.value?.connection == ConnectionStatus.CONNECTED && showDesktop && target != 0L && (videoSuspended || engine.state.value?.desktop?.status == DesktopStatus.IDLE)) { videoSuspended = false; retryDesktop() } }
     fun modifier(ctrl: Boolean) {
         flushRemoteText?.invoke()
         if (target == 0L) return

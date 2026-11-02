@@ -38,7 +38,7 @@ internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit)
                 if (state?.failure != null) FailureCard(state.failure!!, onForget = null)
             } else {
                 val connected = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTED
-                val running = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTING
+                val running = state.selectedHost==viewModel.form.id&&state.connection in listOf(ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING)
                 if(state.selectedHost==viewModel.form.id)Text(connectionStepLabel(state), color = if (state.connection == ConnectionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 state.failure?.takeIf{state.selectedHost==viewModel.form.id}?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
                 if (viewModel.form.id.isNotEmpty()) HostResourcesCard(
@@ -173,6 +173,7 @@ internal fun DiagnosticCard(details: String, dismiss: () -> Unit) {
     ConnectionStatus.FAILED -> R.string.connection_failed_hint
     ConnectionStatus.AWAITING_TRUST -> R.string.host_key_title
     ConnectionStatus.DISCONNECTED -> R.string.workspace_connect_host
+    ConnectionStatus.RECONNECTING -> R.string.connection_reconnecting
     ConnectionStatus.CONNECTING -> when (state.connectionStep) {
         ConnectionStep.HERDR_DISCOVERY -> R.string.connection_discovery
         ConnectionStep.HERDR_API -> R.string.connection_api
