@@ -3,6 +3,13 @@ use kite_agent::sessions::{self as domain, Catalog, Record, Repository};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SessionCleanup {
+    pub reclaimed: u32,
+    pub retained: u32,
+    pub failed: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct CachedConversation {
     messages: SharedMessages,
     available: bool,
@@ -744,6 +751,40 @@ impl AppCore {
             core.sync_sessions(&c, &agents, core.generation.load(Ordering::SeqCst))
                 .await?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn release_archived_sessions(
+        self: &Arc<Self>,
+        host_id: String,
+    ) -> Result<SessionCleanup, AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _operation = core.operations.lock().await;
+            let connection = core.connection()?;
+            if connection.host.id != host_id {
+                return Err(AppError::State(
+                    "session cleanup belongs to another host".into(),
+                ));
+            }
+            let output = connection
+                .ssh
+                .exec(
+                    "\"$HOME/.local/bin/kite-node\" sessions release-archived",
+                    &[],
+                )
+                .await?;
+            if output.exit_status != Some(0) || output.stdout.len() > 65536 {
+                return Err(AppError::State(
+                    "archived session release unavailable".into(),
+                ));
+            }
+            let result: SessionCleanup = serde_json::from_slice(&output.stdout)
+                .map_err(|error| AppError::State(error.to_string()))?;
+            core.refresh_resources(&connection, core.generation.load(Ordering::SeqCst))
+                .await;
+            Ok(result)
         })
         .await
     }

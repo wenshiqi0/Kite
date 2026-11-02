@@ -21,6 +21,13 @@ pub struct RemoteClipboardInfo {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct SessionCleanupInfo {
+    pub reclaimed: u32,
+    pub retained: u32,
+    pub failed: u32,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct HostRecord {
     pub id: String,
     pub host: String,
@@ -256,6 +263,7 @@ pub struct ProviderInfo {
     pub usage: bool,
     pub pause: bool,
     pub terminal: bool,
+    pub release: bool,
 }
 impl From<kite_app::Provider> for ProviderInfo {
     fn from(p: kite_app::Provider) -> Self {
@@ -268,6 +276,7 @@ impl From<kite_app::Provider> for ProviderInfo {
             usage: p.usage,
             pause: p.pause,
             terminal: p.terminal,
+            release: p.release,
         }
     }
 }
@@ -1170,6 +1179,17 @@ impl KiteCore {
             .archive_session(session_id, archived)
             .await
             .map_err(Into::into)
+    }
+    pub async fn release_archived_sessions(
+        &self,
+        host_id: String,
+    ) -> Result<SessionCleanupInfo, KiteError> {
+        let result = self.inner.release_archived_sessions(host_id).await?;
+        Ok(SessionCleanupInfo {
+            reclaimed: result.reclaimed,
+            retained: result.retained,
+            failed: result.failed,
+        })
     }
     pub async fn select_agent(&self, agent_id: String) -> Result<(), KiteError> {
         self.inner.select_agent(agent_id).await.map_err(Into::into)

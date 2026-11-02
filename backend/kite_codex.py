@@ -317,8 +317,8 @@ def note_session_open(pane):
         atomic_json(registry_path(pane), info)
 
 
-def lifecycle_fact(record, binary, agents=None):
-    """Bounded local facts only. The host's Rust policy selects when to reap."""
+def codex_lifecycle_fact(record, binary, agents=None):
+    """Bounded Codex facts; policy is shared across harness adapters."""
     pane = record["pane_id"]
     owner = read_registry(pane)
     agents = agents if agents is not None else api(binary, "agent.list", {})["agents"]
@@ -371,14 +371,27 @@ def lifecycle_fact(record, binary, agents=None):
                 tui_pid=front[0]["pid"] if remote_tui else None)
 
 
+def lifecycle_adapters(binary):
+    from kite_lifecycle import adapters
+    return adapters(CodexLifecycle(binary))
+
+
+def lifecycle_fact(record, binary, agents=None):
+    return lifecycle_adapters(binary)[record["provider"]].snapshot(record, agents)
+
+
 def lifecycle_facts(binary):
     records = catalog_read()["sessions"]
     if len(records) > 1024:
         raise ValueError("session capacity exceeded")
-    agents = api(binary, "agent.list", {})["agents"]
+    adapters = lifecycle_adapters(binary)
+    try:
+        agents = api(binary, "agent.list", {})["agents"]
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        agents = []
     facts = []
     for record in records:
-        if record.get("provider") != "codex" or not record.get("pane_id"):
+        if record.get("provider") not in adapters or not record.get("pane_id"):
             continue
         try:
             facts.append(lifecycle_fact(record, binary, agents))
@@ -401,70 +414,84 @@ def process_live(pid, ticks):
         return False
 
 
+class CodexLifecycle:
+    def __init__(self, binary):
+        self.binary = binary
+
+    def snapshot(self, record, agents=None):
+        return codex_lifecycle_fact(record, self.binary, agents)
+
+    def owner_lock(self, record):
+        return state_dir() / (pane_key(record["pane_id"]) + ".lock")
+
+    def shares_owner(self, record, owner, other):
+        try:
+            alias = read_registry(other["pane_id"])
+            return (alias["pid"], alias["start_ticks"]) == (owner["pid"], owner["start_ticks"])
+        except (OSError, ValueError, KeyError, RuntimeError):
+            return False
+
+    def release(self, record, fresh):
+        owner = fresh["owner"]
+        pane = record["pane_id"]
+        if fresh["tui_pid"] is not None:
+            pid = fresh["tui_pid"]
+            ticks = start_ticks(pid)
+            if process_stopped(pid):
+                return dict(reclaimed=False, reason="tui_paused")
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + 4
+            while process_live(pid, ticks) and time.monotonic() < deadline:
+                time.sleep(.05)
+            if process_live(pid, ticks):
+                return dict(reclaimed=False, reason="tui_still_connected")
+        after = lifecycle_fact(record, self.binary)
+        if any(after[k] != fresh[k] for k in ("owner", "reference", "activity")) or not after["idle"] or not after["persisted"]:
+            return dict(reclaimed=False, reason="activity_changed")
+        if read_registry(pane) != owner or os.getpgid(owner["pid"]) != owner["pid"]:
+            return dict(reclaimed=False, reason="owner_changed")
+        if owner.get("budget_unit"):
+            resources.stop_owner(owner)
+        else:
+            os.killpg(owner["pid"], signal.SIGTERM)
+        deadline = time.monotonic() + 4
+        while process_live(owner["pid"], owner["start_ticks"]) and time.monotonic() < deadline:
+            time.sleep(.05)
+        if process_live(owner["pid"], owner["start_ticks"]):
+            return dict(reclaimed=False, reason="owner_still_running")
+        if json.loads(registry_path(pane).read_text()) == owner:
+            registry_path(pane).unlink()
+        return dict(reclaimed=True, session_id=record["id"])
+
+
 def lifecycle_reap(expected, binary):
-    """Revalidate identity/activity under the same leases as session-open."""
-    identifier = expected["session_id"]
-    pane = expected["pane"]
-    reason = expected["reason"]
-    if not re.fullmatch(r"[a-f0-9]{32,64}", identifier) or reason not in ("archived", "idle_timeout"):
+    """The shared release command delegates resource ownership to its adapter."""
+    identifier, pane = expected["session_id"], expected["pane"]
+    if not re.fullmatch(r"[a-f0-9]{32,64}", identifier) or expected["reason"] != "archived":
         raise ValueError("invalid lifecycle request")
     with file_lock(catalog_root() / ("session-" + identifier + ".lock")):
-        with file_lock(state_dir() / (pane_key(pane) + ".lock")):
-            catalog = catalog_read()
-            record = next((r for r in catalog["sessions"] if r["id"] == identifier), None)
-            if record is None or record.get("pane_id") != pane or record.get("provider") != "codex":
-                return dict(reclaimed=False, reason="record_changed")
-            if reason == "archived" and not record.get("archived"):
+        record = next((r for r in catalog_read()["sessions"] if r["id"] == identifier), None)
+        adapter = lifecycle_adapters(binary).get(record.get("provider")) if record else None
+        if adapter is None or record.get("pane_id") != pane:
+            return dict(reclaimed=False, reason="record_changed")
+        with file_lock(adapter.owner_lock(record)):
+            if not record.get("archived"):
                 return dict(reclaimed=False, reason="unarchived")
             fresh = lifecycle_fact(record, binary)
-            for field in ("owner", "reference", "activity", "archived"):
-                if fresh[field] != expected[field]:
-                    return dict(reclaimed=False, reason="activity_changed")
+            if any(fresh[k] != expected[k] for k in ("owner", "reference", "activity", "archived")):
+                return dict(reclaimed=False, reason="activity_changed")
             if not fresh["idle"] or not fresh["persisted"]:
                 return dict(reclaimed=False, reason="not_idle_or_not_persisted")
-            owner = fresh["owner"]
-            # A restored pane can alias an existing owner. Do not kill a process
-            # serving another durable record, even if this record is archived.
-            for other in catalog["sessions"]:
-                if other["id"] == identifier or not other.get("pane_id"):
-                    continue
-                try:
-                    alias = read_registry(other["pane_id"])
-                except (OSError, ValueError, KeyError, RuntimeError):
-                    continue
-                if (alias["pid"], alias["start_ticks"]) == (owner["pid"], owner["start_ticks"]):
+            # Catalog writers cannot unarchive or alias an owner across the final
+            # decision. The adapter's lease also excludes a newly accepted turn.
+            with file_lock(catalog_root() / "sessions.lock"):
+                latest = catalog_unlocked()["sessions"]
+                current = next((r for r in latest if r["id"] == identifier), None)
+                if current is None or any(current.get(k) != record.get(k) for k in ("archived", "reference", "provider", "pane_id")):
+                    return dict(reclaimed=False, reason="record_changed")
+                if any(r["id"] != identifier and adapter.shares_owner(record, fresh["owner"], r) for r in latest):
                     return dict(reclaimed=False, reason="shared_owner")
-            if fresh["tui_pid"] is not None:
-                pid = fresh["tui_pid"]
-                ticks = start_ticks(pid)
-                # Do not type a slash command into a potentially nonempty draft.
-                # Provider work/history is owned by the independently checked server.
-                if process_stopped(pid):
-                    return dict(reclaimed=False, reason="tui_paused")
-                os.kill(pid, signal.SIGTERM)
-                deadline = time.monotonic() + 4
-                while process_live(pid, ticks) and time.monotonic() < deadline:
-                    time.sleep(.05)
-                if process_live(pid, ticks):
-                    return dict(reclaimed=False, reason="tui_still_connected")
-            # /quit disconnects a remote TUI; it does not stop its app-server.
-            after = lifecycle_fact(record, binary)
-            if any(after[k] != fresh[k] for k in ("owner", "reference", "activity")) or not after["idle"]:
-                return dict(reclaimed=False, reason="activity_changed")
-            if read_registry(pane) != owner or os.getpgid(owner["pid"]) != owner["pid"]:
-                return dict(reclaimed=False, reason="owner_changed")
-            if owner.get("budget_unit"):
-                resources.stop_owner(owner)
-            else:
-                os.killpg(owner["pid"], signal.SIGTERM)
-            deadline = time.monotonic() + 4
-            while process_live(owner["pid"], owner["start_ticks"]) and time.monotonic() < deadline:
-                time.sleep(.05)
-            if process_live(owner["pid"], owner["start_ticks"]):
-                return dict(reclaimed=False, reason="owner_still_running")
-            if json.loads(registry_path(pane).read_text()) == owner:
-                registry_path(pane).unlink()
-            return dict(reclaimed=True, session_id=identifier)
+                return adapter.release(record, fresh)
 
 
 def session_open(identifier, binary):

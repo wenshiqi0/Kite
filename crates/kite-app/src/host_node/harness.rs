@@ -1,6 +1,10 @@
 //! Version every native adapter together with its owner.
 pub const SOURCES: &[(&str, &str)] = &[
     (
+        "kite_lifecycle.py",
+        include_str!("../../../../backend/kite_lifecycle.py"),
+    ),
+    (
         "kite_harness.py",
         include_str!("../../../../backend/kite_harness.py"),
     ),

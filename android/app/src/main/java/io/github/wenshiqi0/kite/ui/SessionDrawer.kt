@@ -49,6 +49,11 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
             }
         }
         val sessions = remember(state?.sessions,archived){state?.sessions.orEmpty().filter { it.archived == archived }}
+        if (archived) ArchivedReleaseControls(
+            enabled = state?.connection == ConnectionStatus.CONNECTED && state.providers.any { it.release } && !vm.sessionBusy,
+            releasing = vm.releasingArchived,
+            result = vm.archiveReleaseStatus?.takeIf { vm.archiveReleaseHost == state?.selectedHost },
+            onRelease = vm::releaseArchivedSessions)
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(sessions, key = { it.id },contentType={"session"}) { session ->
                 var menu by remember(session.id) { mutableStateOf(false) }
@@ -93,5 +98,16 @@ internal fun SessionStatusBadge(status: SessionStatus) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.size(6.dp).background(color, RoundedCornerShape(3.dp)))
         Text(stringResource(status.label), fontSize = 10.sp, color = color)
+    }
+}
+
+@Composable
+internal fun ArchivedReleaseControls(enabled: Boolean, releasing: Boolean, result: String?, onRelease: () -> Unit) {
+    Column {
+        TextButton(onClick = onRelease, enabled = enabled && !releasing, modifier = Modifier.padding(horizontal = 14.dp)) {
+            if (releasing) { CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 1.5.dp); Spacer(Modifier.width(8.dp)) }
+            Text(stringResource(if (releasing) R.string.archived_releasing else R.string.release_archived_processes))
+        }
+        result?.let { Text(it, fontSize = 12.sp, color = KiteColors.Muted, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
     }
 }
