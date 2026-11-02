@@ -9,11 +9,18 @@ Requires macOS 14+, Xcode 16+, Rust stable, Bun and XcodeGen. Initialize the nat
 ```sh
 git submodule update --init --recursive
 bun install --frozen-lockfile
+security find-identity -v -p codesigning
+macos/scripts/configure-signing.sh <certificate-SHA-1>
+macos/scripts/install-keychain-helper.sh
 macos/scripts/build.sh
 open macos/build/DerivedData/Build/Products/Debug/Kite.app
 ```
 
-The build generates Swift bindings from the same Rust static library it links. Generated projects, bindings and build output stay outside version control. The build script serializes the Rust/binding stage across concurrent Xcode builds. Local builds receive an ad hoc signature; Developer ID distribution and notarization are not provided by this command.
+The build generates Swift bindings from the same Rust static library it links. Generated projects, bindings and build output stay outside version control. The build script serializes the Rust/binding stage across concurrent Xcode builds. Local installation pins a persistent code-signing certificate in the user's application-support directory. The certificate and bundle ID keep the app's designated requirement stable across updates. An unavailable identity fails the signing step; CI explicitly sets `KITE_MAC_ADHOC=1` for disposable compilation builds. Developer ID distribution and notarization are separate.
+
+The native Keychain component installs once in the user's private Application Support directory. Normal builds leave it unchanged. It accepts reads/writes only from the certificate-signed Kite parent process, and handles only the existing SSH and Sunshine identity items. Secret bytes travel through private pipes; normal operations disable authorization UI and return an error when access is unavailable. There is no daemon or network listener.
+
+For identities created by an earlier ad hoc build, the explicit `install-keychain-helper.sh` setup checks existing authorization without UI, then requests access only for outstanding items. Enter the login Keychain password in the system dialog and choose **Always Allow** for the fixed component. Re-running setup after authorization is complete does not request it again. No identity data is rotated or exported. This also addresses the Keychain partition check, which can retain a per-build hash for non-Apple signing identities even when the app's designated requirement is stable. [Design and limits](rfcs/0028-macos-keychain-access.md).
 
 ## Connect a machine
 

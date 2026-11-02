@@ -1,0 +1,3 @@
+// GUI builds fail until configured with a persistent local identity.
+KITE_MAC_SIGNING_IDENTITY = KITE_SIGNING_IDENTITY_NOT_CONFIGURED
+#include? "build/local-signing.xcconfig"

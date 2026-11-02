@@ -5,4 +5,4 @@ MAC_DIR=$(cd "$(dirname "$0")/.." && pwd)
 xcodegen generate --spec "$MAC_DIR/project.yml"
 xcodebuild -project "$MAC_DIR/Kite.xcodeproj" -scheme Kite -configuration Debug \
     -derivedDataPath "$MAC_DIR/build/DerivedData" CODE_SIGNING_ALLOWED=NO build "$@"
-codesign --force --sign - "$MAC_DIR/build/DerivedData/Build/Products/Debug/Kite.app"
+"$MAC_DIR/scripts/sign-app.sh" "$MAC_DIR/build/DerivedData/Build/Products/Debug/Kite.app"

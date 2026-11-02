@@ -6,22 +6,23 @@
   "native": {
     "audio": "muted; offline decode verified separately",
     "codex_turn": true,
-    "display_fps": 34.666666666666664,
+    "display_fps": 33.666666666666664,
     "history_reconnect": true,
     "input": "sent to owned display; verify remote input.json separately",
-    "rendered_frames": 227,
+    "rendered_frames": 222,
     "source_height": 1080,
     "source_width": 1920,
-    "ssh": true
+    "ssh": true,
+    "rendering_surface": "production SwiftUI DesktopPane"
   },
   "remote_input_cumulative": {
-    "left": 4,
-    "right": 4,
-    "left_up": 4,
-    "right_up": 4,
-    "held_motion": 8,
-    "scroll": 4,
-    "keys": 330,
+    "left": 1,
+    "right": 1,
+    "left_up": 1,
+    "right_up": 1,
+    "held_motion": 2,
+    "scroll": 1,
+    "keys": 84,
     "f8": true,
     "text_matched": true
   },

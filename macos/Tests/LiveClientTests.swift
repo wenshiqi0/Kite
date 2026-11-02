@@ -1,8 +1,10 @@
 import XCTest
+import SwiftUI
 @testable import Kite
 
 private final class LiveObserver: CoreObserver, @unchecked Sendable {
-    func stateChanged(snapshot: CoreSnapshot) {}
+    var receive: (@Sendable (CoreSnapshot) -> Void)?
+    func stateChanged(snapshot: CoreSnapshot) { receive?(snapshot) }
 }
 private final class LiveSecrets: SecretStore, @unchecked Sendable {
     let root: URL
@@ -46,8 +48,11 @@ final class LiveClientTests: XCTestCase {
         let directory = output.appendingPathComponent("core")
         // A disposable test identity avoids asking Keychain to authorize the
         // test runner as the user's production Mac client.
-        let core = try KiteCore(secretStore: LiveSecrets(root: URL(fileURLWithPath: config.secrets)), observer: LiveObserver())
-        let receiver = MediaReceiver(); receiver.audio.muted = true; receiver.attach()
+        let model = ClientModel()
+        let observer = LiveObserver()
+        observer.receive = { [weak model] snapshot in Task { @MainActor in model?.accept(snapshot) } }
+        let core = try KiteCore(secretStore: LiveSecrets(root: URL(fileURLWithPath: config.secrets)), observer: observer)
+        let receiver = model.media; receiver.audio.muted = true; receiver.attach()
         var window: NSWindow?
         do {
             try await core.initialize(dataDirectory: directory.path, deviceName: "kite@macOS", legacy: LegacyData(source: "owned-mac-qa", host: nil, trustedKeys: []))
@@ -87,12 +92,13 @@ final class LiveClientTests: XCTestCase {
             }
             let context = state.conversationContext
             print("live_stage=chat_received")
-            let canvas = VideoCanvas(receiver: receiver)
-            canvas.source = CGSize(width: 1920, height: 1080)
-            receiver.presenter.view = canvas
+            let source = CGSize(width: 1920, height: 1080)
+            // Exercise the actual SwiftUI panel's Starting -> first frame ->
+            // Streaming lifecycle, not a manually pre-mounted Metal canvas.
+            let surface = NSHostingView(rootView: DesktopPane(model: model, expanded: .constant(false)))
             let panel = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 960, height: 540), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
-            panel.title = "Kite Mac owned integration"; panel.contentView = canvas
+            panel.title = "Kite Mac owned integration"; panel.contentView = surface
             panel.makeKeyAndOrderFront(nil); window = panel
             try await core.startDesktop(mediaTarget: receiver.handle)
             state = try await wait(core) { $0.desktop.status == .pairing || $0.desktop.status == .streaming || $0.desktop.status == .failed }
@@ -108,14 +114,14 @@ final class LiveClientTests: XCTestCase {
             // These events only target the disposable Xvfb fixture, never :10.
             try await core.setTakeover(enabled: true)
             receiver.input.enabled = true
-            receiver.input.move(CGPoint(x: 960, y: 420), source: canvas.source)
+            receiver.input.move(CGPoint(x: 960, y: 420), source: source)
             receiver.input.button(1, down: true)
-            receiver.input.move(CGPoint(x: 1150, y: 500), source: canvas.source)
+            receiver.input.move(CGPoint(x: 1150, y: 500), source: source)
             receiver.input.button(1, down: false)
             receiver.input.button(3, down: true); receiver.input.button(3, down: false)
             receiver.input.scroll(horizontal: 0, vertical: 120); receiver.input.barrier()
             receiver.input.key(0x77, down: true, modifiers: 0); receiver.input.key(0x77, down: false, modifiers: 0)
-            receiver.input.move(CGPoint(x: 600, y: 945), source: canvas.source)
+            receiver.input.move(CGPoint(x: 600, y: 945), source: source)
             receiver.input.button(1, down: true); receiver.input.button(1, down: false)
             receiver.input.key(0xA2, down: true, modifiers: 2)
             receiver.input.key(0x41, down: true, modifiers: 2); receiver.input.key(0x41, down: false, modifiers: 2)

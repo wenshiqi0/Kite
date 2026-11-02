@@ -249,6 +249,8 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 
 Apple 媒体在 FFI 的 `apple` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
 
+Mac 本机开发版按 [RFC 0028](docs/rfcs/0028-macos-keychain-access.md) 固定应用签名，使用只安装一次、按需启动的原生钥匙串组件保持读取身份。组件只接受指定证书和 Kite bundle ID 的父进程，只处理两个既有条目，秘密仅通过私有管道传递。普通读写不弹授权 UI，禁止悄悄回退或重新生成身份；显式设置更新访问控制并保留原数据，正常构建不覆盖组件。
+
 ## 6. 当前实现与 M1 升级
 
 RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 适配层隐藏 Moonlight ABI，单进程仅一路串流。FFI 库和绑定同次生成，不保留旧 FFI 入口；herdr 0.9.5 协议必须兼容。RFC 0003 阶段不含结构化聊天；RFC 0004 已落实 Android 聊天，iOS 视频仍待实现。

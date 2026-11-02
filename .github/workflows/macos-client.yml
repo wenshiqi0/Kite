@@ -41,4 +41,6 @@ jobs:
       - name: Check native decoders and viewport
         run: macos/scripts/test.sh
       - name: Build locally signed client
+        env:
+          KITE_MAC_ADHOC: '1'
         run: macos/scripts/build.sh

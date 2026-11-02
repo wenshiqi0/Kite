@@ -172,9 +172,13 @@ struct DesktopPane: View {
             Divider()
             ZStack {
                 Color.black.opacity(0.7)
-                if let desktop = model.snapshot?.desktop, desktop.status == .streaming {
+                // The first presented frame advances Core from Starting to
+                // Streaming, so the native surface must exist during setup.
+                if let desktop = model.snapshot?.desktop,
+                   [.starting, .streaming, .stopping].contains(desktop.status) {
                     DesktopSurface(receiver: model.media, source: CGSize(width: Int(desktop.width), height: Int(desktop.height)), zoom: zoom, takeover: desktop.takeover)
-                } else {
+                }
+                if model.snapshot?.desktop.status != .streaming {
                     VStack(spacing: 16) {
                         Image(systemName: "display").font(.system(size: 46, weight: .ultraLight)).foregroundStyle(.secondary)
                         if model.snapshot?.desktop.status == .pairing {

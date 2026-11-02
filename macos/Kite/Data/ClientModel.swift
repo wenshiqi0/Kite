@@ -72,7 +72,20 @@ final class ClientModel {
         initialization = nil
     }
 
-    private func accept(_ next: CoreSnapshot) {
+    #if DEBUG
+    func writeIdentityProbe(to url: URL) {
+        var report: [String: Any] = ["initialized": snapshot?.initialized == true,
+            "fingerprint": snapshot?.deviceKey?.fingerprint ?? "", "error": nativeError ?? ""]
+        do {
+            report["existing_stream_identity_readable"] = try DeviceKeyStore().read(name: "sunshine-identity") != nil
+        } catch { report["error"] = String(describing: error) }
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+    #endif
+
+    func accept(_ next: CoreSnapshot) {
         guard snapshot == nil || next.revision > snapshot!.revision else { return }
         let previous = destination
         let nextDestination = Destination(host: next.selectedHost, agent: next.selectedAgent, conversation: next.conversationContext)

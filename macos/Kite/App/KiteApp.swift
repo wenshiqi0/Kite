@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 
 @main
 struct KiteApp: App {
@@ -9,7 +10,19 @@ struct KiteApp: App {
             WorkspaceView(model: model)
                 .preferredColorScheme(.dark)
                 .frame(minWidth: 920, minHeight: 640)
-                .task { delegate.model = model; await model.initialize() }
+                .task {
+                    delegate.model = model
+                    await model.initialize()
+                    #if DEBUG
+                    if let index = CommandLine.arguments.firstIndex(of: "--identity-probe"),
+                       CommandLine.arguments.indices.contains(index + 1) {
+                        model.writeIdentityProbe(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                        // A probe initializes storage only and opens no remote
+                        // connection. Exit directly to leave no test instance.
+                        exit(0)
+                    }
+                    #endif
+                }
                 .task { await model.runClipboard() }
         }
         .defaultSize(width: 1400, height: 880)

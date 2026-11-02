@@ -76,3 +76,4 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 - [0024 — Bun server packages and native Linux UI](0024-bun-server-monorepo.md)
 - [0026 — 会话权限设置与可读审批](0026-session-permissions.md)
 - [0027 — macOS 原生远程客户端](0027-macos-client.md)
+- [0028 — Mac 开发版的持久密钥访问身份](0028-macos-keychain-access.md)

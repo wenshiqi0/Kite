@@ -10,6 +10,9 @@ settings:
     SWIFT_VERSION: "5.0"
     KITE_APP_BUNDLE_IDENTIFIER: io.github.wenshiqi0.kite.mac
     ENABLE_USER_SCRIPT_SANDBOXING: NO
+configFiles:
+  Debug: signing.xcconfig
+  Release: signing.xcconfig
 targets:
   Kite:
     type: application
@@ -43,7 +46,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(KITE_APP_BUNDLE_IDENTIFIER)
         PRODUCT_NAME: Kite
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: $(KITE_MAC_SIGNING_IDENTITY)
         ENABLE_APP_SANDBOX: NO
         SWIFT_OBJC_BRIDGING_HEADER: Kite/Media/BridgingHeader.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/../crates/kite-ffi/include
