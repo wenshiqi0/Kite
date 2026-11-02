@@ -19,6 +19,8 @@
 
 ## 2. 接通创建、发现与恢复
 
+新 owner 必须在执行 provider 前进入共享资源预算，复用 `kite_resources.py` 的执行入口和 Node `resource-admit` / `resource-ready`。不要由原生客户端决定限额或直接启动无限制后台进程；见 [RFC 0022](../rfcs/0022-host-resources-and-agent-budget.md)。已有 owner 复用不重新启动，预算拒绝也不重放消息。
+
 按以下顺序修改并验证：
 
 1. 在 Rust 的共享 provider 定义和主机探测中注册 `acme`、它的静态能力和原生品牌资源标识。主机探测只返回安装/连接/版本等事实，Core 得到当前主机的目录与可用操作；不靠 Kotlin 名单决定服务端是否接受该 provider。

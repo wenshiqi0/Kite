@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "6a4b06f7003d360ac45c8174e0246d1d7417c7ce",
+  "androidApi": 36,
+  "abi": "x86_64",
+  "testsPassed": 3,
+  "checks": [
+    "resource overview and exact binary GiB edit",
+    "critical and disconnected presentation",
+    "real Android NotificationManager warning"
+  ],
+  "syntheticPresentationData": true,
+  "testOnlyPortableReedSolomon": true,
+  "productionArm64Unmodified": true
+}

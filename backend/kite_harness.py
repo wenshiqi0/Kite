@@ -205,7 +205,12 @@ def open_session(record):
                 cwd=record.get("cwd") or str(Path.home()), title=record.get("title", ""),
                 command=command, model=model)
     atomic(path / "session.json", info)
-    child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("kite_harness_runtime.py")), thread],
+    runtime = [sys.executable, str(Path(__file__).with_name("kite_harness_runtime.py")), thread]
+    budgeted = os.environ.get("KITE_AGENT_RESOURCE_CONTROL") == "1"
+    if budgeted:
+        runtime = [sys.executable, str(Path(__file__).with_name("kite_resources.py")),
+                   "exec-harness", "--pane", "kite-harness-" + thread, "--", *runtime]
+    child = subprocess.Popen(runtime,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
     import threading
@@ -216,6 +221,9 @@ def open_session(record):
         with socket.socket(socket.AF_UNIX) as connection:
             connection.settimeout(.2)
             if connection.connect_ex(str(path / "owner.sock")) == 0:
+                if budgeted:
+                    import kite_resources
+                    kite_resources.ready(dict(pid=child.pid, budget_unit=kite_resources.scope_name("kite-harness-" + thread, child.pid, start_ticks(child.pid))))
                 return agent(info, json.loads((path / "state.json").read_text()))
         time.sleep(.1)
     raise RuntimeError("harness owner initialization timed out")

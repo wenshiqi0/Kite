@@ -49,6 +49,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var hostEditorVisible by mutableStateOf(false)
     var savingHost by mutableStateOf(false)
         private set
+    var updatingMemoryLimit by mutableStateOf(false)
+        private set
     var externalActivity by mutableStateOf(false)
     var inPip by mutableStateOf(false)
         private set
@@ -199,6 +201,12 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
+    fun openResourceDetails(hostId: String) {
+        viewModelScope.launch {
+            val state = engine.state.filterNotNull().first { it.initialized }
+            state.hosts.find { it.id == hostId }?.let { chooseHost(it); settingsVisible = true }
+        }
+    }
     fun newHost() {
         clearLocalError();form=HostForm();hostEditorVisible=true;settingsVisible=true
     }
@@ -244,6 +252,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun prepareAgent() = engine.command { engine.core.ensureAgent() }
     fun createSession(provider: String, cwd: String, title: String) {
         if (creatingAgent || sessionBusy) return
+        if (!canStartResourceAgent(engine.state.value?.hostResources)) {
+            localError = getApplication<Application>().getString(R.string.resource_new_sessions_paused)
+            return
+        }
         creatingAgent = true; sessionBusy = true
         engine.command { try { engine.core.createSession(provider, cwd, title) } finally { creatingAgent = false; sessionBusy = false } }
     }
@@ -261,6 +273,15 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         if (sessionBusy) return
         sessionBusy = true
         engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
+    }
+    fun updateAgentMemoryLimit(bytes: ULong) {
+        if (updatingMemoryLimit) return
+        val hostId = form.id
+        updatingMemoryLimit = true
+        engine.command {
+            try { engine.core.setAgentMemoryLimit(hostId, bytes) }
+            finally { updatingMemoryLimit = false }
+        }
     }
     fun questionValues(request: String): Map<String,String> = questionDrafts[request] ?: emptyMap()
     fun setQuestionValue(request: String, field: String, value: String) {

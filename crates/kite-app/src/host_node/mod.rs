@@ -29,6 +29,7 @@ mod lifecycle;
 mod mcp;
 mod notifications;
 mod push;
+mod resources;
 mod upgrade;
 mod wire;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -76,6 +77,10 @@ pub struct Config {
     pub herdr: PathBuf,
     pub python: PathBuf,
     pub systemctl: PathBuf,
+    #[serde(default = "crate::resources::default_agent_memory_limit")]
+    pub agent_memory_limit_bytes: u64,
+    #[serde(skip)]
+    pub source_path: Option<PathBuf>,
     #[serde(default)]
     pub push_service_account: Option<PathBuf>,
     pub services: Vec<Service>,
@@ -84,6 +89,11 @@ pub struct Config {
 }
 impl Config {
     fn validate(&self) -> Result<()> {
+        if self.agent_memory_limit_bytes < 256 * 1024 * 1024
+            || self.agent_memory_limit_bytes > 1024 * crate::resources::GIB
+        {
+            return Err(Error::Config("invalid agent memory limit"));
+        }
         if self.node_id.is_empty()
             || self.machine.is_empty()
             || !self.socket.is_absolute()
@@ -158,6 +168,7 @@ struct Node {
     backend_calls: AtomicU64,
     lifecycle_last_scan: AtomicU64,
     lifecycle_reclaimed: AtomicU64,
+    resources: resources::Resources,
     permits: Arc<Semaphore>,
     notifications: Option<notifications::Journal>,
     push: Option<push::Push>,
@@ -205,7 +216,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":1,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":1,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1,"resourceApi":1})
                 );
                 Ok(0)
             }
@@ -228,13 +239,37 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                     if !replacement { return Err(Error::Config("generation bootstrap requires handover")); }
                     upgrade::prepare_replacement().await?;
                 }
-                let data: Config = serde_json::from_slice(&fs::read(&config)?)?;
+                let mut data: Config = serde_json::from_slice(&fs::read(&config)?)?;
+                data.source_path = Some(fs::canonicalize(&config)?);
                 data.validate()?;
                 if activated {
                     serve_runtime(data, Some((config, replacement))).await?;
                 } else {
                     serve(data).await?;
                 }
+                Ok(0)
+            }
+            "resources" => {
+                if args.len()!=1 { return Err(Error::Config("resources accepts no arguments")); }
+                println!("{}",rpc(&socket,NodeRequest::new("resources")).await?);
+                Ok(0)
+            }
+            "resource-limit" => {
+                if args.len()!=3 || args[1]!="--bytes" { return Err(Error::Config("resource-limit requires --bytes N")); }
+                let limit=args[2].parse::<u64>().map_err(|_|Error::Config("invalid memory limit"))?;
+                println!("{}",rpc(&socket,NodeRequest{method:"resource-limit".into(),args:vec![],params:json!({"limit_bytes":limit})}).await?);
+                Ok(0)
+            }
+            "resource-admit" => {
+                if args.len()!=5 || args[1]!="--pane" || args[3]!="--pid" { return Err(Error::Config("resource-admit requires pane and pid")); }
+                let pid=args[4].parse::<u32>().map_err(|_|Error::Config("invalid resource pid"))?;
+                println!("{}",rpc(&socket,NodeRequest{method:"resource-admit".into(),args:vec![],params:json!({"pane":args[2],"pid":pid})}).await?);
+                Ok(0)
+            }
+            "resource-ready" => {
+                if args.len()!=3 || args[1]!="--pid" { return Err(Error::Config("resource-ready requires --pid N")); }
+                let pid=args[2].parse::<u32>().map_err(|_|Error::Config("invalid resource pid"))?;
+                println!("{}",rpc(&socket,NodeRequest{method:"resource-ready".into(),args:vec![],params:json!({"pid":pid})}).await?);
                 Ok(0)
             }
             "spawn-generation" => {
@@ -465,7 +500,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     if activated.is_some() {
         let source = format!(
-            "{}{}{}{}",
+            "{}{}{}{}{}",
             String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
             include_str!("../../../../backend/kite_push.py"),
             desktop::SOURCE,
@@ -473,6 +508,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
                 .iter()
                 .map(|(_, source)| *source)
                 .collect::<String>(),
+            String::from_utf8_lossy(resources::SOURCE),
         );
         let generation = config
             .backend
@@ -506,6 +542,11 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     fs::write(&pending, desktop::SOURCE)?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, desktop_backend)?;
+    let resource_backend = config.backend.with_file_name("kite_resources.py");
+    let pending = resource_backend.with_extension("pending");
+    fs::write(&pending, resources::SOURCE)?;
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
+    fs::rename(pending, resource_backend)?;
     let listener = if activated.is_some() {
         upgrade::inherited_listener(&config.socket)?
     } else {
@@ -526,6 +567,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
         Ok(push) => (Some(push), None),
         Err(error) => (None, Some(error.to_string())),
     };
+    let resources = resources::Resources::open(directory, config.agent_memory_limit_bytes)?;
     let node = Arc::new(Node {
         config,
         started: Instant::now(),
@@ -533,6 +575,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
         backend_calls: AtomicU64::new(0),
         lifecycle_last_scan: AtomicU64::new(0),
         lifecycle_reclaimed: AtomicU64::new(0),
+        resources,
         permits: Arc::new(Semaphore::new(64)),
         notifications: journal,
         push,
@@ -551,6 +594,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     let _notification_watch = notifications::start(&node);
     let _lifecycle_watch = lifecycle::start(&node);
+    let _resource_watch = resources::start(&node);
     let _push_watch = push::start(&node);
     let mut connections = JoinSet::new();
     loop {
@@ -641,10 +685,16 @@ impl Node {
             c
         };
         command.envs(&self.config.environment);
+        command
+            .env("KITE_AGENT_RESOURCE_CONTROL", "1")
+            .env("KITE_CODEX_BACKEND_PATH", &self.config.backend);
         Ok(command)
     }
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
-        let _registration = if request.method == "push-register" {
+        let _registration = if matches!(
+            request.method.as_str(),
+            "push-register" | "resource-admit" | "resource-ready" | "resource-limit"
+        ) {
             let gate = self.observation_gate.read().await;
             if self.draining() {
                 return Box::pin(rpc(&self.config.socket, request.clone())).await;
@@ -654,6 +704,35 @@ impl Node {
             None
         };
         match request.method.as_str() {
+            "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
+            "resource-limit" => Ok(serde_json::to_value(
+                self.resources
+                    .set_limit(
+                        self,
+                        request.params["limit_bytes"]
+                            .as_u64()
+                            .ok_or(Error::Protocol("memory limit required"))?,
+                    )
+                    .await?,
+            )?),
+            "resource-admit" => {
+                self.resources
+                    .admit(
+                        self,
+                        request.params["pane"].as_str().unwrap_or_default(),
+                        u32::try_from(request.params["pid"].as_u64().unwrap_or(0))
+                            .map_err(|_| Error::Protocol("invalid resource pid"))?,
+                    )
+                    .await
+            }
+            "resource-ready" => {
+                self.resources
+                    .ready(
+                        u32::try_from(request.params["pid"].as_u64().unwrap_or(0))
+                            .map_err(|_| Error::Protocol("invalid resource pid"))?,
+                    )
+                    .await
+            }
             "desktop" => {
                 desktop::execute(&self.config, desktop::parse(request.params.clone())?).await
             }
@@ -679,7 +758,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"harnessApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {
@@ -945,6 +1024,8 @@ mod tests {
             herdr: PathBuf::from("/bin/sh"),
             python: PathBuf::from("/usr/bin/python3"),
             systemctl: PathBuf::from("/usr/bin/false"),
+            agent_memory_limit_bytes: crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
+            source_path: None,
             push_service_account: None,
             services: vec![],
             environment: BTreeMap::new(),

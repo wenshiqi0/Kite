@@ -20,6 +20,7 @@ import select
 from contextlib import contextmanager
 import tempfile
 import shutil
+import kite_resources as resources
 
 
 def atomic_json(path, value):
@@ -162,6 +163,7 @@ def ensure(pane, binary):
         shell = process["shell_pid"]
         cwd = Path(f"/proc/{shell}/cwd").resolve(strict=True)
         env = os.environ.copy()
+        env["KITE_CODEX_BACKEND_PATH"] = str(Path(__file__).resolve())
         env.pop("CODEX_THREAD_ID", None)
         shell_env = Path(f"/proc/{shell}/environ").read_bytes().split(b"\0")
         env.update(dict(x.decode().split("=", 1) for x in shell_env if x.startswith(b"HERDR_")))
@@ -179,10 +181,11 @@ def ensure(pane, binary):
         log = state_dir() / (pane_key(pane) + ".log")
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
-            child = subprocess.Popen(["codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, cwd=cwd, start_new_session=True)
+            child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("kite_resources.py")), "exec-agent", "--pane", pane, "--herdr", binary, "--", "codex", "-c", "check_for_update_on_startup=false", "app-server", "--listen", "unix://" + str(sock)], stdin=subprocess.DEVNULL, stdout=descriptor, stderr=descriptor, env=env, cwd=cwd, start_new_session=True)
         finally:
             os.close(descriptor)
         info = {"protocol": PROTOCOL, "pane": pane, "socket": str(sock), "pid": child.pid, "start_ticks": start_ticks(child.pid), "last_open_ms": int(time.time() * 1000)}
+        info["budget_unit"] = resources.scope_name(pane, child.pid, info["start_ticks"])
         for _ in range(100):
             if child.poll() is not None:
                 raise RuntimeError("Codex backend exited; inspect private host log")
@@ -285,6 +288,7 @@ def bind(pane, binary, expected=None):
     else:
         raise RuntimeError("expected exactly one pane-owned Codex thread")
     api(binary, "pane.report_agent_session", {"pane_id": pane, "source": "herdr:codex", "agent": "codex", "agent_session_id": thread, "resume_argv": ["python3", str(Path(__file__).resolve()), "tui", "--pane", pane, "--herdr", binary, "--thread", thread]})
+    resources.ready(read_registry(pane))
     return {"thread": thread}
 
 
@@ -449,7 +453,10 @@ def lifecycle_reap(expected, binary):
                 return dict(reclaimed=False, reason="activity_changed")
             if read_registry(pane) != owner or os.getpgid(owner["pid"]) != owner["pid"]:
                 return dict(reclaimed=False, reason="owner_changed")
-            os.killpg(owner["pid"], signal.SIGTERM)
+            if owner.get("budget_unit"):
+                resources.stop_owner(owner)
+            else:
+                os.killpg(owner["pid"], signal.SIGTERM)
             deadline = time.monotonic() + 4
             while process_live(owner["pid"], owner["start_ticks"]) and time.monotonic() < deadline:
                 time.sleep(.05)
@@ -540,6 +547,7 @@ def session_open(identifier, binary):
             record = patch_session(identifier, {"workspace_id": created["workspace"]["workspace_id"], "pane_id": pane, "terminal_id": created["root_pane"]["terminal_id"], "agent_name": name})
         else:
             record = patch_session(identifier, {"agent_name": name})
+        prepared = None
         if provider == "codex":
             if owner and owner["pane"] != pane:
                 alias = dict(owner, pane=pane)
@@ -548,6 +556,7 @@ def session_open(identifier, binary):
             else:
                 info = ensure(pane, binary)
             note_session_open(pane)
+            resources.reserve_existing(info)
             # Warm read-only account/routing discovery before the TUI's shorter
             # bootstrap deadline. This does not start a turn or change credentials.
             try:
@@ -558,6 +567,7 @@ def session_open(identifier, binary):
             if reference:
                 args += ["resume", reference["value"]]
         else:
+            prepared = resources.prepare_pane(pane, binary)
             args = []
             if reference:
                 if reference["kind"] == "id":
@@ -582,6 +592,8 @@ def session_open(identifier, binary):
                 started = current
                 if current.get("agent_session"):
                     patch_session(identifier, {"reference": current["agent_session"]})
+                    if prepared:
+                        resources.ready(prepared)
                     return {"agent": current}
             time.sleep(.2)
         return {"agent": started}

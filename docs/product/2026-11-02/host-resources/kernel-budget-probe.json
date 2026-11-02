@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "requested_bytes": 67108864,
+  "legacy_reserved_bytes": 15577088,
+  "effective_kernel_limit_bytes": 51531776,
+  "allocator_exit": -9,
+  "oom_kills": 1,
+  "kernel_limit_verified": true
+}

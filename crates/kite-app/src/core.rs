@@ -40,6 +40,7 @@ pub use conversation::{
 };
 mod notifications;
 mod pending;
+mod resources;
 mod sessions;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
@@ -182,6 +183,7 @@ pub struct Snapshot {
     pub herdr_path: Option<String>,
     pub capability: Option<String>,
     pub host_key_fingerprint: Option<String>,
+    pub host_resources: Option<crate::resources::HostResources>,
     pub agents: Vec<Agent>,
     pub providers: Vec<providers::Provider>,
     pub selected_agent: Option<String>,
@@ -218,6 +220,7 @@ impl Default for Snapshot {
             herdr_path: None,
             capability: None,
             host_key_fingerprint: None,
+            host_resources: None,
             agents: Vec::new(),
             providers: Vec::new(),
             selected_agent: None,
@@ -292,6 +295,7 @@ pub struct AppCore {
     connected: Mutex<Option<Arc<Connected>>>,
     connect_job: Mutex<Option<JoinHandle<()>>>,
     poll_job: Mutex<Option<JoinHandle<()>>>,
+    resource_job: Mutex<Option<JoinHandle<()>>>,
     desktop_job: AsyncMutex<Option<DesktopJob>>,
     pending_pair: Mutex<Option<PendingPair>>,
     media: Mutex<Option<Arc<dyn MediaSink>>>,
@@ -368,6 +372,7 @@ impl AppCore {
             connected: Mutex::new(None),
             connect_job: Mutex::new(None),
             poll_job: Mutex::new(None),
+            resource_job: Mutex::new(None),
             desktop_job: AsyncMutex::new(None),
             pending_pair: Mutex::new(None),
             media: Mutex::new(None),
@@ -584,6 +589,7 @@ impl AppCore {
                 s.connection_step = ConnectionStep::Ssh;
                 s.selected_host = Some(host.id.clone());
                 s.failure = None;
+                s.host_resources = None;
                 s.pending_key = None;
             });
             core.disconnect_inner(false).await?;
@@ -659,6 +665,13 @@ impl AppCore {
                         })
                     });
                 }
+                let resource_core = self.clone();
+                let resource_connection = connection.clone();
+                *lock(&self.resource_job) = Some(tokio::spawn(async move {
+                    resource_core
+                        .poll_resources(resource_connection, generation)
+                        .await;
+                }));
                 let core = self.clone();
                 let task = tokio::spawn(async move {
                     core.poll_connection(connection, generation).await;
@@ -1505,6 +1518,11 @@ impl AppCore {
             let _ = task.await;
         }
         let old = lock(&self.connected).take();
+        let resources = lock(&self.resource_job).take();
+        if let Some(task) = resources {
+            task.abort();
+            let _ = task.await;
+        }
         if let Some(old) = old {
             let _ = old.ssh.close().await;
         }
@@ -1518,6 +1536,7 @@ impl AppCore {
             s.herdr_path = None;
             s.capability = None;
             s.host_key_fingerprint = None;
+            s.host_resources = None;
             s.agents.clear();
             s.providers.clear();
             s.selected_agent = None;

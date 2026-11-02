@@ -38,7 +38,7 @@ class HarnessTests(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         endpoint = f"http://127.0.0.1:{self.server.server_port}/models"
         environment = {"KITE_HARNESS_STATE_DIR": str(Path(self.temporary.name) / "harnesses"), "DEEPSEEK_API_KEY": "fixture-only",
-            "KITE_ENABLE_DSH": "0", "KITE_ENABLE_PLY": "0",
+            "KITE_ENABLE_DSH": "0", "KITE_ENABLE_PLY": "0", "KITE_AGENT_RESOURCE_CONTROL": "0",
             "KITE_DSH_MODEL": "deepseek-v4-flash", "KITE_DSH_PROVIDER": "deepseek-official",
             "KITE_PLY_MODEL": "deepseek-v4-flash", "KITE_PLY_PROVIDER": "deepseek",
             "KITE_PLY_COMMAND": json.dumps([sys.executable, str(FIXTURE), "ply"]),

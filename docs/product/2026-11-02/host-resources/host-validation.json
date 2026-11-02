@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0-alpha.46",
+  "sourceCommit": "6a4b06f7003d360ac45c8174e0246d1d7417c7ce",
+  "nodeIdentityPreserved": true,
+  "health": "ready",
+  "memoryLimitBytes": 10737418240,
+  "kernelLimitBytes": 9306382336,
+  "migrationReservedBytes": 1431035904,
+  "limitEnforced": true,
+  "controlPlaneOutsideAgentBudget": true,
+  "managedProcessCount": 19,
+  "profileAvailable": true,
+  "cpuSampleAvailable": true,
+  "sameLimitPersisted": true
+}
