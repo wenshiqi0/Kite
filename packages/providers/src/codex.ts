@@ -222,6 +222,36 @@ export async function backendRpc(
     rpc.close();
   }
 }
+export async function reportSessionBinding(
+  pane: string,
+  binary: string,
+  thread: string,
+): Promise<void> {
+  await api(binary, "pane.report_agent_session", {
+    pane_id: pane,
+    source: "herdr:codex",
+    agent: "codex",
+    agent_session_id: thread,
+    // Herdr's native SessionStart hook orders reports by Unix nanoseconds.
+    seq: Date.now() * 1_000_000,
+    session_start_source: "resume",
+    resume_argv: selfCommand("tui", "--pane", pane, "--herdr", binary, "--thread", thread),
+  });
+  const agents = array((await api(binary, "agent.list", {})).agents).map(object);
+  check(
+    agents.some(
+      (agent) =>
+        agent.pane_id === pane &&
+        same(agent.agent_session, {
+          source: "herdr:codex",
+          agent: "codex",
+          kind: "id",
+          value: thread,
+        }),
+    ),
+    "Herdr did not apply the verified Codex session binding",
+  );
+}
 export async function bind(pane: string, binary: string, expected?: string): Promise<Json> {
   const threads = array(object(await backendRpc(pane, "thread/loaded/list", {})).data).map(string);
   let thread: string;
@@ -232,13 +262,7 @@ export async function bind(pane: string, binary: string, expected?: string): Pro
     check(threads.length === 1, "expected exactly one pane-owned Codex thread");
     thread = string(threads[0]);
   }
-  await api(binary, "pane.report_agent_session", {
-    pane_id: pane,
-    source: "herdr:codex",
-    agent: "codex",
-    agent_session_id: thread,
-    resume_argv: selfCommand("tui", "--pane", pane, "--herdr", binary, "--thread", thread),
-  });
+  await reportSessionBinding(pane, binary, thread);
   await ready(readRegistry(pane));
   return { thread };
 }
@@ -302,7 +326,12 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
           /* inspect lost start without replay */
         }
       agents = array((await api(binary, "agent.list", {})).agents).map(object);
-      return { agent: agents.find((a) => a.terminal_id === pending.terminal_id) ?? pending };
+      const current = agents.find((a) => a.terminal_id === pending.terminal_id) ?? pending;
+      check(
+        !record.reference || sameReference(current, record),
+        "session identity changed; retry when the original owner is ready",
+      );
+      return { agent: current };
     }
     const oldPane = record.pane_id;
     let owner: Registry | undefined;
