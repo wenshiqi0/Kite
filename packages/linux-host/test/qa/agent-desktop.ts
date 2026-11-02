@@ -151,7 +151,8 @@ try {
         Number.isSafeInteger(delay) && delay >= 1 && delay <= 250,
         "invalid owned target dispatch delay",
       );
-      atomic(control, { dispatchMs: delay });
+      // A cold toolkit/font path can pause longer than a fixed keymap delay.
+      atomic(control, { dispatchMs: delay, stallMs: 1200 });
       await waitFor(() => fixture().dispatch_ms === delay, "busy target dispatch setup");
     }
     await ownFocus();
@@ -254,6 +255,7 @@ try {
   const result = {
     status: "PASS",
     busyInputDispatchMs: Number(values["busy-input-ms"] || 5),
+    busyInputStallMs: values["busy-input-ms"] ? 1200 : 0,
     actualX11: true,
     utf8Text: true,
     maxLengthUtf8Text: true,
