@@ -5,7 +5,7 @@ import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check } from "@kite/protocol";
-import { websocketProxy } from "./websocket";
+import { websocketProxy } from "../src/websocket";
 
 const root = mkdtempSync(join(tmpdir(), "kite-ws-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

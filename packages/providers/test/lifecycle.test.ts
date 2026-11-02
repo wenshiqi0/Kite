@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { json, object, type SessionRecord } from "@kite/protocol";
 import { privateDir, same, startTicks } from "@kite/runtime";
-import { catalogRead, catalogWrite } from "./catalog";
-import { harnessDirectory } from "./harness";
+import { catalogRead, catalogWrite } from "../src/catalog";
+import { harnessDirectory } from "../src/harness";
 import {
   type HarnessLifecycle,
   type LifecycleFact,
   lifecycleReap,
   managedLifecycleFact,
-} from "./lifecycle";
+} from "../src/lifecycle";
 
 let root = "",
   previousHome: string | undefined,

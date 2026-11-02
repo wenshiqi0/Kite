@@ -35,8 +35,8 @@ The client is native Rust/GTK 3. With Bun, Xvfb and a session D-Bus:
 ```sh
 cargo test -p kite-desktop -p kite-app --features kite-app/host-node --locked
 cargo build -p kite-node -p kite-desktop --locked
-python3 -m unittest discover -s desktop/linux -p 'test_*.py'
-xvfb-run -a dbus-run-session -- bun run scripts/native-desktop-probe.ts
+bun test packages/linux-host/test
+xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/native-panel.ts
 ```
 
 The native probe checks actual GTK rendering, a valid screenshot, single-instance activation, D-Bus actions and clean exit against an isolated CLI fixture. Rust presentation tests cover command deduplication, retained failures, timeout state and deferred upgrades. Installation tests cover native binary installation, custom sockets, preserved preferences and interrupted handover. The server X11 probe separately verifies pixels, Unicode input/keymap restoration and standard MCP images. These checks never query real user sessions or stop real Herdr/Sunshine services.
@@ -45,7 +45,7 @@ For live upgrades, a **real systemd user manager** is required:
 
 ```sh
 cargo build -p kite-node --locked
-python3 desktop/linux/qa/live_upgrade_probe.py --binary target/debug/kite-node --evidence /owned/output/live-upgrade.json
+bun run packages/linux-host/test/qa/live-upgrade.ts --binary target/debug/kite-node --evidence /owned/output/live-upgrade.json
 ```
 
 This probe installs into a temporary user tree, routes manager operations only to uniquely named `kite-qa-upgrade-*` socket/service units and uses the actual installer and generated units. It continuously verifies duplex framed data across an executable replacement, a blocked exactly-once write, the same controlled detached agent PID/heartbeat, new connections on the new generation, old-generation drain, incompatible/broken candidates, corrupt persistent state, MAINPID notification failure/rollback, replacement adoption and automatic recovery after its death while old streams remain open, a notification transition without duplicate writers and concurrent push-registration retention. The interpreter supplies only owned notification facts; no real model, catalogue, FCM credentials, Herdr or Sunshine service is used. All owned processes/units are removed. CI runs it only when a user manager is available and explicitly reports a skip otherwise. This is transport/control acceptance, not actual mobile video, physical network latency or real-model generation acceptance.
@@ -56,14 +56,14 @@ Agent docs/desktop acceptance uses an owned Node and X11 fixture:
 
 ```sh
 cargo build -p kite-node --locked
-KITE_QA_BUN="$(command -v bun)" xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
-uv run --no-project --with tiktoken python desktop/linux/qa/docs_budget.py --binary target/debug/kite-node
-python3 desktop/linux/qa/skill_consumers.py --binary target/debug/kite-node --dsh-source /path/to/installed/deepseek-harness
+xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node
+bun run packages/linux-host/test/qa/docs-budget.ts --binary target/debug/kite-node
+bun run packages/linux-host/test/qa/skill-consumers.ts --binary target/debug/kite-node --dsh-source /path/to/installed/deepseek-harness
 ```
 
 The desktop fixture receives actual mouse, key/chord and UTF-8 events, including the maximum documented text size; screenshots verify PNG bytes, crop origin, private permissions, image blocks and conditional omission. Its process identity/focus is checked before input, it records only counters and known-text hashes, and it never uses real catalogue facts. Run it on a real desktop only through that desktop's launch environment and keep interaction confined to the owned window. The live-upgrade probe additionally checks managed-skill installation and preservation of user edits. Documentation tests cover missing-node access, multi-topic cache invalidation and fresh-context refetch; no global read marker is permitted.
 
-Token budgets use pinned `tiktoken` reference encodings (`desktop/linux/qa/requirements.txt`). They report bytes, common first-load paths, unchanged responses and MCP schemas separately; they do not claim native Claude/DeepSeek token accounting or include image/reasoning costs. Consumer-loader tests use installed Codex/DeepSeek Harness metadata APIs without a model turn or harness config edits; missing optional installations are not evidence of live-model compatibility. Claude's common Agent Skills/MCP contract is separately documented.
+Token budgets use pinned `js-tiktoken` reference encodings (`packages/linux-host/package.json` and `bun.lock`). They report bytes, common first-load paths, unchanged responses and MCP schemas separately; they do not claim native Claude/DeepSeek token accounting or include image/reasoning costs. Consumer-loader tests use installed Codex/DeepSeek Harness metadata APIs without a model turn or harness config edits; missing optional installations are not evidence of live-model compatibility. Claude's common Agent Skills/MCP contract is separately documented.
 
 The domain and foundation suites use in-process SSH / HTTP fixtures and do not require an external host:
 

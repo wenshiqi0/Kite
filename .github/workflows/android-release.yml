@@ -66,20 +66,17 @@ jobs:
       - name: Install pinned Bun
         run: curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
 
-      - name: Check TypeScript server packages
+      - name: Check TypeScript packages and Linux host tooling
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           bun install --frozen-lockfile
           bun run check
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      - name: Check Linux host package
-        run: python3 -m unittest discover -s desktop/linux -p 'test_*.py'
-
       - name: Install native Linux QA dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libgtk-3-0t64 python3-gi python3-cairo python3-gi-cairo gir1.2-gtk-3.0 xvfb xauth dbus-x11 xdotool
+          sudo apt-get install -y libgtk-3-0t64 xvfb xauth dbus-x11 xdotool
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -128,24 +125,22 @@ jobs:
       - name: Check native Linux panel
         run: |
           cargo build -p kite-desktop --locked
-          xvfb-run -a dbus-run-session -- bun run scripts/native-desktop-probe.ts
+          xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/native-panel.ts
 
       - name: Check agent desktop CLI and MCP on owned X11
         run: |
           cargo build -p kite-node --locked
-          KITE_QA_BUN="$(command -v bun)" xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
+          xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node
 
       - name: Check agent documentation token budgets
         run: |
-          python3 -m venv "$RUNNER_TEMP/kite-docs-budget"
-          "$RUNNER_TEMP/kite-docs-budget/bin/pip" install -r desktop/linux/qa/requirements.txt
-          "$RUNNER_TEMP/kite-docs-budget/bin/python" desktop/linux/qa/docs_budget.py --binary target/debug/kite-node
+          bun run packages/linux-host/test/qa/docs-budget.ts --binary target/debug/kite-node
 
       - name: Check live Linux Node upgrade when a user manager is available
         run: |
           if [ -n "$XDG_RUNTIME_DIR" ] && systemctl --user show-environment >/dev/null 2>&1; then
             cargo build -p kite-node --locked
-            python3 desktop/linux/qa/live_upgrade_probe.py --binary target/debug/kite-node
+            bun run packages/linux-host/test/qa/live-upgrade.ts --binary target/debug/kite-node
           else
             echo '::notice::Live Node upgrade integration requires a real systemd user manager; skipped on this runner.'
           fi

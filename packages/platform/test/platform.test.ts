@@ -3,8 +3,8 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readJson } from "@kite/runtime";
-import { sessionEnvironment } from "./desktop";
-import { payload } from "./push";
+import { sessionEnvironment } from "../src/desktop";
+import { payload } from "../src/push";
 import {
   descendants,
   insideBudget,
@@ -14,7 +14,7 @@ import {
   resourceRoot,
   scopeName,
   userManagerCgroup,
-} from "./resources";
+} from "../src/resources";
 
 let root = "",
   home: string | undefined;

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Json, object, parse, string } from "@kite/protocol";
-import { accessToken, deliver, ProviderResponseError, type PushTransport } from "./push";
+import { accessToken, deliver, ProviderResponseError, type PushTransport } from "../src/push";
 
 const root = mkdtempSync(join(tmpdir(), "kite-push-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

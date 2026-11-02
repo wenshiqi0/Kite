@@ -9,7 +9,7 @@ import { listening } from "@kite/runtime/socket";
 
 const root = mkdtempSync(join(tmpdir(), "kite-ts-test-")),
   cli = resolve("target/bun/host.js"),
-  fixture = resolve("packages/host/src/fixtures-native.ts");
+  fixture = resolve("packages/host/test/fixtures/native.ts");
 beforeAll(async () => {
   const build = Bun.spawn([process.execPath, "run", "scripts/build-host.ts"], {
     stdout: "ignore",

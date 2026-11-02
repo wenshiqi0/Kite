@@ -61,7 +61,7 @@ Agent 能力按 [RFC 0019](docs/rfcs/0019-agent-docs-and-linux-desktop.md) 经�
 SPEC.md                  本规范
 Cargo.toml, Cargo.lock   Rust workspace 根，成员是 crates/*
 package.json, bun.lock   Bun workspace 根，成员是 packages/*
-packages/<package>/     TypeScript 服务端协议、机制与 provider 适配包
+packages/<package>/     TypeScript 服务端协议、机制、provider 适配和 Linux 交付工具包
 crates/<crate>/          每个 crate 一个目录，目录名就是 crate 名
 desktop/linux/           Linux 原生主机控制面板与用户级安装入口
 target/                  构建输出，不提交
@@ -69,6 +69,8 @@ android/                 Android 应用（Gradle 工程）
 ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
 docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
+
+- TypeScript 包使用 `src/` 存放产品或工具实现，`test/` 存放单测、夹具和验收程序；产品源码不得导入测试代码。`@kite/linux-host` 负责 Bun 安装器和打包器，Linux 安装、打包、验收不依赖 Python；原生 Linux 窗口继续由 Rust/GTK 实现。
 
 - 构建生成物一律不提交：`target/`、`android/app/build/`、`ios/build/`、`ios/Generated/`（UniFFI 生成的 Swift 绑定），以及 XcodeGen 生成的 `ios/Kite.xcodeproj`。
 

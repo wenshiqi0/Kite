@@ -63,7 +63,7 @@
 
 补齐 Core 的领域数据后，将新增数据一对一映射到 FFI，暂停等能力判断移回领域/应用层。调用端继续通过 Core 命令和 observer 获取状态；不让 Kotlin/Swift 读主机文件、猜版本或直接调用 provider SDK。Rust 库与原生绑定在同次构建生成，生成物不手改，参见[开发指南](../development.md)。
 
-如果增加 Node 主机动作，在 [host_node/mod.rs](../../crates/kite-app/src/host_node/mod.rs) 的参数白名单、版本检查和安装内容中同步处理，并保留有界桥接。只改 Rust 本地快照不等于一定要升级 Node 协议；按实际兼容面判定，不添加未经要求的旧版回退。新主机文件也要进入 [package.py](../../desktop/linux/package.py) 的打包输入和对应安装逻辑。
+如果增加 Node 主机动作，在 [host_node/mod.rs](../../crates/kite-app/src/host_node/mod.rs) 的参数白名单、版本检查和安装内容中同步处理，并保留有界桥接。只改 Rust 本地快照不等于一定要升级 Node 协议；按实际兼容面判定，不添加未经要求的旧版回退。新主机文件也要进入 [package.ts](../../packages/linux-host/src/package.ts) 的打包输入和对应安装逻辑。
 
 完成这里后继续做[客户端展示](harness-client.md)，不能只用 CLI 测通就宣称接入完成。
 

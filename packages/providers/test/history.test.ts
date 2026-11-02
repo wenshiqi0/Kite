@@ -11,8 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { object, parse, string } from "@kite/protocol";
-import { cursorPosition, historyProjection, questionRecords, sourceLine } from "./history";
-import { readGeneratedImage } from "./uploads";
+import { cursorPosition, historyProjection, questionRecords, sourceLine } from "../src/history";
+import { readGeneratedImage } from "../src/uploads";
 
 let home = "",
   previous: string | undefined;

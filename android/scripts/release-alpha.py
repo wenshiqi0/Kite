@@ -233,7 +233,7 @@ def main():
         target = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
         host_binary = target / "release/kite-node"
         require(host_binary.is_file(), "Linux host binary was not produced.")
-        run("python3", str(ROOT / "desktop/linux/package.py"), "--binary", str(host_binary),
+        run("bun", "run", str(ROOT / "packages/linux-host/src/package.ts"), "--binary", str(host_binary),
             "--output", str(linux_host), "--version", version, "--commit", head)
         clean_tree()
         abis, certificate = inspect_apk(apk, tools, version, code)

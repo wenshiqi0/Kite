@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atomic, bounded, locked, run, startTicks, tryLock } from "./index";
+import { atomic, bounded, locked, run, startTicks, tryLock } from "../src/index";
 
 const root = mkdtempSync(join(tmpdir(), "kite-runtime-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -14,7 +14,7 @@ test("advisory locks exclude other processes and release after failures", async 
     const child = await run([
       process.execPath,
       "-e",
-      `import {tryLock} from ${JSON.stringify(join(import.meta.dir, "index.ts"))};const release=tryLock(${JSON.stringify(path)});process.exit(release?1:0);`,
+      `import {tryLock} from ${JSON.stringify(join(import.meta.dir, "../src/index.ts"))};const release=tryLock(${JSON.stringify(path)});process.exit(release?1:0);`,
     ]);
     expect(child.code).toBe(0);
   } finally {

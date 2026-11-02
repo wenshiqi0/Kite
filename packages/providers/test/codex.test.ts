@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { reportSessionBinding } from "./codex";
+import { reportSessionBinding } from "../src/codex";
 
 const root = mkdtempSync(join(tmpdir(), "kite-codex-binding-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
