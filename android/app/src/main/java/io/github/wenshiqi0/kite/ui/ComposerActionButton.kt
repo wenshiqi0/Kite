@@ -7,7 +7,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.wenshiqi0.kite.R
@@ -33,7 +32,7 @@ fun ComposerActionButton(
         enabled = enabled,
         modifier = Modifier.semantics { contentDescription = description },
     ) {
-        if (busy) CircularProgressIndicator(Modifier.size(20.dp).clearAndSetSemantics {}, strokeWidth = 2.dp)
+        if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         else ProductIcon(if (interrupt) Mark.Stop else Mark.Send, if (enabled) KiteColors.Accent else KiteColors.Muted)
     }
 }

@@ -88,6 +88,13 @@ class WorkspaceRefinementPresentationTest {
         val send = test.targetContext.getString(R.string.send_prompt)
         val stop = test.targetContext.getString(R.string.interrupt_agent)
         fun button(description: String) = actionNode(requireNotNull(find(description=description)), AccessibilityNodeInfo.ACTION_CLICK)
+        fun unavailable(description: String): Boolean {
+            var node=find(description=description) ?: return false
+            while(true) {
+                if(!node.isEnabled)return true
+                node=node.parent ?: return false
+            }
+        }
         overlay({
             Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
                 Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=32.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
@@ -97,12 +104,12 @@ class WorkspaceRefinementPresentationTest {
             }
         }) {
             waitFor("Initialization shows a normal disabled send action"){find(description=send)!=null}
-            assertFalse(requireNotNull(find(description=send)).isEnabled)
+            assertTrue(unavailable(send))
             assertNull(find(description=stop))
             screenshot("composer-initializing-send.png")
             main { ready.value=true }
             waitFor("Idle empty input retains send"){find(description=send)!=null}
-            assertFalse(requireNotNull(find(description=send)).isEnabled)
+            assertTrue(unavailable(send))
             screenshot("composer-idle-send.png")
             main { working.value=true }
             waitFor("Active empty input offers interruption"){find(description=stop)!=null}
@@ -112,14 +119,16 @@ class WorkspaceRefinementPresentationTest {
             assertEquals(0,sends.get())
             screenshot("composer-working-stop.png")
             main { interrupting.value=true }
-            waitFor("In-flight interruption prevents duplicate taps"){find(description=stop)?.isEnabled==false}
+            waitFor("In-flight interruption is disabled"){unavailable(stop)}
+            gesture(bounds(stop),0f)
+            assertEquals("A real duplicate tap cannot resubmit interruption",1,stops.get())
             main { interrupting.value=false; hasInput.value=true }
             waitFor("Drafts can still send follow-up instructions during work"){find(description=send)!=null}
             assertTrue(button(send).performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Follow-up submits once"){sends.get()==1}
             assertEquals(1,stops.get())
             main { working.value=false; hasInput.value=false }
-            waitFor("Completion restores the disabled empty send action"){find(description=send)?.isEnabled==false}
+            waitFor("Completion restores the disabled empty send action"){unavailable(send)}
             assertNull(find(description=stop))
         }
     }
