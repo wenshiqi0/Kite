@@ -7,6 +7,9 @@ import { display, inputFocus, x11 } from "./x11";
 
 const { values } = parseArgs({ options: { state: { type: "string" } }, strict: true });
 check(values.state && process.env.DISPLAY, "owned fixture needs --state and DISPLAY");
+// The owned widget tests direct key delivery, independently of host IM daemons.
+process.env.GTK_IM_MODULE = "gtk-im-context-simple";
+process.env.XMODIFIERS = "@im=none";
 const statePath = values.state;
 const gtk = dlopen("libgtk-3.so.0", {
   gtk_init_check: { args: [T.ptr, T.ptr], returns: T.i32 },

@@ -398,6 +398,9 @@ export class X11 {
             }
           }
           this.x.XSync(this.display, 0);
+          // XSync finishes the server update; GTK/Xlib clients still need an
+          // event-loop turn to consume MappingNotify before the first key.
+          await sleep(50);
           await inputCommand(
             ["type", "--clearmodifiers", "--delay", "2", "--file", "-"],
             env,

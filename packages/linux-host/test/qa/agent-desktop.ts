@@ -84,7 +84,8 @@ async function waitFor(predicate: () => boolean, label: string): Promise<void> {
     if (predicate()) return;
     await sleep(30);
   }
-  throw new Error(`owned fixture did not reach ${label}`);
+  const state = existsSync(statePath) ? fixture() : {};
+  throw new Error(`owned fixture did not reach ${label}: ${JSON.stringify(state)}`);
 }
 async function ownFocus(): Promise<void> {
   check(
@@ -135,7 +136,10 @@ try {
     await ownFocus();
     await cli(["key", "ctrl+a"]);
     await cli(["type", "--stdin"], body);
-    await waitFor(() => fixture().text_sha256 === sha256(body), "Unicode batch");
+    await waitFor(
+      () => fixture().text_sha256 === sha256(body),
+      `Unicode batch length=${[...body].length} sha256=${sha256(body)}`,
+    );
   }
   check(keyboardMapHash() === before, "temporary keyboard mappings were not restored");
   await ownFocus();
