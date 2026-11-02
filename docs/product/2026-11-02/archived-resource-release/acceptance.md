@@ -10,4 +10,8 @@
 
 本地验证：Rust 工作区测试、host-node 生命周期命令测试、Clippy、71 项 Python 测试、73 项 Android JVM 测试、Release lint 与 Android 原生测试源码编译通过。覆盖 DSH/Ply 冷恢复后原生上下文与公开历史不变、输入与释放租约互斥、未归档不超时，以及新增适配器无需修改公共释放路由。Android 原生控件测试覆盖操作、进度和结果，当前主机缺少 KVM 权限，未执行设备测试，不声称实体手机验收。
 
-公开包与正式主机命令验证在发布完成后追加记录。
+主机使用同源 Alpha 51 安装包完成兼容交接，报告 ready 与 `archivedOnly=true`，身份和 Herdr/Sunshine PID 保留，原有两个未归档会话仍在。[主机记录](host-verification.json)。在正式主机新建 DSH/Ply 自有空会话，归档自动释放，再恢复到同一 provider 引用；原生上下文未变，未发起模型 turn，验收记录已移除。[实际 owner 验证](owned-owner-results.json)。
+
+另修正只读/构建预检把 PR 合并提交误判为已发布标签冲突的问题。9 项发布器回归通过；正式发布和启动发布仍严格核对标签与源码，不允许移动标签或替换附件。
+
+公开包验证在发布完成后追加记录。

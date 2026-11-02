@@ -1,0 +1,26 @@
+[
+  {
+    "provider": "dsh",
+    "released": true,
+    "restoredOriginalReference": true,
+    "contextUnchanged": true,
+    "noModelTurn": true,
+    "command": {
+      "failed": 0,
+      "reclaimed": 0,
+      "retained": 0
+    }
+  },
+  {
+    "provider": "ply",
+    "released": true,
+    "restoredOriginalReference": true,
+    "contextUnchanged": true,
+    "noModelTurn": true,
+    "command": {
+      "failed": 0,
+      "reclaimed": 0,
+      "retained": 0
+    }
+  }
+]

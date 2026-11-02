@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0-alpha.51",
+  "health": "ready",
+  "sessionLifecycle": {
+    "archivedOnly": true,
+    "lastScanMs": 1793589353950,
+    "reclaimed": 4,
+    "scanIntervalSeconds": 30
+  },
+  "identityRetained": true,
+  "externalServicesRetained": true,
+  "activeSessionCount": 2,
+  "ownedVerificationRecordsRemoved": true,
+  "localHostSource": "8084dd4d107d903afb0f8c5338df4133883a425f"
+}
