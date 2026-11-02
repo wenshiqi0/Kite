@@ -25,13 +25,13 @@ A native workspace for local and remote coding agents, built around [herdr](http
 ## Get started
 
 1. Install the ARM64 Android APK from [Releases](https://github.com/wenshiqi0/Kite/releases).
-2. Enable the matching [Linux desktop host](docs/linux-desktop.md) with SSH, herdr and Sunshine. Its native panel can close while the background node and agents continue.
+2. Enable the matching [Linux desktop host](docs/linux-desktop.md) or [Mac local host](docs/macos-host.md) with SSH, Herdr and Sunshine. Its native panel can close while the background node and agents continue.
 3. Add Kite's public key to your host, verify the host fingerprint, and connect. Kite reconnects to the host agent automatically, preparing a default Codex session when needed. Additional project sessions are optional.
 4. Open the desktop and pair with Sunshine when prompted. Use the fullscreen orientation button even when phone auto-rotation is off.
 
 The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Android supports remote desktop sound; host local playback stays enabled. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
 
-The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS. The Linux Alpha delivers the host node and management panel. The new [macOS client](docs/macos.md) provides a native remote workspace; see its validation boundaries before treating it as a distributed release. Linux client UI and macOS hosting remain separate stages.
+The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS. The Linux Alpha delivers the host node and management panel. The [Mac app](docs/macos.md) provides a native remote workspace and independent local host management. See the [Mac host acceptance boundaries](docs/product/2026-11-03/macos-host/acceptance.md); desktop privacy setup and physical media validation remain separate. Linux client UI is a later stage.
 
 ## Documentation
 

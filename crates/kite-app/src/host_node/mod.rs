@@ -24,7 +24,10 @@ use tokio::{
 mod bridge;
 mod desktop;
 mod docs;
+mod launchd;
 mod lifecycle;
+#[cfg(target_os = "macos")]
+mod macos;
 mod mcp;
 mod notifications;
 mod push;
@@ -76,6 +79,8 @@ pub struct Config {
     pub herdr: PathBuf,
     pub bun: PathBuf,
     pub systemctl: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launchctl: Option<PathBuf>,
     #[serde(default = "crate::resources::default_agent_memory_limit")]
     pub agent_memory_limit_bytes: u64,
     #[serde(skip)]
@@ -101,6 +106,10 @@ impl Config {
             || !self.bun.is_absolute()
             || !self.systemctl.is_absolute()
             || self
+                .launchctl
+                .as_ref()
+                .is_some_and(|path| !path.is_absolute())
+            || self
                 .push_service_account
                 .as_ref()
                 .is_some_and(|path| !path.is_absolute())
@@ -111,7 +120,7 @@ impl Config {
             || self.services.iter().any(|s| {
                 s.name.is_empty()
                     || s.unit.starts_with('-')
-                    || !s.unit.ends_with(".service")
+                    || (self.launchctl.is_none() && !s.unit.ends_with(".service"))
                     || !s
                         .unit
                         .bytes()
@@ -194,6 +203,10 @@ impl Drop for NodeLock {
 }
 
 pub fn run(mut args: Vec<String>) -> Result<i32> {
+    #[cfg(target_os = "macos")]
+    if args.first().map(String::as_str) == Some("host") {
+        return macos::run(&args[1..]);
+    }
     let socket_option = leading_option(&mut args, "--socket")?.map(PathBuf::from);
     match args.first().map(String::as_str) {
         Some("docs") => return docs::cli(&args[1..]),
@@ -203,7 +216,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
         }
         Some("--help" | "-h") => {
             println!(
-                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured Linux X11 desktop\n  kite status | sessions [release-archived] | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
+                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured host desktop\n  kite status | sessions [release-archived] | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
             );
             return Ok(0);
         }
@@ -222,12 +235,13 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1,"resourceApi":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
                 );
                 Ok(0)
             }
             "serve" => {
                 let activated = args.iter().any(|s| s == "--activated");
+                if activated && cfg!(target_os = "macos") {return Err(Error::Config("systemd socket activation is not supported on macOS"));}
                 let replacement = args.iter().any(|s| s == "--handover");
                 let bootstrap = args.iter().any(|s| s == "--generation-bootstrap");
                 args.retain(|s| s != "--activated" && s != "--handover" && s != "--generation-bootstrap");
@@ -355,6 +369,11 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                     value["path"]=json!(output);
                 }
                 println!("{value}");Ok(0)
+            }
+            "captured-display" => {
+                if args.len() != 2 || args[1].parse::<u16>().is_err() { return Err(Error::Config("captured-display requires a port")); }
+                let mut request = NodeRequest::new("captured-display"); request.args = args[1..].to_vec();
+                println!("{}", rpc(&socket,request).await?); Ok(0)
             }
             "status" | "api-version" | "sessions" | "ensure" | "notifications"
             | "notification-get" => {
@@ -684,7 +703,10 @@ impl Node {
         };
         command.envs(&self.config.environment);
         command
-            .env("KITE_AGENT_RESOURCE_CONTROL", "1")
+            .env(
+                "KITE_AGENT_RESOURCE_CONTROL",
+                if cfg!(target_os = "linux") { "1" } else { "0" },
+            )
             .env("KITE_HOST_BACKEND_PATH", &self.config.backend);
         Ok(command)
     }
@@ -706,6 +728,19 @@ impl Node {
             None
         };
         match request.method.as_str() {
+            "captured-display" => {
+                if request.args.len() != 1 || request.args[0].parse::<u16>().is_err() {
+                    return Err(Error::Protocol("invalid capture port"));
+                }
+                let mut command = Command::new(&self.config.bun);
+                command
+                    .arg(&self.config.backend)
+                    .arg("captured-display")
+                    .args(&request.args)
+                    .envs(&self.config.environment)
+                    .env("KITE_HOST_BACKEND_PATH", &self.config.backend);
+                Ok(serde_json::from_slice(&bounded_output(command).await?)?)
+            }
             "sessions-release-archived" => Ok(serde_json::to_value(lifecycle::scan(self).await?)?),
             "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
             "resource-limit" => Ok(serde_json::to_value(
@@ -761,7 +796,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {
@@ -787,6 +822,10 @@ impl Node {
                         .filter(|(s, _)| name == "all" || s.name == name)
                     {
                         if state["active"] == true {
+                            continue;
+                        }
+                        if let Some(control) = &self.config.launchctl {
+                            launchd::start(control, &service.unit).await?;
                             continue;
                         }
                         let mut c = Command::new(&self.config.systemctl);
@@ -820,6 +859,23 @@ impl Node {
     }
 
     async fn inspect_services(&self) -> Vec<Value> {
+        if let Some(control) = &self.config.launchctl {
+            let values = launchd::inspect(control, &self.config.services).await;
+            #[cfg(target_os = "macos")]
+            {
+                let mut result = Vec::with_capacity(values.len());
+                for (service, value) in self.config.services.iter().zip(values) {
+                    result.push(if service.name == "Herdr" && service.external {
+                        macos::herdr_state(&self.config.herdr, service).await
+                    } else {
+                        value
+                    });
+                }
+                return result;
+            }
+            #[cfg(not(target_os = "macos"))]
+            return values;
+        }
         if self.config.services.is_empty() {
             return vec![];
         }
@@ -1053,6 +1109,7 @@ mod tests {
             herdr: PathBuf::from("/bin/sh"),
             bun: PathBuf::from("/usr/bin/python3"),
             systemctl: PathBuf::from("/usr/bin/false"),
+            launchctl: None,
             agent_memory_limit_bytes: crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
             source_path: None,
             push_service_account: None,

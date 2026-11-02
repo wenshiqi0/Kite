@@ -2057,6 +2057,16 @@ impl AppCore {
                         .into_iter()
                         .find(|a| a.terminal_id == id)
                         .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+                    if !core
+                        .snapshot()
+                        .providers
+                        .iter()
+                        .any(|p| p.pause && Some(p.id.as_str()) == agent.agent.as_deref())
+                    {
+                        return Err(AppError::State(
+                            "process pause is not supported by this host/provider".into(),
+                        ));
+                    }
                     let token = process::prepare(&c.api, &c.ssh, &agent).await?;
                     lock(&core.paused_processes).insert(key.clone(), token.clone());
                     core.persist_pauses()?;

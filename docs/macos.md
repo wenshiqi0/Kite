@@ -1,6 +1,6 @@
 # macOS client
 
-Kite's Mac client uses SwiftUI/AppKit and the same Rust Core as Android. It connects to a remote Linux Kite host over SSH, shows sessions and Chat, and receives Sunshine desktop video and sound. It does not require local Herdr, Sunshine or Kite Node. macOS hosting is a separate, pending stage.
+Kite's Mac app uses SwiftUI/AppKit and the same Rust Core as Android. Its client connects over SSH, shows sessions and Chat, and receives Sunshine desktop video and sound. The independent [local host role](macos-host.md) serves this Mac to phones and other computers. Pure client use does not require local Herdr, Sunshine or Kite Node.
 
 ## Build and run
 
@@ -14,7 +14,7 @@ macos/scripts/configure-signing.sh <certificate-SHA-1>
 macos/scripts/install-keychain-helper.sh
 macos/scripts/build.sh
 # Quit any running Kite before replacing the installed bundle.
-ditto macos/build/DerivedData/Build/Products/Debug/Kite.app "$HOME/Applications/Kite.app"
+macos/scripts/install.sh
 open "$HOME/Applications/Kite.app"
 ```
 

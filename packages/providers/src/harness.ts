@@ -20,7 +20,9 @@ import {
   atomic,
   home,
   privateDir,
+  processArgv,
   readJson,
+  run,
   selfCommand,
   sha256,
   sleep,
@@ -173,6 +175,11 @@ export async function providers(): Promise<Json[]> {
         if (p === "dsh" || p === "ply") {
           if (!(await probe(p)).length) return null;
         } else if (!Bun.which(p)) return null;
+        if (p === "codex" && process.platform === "darwin") {
+          const version = (await run(["codex", "--version"], { timeout: 10000 })).stdout.toString();
+          const match = /(\d+)\.(\d+)\.(\d+)/.exec(version);
+          if (!match || (Number(match[1]) === 0 && Number(match[2]) < 166)) return null;
+        }
         return {
           id: p,
           managed_chat: p !== "claude",
@@ -180,7 +187,7 @@ export async function providers(): Promise<Json[]> {
           attachments: p !== "claude",
           skills: p === "codex",
           usage: p === "codex",
-          pause: p === "codex" || p === "claude",
+          pause: process.platform === "linux" && (p === "codex" || p === "claude"),
           terminal: p === "codex" || p === "claude",
           release: p !== "claude",
         };
@@ -249,7 +256,7 @@ export async function openHarness(record: SessionRecord): Promise<ObjectValue> {
     const pid = Number(state.pid),
       ticks = string(state.start_ticks);
     check(startTicks(pid) === ticks, "harness owner identity changed");
-    const argv = readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+    const argv = processArgv(pid);
     check(
       argv.includes(thread) &&
         argv.some((arg) => basename(arg).startsWith("kite_harness_runtime.")),

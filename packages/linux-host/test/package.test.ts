@@ -71,37 +71,45 @@ test("produces identical archives with only distribution files and a standalone 
   );
 });
 
-test("the published installer runs outside the repository with only Bun and owned commands", async () => {
-  const owned = join(root, "standalone"),
-    bin = join(owned, "bin"),
-    home = join(owned, "home"),
-    source = join(owned, "source"),
-    output = join(owned, "host.tar.gz"),
-    version = "0.2.0-alpha.57";
-  for (const path of [owned, bin, home, source]) mkdirSync(path, { recursive: true });
-  const executable = (path: string, body: string) => {
-    writeFileSync(path, `#!${process.execPath}\n${body}\n`);
-    chmodSync(path, 0o755);
-  };
-  executable(
-    join(source, "kite-node"),
-    `console.log(JSON.stringify({version:${JSON.stringify(version)}}));`,
-  );
-  writeFileSync(join(source, "kite-desktop"), "owned native panel fixture");
-  executable(join(bin, "systemctl"), "process.exit(0);");
-  executable(join(bin, "herdr"), "process.exit(0);");
-  await packageHost({ binary: join(source, "kite-node"), output, version, commit: "b".repeat(40) });
-  await command(["tar", "-xzf", output, "-C", owned]);
-  const packageRoot = join(owned, `kite-host-${version}-linux-x86_64`);
-  const result = await command([process.execPath, join(packageRoot, "install.js")], {
-    cwd: owned,
-    env: { HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
-    timeout: 15000,
-  });
-  expect(JSON.parse(result.stdout).version).toBe(version);
-  const configuration = JSON.parse(readFileSync(join(home, ".config/kite/node.json"), "utf8"));
-  expect(configuration.backend).toBe(join(home, ".local/lib/kite/host.js"));
-  expect(configuration.python).toBeUndefined();
-  expect(configuration.bun).toBeDefined();
-  expect(existsSync(join(home, ".local/bin/kite-node"))).toBe(true);
-});
+test.skipIf(process.platform !== "linux")(
+  "the published installer runs outside the repository with only Bun and owned commands",
+  async () => {
+    const owned = join(root, "standalone"),
+      bin = join(owned, "bin"),
+      home = join(owned, "home"),
+      source = join(owned, "source"),
+      output = join(owned, "host.tar.gz"),
+      version = "0.2.0-alpha.57";
+    for (const path of [owned, bin, home, source]) mkdirSync(path, { recursive: true });
+    const executable = (path: string, body: string) => {
+      writeFileSync(path, `#!${process.execPath}\n${body}\n`);
+      chmodSync(path, 0o755);
+    };
+    executable(
+      join(source, "kite-node"),
+      `console.log(JSON.stringify({version:${JSON.stringify(version)}}));`,
+    );
+    writeFileSync(join(source, "kite-desktop"), "owned native panel fixture");
+    executable(join(bin, "systemctl"), "process.exit(0);");
+    executable(join(bin, "herdr"), "process.exit(0);");
+    await packageHost({
+      binary: join(source, "kite-node"),
+      output,
+      version,
+      commit: "b".repeat(40),
+    });
+    await command(["tar", "-xzf", output, "-C", owned]);
+    const packageRoot = join(owned, `kite-host-${version}-linux-x86_64`);
+    const result = await command([process.execPath, join(packageRoot, "install.js")], {
+      cwd: owned,
+      env: { HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` },
+      timeout: 15000,
+    });
+    expect(JSON.parse(result.stdout).version).toBe(version);
+    const configuration = JSON.parse(readFileSync(join(home, ".config/kite/node.json"), "utf8"));
+    expect(configuration.backend).toBe(join(home, ".local/lib/kite/host.js"));
+    expect(configuration.python).toBeUndefined();
+    expect(configuration.bun).toBeDefined();
+    expect(existsSync(join(home, ".local/bin/kite-node"))).toBe(true);
+  },
+);

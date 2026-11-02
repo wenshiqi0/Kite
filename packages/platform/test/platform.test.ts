@@ -99,25 +99,28 @@ test("push contains only bounded event identity and validates event kinds", () =
   ).toThrow();
   expect(() => payload({ host_id: "owned" }, { id: "a".repeat(64), kind: "invented" })).toThrow();
 });
-test("desktop environment removes supervisor and agent identity variables", () => {
-  const previous = { ...process.env };
-  try {
-    process.env.DISPLAY = ":98765";
-    delete process.env.XDG_SESSION_TYPE;
-    process.env.HERDR_PANE_ID = "owned-pane";
-    process.env.NOTIFY_SOCKET = "owned-notify";
-    process.env.CODEX_THREAD_ID = "owned-thread";
-    process.env.CHROME_USER_DATA_DIR = "/owned/profile";
-    const env = sessionEnvironment();
-    expect(env.HERDR_PANE_ID).toBeUndefined();
-    expect(env.NOTIFY_SOCKET).toBeUndefined();
-    expect(env.CODEX_THREAD_ID).toBeUndefined();
-    expect(env.CHROME_USER_DATA_DIR).toBeUndefined();
-  } finally {
-    for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
-    Object.assign(process.env, previous);
-  }
-});
+test.skipIf(process.platform !== "linux")(
+  "desktop environment removes supervisor and agent identity variables",
+  () => {
+    const previous = { ...process.env };
+    try {
+      process.env.DISPLAY = ":98765";
+      delete process.env.XDG_SESSION_TYPE;
+      process.env.HERDR_PANE_ID = "owned-pane";
+      process.env.NOTIFY_SOCKET = "owned-notify";
+      process.env.CODEX_THREAD_ID = "owned-thread";
+      process.env.CHROME_USER_DATA_DIR = "/owned/profile";
+      const env = sessionEnvironment();
+      expect(env.HERDR_PANE_ID).toBeUndefined();
+      expect(env.NOTIFY_SOCKET).toBeUndefined();
+      expect(env.CODEX_THREAD_ID).toBeUndefined();
+      expect(env.CHROME_USER_DATA_DIR).toBeUndefined();
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
+      Object.assign(process.env, previous);
+    }
+  },
+);
 
 test("sampling uses the user manager outside the app slice", async () => {
   const manager = "/user.slice/user-1000.slice/user@1000.service";

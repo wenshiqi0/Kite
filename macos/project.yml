@@ -24,6 +24,10 @@ targets:
       - name: Build Rust core and Swift bindings
         script: '"${SRCROOT}/scripts/build-rust.sh"'
         basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Embed native host and Bun runtime
+        script: '"${SRCROOT}/scripts/embed-host.sh"'
+        basedOnDependencyAnalysis: false
     dependencies:
       - sdk: Security.framework
       - sdk: VideoToolbox.framework

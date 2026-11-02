@@ -373,6 +373,7 @@ export async function configure(
   });
 }
 export async function reclaimCache(unit: string): Promise<void> {
+  if (process.platform === "darwin") return;
   const path = await group(unit);
   if (!path || !/^kite-agent-\d+-\d+\.scope$/.test(unit) || !path.includes(`/${SLICE}/`)) return;
   try {
@@ -384,6 +385,7 @@ export async function reclaimCache(unit: string): Promise<void> {
   }
 }
 export async function killScope(unit: string): Promise<void> {
+  check(process.platform === "linux", "kernel resource scopes are unavailable on this host");
   const path = await group(unit);
   if (!path) return;
   check(
@@ -624,6 +626,11 @@ export async function reserveExisting(owner: OwnerIdentity): Promise<void> {
   check(admission.allowed, "agent resource admission denied");
 }
 export async function admit(pane: string, pid: number, shellPid?: number): Promise<OwnerIdentity> {
+  if (process.platform === "darwin") {
+    const ticks = startTicks(pid);
+    check(ticks, "agent process identity unavailable");
+    return { pane, pid, start_ticks: ticks, registry_managed: false };
+  }
   const admission = object(await node("resource-admit", "--pane", pane, "--pid", String(pid)));
   check(admission.allowed, "agent resource admission denied");
   const ticks = startTicks(pid);

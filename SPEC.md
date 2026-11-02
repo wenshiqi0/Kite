@@ -247,7 +247,7 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 
 ### 5.5 macOS
 
-按 [RFC 0027](docs/rfcs/0027-macos-client.md) 优先实现 macOS 14+ 原生客户端，Linux 客户端与 macOS 主机适配独立推进。使用 SwiftUI/AppKit、独立本机 Keychain 身份和应用支持目录；不迁移其他设备私钥。XcodeGen 维护 `macos/project.yml`，生成的工程、绑定和构建目录不提交。界面更新使用 MainActor，文案使用平台字符串资源。
+按 [RFC 0027](docs/rfcs/0027-macos-client.md) 实现 macOS 14+ 原生客户端，按 [RFC 0029](docs/rfcs/0029-macos-host.md) 集成本机主机角色。SwiftUI/AppKit 面板通过随应用交付的结构化 Node CLI 管理 launchd 用户服务；关闭客户端不停止后台节点或 agent。Mac 沿用 SSH、私有 IPC 和既有会话协议；进程机制使用 Darwin API。Mac 不声明 Linux 内存硬限额、进程暂停或 X11 桌面 MCP 能力。客户端有独立本机 Keychain 身份和应用支持目录，不迁移其他设备私钥。XcodeGen 维护 `macos/project.yml`，生成的工程、绑定和构建目录不提交。界面更新使用 MainActor，文案使用平台字符串资源。
 
 Apple 媒体在 FFI 的 `apple` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
 

@@ -67,7 +67,7 @@ pub async fn require_node(ssh: &Session) -> Result<(), Error> {
         .await?;
     if output.exit_status != Some(0) {
         return Err(Error::NodeUnavailable(
-            "enable the Linux Kite desktop host service",
+            "enable the Kite desktop host service on the target machine",
         ));
     }
     let info: Value = serde_json::from_slice(&output.stdout)?;

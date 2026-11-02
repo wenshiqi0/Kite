@@ -15,11 +15,11 @@ import {
   UUID,
 } from "@kite/protocol";
 import {
-  clockTicks,
   home,
   live,
   locked,
   pgid,
+  processStartedMs,
   readJson,
   same,
   sha256,
@@ -101,13 +101,7 @@ async function codexLifecycleFact(
   }
   if (!loaded.length && record.reference?.kind === "id" && UUID.test(record.reference.value))
     inspect(record.reference.value);
-  const boot = Number(
-      readFileSync("/proc/stat", "utf8")
-        .split("\n")
-        .find((s) => s.startsWith("btime "))
-        ?.split(/\s+/)[1],
-    ),
-    startedMs = Math.trunc((boot + Number(owner.start_ticks) / clockTicks()) * 1000),
+  const startedMs = processStartedMs(owner.start_ticks),
     lastOpen = owner.last_open_ms ?? startedMs;
   return {
     session_id: record.id,
@@ -159,7 +153,7 @@ export async function managedLifecycleFact(record: SessionRecord): Promise<Lifec
       pane,
       pid,
       start_ticks: ticks,
-      budget_unit: scopeName(pane, pid, ticks),
+      ...(process.platform === "linux" ? { budget_unit: scopeName(pane, pid, ticks) } : {}),
     },
     histories: Json[] = [],
     mtimes: number[] = [];
@@ -250,6 +244,13 @@ export function lifecycleAdapters(binary: string): Partial<Record<Provider, Harn
         return { reclaimed: false, reason: "activity_changed" };
       const owner = fresh.owner;
       check(startTicks(owner.pid) === owner.start_ticks, "harness owner changed before release");
+      if (process.platform === "darwin") {
+        check(pgid(owner.pid) === owner.pid, "harness process group identity changed");
+        process.kill(-owner.pid, "SIGTERM");
+        const deadline = Date.now() + 4000;
+        while (live(owner.pid, owner.start_ticks) && Date.now() < deadline) await sleep(50);
+        return { reclaimed: !live(owner.pid, owner.start_ticks), session_id: record.id };
+      }
       const cgroup = readFileSync(`/proc/${owner.pid}/cgroup`, "utf8").trim();
       check(
         owner.budget_unit && cgroup.endsWith(`/kite-agents.slice/${owner.budget_unit}`),

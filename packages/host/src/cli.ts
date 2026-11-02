@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
 import { configure, execBudgeted, reapOrphans, sample } from "@kite/platform";
+import { capturedDisplay } from "@kite/platform/captured-display";
 import { CLIPBOARD_LIMIT, clipboard } from "@kite/platform/clipboard";
 import { desktop } from "@kite/platform/desktop";
 import { deliver } from "@kite/platform/push";
@@ -33,6 +34,11 @@ export async function main(argv: string[]): Promise<void> {
   const output = (v: Json) => {
     process.stdout.write(`${JSON.stringify(v)}\n`);
   };
+  if (action === "captured-display") {
+    check(argv.length === 2, "captured-display requires a port");
+    output(await capturedDisplay(Number(argv[1])));
+    return;
+  }
   if (action === "harness-owner") {
     await serveOwner(string(argv[1]));
     return;

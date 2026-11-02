@@ -137,6 +137,17 @@ pub fn parse(value: Value) -> Result<Request> {
 
 pub async fn execute(config: &Config, request: Request) -> Result<Value> {
     request.validate()?;
+    if cfg!(target_os = "macos") {
+        return if matches!(request, Request::Status) {
+            Ok(
+                json!({"available":false,"reason":"agent_desktop_actions_unavailable_on_macos","backend":"macos"}),
+            )
+        } else {
+            Err(Error::Config(
+                "agent desktop actions are not supported on macOS; Sunshine streaming is separate",
+            ))
+        };
+    }
     if config
         .environment
         .get("DISPLAY")

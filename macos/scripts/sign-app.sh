@@ -19,5 +19,10 @@ fi
 for LIBRARY in "$APP"/Contents/MacOS/*.dylib; do
     if [ -f "$LIBRARY" ]; then codesign --force --sign "$IDENTITY" --timestamp=none "$LIBRARY"; fi
 done
+HOST_APP="$APP/Contents/Resources/host/Kite Host.app"
+for EXECUTABLE in "$HOST_APP/Contents/MacOS/kite-node" "$HOST_APP/Contents/MacOS/bun" "$HOST_APP/Contents/MacOS/host-platform"; do
+    if [ -f "$EXECUTABLE" ]; then codesign --force --sign "$IDENTITY" --timestamp=none "$EXECUTABLE"; fi
+done
+if [ -d "$HOST_APP" ]; then codesign --force --sign "$IDENTITY" --timestamp=none --identifier io.github.wenshiqi0.kite.mac.host "$HOST_APP"; fi
 codesign --force --sign "$IDENTITY" --timestamp=none --identifier io.github.wenshiqi0.kite.mac "$APP"
 codesign --verify --deep --strict "$APP"

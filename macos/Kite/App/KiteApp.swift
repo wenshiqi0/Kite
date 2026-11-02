@@ -5,6 +5,7 @@ import Darwin
 struct KiteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = ClientModel()
+    @State private var host = LocalHostModel()
     var body: some Scene {
         Window("Kite", id: "workspace") {
             WorkspaceView(model: model)
@@ -13,6 +14,7 @@ struct KiteApp: App {
                 .task {
                     delegate.model = model
                     await model.initialize()
+                    await host.refresh()
                     #if DEBUG
                     if let index = CommandLine.arguments.firstIndex(of: "--identity-probe"),
                        CommandLine.arguments.indices.contains(index + 1) {
@@ -32,9 +34,28 @@ struct KiteApp: App {
                 Button(tr("disconnect")) { model.disconnect() }.disabled(!model.connected)
                 Button(tr("watch")) { model.takeover(false) }.keyboardShortcut("w", modifiers: [.command, .option])
             }
+            CommandGroup(after: .appSettings) { HostWindowButton() }
+        }
+        Window(tr("local_host"), id: "local-host") {
+            LocalHostView(host: host).preferredColorScheme(.dark)
+        }.defaultSize(width: 680, height: 760)
+        MenuBarExtra("Kite", systemImage: "paperplane") {
+            Text(host.statusLabel)
+            HostWindowButton()
+            Divider()
+            WorkspaceWindowButton()
         }
         Settings { SettingsView(model: model).preferredColorScheme(.dark) }
     }
+}
+
+private struct HostWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View { Button(tr("local_host")) { openWindow(id: "local-host") } }
+}
+private struct WorkspaceWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View { Button(tr("remote_workspace")) { openWindow(id: "workspace") } }
 }
 
 @MainActor

@@ -1,15 +1,5 @@
-import {
-  chmodSync,
-  closeSync,
-  constants,
-  existsSync,
-  lstatSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "node:fs";
-import { basename, join } from "node:path";
+import { chmodSync, closeSync, constants, existsSync, lstatSync, openSync } from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
 import {
   admit,
   descendants,
@@ -39,6 +29,8 @@ import {
   home,
   locked,
   privateDir,
+  processArgv,
+  processContext,
   readJson,
   run,
   same,
@@ -48,7 +40,7 @@ import {
   startTicks,
 } from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
-import { bridgeSocket, listening } from "@kite/runtime/socket";
+import { bridgeSocket, listening, requirePrivateSocket } from "@kite/runtime/socket";
 import { catalogRead, patchSession, sessionLock, stateDir } from "./catalog";
 import { harnessDirectory, harnessInfo, openHarness } from "./harness";
 import { historyFiles } from "./history";
@@ -71,23 +63,12 @@ export function readRegistry(pane: string): Registry {
     socket = string(row.socket);
   check(row.protocol === 1 && row.pane === pane, "backend protocol mismatch");
   check(startTicks(pid) === ticks, "backend process changed");
-  const args = readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+  const args = processArgv(pid);
   check(
     args.includes("app-server") && args.includes(`unix://${socket}`),
     "backend identity mismatch",
   );
-  const link = lstatSync(socket),
-    info = statSync(socket),
-    parent = statSync(join(realpathSync(socket), ".."));
-  check(
-    link.uid === process.getuid?.() &&
-      info.isSocket() &&
-      info.uid === process.getuid?.() &&
-      !(info.mode & 0o077) &&
-      parent.uid === process.getuid?.() &&
-      !(parent.mode & 0o077),
-    "backend socket is not private",
-  );
+  requirePrivateSocket(socket);
   return {
     ...row,
     protocol: 1,
@@ -127,21 +108,41 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
     }
     const version = (await run(["codex", "--version"], { timeout: 10000 })).stdout.toString(),
       match = /(\d+)\.(\d+)\.(\d+)/.exec(version);
+    const minimum = process.platform === "darwin" ? 166 : 164;
     check(
-      match && (Number(match[1]) > 0 || Number(match[2]) >= 164),
-      "Codex 0.164.0 or newer is required",
+      match && (Number(match[1]) > 0 || Number(match[2]) >= minimum),
+      `Codex 0.${minimum}.0 or newer is required`,
     );
     const processInfo = object(
         (await api(binary, "pane.process_info", { pane_id: pane })).process_info,
       ),
       shell = Number(processInfo.shell_pid),
-      cwd = realpathSync(`/proc/${shell}/cwd`);
+      context = processContext(shell),
+      cwd = context.cwd;
     const env: NodeJS.ProcessEnv = { ...process.env, KITE_HOST_BACKEND_PATH: entry() };
     delete env.CODEX_THREAD_ID;
-    for (const value of readFileSync(`/proc/${shell}/environ`).toString().split("\0")) {
-      if (value.startsWith("HERDR_")) {
-        const at = value.indexOf("=");
-        env[value.slice(0, at)] = value.slice(at + 1);
+    if (process.platform === "darwin") {
+      // SIP-protected shells can omit their environment from KERN_PROCARGS2.
+      // Derive hook context from the verified pane API and configured server.
+      const server = object(
+        JSON.parse(
+          (await run([binary, "status", "server", "--json"], { timeout: 5000 })).stdout.toString(),
+        ) as unknown,
+      );
+      const socket = string(server.socket);
+      check(
+        server.running === true &&
+          server.compatible === true &&
+          isAbsolute(socket) &&
+          lstatSync(socket).isSocket() &&
+          lstatSync(socket).uid === process.getuid?.(),
+        "Herdr server identity unavailable",
+      );
+      env.HERDR_PANE_ID = pane;
+      env.HERDR_SOCKET_PATH = socket;
+    } else {
+      for (const [name, value] of Object.entries(context.environment)) {
+        if (name.startsWith("HERDR_")) env[name] = value;
       }
     }
     check(env.HERDR_PANE_ID === pane && env.HERDR_SOCKET_PATH, "pane environment unavailable");
@@ -154,21 +155,32 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
       constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND,
       0o600,
     );
-    const command = selfCommand(
-      "resources",
-      "exec-agent",
-      "--pane",
-      pane,
-      "--herdr",
-      binary,
-      "--",
+    const launch = [
       "codex",
       "-c",
       "check_for_update_on_startup=false",
       "app-server",
       "--listen",
       `unix://${socket}`,
-    );
+    ];
+    const command =
+      process.platform === "darwin"
+        ? launch
+        : selfCommand(
+            "resources",
+            "exec-agent",
+            "--pane",
+            pane,
+            "--herdr",
+            binary,
+            "--",
+            "codex",
+            "-c",
+            "check_for_update_on_startup=false",
+            "app-server",
+            "--listen",
+            `unix://${socket}`,
+          );
     let child: Bun.Subprocess;
     try {
       child = Bun.spawn(command, {
@@ -192,11 +204,11 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
       pid: child.pid,
       start_ticks: ticks,
       last_open_ms: Date.now(),
-      budget_unit: scopeName(pane, child.pid, ticks),
+      ...(process.platform === "linux" ? { budget_unit: scopeName(pane, child.pid, ticks) } : {}),
     };
     for (let i = 0; i < 100; i++) {
       check(child.exitCode === null, "Codex backend exited; inspect private host log");
-      if (existsSync(socket)) {
+      if (await listening(socket)) {
         chmodSync(socket, 0o600);
         atomic(registryPath(pane), info);
         return readRegistry(pane);
@@ -215,9 +227,43 @@ export async function backendRpc(
 ): Promise<Json> {
   const rpc = new RpcProcess(selfCommand("proxy", "--pane", pane), home());
   try {
-    await rpc.call("initialize", { clientInfo: { name: "kite-host", version: "1" } }, timeout);
+    await rpc.call(
+      "initialize",
+      { clientInfo: { name: "kite-host", version: "1" }, capabilities: { experimentalApi: true } },
+      timeout,
+    );
     rpc.write({ method: "initialized" });
     return await rpc.call(method, params, timeout);
+  } finally {
+    rpc.close();
+  }
+}
+async function createMacThread(pane: string, cwd: string, title: string): Promise<string> {
+  const rpc = new RpcProcess(selfCommand("proxy", "--pane", pane), home());
+  try {
+    await rpc.call("initialize", {
+      clientInfo: { name: "kite-host", version: "1" },
+      capabilities: { experimentalApi: true },
+    });
+    rpc.write({ method: "initialized" });
+    const thread = string(
+      object(
+        object(await rpc.call("thread/start", { cwd, historyMode: "legacy", serviceName: "kite" }))
+          .thread,
+      ).id,
+    );
+    check(UUID.test(thread), "invalid new Codex thread identity");
+    // Naming persists an otherwise empty legacy rollout. Keep the creating
+    // connection alive until this succeeds so the TUI can resume it immediately.
+    await rpc.call("thread/name/set", { threadId: thread, name: title || "Kite" });
+    const saved = object(
+      object(await rpc.call("thread/read", { threadId: thread, includeTurns: false })).thread,
+    );
+    check(
+      saved.id === thread && typeof saved.path === "string",
+      "new Codex thread was not persisted",
+    );
+    return thread;
   } finally {
     rpc.close();
   }
@@ -426,6 +472,14 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
       } else info = await ensure(pane, binary);
       await noteSessionOpen(pane);
       await reserveExisting(info);
+      if (process.platform === "darwin" && !reference) {
+        // The current Mac TUI initially shows its home screen without a thread.
+        // Create the Kite-owned conversation before attaching the terminal;
+        // explicit legacy history matches Kite's existing history contract.
+        const thread = await createMacThread(pane, record.cwd ?? home(), record.title);
+        reference = { source: "herdr:codex", agent: "codex", kind: "id", value: thread };
+        record = await patchSession(id, { reference });
+      }
       try {
         await backendRpc(pane, "account/read", { refreshToken: false });
       } catch {
@@ -583,7 +637,7 @@ export function installResourceHooks(): void {
               info.provider !== record.provider
             )
               continue;
-            const argv = readFileSync(`/proc/${item.pid}/cmdline`).toString().split("\0");
+            const argv = processArgv(item.pid);
             if (
               (!argv.includes("harness-owner") &&
                 !argv.some((arg) => basename(arg).startsWith("kite_harness_runtime."))) ||

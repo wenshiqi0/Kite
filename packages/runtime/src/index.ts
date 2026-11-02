@@ -11,6 +11,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -19,6 +20,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { check, type Json, parse } from "@kite/protocol";
+import { darwinContext, darwinProcess } from "./darwin";
 export const home = () => process.env.HOME || homedir();
 export const sha256 = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
@@ -75,6 +77,7 @@ const libc = () =>
     getpgid: { args: [FFIType.i32], returns: FFIType.i32 },
     sysconf: { args: [FFIType.i32], returns: FFIType.i64 },
     execvp: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    openat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
   });
 export function tryLock(path: string): (() => void) | undefined {
   const fd = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
@@ -141,6 +144,7 @@ export function exec(command: string[], env?: NodeJS.ProcessEnv): never {
   throw new Error("exec failed");
 }
 export function startTicks(pid: number): string | undefined {
+  if (process.platform === "darwin") return darwinProcess(pid)?.started;
   try {
     return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").at(-1)?.split(/\s+/)[19];
   } catch {
@@ -148,6 +152,10 @@ export function startTicks(pid: number): string | undefined {
   }
 }
 export function live(pid: number, ticks: string): boolean {
+  if (process.platform === "darwin") {
+    const p = darwinProcess(pid);
+    return p?.started === ticks && p.status !== 5;
+  }
   try {
     return (
       startTicks(pid) === ticks &&
@@ -158,9 +166,79 @@ export function live(pid: number, ticks: string): boolean {
   }
 }
 export function stopped(pid: number): boolean {
+  if (process.platform === "darwin") return darwinProcess(pid)?.status === 4;
   return ["T", "t"].includes(
     readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").at(-1)?.split(/\s+/)[0] || "",
   );
+}
+export function processContext(pid: number): {
+  argv: string[];
+  environment: Record<string, string>;
+  cwd: string;
+} {
+  if (process.platform === "darwin") return darwinContext(pid);
+  const environment = Object.fromEntries(
+    readFileSync(`/proc/${pid}/environ`)
+      .toString()
+      .split("\0")
+      .filter((s) => s.includes("="))
+      .map((s) => {
+        const at = s.indexOf("=");
+        return [s.slice(0, at), s.slice(at + 1)];
+      }),
+  );
+  return {
+    argv: readFileSync(`/proc/${pid}/cmdline`).toString().split("\0"),
+    environment,
+    cwd: realpathSync(`/proc/${pid}/cwd`),
+  };
+}
+export function processArgv(pid: number): string[] {
+  return process.platform === "darwin"
+    ? darwinContext(pid).argv
+    : readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+}
+/** Open relative to an already checked directory without following the final symlink. */
+export function readOwnedAt(directory: number, name: string, limit: number): Buffer {
+  check(
+    name.length > 0 && !/[\0/\\]/.test(name) && name !== "." && name !== "..",
+    "invalid relative filename",
+  );
+  const lib = libc(),
+    path = Buffer.from(`${name}\0`);
+  const fd = lib.symbols.openat(
+    directory,
+    ptr(path),
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  lib.close();
+  check(fd >= 0, "owned file unavailable");
+  try {
+    const info = fstatSync(fd);
+    check(
+      info.isFile() &&
+        info.uid === process.getuid?.() &&
+        !(info.mode & 0o077) &&
+        info.size > 0 &&
+        info.size <= limit,
+      "invalid owned file",
+    );
+    const bytes = readFileSync(fd);
+    check(bytes.length === info.size, "file changed during read");
+    return bytes;
+  } finally {
+    closeSync(fd);
+  }
+}
+export function processStartedMs(started: string): number {
+  if (process.platform === "darwin") return Math.trunc(Number(started) / 1000);
+  const boot = Number(
+    readFileSync("/proc/stat", "utf8")
+      .split("\n")
+      .find((s) => s.startsWith("btime "))
+      ?.split(/\s+/)[1],
+  );
+  return Math.trunc((boot + Number(started) / clockTicks()) * 1000);
 }
 export function same(a: unknown, b: unknown): boolean {
   const normalize = (v: unknown): unknown =>

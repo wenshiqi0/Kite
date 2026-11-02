@@ -7,6 +7,7 @@ struct WorkspaceView: View {
     @State private var desktopOnly = false
     @State private var visibility: NavigationSplitViewVisibility = .all
     @Environment(\.scenePhase) private var phase
+    @Environment(\.openWindow) private var openWindow
     var body: some View {
         NavigationSplitView(columnVisibility: $visibility) {
             sidebar.navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 330)
@@ -38,6 +39,7 @@ struct WorkspaceView: View {
             .navigationSubtitle(model.selectedHost.map { "\($0.username)@\($0.host)" } ?? tr("native_workspace"))
             .toolbar {
                 ToolbarItemGroup {
+                    Button { openWindow(id: "local-host") } label: { Label(tr("local_host"), systemImage: "server.rack") }
                     if model.connected {
                         Button { creatingSession = true } label: { Label(tr("new_session"), systemImage: "square.and.pencil") }
                         Button { model.disconnect() } label: { Label(tr("disconnect"), systemImage: "bolt.slash") }

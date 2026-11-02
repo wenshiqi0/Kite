@@ -1,8 +1,18 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atomic, bounded, locked, run, startTicks, tryLock } from "../src/index";
+import {
+  atomic,
+  bounded,
+  live,
+  locked,
+  processContext,
+  run,
+  startTicks,
+  stopped,
+  tryLock,
+} from "../src/index";
 
 const root = mkdtempSync(join(tmpdir(), "kite-runtime-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -51,7 +61,51 @@ test("bounded output stops an excessive or hung process", async () => {
   });
   await expect(bounded(stream, 5)).rejects.toThrow("limit");
 });
-test("Linux owner identity includes the live start time", () => {
+test("owner identity includes the live start time", () => {
   expect(startTicks(process.pid)).toMatch(/^\d+$/);
   expect(startTicks(2147483647)).toBeUndefined();
 });
+test("owned process context preserves argv, cwd and environment on the actual platform", async () => {
+  const output = await run(
+    [
+      process.execPath,
+      "-e",
+      `import {processContext,startTicks,live,stopped} from ${JSON.stringify(join(import.meta.dir, "../src/index.ts"))}; const c=processContext(process.pid); console.log(JSON.stringify({argv:c.argv.slice(-2),cwd:c.cwd,marker:c.environment.KITE_OWNED_PROCESS_TEST,live:live(process.pid,startTicks(process.pid)),stale:live(process.pid,"1"),stopped:stopped(process.pid)}))`,
+      "space argument",
+      "中文",
+    ],
+    { cwd: root, env: { ...process.env, KITE_OWNED_PROCESS_TEST: "owned-fixture" } },
+  );
+  expect(JSON.parse(output.stdout.toString())).toEqual({
+    argv: ["space argument", "中文"],
+    cwd: realpathSync(root),
+    marker: "owned-fixture",
+    live: true,
+    stale: false,
+    stopped: false,
+  });
+  expect(processContext(process.pid).argv.length).toBeGreaterThan(0);
+  expect(live(2147483647, "1")).toBe(false);
+  expect(stopped(process.pid)).toBe(false);
+});
+test.skipIf(process.platform !== "darwin")(
+  "Darwin protected shells expose cwd and argv even when environment is omitted",
+  async () => {
+    const child = Bun.spawn(["/bin/zsh", "-f"], {
+      stdin: "pipe",
+      stdout: "ignore",
+      stderr: "ignore",
+      env: { ...process.env, KITE_OWNED_PROCESS_TEST: "shell-fixture" },
+      cwd: root,
+    });
+    try {
+      await Bun.sleep(100);
+      const context = processContext(child.pid);
+      expect(context.cwd).toBe(realpathSync(root));
+      expect(context.argv[0]).toContain("zsh");
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  },
+);

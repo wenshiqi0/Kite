@@ -47,3 +47,11 @@ else
     rm -rf "$MAC_DIR/Generated"
     mv "$NEXT_DIR" "$MAC_DIR/Generated"
 fi
+cargo build -p kite-node --target "$TARGET" "$@"
+HOST_DIR="$MAC_DIR/build/host/$KITE_ARCH/$CONFIGURATION"
+mkdir -p "$HOST_DIR"
+cp "${CARGO_TARGET_DIR:-target}/$TARGET/$PROFILE/kite-node" "$HOST_DIR/kite-node"
+cp -f "$(command -v bun)" "$HOST_DIR/bun"
+chmod 755 "$HOST_DIR/bun"
+xcrun swiftc -O -target "$KITE_ARCH-apple-macosx14.0" -sdk "$SDKROOT" \
+    "$MAC_DIR/HostPlatform/main.swift" -o "$HOST_DIR/host-platform"

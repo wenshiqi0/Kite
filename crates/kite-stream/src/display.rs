@@ -1,4 +1,4 @@
-//! Read the geometry of the X11 output selected by the running Sunshine process.
+//! Read the actual output selected by the running Sunshine process.
 //! Never use the SSH login's DISPLAY, phone dimensions, or a list of supported modes.
 use crate::StreamError;
 use kite_ssh::Session;
@@ -30,10 +30,29 @@ pub async fn captured_size(ssh: &Session, port: u16) -> Result<DesktopSize, Stre
     .map_err(|_| StreamError::Timeout)??;
     if output.exit_status != Some(0) || output.stdout.len() > 64 * 1024 {
         return Err(error(
-            "Sunshine X11 geometry probe failed; requires same-user Sunshine, ss and xrandr",
+            "Sunshine capture geometry probe failed; check the target host's capture service and display",
         ));
     }
-    parse_probe(&String::from_utf8_lossy(&output.stdout))
+    parse_response(&String::from_utf8_lossy(&output.stdout))
+}
+fn parse_response(response: &str) -> Result<DesktopSize, StreamError> {
+    if response.trim_start().starts_with('{') {
+        let value: serde_json::Value =
+            serde_json::from_str(response).map_err(|_| error("invalid Mac geometry response"))?;
+        let number = |key| {
+            value[key]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| error("invalid captured desktop dimensions"))
+        };
+        let size = DesktopSize {
+            width: number("width")?,
+            height: number("height")?,
+        };
+        size.validate()?;
+        return Ok(size);
+    }
+    parse_probe(response)
 }
 
 fn error(details: &str) -> StreamError {
@@ -89,6 +108,9 @@ fn parse_probe(value: &str) -> Result<DesktopSize, StreamError> {
 // Never evaluate a config file, dump an environment, or change a display mode.
 const PROBE: &str = r#"set -eu
 export LC_ALL=C
+if test "$(uname -s)" = Darwin; then
+  exec "$HOME/.local/bin/kite-node" captured-display {port}
+fi
 pids=$(ss -H -lntp 'sport = :{port}' | sed -n 's/.*pid=\([0-9][0-9]*\),.*/\1/p' | sort -u)
 case "$pids" in ''|*[!0-9]*) exit 1;; esac
 test "$(cat "/proc/$pids/comm")" = sunshine
@@ -120,6 +142,24 @@ xrandr --current --query
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mac_capture_uses_native_pixel_geometry_and_rejects_invalid_dimensions() {
+        assert_eq!(
+            parse_response(r#"{"displayId":3,"width":3840,"height":2160}"#).unwrap(),
+            DesktopSize {
+                width: 3840,
+                height: 2160
+            }
+        );
+        for value in [
+            r#"{"width":0,"height":1080}"#,
+            r#"{"width":1920,"height":"1080"}"#,
+            r#"{"width":-1920,"height":1080}"#,
+            r#"{"displayId":3}"#,
+        ] {
+            assert!(parse_response(value).is_err());
+        }
+    }
 
     const OUTPUTS: &str = "Screen 0: minimum 320 x 200, current 4480 x 1440, maximum 16384 x 16384\nDP-0 disconnected (normal left inverted right x axis y axis)\nDP-1 connected primary 2560x1440+1920+0 (normal left inverted right x axis y axis)\n   1920x1080 60.0\nHDMI-0 connected 1920x1080+0+0 (normal left inverted right x axis y axis)\n";
 
