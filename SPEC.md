@@ -27,6 +27,8 @@
 
 新增聊天 provider 按 [RFC 0021](docs/rfcs/0021-dsh-provider.md) 使用主机验证过的可用目录和 Rust 能力快照驱动客户端选项。Ply 按 [RFC 0025](docs/rfcs/0025-ply-acp.md) 使用独立 ACP 插件的会话、配置、工具事件、权限和取消接口；恢复只保存原生 sessionId，私有快照留在 Ply。DSH/Ply 需主机环境变量显式启用并通过鉴权模型服务与原生协议探测；[RFC 0023](docs/rfcs/0023-harness-capability-parity.md) 规定原生模型、思考强度和视觉能力贯通同一客户端控件，harness 使用下拉框选择；细节仅在接入或排查时读取[内部实施规范](docs/development/harness-integration.md)。
 
+会话权限设置按 [RFC 0026](docs/rfcs/0026-session-permissions.md) 放在模型浮层：只展示原生后端公布或本机协议及管理约束允许的参数，按主机和会话保存，随下一条消息生效。权限应答使用统一实时 agent 清单，涵盖独立 owner 托管会话；审批卡展示具体操作、完整命令、工作目录和结构化参数，允许一次不改变会话策略。
+
 模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
 
 聊天中的异步问题按 [RFC 0009](docs/rfcs/0009-async-questions-in-chat.md) 处理：Rust 关联真实 call ID、恢复待答表单，并通过同一线程的 TUI 回答信封提交；阻塞问题继续使用其 RPC 响应。提问控制记录通过同步升级的 Codex 历史体 v2 独立传输，主机只索引原始事实，Rust 决定待答状态，避免最近聊天窗口截断旧问题。Android 在聊天和输入区提供回答入口，异步问题不暂停 agent 或禁用普通消息。

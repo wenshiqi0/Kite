@@ -123,7 +123,7 @@ class WorkspaceRefinementPresentationTest {
         val nativeModels=listOf(
             ChatModelInfo("flash","Flash","",listOf("off","low","high","max"),"high",listOf("text","image")),
             ChatModelInfo("plain","Plain","",emptyList(),"",listOf("text")))
-        val current=androidx.compose.runtime.mutableStateOf(ComposerInfo(true,false,"",nativeModels,"flash","high",emptyList(),usage(),SkillDraftInfo(emptyList(),emptyList(),true,false,"")))
+        val current=androidx.compose.runtime.mutableStateOf(ComposerInfo(true,false,"",nativeModels,"flash","high",emptyList(),usage(),SkillDraftInfo(emptyList(),emptyList(),true,false,""),emptyList()))
         val selected=java.util.concurrent.atomic.AtomicReference("")
         overlay({HarnessModelChoices(current.value,true){model,effort->selected.set("$model:$effort");current.value=current.value.copy(model=model,effort=effort)}}) {
             waitFor("Native Flash and effort available"){find(text="Flash")!=null&&find(text="深入思考")!=null}
@@ -140,6 +140,41 @@ class WorkspaceRefinementPresentationTest {
             waitFor("Effort menu closes for non-reasoning model"){find(text="Plain")!=null&&find(text="最大思考")==null}
             assertNull(find(text="深入思考"))
             screenshot("harness-model-without-effort.png")
+        }
+    }
+
+    @Test fun approvalShowsActualOperationAndSendsOneExplicitChoice() {
+        val selected=java.util.concurrent.atomic.AtomicInteger(-1)
+        val approval=ApprovalInfo("owned-approval","",null,"df -h\nfree -h","/home/owned",listOf(ApprovalChoice("Yes"),ApprovalChoice("No")),"bash",emptyList())
+        overlay({Box(Modifier.padding(16.dp)){ApprovalCard(approval,true,selected::set)}}) {
+            waitFor("Readable operation"){find(text="运行命令")!=null&&find(text="df -h")!=null}
+            assertNotNull(find(text="free -h"));assertNotNull(find(text="工作目录：/home/owned"));assertNotNull(find(text="允许一次"))
+            assertNull(find(text="{\"command\""));screenshot("readable-command-approval.png")
+            assertTrue(actionNode(requireNotNull(find(text="允许一次")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Exact allow choice"){selected.get()==0}
+        }
+        val file=approval.copy(command=null,operation="read",details=listOf(ApprovalDetailInfo("path","/home/owned/note.txt")))
+        overlay({Box(Modifier.padding(16.dp)){ApprovalCard(file,true,selected::set)}}) {
+            waitFor("File approval"){find(text="读取文件")!=null&&find(text="/home/owned/note.txt")!=null}
+            screenshot("readable-file-approval.png")
+            assertTrue(actionNode(requireNotNull(find(text="拒绝")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Exact reject choice"){selected.get()==1}
+        }
+    }
+
+    @Test fun permissionMenuShowsNativeOptionsAndSendsExactPolicy() {
+        val settings=androidx.compose.runtime.mutableStateOf(listOf(SessionSettingInfo("approval_mode","Tool approval","ask",listOf(SettingChoiceInfo("ask","Ask"),SettingChoiceInfo("risk","Risk"),SettingChoiceInfo("bypass","Bypass")))))
+        val selected=java.util.concurrent.atomic.AtomicReference("")
+        overlay({SessionPermissionControls(settings.value,true){id,value->selected.set("$id:$value");settings.value=settings.value.map{it.copy(currentValue=value)}}}) {
+            waitFor("Permission setting"){find(text="每次询问")!=null}
+            assertNotNull(find(text="从下一条消息起生效"))
+            assertTrue(actionNode(requireNotNull(find(text="每次询问")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Actual native choices"){find(text="全部允许")!=null&&find(text="按风险策略询问")!=null}
+            screenshot("permission-policy-menu.png")
+            assertTrue(actionNode(requireNotNull(find(text="按风险策略询问")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Native policy value submitted"){selected.get()=="approval_mode:risk"}
+            waitFor("Native choice retained"){find(text="由已配置的风险检查")!=null}
+            screenshot("permission-policy-selected.png")
         }
     }
 

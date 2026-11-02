@@ -299,6 +299,9 @@ for (const provider of ["dsh", "ply"] as const)
         check(permission, "approval not restored");
         const request = object(permission);
         check(typeof request.id === "string", "permission identity missing");
+        expect(object(request.params).command).toBe("df -h\nfree -h");
+        expect(object(request.params).toolName).toBe("bash");
+        expect(object(request.params).reason).toBeUndefined();
         reconnect.write({ id: request.id, result: { decision: "accept" } });
         await reconnect.call("turn/interrupt", { threadId: thread, turnId: first.id });
         await waitStatus(path, "cancelled");
@@ -341,21 +344,37 @@ for (const provider of ["dsh", "ply"] as const)
         expect(history).toContain("pixels");
         expect(history).toContain("function_call_output");
         expect(history).not.toContain("owned-fixture");
+        await expect(
+          reconnect.call("turn/start", {
+            threadId: thread,
+            model,
+            effort: "high",
+            sessionSettings: { approval_mode: "invalid" },
+            input: [{ type: "text", text: "invalid policy must not execute" }],
+          }),
+        ).rejects.toBeInstanceOf(Error);
         await reconnect.call("turn/start", {
           threadId: thread,
           model,
           effort: "high",
           input: [{ type: "text", text: "delay queued first" }],
+          sessionSettings: { approval_mode: "ask" },
         });
         await reconnect.call("turn/start", {
           threadId: thread,
           model,
           effort: "high",
           input: [{ type: "text", text: "queued second completed" }],
+          sessionSettings: { approval_mode: "bypass" },
         });
         await waitStatus(path, "done");
         const queuedHistory = readFileSync(join(path, "history.jsonl"), "utf8");
         expect(queuedHistory).toMatch(/native-\d+:queued second completed/);
+        expect(queuedHistory).toContain("delay queued first:text:policy-ask");
+        expect(queuedHistory).toContain("queued second completed:text:policy-bypass");
+        expect(queuedHistory).not.toContain("invalid policy must not execute");
+        const configuration = object(object(await reconnect.call("config/read", {})).config);
+        expect(object(array(configuration.session_settings)[0]).currentValue).toBe("bypass");
         const previousOwner = ownerPid;
         check(previousOwner, "owner missing");
         process.kill(previousOwner, "SIGTERM");

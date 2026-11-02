@@ -37,6 +37,7 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
         return
     }
     HarnessModelChoices(composer, !vm.sending) { model, effort -> vm.selectModel(agent.id, model, effort) }
+    SessionPermissionControls(composer.settings, !vm.sending) { setting, value -> vm.selectPermission(agent.id, setting, value) }
 }
 
 @Composable

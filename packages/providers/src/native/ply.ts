@@ -14,6 +14,7 @@ import {
 } from "@kite/protocol";
 import { RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
 import { nativeModelId, optionalObject } from "@kite/runtime/socket";
+import { permissionSettings, permissionValues } from "../permissions";
 
 export class Ply implements NativeAdapter {
   models: Model[] = [];
@@ -28,6 +29,22 @@ export class Ply implements NativeAdapter {
   private replaying = false;
   private tools = new Map<string, ObjectValue>();
   private permissions = new Set<string | number>();
+  get settings() {
+    return permissionSettings(this.config);
+  }
+  async configure(values: Record<string, string>): Promise<void> {
+    for (const [configId, value] of Object.entries(permissionValues(values, this.settings))) {
+      if (this.config.find((row) => row.id === configId)?.currentValue === value) continue;
+      const reply = object(
+        await this.rpc.call("session/set_config_option", {
+          sessionId: this.session,
+          configId,
+          value,
+        }),
+      );
+      this.config = array(reply.configOptions).map(object);
+    }
+  }
   constructor(private options: NativeOptions) {
     this.rpc = new RpcProcess(
       options.command,

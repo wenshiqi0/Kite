@@ -8,7 +8,8 @@ const mode = process.argv[2] || "ply",
   route = "fixture",
   id = JSON.stringify([route, model]);
 let session = "fixture-native-session",
-  effort = "high";
+  effort = "high",
+  policy = "ask";
 let counter = 0;
 let record = "";
 const pending = new Map<string, { resolve: () => void; reject: () => void }>();
@@ -48,6 +49,14 @@ const send = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\
 const config = () => [
   { id: "model", currentValue: id },
   { id: "reasoning_effort", currentValue: effort },
+  {
+    id: "approval_mode",
+    name: "Tool approval",
+    type: "select",
+    category: "permissions",
+    currentValue: policy,
+    options: ["ask", "risk", "bypass"].map((value) => ({ value, name: value })),
+  },
 ];
 async function request(method: string, p: ObjectValue, rid: string | number): Promise<Json> {
   if (method === "initialize")
@@ -80,6 +89,10 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
   }
   if (method === "session/set_config_option") {
     if (p.configId === "reasoning_effort") effort = string(p.value);
+    if (p.configId === "approval_mode") {
+      check(["ask", "risk", "bypass"].includes(string(p.value)), "invalid permission mode");
+      policy = string(p.value);
+    }
     return { configOptions: config() };
   }
   if (method === "session/prompt") {
@@ -105,12 +118,12 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
           sessionUpdate: "tool_call",
           toolCallId: call,
           title: "bash",
-          rawInput: { owned: true },
+          rawInput: { command: "df -h\nfree -h", cwd: process.cwd() },
         },
       },
     });
     if (text.includes("delay")) await Bun.sleep(100);
-    if (text.includes("approve"))
+    if (text.includes("approve") && policy !== "bypass")
       await new Promise<void>((resolve, reject) => {
         pending.set(call, { resolve, reject });
         send({
@@ -128,7 +141,7 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
       });
     if (text.includes("wait"))
       await new Promise<void>((resolve, reject) => pending.set("waiting", { resolve, reject }));
-    const output = `native-${counter}:${text}:${blocks.some((v) => object(v).type === "image") ? "pixels" : "text"}`;
+    const output = `native-${counter}:${text}:${blocks.some((v) => object(v).type === "image") ? "pixels" : "text"}:policy-${policy}`;
     if (record)
       appendFileSync(
         record,

@@ -23,3 +23,4 @@ base64 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+russh.workspace = true

@@ -35,3 +35,5 @@ MIMO_API_KEY=主机真实密钥
 运行中的补充输入由同一 owner 持久排队，前一轮结束后按顺序送入同一原生上下文，不直接报 busy，也不重复提交。
 
 Kite 投影公开回复及原生工具事件，审批按请求身份应答；取消发送 ACP `session/cancel` 并等待 `stopReason=cancelled`，不杀进程冒充正常完成。额度和显式 Skill 仍按真实接入状态隐藏。
+
+权限设置通过 ACP `approval_mode` 配置进入每个会话；ask/risk/bypass 的当前值和可选项来自原生 `configOptions`，持久化由 Ply 承担。Kite 在模型浮层保存本会话下一条消息的选择，owner 在对应 prompt 开始前应用。修改设置不批准已有待确认请求。
