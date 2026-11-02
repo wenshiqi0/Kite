@@ -293,7 +293,7 @@ class WorkspaceRefinementPresentationTest {
             BlockInfo.Text("owned-after"), tool("owned-tool-one"),
             BlockInfo.Text("owned-end"), tool("owned-tool-two"),
         ), false, null)
-        overlay({ Column(Modifier.padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
+        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
             val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
             waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
             val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
