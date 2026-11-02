@@ -445,6 +445,24 @@ mod tests {
         assert_eq!(saved["agent_memory_limit_bytes"], 12 * GIB);
     }
 
+    #[tokio::test]
+    async fn cache_does_not_block_lowering_the_resident_memory_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let node = fixture(root.path());
+        let path = root.path().join("sample.json");
+        let mut sample: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        sample["agent_reclaimable_bytes"] = (5 * GIB).into();
+        fs::write(&path, serde_json::to_vec(&sample).unwrap()).unwrap();
+        let profile = node.resources.set_limit(&node, 5 * GIB).await.unwrap();
+        assert_eq!(profile.agent_memory_used_bytes, 3 * GIB);
+        assert_eq!(profile.agent_memory_limit_bytes, 5 * GIB);
+        assert!(profile.limit_enforced);
+        let saved: Value =
+            serde_json::from_slice(&fs::read(root.path().join("config.json")).unwrap()).unwrap();
+        assert_eq!(saved["agent_memory_limit_bytes"], 5 * GIB);
+        assert!(node.resources.set_limit(&node, 2 * GIB).await.is_err());
+    }
+
     #[test]
     fn corrupt_reservations_fail_closed_and_preserve_the_original_file() {
         let root = tempfile::tempdir().unwrap();

@@ -1,29 +1,67 @@
 /** Kernel verification on a unique transient slice and disposable native child. */
-import { readFileSync } from "node:fs";
-import { proc, scopeName } from "@kite/platform";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { prepareMemoryLimit, proc, reclaimableMemory, scopeName } from "@kite/platform";
 import { check, object, parse } from "@kite/protocol";
-import { bounded, run, sleep } from "@kite/runtime";
+import { run, sleep } from "@kite/runtime";
 
+const cacheRoot = join(homedir(), ".cache");
+mkdirSync(cacheRoot, { recursive: true });
 const unit = `kitequotaqa${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}.slice`,
-  limit = 128 * 1024 * 1024;
+  limit = 256 * 1024 * 1024,
+  residentLimit = 64 * 1024 * 1024,
+  root = mkdtempSync(join(cacheRoot, "kite-memory-probe-"));
 const child = Bun.spawn(
   [
-    process.execPath,
-    "-e",
-    "console.log('ready');for await(const _ of Bun.stdin.stream()){const bytes=new Uint8Array(256*1024*1024);for(let i=0;i<bytes.length;i+=4096)bytes[i]=1;console.log(bytes.length);await Bun.sleep(1000);}",
+    "/usr/bin/python3",
+    "-u",
+    "-c",
+    `import os,sys
+print('ready',flush=True)
+resident=[]
+for command in sys.stdin:
+ if command.strip()=='cache':
+  with open(sys.argv[1],'wb') as f:
+   block=b'x'*(1024*1024)
+   for _ in range(160): f.write(block)
+   f.flush();os.fsync(f.fileno())
+   del block
+  print('cached',flush=True)
+ else:
+  size=(32 if command.strip()=='resident' else 256)*1024*1024
+  data=bytearray(size)
+  for i in range(0,size,4096): data[i]=1
+  resident.append(data)
+  print('resident',flush=True)
+`,
+    join(root, "cache"),
   ],
-  { stdin: "pipe", stdout: "pipe", stderr: "ignore", detached: true },
+  { stdin: "pipe", stdout: "pipe", stderr: "inherit", detached: true },
 );
 let scope = "";
 const call = (...args: string[]) => run(["systemctl", "--user", ...args]);
 try {
   const reader = child.stdout.getReader();
-  const ready = await reader.read();
-  check(
-    !ready.done && Buffer.from(ready.value).toString().includes("ready"),
-    "owned allocation peer unavailable",
-  );
-  reader.releaseLock();
+  let buffered = "";
+  const line = async (stage: string) => {
+    while (!buffered.includes("\n")) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const value = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("owned allocation peer timed out")), 10_000);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      check(!value.done, `owned allocation peer exited during ${stage}`);
+      buffered += Buffer.from(value.value).toString();
+    }
+    const end = buffered.indexOf("\n"),
+      result = buffered.slice(0, end);
+    buffered = buffered.slice(end + 1);
+    return result;
+  };
+  check((await line("startup")) === "ready", "owned allocation peer unavailable");
   const fact = proc(child.pid);
   scope = scopeName("qa:p1", child.pid, fact.started);
   await call(
@@ -75,12 +113,55 @@ try {
     readFileSync(`${parent}/memory.max`, "utf8").trim() === String(limit),
     "kernel memory limit differs",
   );
-  child.stdin.write("allocate\n");
+  const memory = () => {
+    const stats = Object.fromEntries(
+      readFileSync(`${parent}/memory.stat`, "utf8")
+        .trim()
+        .split("\n")
+        .map((s) => {
+          const [key, value] = s.split(" ");
+          return [key, Number(value)];
+        }),
+    );
+    const current = Number(readFileSync(`${parent}/memory.current`, "utf8")),
+      cache = reclaimableMemory(current, stats);
+    return { current, cache, resident: current - cache };
+  };
+  child.stdin.write("cache\n");
+  check((await line("cache")) === "cached", "owned cache fixture failed");
+  const cached = memory();
+  check(
+    cached.current > residentLimit && cached.resident < residentLimit / 2,
+    "file cache was charged as resident memory",
+  );
+  await prepareMemoryLimit(parent, residentLimit);
+  await call(
+    "set-property",
+    "--runtime",
+    unit,
+    `MemoryMax=${residentLimit}`,
+    `MemoryHigh=${residentLimit}`,
+  );
+  check(
+    readFileSync(`${parent}/memory.max`, "utf8").trim() === String(residentLimit),
+    "safe cache-backed shrink did not reach the kernel",
+  );
+  child.stdin.write("resident\n");
+  check(
+    (await line("resident")) === "resident",
+    "cache prevented a resident allocation within budget",
+  );
+  const allocated = memory();
+  check(
+    allocated.resident >= 32 * 1024 * 1024 && allocated.resident <= residentLimit,
+    "resident allocation was not charged to the real budget",
+  );
+  child.stdin.write("oom\n");
   child.stdin.end();
   const timeout = setTimeout(() => child.kill("SIGKILL"), 8000);
   const code = await child.exited;
   clearTimeout(timeout);
-  await bounded(child.stdout, 65536);
+  reader.releaseLock();
   const events = Object.fromEntries(
     readFileSync(`${parent}/memory.events`, "utf8")
       .trim()
@@ -98,7 +179,11 @@ try {
           JSON.stringify({
             kernel_enforced: true,
             oom_kills: Number(events.oom_kill),
-            limit_bytes: limit,
+            limit_bytes: residentLimit,
+            cached_bytes_before_shrink: cached.cache,
+            resident_bytes_before_shrink: cached.resident,
+            resident_bytes_after_allocation: allocated.resident,
+            cache_reclaimed_before_shrink: true,
           }),
         ),
       ),
@@ -110,4 +195,5 @@ try {
   await call("stop", unit).catch(() => {});
   await call("reset-failed", unit).catch(() => {});
   await call("revert", unit).catch(() => {});
+  rmSync(root, { recursive: true });
 }

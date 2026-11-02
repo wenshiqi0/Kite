@@ -393,14 +393,14 @@
     <string name="resource_agent_count">%1$d 个进程 · CPU %2$s</string>
     <string name="resource_limit_enforced">系统内存上限已生效</string>
     <string name="resource_limit_not_enforced">系统内存上限未生效</string>
-    <string name="resource_reclaimable">其中可回收缓存：%1$s</string>
+    <string name="resource_reclaimable">可回收缓存（未计入用量）：%1$s</string>
     <string name="resource_migration_reserve">运行中会话已计入的内存预留：%1$s</string>
     <string name="resource_startup_reserve">启动中会话预留：%1$s</string>
     <string name="resource_edit_limit">调整 Agent 内存上限</string>
     <string name="resource_limit_gib">内存上限（GiB）</string>
     <string name="resource_limit_hint">当前计入预算和启动预留：%1$s。新上限应高于此用量，并为主机保留内存。</string>
     <string name="resource_save_limit">保存上限</string>
-    <string name="resource_scope_hint">所有 Kite agent 及本地工具子进程共享此预算。独立容器与系统服务另外计入主机总内存。</string>
+    <string name="resource_scope_hint">所有 Kite agent 及本地工具子进程的实际内存共享此预算，不含可回收缓存。独立容器与系统服务另外计入主机总内存。</string>
     <string name="resource_top_processes">占用较高的进程 · 常驻内存</string>
     <string name="resource_agent_process">Agent 进程</string>
     <string name="resource_other_process">其他服务</string>
