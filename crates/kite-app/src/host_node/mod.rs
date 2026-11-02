@@ -133,6 +133,11 @@ impl Config {
                 "KITE_DSH_PROVIDER",
                 "KITE_DSH_MODEL",
                 "KITE_DSH_HEALTH_URL",
+                "KITE_ENABLE_PLY",
+                "KITE_PLY_COMMAND",
+                "KITE_PLY_PROVIDER",
+                "KITE_PLY_MODEL",
+                "KITE_PLY_HEALTH_URL",
                 "DEEPSEEK_API_KEY",
                 "MIMO_API_KEY",
                 "DSH_HOME",
@@ -1015,6 +1020,32 @@ mod tests {
         );
         assert_eq!(args, ["status"]);
     }
+    #[test]
+    fn ply_configuration_accepts_its_opt_in_environment_without_opening_other_keys() {
+        let root = tempfile::tempdir().unwrap();
+        let mut value = config(root.path());
+        for (key, content) in [
+            ("KITE_ENABLE_PLY", "1"),
+            (
+                "KITE_PLY_COMMAND",
+                r#"["/usr/bin/ply","mcp","--host-chat"]"#,
+            ),
+            ("KITE_PLY_PROVIDER", "xiaomi-token-plan-cn"),
+            ("KITE_PLY_MODEL", "mimo-v2.6-pro"),
+            ("KITE_PLY_HEALTH_URL", "https://example.test/v1/models"),
+        ] {
+            value.environment.insert(key.into(), content.into());
+        }
+        value.validate().unwrap();
+        value
+            .environment
+            .insert("NODE_OPTIONS".into(), "unrelated".into());
+        assert!(matches!(
+            value.validate(),
+            Err(Error::Config("unsupported environment key"))
+        ));
+    }
+
     pub(super) fn config(root: &Path) -> Config {
         Config {
             node_id: "controlled-node".into(),
