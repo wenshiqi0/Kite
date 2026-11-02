@@ -24,6 +24,8 @@ MIMO_API_KEY=主机真实密钥
 
 `KITE_PLY_COMMAND` 可选 JSON argv，默认 `ply mcp --host-chat --approval-mode ask --model <KITE_PLY_MODEL>`，配置 MiMo provider 时附加 `--mimo-provider`。自定义命令必须保留宿主会话和审批能力，不应加入 bypass。密钥只来自对应环境变量，不放进 argv。
 
+普通文件附件还需保留工作目录挂载，并只读挂载 Kite 上传目录。例如 command 中加入 `--mount disk:. --mount disk:/home/USER/.local/share/kite/uploads:ro`；`disk:.` 随该会话实际工作目录解析，上传目录用主机真实绝对路径。当前主机已配置该只读挂载，图片仍直接进入原生上下文。
+
 开关、可执行文件、鉴权模型服务、目标模型及原生握手都通过后，Ply 才出现在客户端下拉框。原生模型目录决定名称、模态与思考选项；不复制 Codex 列表。MiMo 当前原生集成为 Pro/Flash、text/image、off/high；后续变化跟随原生目录。
 
 宿主接口 `ply/agent/catalog`、`chat`、`state`、`approve` 不注册成模型工具。模型不能通过工具输入改写宿主配置或恢复快照。图片作为原生 image 内容输入；Ply 自己执行 agent loop、工具策略、审批与上下文管理。私有快照只用于重启后继续同一对话，隐藏推理不进入 Kite 公开历史。

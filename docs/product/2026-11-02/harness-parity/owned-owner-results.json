@@ -1,0 +1,18 @@
+[
+  {
+    "provider": "dsh",
+    "owner_ready": true,
+    "model_count": 2,
+    "native_vision": true,
+    "reasoning_choices": true,
+    "shared_memory_budget": true
+  },
+  {
+    "provider": "ply",
+    "owner_ready": true,
+    "model_count": 2,
+    "native_vision": true,
+    "reasoning_choices": true,
+    "shared_memory_budget": true
+  }
+]

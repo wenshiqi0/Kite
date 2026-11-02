@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0-alpha.50",
+  "harnessApi": 2,
+  "resourceApi": 1,
+  "health": "ready",
+  "providers": [
+    "codex",
+    "claude",
+    "dsh",
+    "ply"
+  ],
+  "sessionLifecycleRetained": true,
+  "identityRetained": true,
+  "externalServicePidsRetained": true,
+  "existingEnvironmentRetained": true,
+  "liveUpgrade": true
+}
