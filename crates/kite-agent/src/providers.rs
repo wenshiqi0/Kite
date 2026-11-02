@@ -24,11 +24,11 @@ pub struct Scan {
 }
 
 pub fn registered(id: &str) -> bool {
-    matches!(id, "codex" | "claude" | "dsh")
+    matches!(id, "codex" | "claude" | "dsh" | "ply")
 }
 
 pub fn managed(id: &str) -> bool {
-    matches!(id, "codex" | "dsh")
+    matches!(id, "codex" | "dsh" | "ply")
 }
 
 pub async fn scan(ssh: &Session) -> Result<Scan, Error> {
@@ -43,14 +43,15 @@ pub async fn scan(ssh: &Session) -> Result<Scan, Error> {
     }
     let value: Scan = serde_json::from_slice(&output.stdout)?;
     let mut ids = std::collections::BTreeSet::new();
-    if value.providers.len() > 3
+    if value.providers.len() > 4
         || value
             .providers
             .iter()
             .any(|p| !registered(&p.id) || !ids.insert(&p.id))
         || value.agents.len() > 1024
         || value.agents.iter().any(|a| {
-            !matches!(a.agent.as_deref(), Some("dsh")) || !a.pane_id.starts_with("kite-harness-")
+            !matches!(a.agent.as_deref(), Some("dsh" | "ply"))
+                || !a.pane_id.starts_with("kite-harness-")
         })
     {
         return Err(Error::Invalid("invalid provider inventory"));

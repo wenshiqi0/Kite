@@ -217,6 +217,7 @@
     <string name="audio_attachment_hint">音频作为附件发送；模型可通过工具读取文件。</string>
     <string name="composer_loading">正在连接聊天通道…</string>
     <string name="composer_backend_unavailable">聊天连接暂未就绪，正在重试</string>
+    <string name="effort_default">默认</string>
     <string name="effort_none">不使用思考</string>
     <string name="effort_minimal">最少思考</string>
     <string name="effort_low">少量思考</string>
@@ -367,4 +368,6 @@
     <string name="no_available_harness">当前主机没有可用的智能体，请检查后端配置</string>
     <string name="harness_session_hint">连接智能体后即可开始对话</string>
     <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
+    <string name="harness_selector">智能体</string>
+    <string name="provider_ply">Ply</string>
 </resources>

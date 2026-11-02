@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from kite_harness_native import Native
 
-IDS = ("codex", "claude", "dsh")
+IDS = ("codex", "claude", "dsh", "ply")
 
 
 def start_ticks(pid):
@@ -51,14 +51,20 @@ def atomic(path, value):
 
 
 def configuration(provider):
-    if provider != "dsh" or os.environ.get("KITE_ENABLE_" + provider.upper()) != "1":
+    if provider not in ("dsh", "ply") or os.environ.get("KITE_ENABLE_" + provider.upper()) != "1":
         raise RuntimeError("harness is not enabled")
     model = os.environ.get("KITE_" + provider.upper() + "_MODEL", "deepseek-v4-flash")
     command = os.environ.get("KITE_" + provider.upper() + "_COMMAND")
     if command:
         command = json.loads(command)
     else:
-        command = ["dsh", "--profile", "sdk"]
+        if provider == "dsh":
+            command = ["dsh", "--profile", "acp"]
+        else:
+            command = ["ply", "mcp", "--host-chat", "--approval-mode", "ask", "--model", model]
+            route = os.environ.get("KITE_PLY_PROVIDER")
+            if route:
+                command += ["--mimo-provider", route]
     if (not isinstance(command, list) or not command or len(command) > 24
             or any(not isinstance(s, str) or not s or "\0" in s for s in command)):
         raise ValueError("harness command must be a JSON argv array")
@@ -68,27 +74,37 @@ def configuration(provider):
     return [executable, *command[1:]], model
 
 
-def probe(provider):
-    command, model = configuration(provider)
+def model_ids(provider, model):
     key = os.environ.get("MIMO_API_KEY" if model.startswith("mimo-") else "DEEPSEEK_API_KEY")
     if not key:
         raise RuntimeError("harness model credential unavailable")
-    endpoint = os.environ.get("KITE_DSH_HEALTH_URL")
+    prefix = "KITE_" + provider.upper()
+    endpoint = os.environ.get(prefix + "_HEALTH_URL")
     if not endpoint:
-        if os.environ.get("KITE_DSH_PROVIDER", "deepseek-official") != "deepseek-official":
-            raise RuntimeError("custom DSH routes require a matching health URL")
+        route = os.environ.get(prefix + "_PROVIDER", "deepseek-official" if provider == "dsh" else "deepseek")
+        if route not in ("deepseek-official", "deepseek"):
+            raise RuntimeError("custom model routes require a matching health URL")
         endpoint = "https://api.deepseek.com/v1/models"
     parsed = urlsplit(endpoint)
     if parsed.username or parsed.password or parsed.scheme not in ("https", "http") or (
             parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1")):
         raise ValueError("invalid harness health URL")
-    request = urllib.request.Request(endpoint, headers={"Authorization": "Bearer " + key})
+    request = urllib.request.Request(endpoint, headers={"Authorization": "Bearer " + key, **({"api-key": key} if model.startswith("mimo-") else {})})
     with urllib.request.urlopen(request, timeout=5) as response:
         value = json.loads(response.read(1024 * 1024 + 1))
         if not any(item.get("id") == model for item in value.get("data", [])):
             raise RuntimeError("harness model unavailable")
-    native = Native(provider, command, str(Path.home()), model)
-    native.close()
+    return {item["id"] for item in value.get("data", []) if isinstance(item, dict) and isinstance(item.get("id"), str)}
+
+
+def probe(provider):
+    command, model = configuration(provider)
+    available = model_ids(provider, model)
+    native = Native(provider, command, str(Path.home()), model, inspect=True)
+    try:
+        return [row for row in native.models if json.loads(row["model"])[1] in available]
+    finally:
+        native.close()
 
 
 def providers():
@@ -99,19 +115,22 @@ def providers():
     cache = root() / ("probe-" + digest + ".json")
     if cache.exists() and time.time() - cache.stat().st_mtime < 20:
         return json.loads(cache.read_text())
-    result = []
-    for provider in IDS:
+    def discover(provider):
         try:
-            if provider == "dsh":
-                probe(provider)
+            if provider in ("dsh", "ply"):
+                if not probe(provider):
+                    return None
             elif shutil.which(provider) is None:
-                continue
-            result.append(dict(id=provider, managed_chat=provider != "claude",
-                               models=provider == "codex", attachments=provider == "codex",
-                               skills=provider == "codex", usage=provider == "codex",
-                               pause=provider in ("codex", "claude"), terminal=provider in ("codex", "claude")))
-        except (OSError, ValueError, RuntimeError):
-            continue
+                return None
+            return dict(id=provider, managed_chat=provider != "claude",
+                        models=provider != "claude", attachments=provider != "claude",
+                        skills=provider == "codex", usage=provider == "codex",
+                        pause=provider in ("codex", "claude"), terminal=provider in ("codex", "claude"))
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            return None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        result = [value for value in executor.map(discover, IDS) if value is not None]
     atomic(cache, result)
     return result
 
@@ -158,15 +177,31 @@ def open_session(record):
             info = json.loads((path / "session.json").read_text())
             if info["provider"] != provider or info["id"] != record["id"]:
                 raise ValueError("harness identity mismatch")
-            return agent(info, json.loads((path / "state.json").read_text()))
+            state = json.loads((path / "state.json").read_text())
+            if state.get("protocol") == 2:
+                return agent(info, state)
+            if state.get("status") in ("working", "blocked"):
+                raise RuntimeError("legacy harness turn is active; finish it before migration")
+            pid = state.get("pid")
+            if not pid or state.get("start_ticks") != start_ticks(pid):
+                raise RuntimeError("harness owner identity changed")
+            import signal
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(80):
+                if start_ticks(pid) is None or start_ticks(pid) != state["start_ticks"]:
+                    break
+                time.sleep(.05)
+            else:
+                raise RuntimeError("legacy owner did not stop")
     if (path / "state.json").exists():
         previous = json.loads((path / "state.json").read_text())
         pid = previous.get("pid")
         if isinstance(pid, int) and previous.get("start_ticks") == start_ticks(pid) and start_ticks(pid) is not None:
             raise RuntimeError("existing harness owner is unavailable; inspect it before restoring")
-        if previous.get("status") == "working":
+        if previous.get("status") in ("working", "blocked"):
             raise RuntimeError("harness owner was interrupted; inspect its history before restoring")
     info = dict(id=record["id"], thread=thread, provider=provider,
+                route=os.environ.get("KITE_" + provider.upper() + "_PROVIDER"),
                 cwd=record.get("cwd") or str(Path.home()), title=record.get("title", ""),
                 command=command, model=model)
     atomic(path / "session.json", info)

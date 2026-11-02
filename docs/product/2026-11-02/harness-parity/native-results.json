@@ -1,0 +1,71 @@
+{
+  "dsh-live": [
+    {
+      "harness": "dsh",
+      "model": "mimo-v2.6-pro",
+      "effort": "high",
+      "native_image": true,
+      "correct_colors": true,
+      "seconds": 6.09,
+      "reply_characters": 14,
+      "permission_requests": 0
+    },
+    {
+      "harness": "dsh",
+      "model": "mimo-v2.6-flash",
+      "effort": "off",
+      "native_image": true,
+      "correct_colors": true,
+      "seconds": 6.73,
+      "reply_characters": 14,
+      "permission_requests": 0
+    },
+    {
+      "harness": "dsh",
+      "restart_continuation": true,
+      "remembered_image": true,
+      "native_identity_preserved": true
+    }
+  ],
+  "ply-live": [
+    {
+      "harness": "ply",
+      "model": "mimo-v2.6-pro",
+      "effort": "high",
+      "native_image": true,
+      "correct_colors": true,
+      "seconds": 48.1,
+      "reply_characters": 14,
+      "permission_requests": 0
+    },
+    {
+      "harness": "ply",
+      "model": "mimo-v2.6-flash",
+      "effort": "off",
+      "native_image": true,
+      "correct_colors": true,
+      "seconds": 6.11,
+      "reply_characters": 56,
+      "permission_requests": 0
+    },
+    {
+      "harness": "ply",
+      "restart_continuation": true,
+      "remembered_image": true,
+      "native_identity_preserved": true
+    }
+  ],
+  "dsh-steer": {
+    "native_steering_accepted": true,
+    "supplement_observed": true,
+    "completed": true,
+    "public_messages": 2
+  },
+  "ply-controls": {
+    "tool_read": true,
+    "explicit_read_approval": true,
+    "public_tool_events": true,
+    "native_cancel": true,
+    "process_alive_after_cancel": true
+  }
+}

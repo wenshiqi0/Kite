@@ -80,18 +80,46 @@ class WorkspaceRefinementPresentationTest {
 
     @Test fun verifiedDshIsSelectableAndUnavailableProvidersAreAbsent() {
         val selected=java.util.concurrent.atomic.AtomicReference("")
-        val dsh=ProviderInfo("dsh",true,false,false,false,false,false,false)
-        overlay({HarnessChoices(listOf(dsh),"dsh",selected::set)}) {
+        val dsh=ProviderInfo("dsh",true,true,true,false,false,false,false)
+        val ply=dsh.copy(id="ply")
+        overlay({HarnessChoices(listOf(dsh,ply),"dsh",selected::set)}) {
             waitFor("Verified DSH appears"){find(text="DSH")!=null}
             assertNull(find(text="Codex"));assertNull(find(text="Claude"));assertNull(find(text="Ply"))
             assertTrue(actionNode(requireNotNull(find(text="DSH")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitFor("Stable provider ID submitted"){selected.get()=="dsh"}
+            waitFor("Dropdown contains verified Ply"){find(text="Ply")!=null}
+            screenshot("verified-harness-dropdown.png")
+            assertTrue(actionNode(requireNotNull(find(text="Ply")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Stable provider ID submitted"){selected.get()=="ply"}
             screenshot("dsh-verified-provider.png")
         }
         overlay({HarnessChoices(emptyList(),"dsh",selected::set)}) {
             waitFor("Empty host catalogue"){find(text="当前主机没有可用的智能体")!=null}
             assertNull(find(text="DSH"));assertNull(find(text="Ply"))
             screenshot("dsh-unavailable-hidden.png")
+        }
+    }
+
+    @Test fun harnessModelsAndEffortsUseNativeChoices() {
+        val nativeModels=listOf(
+            ChatModelInfo("flash","Flash","",listOf("off","low","high","max"),"high",listOf("text","image")),
+            ChatModelInfo("plain","Plain","",emptyList(),"",listOf("text")))
+        val current=androidx.compose.runtime.mutableStateOf(ComposerInfo(true,false,"",nativeModels,"flash","high",emptyList(),usage(),SkillDraftInfo(emptyList(),emptyList(),true,false,"")))
+        val selected=java.util.concurrent.atomic.AtomicReference("")
+        overlay({HarnessModelChoices(current.value,true){model,effort->selected.set("$model:$effort");current.value=current.value.copy(model=model,effort=effort)}}) {
+            waitFor("Native Flash and effort available"){find(text="Flash")!=null&&find(text="深入思考")!=null}
+            assertTrue(actionNode(requireNotNull(find(text="深入思考")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Native maximum effort is offered"){find(text="最大思考")!=null}
+            screenshot("harness-native-effort-menu.png")
+            assertTrue(actionNode(requireNotNull(find(text="最大思考")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Exact native effort submitted"){selected.get()=="flash:max"}
+            waitFor("Model selector returns after effort menu closes"){find(text="Flash")!=null}
+            assertTrue(actionNode(requireNotNull(find(text="Flash")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Native model dropdown"){find(text="Plain")!=null}
+            assertTrue(actionNode(requireNotNull(find(text="Plain")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Non-reasoning model has empty native effort"){selected.get()=="plain:"}
+            waitFor("Effort menu closes for non-reasoning model"){find(text="Plain")!=null&&find(text="最大思考")==null}
+            assertNull(find(text="深入思考"))
+            screenshot("harness-model-without-effort.png")
         }
     }
 

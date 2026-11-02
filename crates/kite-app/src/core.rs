@@ -346,7 +346,7 @@ impl AppCore {
     async fn fetch_agents(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
         let mut agents = c.api.agents().await?;
         // DSH is managed through its SDK owner, not an unverified Herdr TUI.
-        agents.retain(|agent| agent.agent.as_deref() != Some("dsh"));
+        agents.retain(|agent| !matches!(agent.agent.as_deref(), Some("dsh" | "ply")));
         let scan = providers::scan(&c.ssh).await?;
         agents.extend(scan.agents);
         if self.generation.load(Ordering::SeqCst) == c.generation
@@ -971,7 +971,7 @@ impl AppCore {
             .await
             .get(&chat_key(c, &agent))
             .cloned();
-        let text = if matches!(agent.agent.as_deref(), Some("dsh")) {
+        let text = if matches!(agent.agent.as_deref(), Some("dsh" | "ply")) {
             String::new()
         } else {
             let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
@@ -1250,10 +1250,11 @@ impl AppCore {
                 .iter()
                 .find(|m| m.model == model)
                 .ok_or_else(|| AppError::State("model unavailable".into()))?;
-            if !candidate
-                .supported_reasoning_efforts
-                .iter()
-                .any(|e| e.reasoning_effort == effort)
+            if !(candidate.supported_reasoning_efforts.is_empty() && effort.is_empty())
+                && !candidate
+                    .supported_reasoning_efforts
+                    .iter()
+                    .any(|e| e.reasoning_effort == effort)
             {
                 return Err(AppError::State("reasoning effort unavailable".into()));
             }

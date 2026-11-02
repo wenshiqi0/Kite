@@ -24,6 +24,7 @@ use tokio::{
 mod bridge;
 mod desktop;
 mod docs;
+mod harness;
 mod lifecycle;
 mod mcp;
 mod notifications;
@@ -464,13 +465,14 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     if activated.is_some() {
         let source = format!(
-            "{}{}{}{}{}{}",
+            "{}{}{}{}",
             String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
             include_str!("../../../../backend/kite_push.py"),
             desktop::SOURCE,
-            include_str!("../../../../backend/kite_harness.py"),
-            include_str!("../../../../backend/kite_harness_native.py"),
-            include_str!("../../../../backend/kite_harness_runtime.py")
+            harness::SOURCES
+                .iter()
+                .map(|(_, source)| *source)
+                .collect::<String>(),
         );
         let generation = config
             .backend
@@ -487,20 +489,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     fs::write(&pending, kite_agent::composer::BACKEND_SOURCE)?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, &config.backend)?;
-    for (name, source) in [
-        (
-            "kite_harness.py",
-            include_str!("../../../../backend/kite_harness.py"),
-        ),
-        (
-            "kite_harness_native.py",
-            include_str!("../../../../backend/kite_harness_native.py"),
-        ),
-        (
-            "kite_harness_runtime.py",
-            include_str!("../../../../backend/kite_harness_runtime.py"),
-        ),
-    ] {
+    for (name, source) in harness::SOURCES {
         let target = config.backend.with_file_name(name);
         let pending = target.with_extension("pending");
         fs::write(&pending, source)?;

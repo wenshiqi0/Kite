@@ -467,7 +467,7 @@ def session_open(identifier, binary):
     with file_lock(catalog_root() / ("session-" + identifier + ".lock")):
         record = next(r for r in catalog_read()["sessions"] if r["id"] == identifier)
         provider = record["provider"]
-        if provider in ("dsh",):
+        if provider in ("dsh", "ply"):
             import kite_harness
             managed = kite_harness.open_session(record)
             patch_session(identifier, {"reference": managed["agent_session"],
@@ -1120,10 +1120,10 @@ def notification_facts(binary, include_archived=False):
         reference = record.get("reference") or {}
         source = agent["terminal_id"] + ":" + hashlib.sha256(json.dumps(reference, sort_keys=True).encode()).hexdigest()
         controls, known = "", True
-        if reference.get("source") == "kite:harness" and reference.get("agent") == "dsh":
+        if reference.get("source") == "kite:harness" and reference.get("agent") in ("dsh", "ply"):
             try:
                 state = json.loads((kite_harness.directory(reference["value"]) / "state.json").read_text())
-                if state.get("turn_id") and state.get("status") in ("done", "failed"):
+                if state.get("turn_id") and state.get("status") in ("done", "failed", "cancelled"):
                     controls = json.dumps({"type": "event_msg", "payload": {
                         "type": "task_complete" if state["status"] == "done" else "task_aborted", "turn_id": state["turn_id"]}})
             except (OSError, ValueError, KeyError):
@@ -1148,7 +1148,7 @@ def notification_facts(binary, include_archived=False):
                 known = False
         result.append(dict(session_id=record["id"], title=record["title"][:160], source=source,
                            status=agent["agent_status"], revision=agent.get("state_change_seq", 0),
-                           thread=reference.get("value", ""), controls=controls, controls_known=known, lifecycle=reference.get("agent") in ("codex", "dsh")))
+                           thread=reference.get("value", ""), controls=controls, controls_known=known, lifecycle=reference.get("agent") in ("codex", "dsh", "ply")))
     output = json.dumps(dict(facts=result), ensure_ascii=False)
     if len(output.encode()) > 4 * 1024 * 1024:
         raise ValueError("notification facts exceed transport capacity")

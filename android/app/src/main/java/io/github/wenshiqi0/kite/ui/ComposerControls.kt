@@ -23,7 +23,7 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
 
 @Composable
-fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: ComposerInfo?, supported: Boolean = agent?.agent == "codex") {
+fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: ComposerInfo?, supported: Boolean = composer != null) {
     if (!supported || agent == null || composer == null) return
     if (!composer.ready) {
         var details by remember { mutableStateOf(false) }
@@ -36,12 +36,17 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
         if (details) AlertDialog(onDismissRequest = { details = false }, title = { Text(stringResource(R.string.connection_diagnostics)) }, text = { SelectionContainer { Text(composer.details, fontSize = 12.sp, modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) } }, confirmButton = { TextButton(onClick = { details = false; vm.reloadComposer() }) { Text(stringResource(R.string.retry)) } }, dismissButton = { TextButton(onClick = { details = false }) { Text(stringResource(R.string.dismiss)) } })
         return
     }
+    HarnessModelChoices(composer, !vm.sending) { model, effort -> vm.selectModel(agent.id, model, effort) }
+}
+
+@Composable
+fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, select: (String, String) -> Unit) {
     val model = composer.models.find { it.model == composer.model }
-    var models by remember(agent.id) { mutableStateOf(false) }
-    var efforts by remember(agent.id) { mutableStateOf(false) }
+    var models by remember(composer.model) { mutableStateOf(false) }
+    var efforts by remember(composer.model) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f, fill = false)) {
-            TextButton(onClick = { models = true }, enabled = !vm.sending, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            TextButton(onClick = { models = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
                 Text(model?.name ?: composer.model, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 4.dp).size(13.dp))
             }
@@ -49,20 +54,22 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
                 composer.models.forEach { option ->
                     DropdownMenuItem(text = { Text(option.name, fontSize = 14.sp) }, trailingIcon = { if (option.model == composer.model) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) }, onClick = {
                         models = false
-                        vm.selectModel(agent.id, option.model, composer.effort.takeIf { it in option.efforts } ?: option.defaultEffort)
+                        select(option.model, composer.effort.takeIf { it in option.efforts } ?: option.defaultEffort)
                     })
                 }
             }
         }
-        Text("·", color = KiteColors.Line, modifier = Modifier.padding(horizontal = 2.dp))
-        Box {
-            TextButton(onClick = { efforts = true }, enabled = !vm.sending, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                Text(effortLabel(composer.effort), fontSize = 12.sp)
-                ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 4.dp).size(13.dp))
-            }
-            DropdownMenu(efforts, { efforts = false }) {
-                model?.efforts?.forEach { effort ->
-                    DropdownMenuItem(text = { Text(effortLabel(effort)) }, trailingIcon = { if (effort == composer.effort) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) }, onClick = { efforts = false; vm.selectModel(agent.id, composer.model, effort) })
+        if (!model?.efforts.isNullOrEmpty()) {
+            Text("·", color = KiteColors.Line, modifier = Modifier.padding(horizontal = 2.dp))
+            Box {
+                TextButton(onClick = { efforts = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                    Text(effortLabel(composer.effort), fontSize = 12.sp)
+                    ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 4.dp).size(13.dp))
+                }
+                DropdownMenu(efforts, { efforts = false }) {
+                    model?.efforts?.forEach { effort ->
+                        DropdownMenuItem(text = { Text(effortLabel(effort)) }, trailingIcon = { if (effort == composer.effort) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) }, onClick = { efforts = false; select(composer.model, effort) })
+                    }
                 }
             }
         }
@@ -70,7 +77,8 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
 }
 
 @Composable internal fun effortLabel(effort: String): String = when (effort) {
-    "none" -> stringResource(R.string.effort_none)
+    "" -> stringResource(R.string.effort_default)
+    "off", "none" -> stringResource(R.string.effort_none)
     "minimal" -> stringResource(R.string.effort_minimal)
     "low" -> stringResource(R.string.effort_low)
     "medium" -> stringResource(R.string.effort_medium)

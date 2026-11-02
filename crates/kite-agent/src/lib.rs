@@ -325,7 +325,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                     }
                 }
             }
-            "codex" | "dsh" => {
+            "codex" | "dsh" | "ply" => {
                 if v["type"] != "response_item" {
                     continue;
                 }

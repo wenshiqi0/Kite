@@ -1,9 +1,9 @@
 # Agent harness 接入规范
 
 > 范围：内部开发；仅在新增、修改或排查聊天 harness/provider 接入时读取。
-> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 当前接入见 [配置与验证](dsh.md)。
+> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 与 Ply 的能力对齐见 [RFC 0022](../rfcs/0022-harness-capability-parity.md)，配置按需读取 [DSH](dsh.md) / [Ply](ply.md)。
 
-Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Claude 与 DSH。新增 harness 需要完成相应适配与验收，不能只把名字加入列表。本文不定义新的传输协议；架构与依赖边界以 [SPEC](../../SPEC.md) 为准，引入新外部协议等变更仍按 [RFC 规则](../rfcs/README.md) 处理。
+Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Claude、DSH 与 Ply。新增 harness 需要完成相应适配与验收，不能只把名字加入列表。本文不定义新的传输协议；架构与依赖边界以 [SPEC](../../SPEC.md) 为准，引入新外部协议等变更仍按 [RFC 规则](../rfcs/README.md) 处理。
 
 ## 1. 先确定接入范围
 
@@ -46,7 +46,7 @@ Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Cla
 
 Node API、主机适配器协议、Herdr API、provider 协议是不同的版本边界。以各自实现和对应版本的 Schema 为准，不用某一个版本号替代全部兼容性判断。Herdr 的上游 Schema 定位见 [架构 RFC §4](../rfcs/0001-architecture.md#4-herdr-集成)。
 
-当前能力也不相同；DSH 的新增支持范围和环境变量见 [DSH 配置](dsh.md)：
+模型、思考强度、输入模态必须从各自后端读取，并经同一 Core/FFI 合同驱动客户端；不能把适配器缺口写成 harness 原生不支持。DSH 和 Ply 的原生协议与环境变量见 [DSH](dsh.md) / [Ply](ply.md)。现有 Codex / Claude 路径如下：
 
 | 能力 | Codex | Claude |
 | --- | --- | --- |

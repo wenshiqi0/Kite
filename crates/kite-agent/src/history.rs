@@ -63,7 +63,7 @@ async fn request(
 ) -> Arc<History> {
     let cache_key = key(reference);
     let previous = previous.filter(|p| p.key == cache_key);
-    if matches!(reference.agent.as_str(), "dsh") {
+    if matches!(reference.agent.as_str(), "dsh" | "ply") {
         if reference.source != "kite:harness"
             || reference.kind != "id"
             || reference.value.len() != 36

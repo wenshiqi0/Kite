@@ -22,7 +22,7 @@ class Models(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200 if self.headers.get("Authorization") == "Bearer fixture-only" else 401)
         self.end_headers()
-        self.wfile.write(b'{"data":[{"id":"deepseek-v4-flash"}]}')
+        self.wfile.write(b'{"data":[{"id":"deepseek-v4-flash"},{"id":"deepseek-flash"}]}')
 
     def log_message(self, *_args):
         pass
@@ -38,7 +38,11 @@ class HarnessTests(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         endpoint = f"http://127.0.0.1:{self.server.server_port}/models"
         environment = {"KITE_HARNESS_STATE_DIR": str(Path(self.temporary.name) / "harnesses"), "DEEPSEEK_API_KEY": "fixture-only",
-            "KITE_ENABLE_DSH": "0",
+            "KITE_ENABLE_DSH": "0", "KITE_ENABLE_PLY": "0",
+            "KITE_DSH_MODEL": "deepseek-v4-flash", "KITE_DSH_PROVIDER": "deepseek-official",
+            "KITE_PLY_MODEL": "deepseek-v4-flash", "KITE_PLY_PROVIDER": "deepseek",
+            "KITE_PLY_COMMAND": json.dumps([sys.executable, str(FIXTURE), "ply"]),
+            "KITE_PLY_HEALTH_URL": endpoint,
             "KITE_DSH_COMMAND": json.dumps([sys.executable, str(FIXTURE), "dsh"]),
             "KITE_DSH_HEALTH_URL": endpoint}
         self.environment = patch.dict(os.environ, environment)
@@ -84,7 +88,8 @@ class HarnessTests(unittest.TestCase):
 
     def submit(self, thread, prompt):
         value = self.rpc(thread, "turn/start", {"threadId": thread,
-            "model": "deepseek-v4-flash", "input": [{"type": "text", "text": prompt}]})
+
+            "model": json.dumps(["deepseek-official", "deepseek-v4-flash"], separators=(",", ":")), "effort": "high", "input": [{"type": "text", "text": prompt}]})
         self.assertIn("result", value)
         path = harness.directory(thread)
         for _ in range(100):
@@ -114,7 +119,7 @@ class HarnessTests(unittest.TestCase):
         os.environ["KITE_DSH_COMMAND"] = '["/nonexistent/kite-owned-dsh"]'
         self.assertNotIn("dsh", [p["id"] for p in harness.providers()])
 
-    def test_dsh_sdk_turns_tools_and_reconnection_share_one_owner(self):
+    def test_dsh_acp_turns_tools_and_reconnection_share_one_owner(self):
         record, agent = self.open("dsh")
         thread = agent["agent_session"]["value"]
         rows = self.submit(thread, "first owned prompt")
@@ -127,6 +132,7 @@ class HarnessTests(unittest.TestCase):
         rows = self.submit(thread, "second owned prompt")
         self.assertTrue(any("DSH reply 2" in json.dumps(r) for r in rows))
         self.assertEqual(len([r for r in rows if r["payload"].get("role") == "user"]), 2)
+        self.assertNotIn("PRIVATE REASONING", json.dumps(rows))
 
     def test_cross_session_and_unsupported_inputs_are_rejected(self):
         _, agent = self.open("dsh")
@@ -155,3 +161,96 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(control["payload"]["turn_id"], json.loads((harness.directory(thread)/"state.json").read_text())["turn_id"])
         self.assertNotIn("owned-private-prompt", json.dumps(facts))
         self.assertNotIn("DSH reply", json.dumps(facts))
+
+    def test_ply_linux_host_contract_uses_the_shared_composer(self):
+        _, agent = self.open("ply")
+        thread = agent["agent_session"]["value"]
+        catalog = self.rpc(thread, "model/list", {})["result"]["data"]
+        self.assertEqual(catalog[0]["inputModalities"], ["text", "image"])
+        self.assertEqual([e["reasoningEffort"] for e in catalog[0]["supportedReasoningEfforts"]], ["off", "high", "max"])
+        value = self.rpc(thread, "turn/start", {"threadId": thread, "model": catalog[0]["model"], "effort": "max", "input": [{"type": "text", "text": "owned"}]})
+        self.assertIn("result", value)
+        path = harness.directory(thread)
+        for _ in range(100):
+            if json.loads((path / "state.json").read_text())["status"] == "done":
+                break
+            time.sleep(.02)
+        self.assertIn("Ply reply max", (path / "history.jsonl").read_text())
+        self.assertTrue((path / "native.json").exists())
+
+    def test_dsh_model_effort_and_native_vision_are_independent(self):
+        import base64
+        import uuid
+        _, agent = self.open("dsh")
+        thread = agent["agent_session"]["value"]
+        catalog = self.rpc(thread, "model/list", {})["result"]["data"]
+        vision = next(row for row in catalog if "image" in row["inputModalities"])
+        upload = Path.home() / ".local/share/kite/uploads" / uuid.uuid4().hex
+        upload.mkdir(parents=True, mode=0o700)
+        self.addCleanup(upload.rmdir)
+        file = upload / "owned.png"
+        file.write_bytes(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9iUAAAAASUVORK5CYII="))
+        self.addCleanup(file.unlink)
+        value = self.rpc(thread, "turn/start", {"threadId": thread, "model": vision["model"], "effort": "max",
+            "input": [{"type": "text", "text": "inspect image"}, {"type": "localImage", "path": str(file)}]})
+        self.assertIn("result", value)
+        path = harness.directory(thread)
+        for _ in range(100):
+            if json.loads((path / "state.json").read_text())["status"] != "working":
+                break
+            time.sleep(.03)
+        rows = (path / "history.jsonl").read_text()
+        self.assertIn("deepseek-flash max native-vision:image/png", rows)
+        self.assertNotIn("iVBORw0", rows)
+        self.assertNotIn("PRIVATE REASONING", rows)
+        self.assertIn("error", self.rpc(thread, "turn/start", {"threadId": thread, "model": vision["model"], "effort": "made-up", "input": [{"type": "text", "text": "owned"}]}))
+
+    def test_permissions_survive_client_disconnect_and_cancel_uses_native_turn(self):
+        _, agent = self.open("dsh")
+        thread = agent["agent_session"]["value"]
+        model = self.rpc(thread, "model/list", {})["result"]["data"][0]["model"]
+        result = self.rpc(thread, "turn/start", {"threadId": thread, "model": model, "effort": "low", "input": [{"type": "text", "text": "approval-fixture"}]})
+        self.assertIn("result", result)
+        path = harness.directory(thread)
+        for _ in range(100):
+            if json.loads((path / "state.json").read_text())["status"] == "blocked": break
+            time.sleep(.02)
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(5)
+            connection.connect(str(path / "owner.sock"))
+            connection.sendall((json.dumps({"id": "resume", "method": "thread/resume", "params": {"threadId": thread}})+"\n").encode())
+            with connection.makefile("rb") as source:
+                request = json.loads(source.readline())
+                self.assertEqual(request["method"], "item/commandExecution/requestApproval")
+                connection.sendall((json.dumps({"id": request["id"], "result": {"decision": "accept"}})+"\n").encode())
+        for _ in range(100):
+            if json.loads((path / "state.json").read_text())["status"] == "done": break
+            time.sleep(.02)
+        self.assertEqual(json.loads((path / "state.json").read_text())["status"], "done")
+        result = self.rpc(thread, "turn/start", {"threadId": thread, "model": model, "effort": "high", "input": [{"type": "text", "text": "cancel-fixture"}]})
+        turn = result["result"]["turn"]["id"]
+        self.assertIn("error", self.rpc(thread, "turn/interrupt", {"threadId": thread, "turnId": "expired"}))
+        self.assertIn("result", self.rpc(thread, "turn/interrupt", {"threadId": thread, "turnId": turn}))
+        for _ in range(100):
+            if json.loads((path / "state.json").read_text())["status"] == "cancelled": break
+            time.sleep(.02)
+        self.assertEqual(json.loads((path / "state.json").read_text())["status"], "cancelled")
+
+    def test_supplemental_input_is_accepted_in_order_while_turn_is_running(self):
+        for provider in ("dsh", "ply"):
+            _, agent = self.open(provider)
+            thread = agent["agent_session"]["value"]
+            model = self.rpc(thread, "model/list", {})["result"]["data"][0]["model"]
+            first = self.rpc(thread, "turn/start", {"threadId": thread, "model": model, "effort": "high", "input": [{"type": "text", "text": "first owned input"}]})
+            second = self.rpc(thread, "turn/start", {"threadId": thread, "model": model, "effort": "high", "input": [{"type": "text", "text": "supplemental owned input"}]})
+            self.assertIn("result", first)
+            self.assertIn("result", second)
+            path = harness.directory(thread)
+            for _ in range(100):
+                if json.loads((path / "state.json").read_text())["status"] == "done": break
+                time.sleep(.03)
+            rows = [json.loads(line)["payload"] for line in (path / "history.jsonl").read_text().splitlines()]
+            users = [r["content"][0]["text"] for r in rows if r.get("role") == "user"]
+            self.assertEqual(users, ["first owned input", "supplemental owned input"])
+            self.assertEqual(len([r for r in rows if r.get("role") == "assistant"]), 2)
+            self.assertEqual(json.loads((path / "queued.json").read_text()), [])

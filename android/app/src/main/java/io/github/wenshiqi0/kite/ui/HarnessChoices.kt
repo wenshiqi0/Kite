@@ -1,26 +1,33 @@
 package io.github.wenshiqi0.kite.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.ProviderInfo
 
 /** The host has already verified availability; presentation never invents providers. */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun HarnessChoices(providers: List<ProviderInfo>, selected: String, select: (String) -> Unit) {
     if (providers.isEmpty()) {
         Text(stringResource(R.string.no_available_harness))
         return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        providers.forEach { provider ->
-            FilterChip(selected = selected == provider.id, onClick = { select(provider.id) },
-                label = { Text(providerLabel(provider.id)) })
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded, { expanded = !expanded }) {
+        OutlinedTextField(value = providers.find { it.id == selected }?.let { providerLabel(it.id) }.orEmpty(),
+            onValueChange = {}, readOnly = true, singleLine = true,
+            label = { Text(stringResource(R.string.harness_selector)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth())
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            providers.forEach { provider ->
+                DropdownMenuItem(text = { Text(providerLabel(provider.id)) },
+                    onClick = { expanded = false; select(provider.id) })
+            }
         }
     }
 }

@@ -437,7 +437,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                                 enabled = providerInfo?.skills == true && state?.composer?.ready == true && !vm.sending,
                                 onClick = { plus = false; skillPicker = true; agent?.id?.let(vm::refreshSkills) },
                             )
-                            if (providerInfo?.attachments == true) listOf(R.string.attach_image to "image/*", R.string.attach_file to "*/*", R.string.attach_audio to "audio/*").forEach { (label, type) ->
+                            if (providerInfo?.attachments == true) buildList {
+                                val modalities = state?.composer?.models?.find { it.model == state.composer.model }?.modalities.orEmpty()
+                                if ("image" in modalities) add(R.string.attach_image to "image/*")
+                                add(R.string.attach_file to "*/*")
+                                if ("audio" in modalities) add(R.string.attach_audio to "audio/*")
+                            }.forEach { (label, type) ->
                                 DropdownMenuItem(text = { Text(stringResource(label)) }, leadingIcon = { ProductIcon(when (label) { R.string.attach_image -> Mark.Image; R.string.attach_audio -> Mark.Audio; else -> Mark.File }) }, onClick = { plus = false; pickAttachments(arrayOf(type)) }, enabled = providerInfo?.attachments == true && state?.composer?.ready == true && !vm.sending && !vm.copyingAttachments && state.composer.uploads.size < 5)
                             }
                         }
