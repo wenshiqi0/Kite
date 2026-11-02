@@ -934,7 +934,10 @@ impl AppCore {
         let Some(key) = self.selected() else {
             return Ok(());
         };
-        match self.read_live(&key, |live| live.agent.clone()).flatten() {
+        match self
+            .read_live(&key, |live| live.active_agent().cloned())
+            .flatten()
+        {
             Some(agent) => {
                 self.refresh_agent(c, &key, &agent.terminal, generation)
                     .await;
@@ -1074,8 +1077,7 @@ impl AppCore {
         // The pane may have moved on during these reads: skip this round, keep the state.
         let source = AgentKey::new(&c.host.id, &agent);
         let current = self.read_live(key, |live| {
-            live.agent
-                .as_ref()
+            live.active_agent()
                 .is_some_and(|a| a.terminal == agent.terminal_id && a.key == source)
         });
         if self.generation.load(Ordering::SeqCst) != generation || current != Some(true) {
@@ -1108,7 +1110,7 @@ impl AppCore {
             return;
         };
         let key = AgentKey::new(&c.host.id, agent);
-        let bound = |live: &LiveSession| live.agent.as_ref().is_some_and(|a| a.key == key);
+        let bound = |live: &LiveSession| live.active_agent().is_some_and(|a| a.key == key);
         let mut clients = self.chat_clients.lock().await;
         if clients.get(&key).is_some_and(|c| c.is_closed()) {
             clients.remove(&key);
@@ -1614,6 +1616,7 @@ impl AppCore {
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
             require_prompt_ready(&core.snapshot(), &agent)?;
+            core.require_confirmed_agent(&c.host.id, &agent)?;
             if core.snapshot().selected_agent.as_deref() == Some(&id)
                 && core.snapshot().agent_pause != AgentPause::Running
             {
@@ -1708,6 +1711,7 @@ impl AppCore {
                 } else {
                     ResponseActivity::Failed
                 });
+            let conversation = core.agent_conversation(&c.host.id, &agent);
             core.update_live(&conversation, |live| live.response_activity = activity);
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Err(AppError::State(
@@ -1734,7 +1738,9 @@ impl AppCore {
                     draft.sent(&skills);
                 }
                 core.publish_skills(&conversation, &key);
-                core.update_live(&conversation, |live| {
+                // Catalog discovery may have promoted the provisional pane key
+                // while the send or note RPC was in flight.
+                core.update_live(&core.agent_conversation(&c.host.id, &agent), |live| {
                     if core.generation.load(Ordering::SeqCst) == generation {
                         live.stage_pending(PendingItem {
                             item,
@@ -1844,6 +1850,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            core.require_confirmed_agent(&c.host.id, &agent)?;
             c.api.send_keys(&agent.pane_id, &[key]).await?;
             Ok(())
         })
@@ -1871,6 +1878,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            core.require_confirmed_agent(&c.host.id, &agent)?;
             if request.starts_with("rpc-") {
                 let client = core
                     .chat_clients
@@ -1941,6 +1949,7 @@ impl AppCore {
                 .iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            core.require_confirmed_agent(&c.host.id, agent)?;
             let client = core
                 .chat_clients
                 .lock()

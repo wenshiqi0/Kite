@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 const THREAD: &str = "12345678-1234-1234-1234-123456789abc";
+type OnTurn = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 struct Secrets;
 impl SecretStorage for Secrets {
     fn read(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
@@ -25,6 +26,7 @@ struct Peer {
     catalog: Arc<Mutex<Value>>,
     opened: Arc<Mutex<Value>>,
     seen: Arc<Mutex<Vec<Value>>>,
+    on_turn: OnTurn,
     channels: BTreeMap<ChannelId, (String, Vec<u8>)>,
     active: bool,
 }
@@ -100,7 +102,9 @@ impl server::Handler for Peer {
             );
         }
         assert!(
-            command.contains("herdr-api") || command.contains("proxy --pane"),
+            command.contains("herdr-api")
+                || command.contains("proxy --pane")
+                || command.ends_with("catalog-write"),
             "unexpected command {command}"
         );
         self.channels.insert(channel, (command, vec![]));
@@ -114,6 +118,14 @@ impl server::Handler for Peer {
     ) -> Result<(), Self::Error> {
         let (command, buffer) = self.channels.get_mut(&channel).unwrap();
         buffer.extend_from_slice(data);
+        if command.ends_with("catalog-write") {
+            if let Ok(mut catalog) = serde_json::from_slice::<Value>(buffer) {
+                catalog["revision"] = json!(catalog["revision"].as_u64().unwrap() + 1);
+                *lock(&self.catalog) = catalog.clone();
+                return finish(session, channel, catalog);
+            }
+            return Ok(());
+        }
         while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
             let line: Vec<_> = buffer.drain(..=end).collect();
             let request: Value = serde_json::from_slice(&line).unwrap();
@@ -153,7 +165,13 @@ impl server::Handler for Peer {
                     )?;
                     json!({"thread":{"id":THREAD,"status":{"type":"active"}}})
                 }
-                "turn/start" => json!({"turn":{"id":"turn-2","status":"inProgress"}}),
+                "turn/start" => {
+                    let callback = lock(&self.on_turn).take();
+                    if let Some(callback) = callback {
+                        callback();
+                    }
+                    json!({"turn":{"id":"turn-2","status":"inProgress"}})
+                }
                 "thread/turns/list" => {
                     json!({"data":if self.active { vec![json!({"id":"turn-1","status":"inProgress"})] } else { vec![] },"nextCursor":null})
                 }
@@ -191,6 +209,7 @@ struct Fixture {
     opened: Arc<Mutex<Value>>,
     connection: Arc<Connected>,
     seen: Arc<Mutex<Vec<Value>>>,
+    on_turn: OnTurn,
     ssh: Arc<Session>,
     listener: JoinHandle<()>,
     _directory: tempfile::TempDir,
@@ -206,6 +225,8 @@ impl Fixture {
         });
         let agent = json!({"terminal_id":format!("kite-harness-{THREAD}"),"pane_id":format!("kite-harness-{THREAD}"),"workspace_id":"owned","tab_id":"owned","agent":provider,"agent_status":"blocked","revision":1,"interactive_ready":true,"agent_session":{"source":"kite:harness","agent":provider,"kind":"id","value":THREAD}});
         let seen = Arc::new(Mutex::new(vec![]));
+        let on_turn: OnTurn = Arc::new(Mutex::new(None));
+        let on_turn_request = on_turn.clone();
         let catalog = Arc::new(Mutex::new(json!({"revision":1,"now_ms":1,"sessions":[]})));
         let shared_catalog = catalog.clone();
         let opened = Arc::new(Mutex::new(Value::Null));
@@ -221,6 +242,7 @@ impl Fixture {
                     catalog: shared_catalog.clone(),
                     opened: shared_opened.clone(),
                     seen: records.clone(),
+                    on_turn: on_turn_request.clone(),
                     channels: BTreeMap::new(),
                     active: true,
                 };
@@ -298,6 +320,7 @@ impl Fixture {
             opened,
             connection,
             seen,
+            on_turn,
             ssh,
             listener,
             _directory: directory,
@@ -307,6 +330,76 @@ impl Fixture {
         self.ssh.close().await.unwrap();
         self.listener.abort();
     }
+}
+
+#[tokio::test]
+async fn a_send_receipt_follows_catalog_registration_during_the_native_request() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    core.update(|snapshot| {
+        snapshot.providers = vec![providers::Provider {
+            id: "ply".into(),
+            managed_chat: true,
+            models: true,
+            attachments: true,
+            skills: false,
+            usage: false,
+            pause: false,
+            terminal: false,
+            release: false,
+        }]
+    });
+    let mut record = kite_agent::sessions::Record::draft(
+        "registered".into(),
+        "ply".into(),
+        "owned".into(),
+        None,
+        1,
+    );
+    record.reference = fixture.agent.agent_session.clone();
+    record.terminal_id = fixture.agent.terminal_id.clone();
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 2,
+        now_ms: 1,
+        sessions: vec![record],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    let during_send = Arc::downgrade(core);
+    *lock(&fixture.on_turn) = Some(Box::new(move || {
+        let core = during_send.upgrade().unwrap();
+        core.install_catalog("owned-host", &catalog).unwrap();
+        core.update(|_| {});
+        assert_eq!(
+            core.snapshot().selected_session.as_deref(),
+            Some("registered")
+        );
+    }));
+    core.prompt_agent(
+        fixture.agent.terminal_id.clone(),
+        "owned in-flight prompt".into(),
+    )
+    .await
+    .unwrap();
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.conversation_context(), "owned-host/registered");
+    assert_eq!(snapshot.conversation.len(), 1);
+    assert_eq!(snapshot.conversation[0].text(), "owned in-flight prompt");
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert!(
+        core.read_live(
+            &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+            |_| ()
+        )
+        .is_none()
+    );
+    assert_eq!(
+        lock(&fixture.seen)
+            .iter()
+            .filter(|request| request["method"] == "turn/start")
+            .count(),
+        1
+    );
+    fixture.stop().await;
 }
 
 #[tokio::test]
@@ -469,6 +562,10 @@ async fn approval_of_an_unselected_conversation_waits_and_shows_after_switching_
     let fixture = Fixture::start("ply").await;
     let core = &fixture.core;
     let request = fixture.client.runtime().approval().unwrap().id;
+    core.update_live(
+        &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+        |live| live.approval = None,
+    );
     let waiting = ConversationKey::new("owned-host", "waiting");
     let other = ConversationKey::new("owned-host", "other");
     let mut bound =
@@ -486,7 +583,11 @@ async fn approval_of_an_unselected_conversation_waits_and_shows_after_switching_
     core.select(Some(other.clone()), |s| {
         s.sessions = sessions::views(&catalog.sessions, &s.agents);
     });
-    assert!(core.read_live(&waiting, |_| ()).is_none());
+    // Registration already adopted the pane runtime; the background RPC is still unread.
+    assert_eq!(
+        core.read_live(&waiting, |live| live.approval.is_none()),
+        Some(true)
+    );
     assert!(core.snapshot().approval.is_none());
 
     // The request arrives while another conversation is on screen.
@@ -529,6 +630,10 @@ async fn a_notice_routes_a_waiting_request_to_its_own_conversation() {
     let fixture = Fixture::start("dsh").await;
     let core = &fixture.core;
     let request = fixture.client.runtime().approval().unwrap().id;
+    core.update_live(
+        &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+        |live| live.approval = None,
+    );
     let waiting = ConversationKey::new("owned-host", "waiting");
     let mut bound =
         kite_agent::sessions::Record::draft("waiting".into(), "dsh".into(), String::new(), None, 1);

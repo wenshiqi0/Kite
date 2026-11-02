@@ -16,6 +16,9 @@ pub(super) struct AgentBinding {
     pub(super) key: AgentKey,
     /// The last thread the pane reported.
     thread: Option<String>,
+    /// A known pane can briefly stop reporting its thread. Retain its runtime,
+    /// but do not send input or refresh it from that unconfirmed observation.
+    pub(super) confirmed: bool,
 }
 impl AgentBinding {
     fn new(host: &str, agent: &Agent) -> Self {
@@ -26,6 +29,7 @@ impl AgentBinding {
                 .agent_session
                 .as_ref()
                 .map(ConversationKey::history_key),
+            confirmed: true,
         }
     }
     /// A pane that learns or briefly loses its thread is still the same agent; only
@@ -36,6 +40,7 @@ impl AgentBinding {
     }
     fn follow(&mut self, next: Self) {
         self.key = next.key;
+        self.confirmed = next.confirmed;
         if next.thread.is_some() {
             self.thread = next.thread;
         }
@@ -99,6 +104,55 @@ impl LiveSession {
     fn needs_attention(&self) -> bool {
         self.approval.is_some() || self.question.is_some()
     }
+    pub(super) fn active_agent(&self) -> Option<&AgentBinding> {
+        self.agent.as_ref().filter(|agent| agent.confirmed)
+    }
+    fn cancel_sync(&mut self) {
+        if let Some(job) = self.sync_job.take() {
+            job.abort();
+        }
+        self.transcript.cancel_sync();
+        // A renamed backfill has a new owner key, even when its last page is unchanged.
+        self.history_status = self.transcript.status();
+    }
+    /// Catalog discovery and notification routing can both open the saved key.
+    /// Keep its cache and pending receipts when adopting the pane's whole runtime.
+    fn absorb(&mut self, saved: &mut Self) {
+        let mut merged = saved.conversation.as_ref().clone();
+        let mut positions: BTreeMap<_, _> = merged
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (item.id.clone(), i))
+            .collect();
+        for incoming in self.conversation.iter() {
+            if let Some(&i) = positions.get(&incoming.id) {
+                if merged[i] != *incoming {
+                    merged[i] = Arc::new(history::merge_item(&merged[i], incoming));
+                }
+            } else {
+                positions.insert(incoming.id.clone(), merged.len());
+                merged.push(incoming.clone());
+            }
+        }
+        for pending in std::mem::take(&mut saved.pending) {
+            self.stage_pending(pending);
+        }
+        if !self.composer.ready && saved.composer.ready {
+            self.composer = saved.composer.clone();
+        }
+        if self.approval.is_none() {
+            self.approval = saved.approval.take();
+        }
+        if self.question.is_none() {
+            self.question = saved.question.take();
+        }
+        self.viewed = self.viewed.max(saved.viewed);
+        self.revision = self.revision.max(saved.revision);
+        self.history = None;
+        self.transcript = conversation::Transcript::default();
+        self.history_status = HistoryStatus::default();
+        self.publish_conversation(merged, self.available || saved.available);
+    }
     /// Returns whether the serving agent changed, which starts it from an empty runtime.
     fn rebind(
         &mut self,
@@ -108,8 +162,9 @@ impl LiveSession {
         match (&mut self.agent, next) {
             (None, None) => false,
             (Some(current), Some(next)) if current.same_agent(&next) => {
+                let changed = current.confirmed != next.confirmed;
                 current.follow(next);
-                false
+                changed
             }
             (_, next) => {
                 let token = next.as_ref().is_some_and(paused_token);
@@ -168,7 +223,60 @@ impl LiveSessions {
             })
             .map(|(key, _)| key.clone())
     }
-    fn open(
+    /// A terminal key is provisional. Once the current source matches a catalog
+    /// record, move the object and selection together under the publication lock.
+    fn promote(
+        &mut self,
+        book: &SessionBook,
+        host: Option<&str>,
+        agents: &[Agent],
+        selected: &mut Option<ConversationKey>,
+    ) -> bool {
+        let moves: Vec<_> = self
+            .sessions
+            .iter()
+            .filter_map(|(key, live)| {
+                if Some(key.host.as_str()) != host || sessions::saved_record(key, book).is_some() {
+                    return None;
+                }
+                let bound = live.agent.as_ref()?;
+                if key.conversation != bound.terminal {
+                    return None;
+                }
+                let agent = agents
+                    .iter()
+                    .find(|agent| agent.terminal_id == bound.terminal)?;
+                if !bound.same_agent(&AgentBinding::new(&key.host, agent)) {
+                    return None;
+                }
+                let saved = sessions::record_for_agent(&key.host, book, agent)?;
+                Some((key.clone(), ConversationKey::new(&key.host, &saved.id)))
+            })
+            .collect();
+        let mut changed = false;
+        for (from, to) in moves {
+            let Some(mut live) = self.sessions.remove(&from) else {
+                continue;
+            };
+            live.cancel_sync();
+            if let Some(mut saved) = self.sessions.remove(&to) {
+                live.absorb(&mut saved);
+            } else if let Some(cache) = book.histories.get(&to.cache_key()) {
+                live.absorb(&mut LiveSession::new(0, Some(cache.clone())));
+            }
+            self.revision_floor = self.revision_floor.max(live.revision);
+            live.revision = self.revision_floor.wrapping_add(1);
+            live.journal = Arc::new(VecDeque::new());
+            if selected.as_ref() == Some(&from) {
+                *selected = Some(to.clone());
+                changed = true;
+            }
+            changed |= selected.as_ref() == Some(&to);
+            self.sessions.insert(to, live);
+        }
+        changed
+    }
+    pub(super) fn open(
         &mut self,
         key: &ConversationKey,
         seed: Option<CachedConversation>,
@@ -247,6 +355,11 @@ impl CoreState {
             s.response_activity = session.response_activity;
             s.agent_pause = session.agent_pause;
             s.composer.clone_from(&session.composer);
+            if session.agent.as_ref().is_some_and(|agent| !agent.confirmed) {
+                s.composer.ready = false;
+                s.composer.loading = true;
+                s.agent_pause = AgentPause::Unknown;
+            }
         } else {
             s.selected_agent = None;
             s.agent_output.clear();
@@ -294,6 +407,22 @@ impl AppCore {
     pub(super) fn selected(&self) -> Option<ConversationKey> {
         lock(&self.state).selected.clone()
     }
+    /// Retained runtime is readable while its source is missing, but is not an
+    /// authority to submit input, even for a nonselected conversation.
+    pub(super) fn require_confirmed_agent(
+        &self,
+        host: &str,
+        agent: &Agent,
+    ) -> Result<(), AppError> {
+        let key = self.agent_conversation(host, agent);
+        if self.read_live(&key, |live| {
+            live.agent.as_ref().is_some_and(|bound| !bound.confirmed)
+        }) == Some(true)
+        {
+            return Err(AppError::State("agent identity is not confirmed".into()));
+        }
+        Ok(())
+    }
     fn publish(&self, mut state: std::sync::MutexGuard<'_, CoreState>) {
         self.reconcile(&mut state);
         state.snapshot.revision = state.snapshot.revision.saturating_add(1);
@@ -312,6 +441,12 @@ impl AppCore {
             changed = true;
         }
         let book = lock(&self.session_book);
+        changed |= state.live.promote(
+            &book,
+            state.snapshot.selected_host.as_deref(),
+            &state.snapshot.agents,
+            &mut state.selected,
+        );
         let paused = lock(&self.paused_processes);
         let agents = &state.snapshot.agents;
         for (key, live) in &mut state.live.sessions {
@@ -325,6 +460,26 @@ impl AppCore {
             }
             let agent = sessions::conversation_agent(key, &book, agents, live.launching.as_deref())
                 .map(|agent| AgentBinding::new(&key.host, agent));
+            // Only a previously verified binding gets a reporting-gap grace period.
+            // A catalog's old terminal ID alone cannot bind an unrelated pane.
+            let reporting_gap = sessions::saved_record(key, &book)
+                .filter(|record| !record.archived && agent.is_none())
+                .and_then(|record| record.reference.as_ref())
+                .zip(live.agent.as_ref())
+                .is_some_and(|(reference, bound)| {
+                    bound.thread.as_ref() == Some(&ConversationKey::history_key(reference))
+                        && agents.iter().any(|agent| {
+                            agent.terminal_id == bound.terminal
+                                && agent.agent.as_deref() == Some(reference.agent.as_str())
+                                && agent.agent_session.is_none()
+                        })
+                });
+            if reporting_gap {
+                let bound = live.agent.as_mut().unwrap();
+                changed |= bound.confirmed && state.selected.as_ref() == Some(key);
+                bound.confirmed = false;
+                continue;
+            }
             let rebound = live.rebind(agent, |a| {
                 paused.contains_key(&pane_key(&key.host, &a.terminal))
             });
@@ -344,7 +499,7 @@ impl AppCore {
     }
     /// A conversation's saved cache, read outside the state lock because it can be
     /// a whole transcript on disk. Live sessions already hold theirs.
-    fn live_seed(&self, key: &ConversationKey) -> Option<CachedConversation> {
+    pub(super) fn live_seed(&self, key: &ConversationKey) -> Option<CachedConversation> {
         if self.read_live(key, |_| ()).is_some() {
             return None;
         }
@@ -367,6 +522,8 @@ impl AppCore {
             }
             state.selected = next;
             f(state);
+            // Promote (including the destination's seed) before applying the bound.
+            self.reconcile(state);
             state.live.evict(state.selected.as_ref())
         });
         self.retire(evicted);
@@ -401,7 +558,11 @@ impl AppCore {
             // Bind first: a new binding starts from an empty runtime.
             let changed = self.reconcile(&mut state);
             for (key, runtime) in runtimes {
-                if let Some(live) = state.live.get_mut(&key).filter(|l| l.agent.is_some()) {
+                if let Some(live) = state
+                    .live
+                    .get_mut(&key)
+                    .filter(|l| l.active_agent().is_some())
+                {
                     live.route(&runtime);
                 }
             }
@@ -830,5 +991,335 @@ mod tests {
         core.route_runtime(vec![(key("b"), RuntimeState::default())]);
         assert_eq!(lock(&observed.0).len(), published + 1);
         assert!(lock(&observed.0).last().unwrap().selected_agent.is_none());
+    }
+
+    #[test]
+    fn recorded_conversation_keeps_runtime_and_blocks_input_during_a_thread_reporting_gap() {
+        let (core, _directory) = saved_on_launching_pane("thread");
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        busy(&core, "saved");
+        core.update_live(&key("saved"), |live| live.composer.ready = true);
+        core.update(|s| s.agents = vec![pane("T", None)]);
+        assert_eq!(core.snapshot().response_activity, ResponseActivity::Sending);
+        assert_eq!(
+            core.snapshot().approval.as_ref().map(|a| a.id.as_str()),
+            Some("waiting")
+        );
+        let snapshot = core.snapshot();
+        assert!(!snapshot.composer.ready);
+        assert_eq!(snapshot.agent_pause, AgentPause::Unknown);
+        assert!(
+            core.require_confirmed_agent("host", &pane("T", None))
+                .is_err()
+        );
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        assert_kept(&core, "T");
+        assert!(core.snapshot().composer.ready);
+        assert_eq!(core.snapshot().agent_pause, AgentPause::Running);
+        assert!(
+            core.require_confirmed_agent("host", &pane("T", Some("thread")))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn catalog_registration_keeps_the_pending_prompt_on_the_selected_conversation() {
+        let (core, _directory) = core(&[]);
+        let agent = pane("T", Some("thread"));
+        core.select(Some(key("T")), |s| s.agents = vec![agent.clone()]);
+        core.update_live(&key("T"), |live| {
+            live.stage_pending(PendingItem {
+                item: Item::new(
+                    "local-prompt".into(),
+                    Role::User,
+                    vec![Block::Text("accepted prompt".into())],
+                ),
+                previous: BTreeSet::new(),
+                receipt: None,
+            });
+        });
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = agent.agent_session.clone();
+        record.terminal_id = "T".into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        // sync_sessions selects the matching catalog identity when it first appears.
+        core.select(Some(key("saved")), |_| {});
+        assert_eq!(core.snapshot().selected_session.as_deref(), Some("saved"));
+        assert_eq!(
+            core.snapshot()
+                .conversation
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["local-prompt"]
+        );
+        assert_eq!(
+            core.read_live(&key("saved"), |live| live.pending.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn registration_does_not_leave_a_protected_unreachable_runtime() {
+        let (core, _directory) = core(&["a", "b", "c", "d", "e"]);
+        let agent = pane("T", Some("thread"));
+        core.select(Some(key("T")), |s| s.agents = vec![agent.clone()]);
+        busy(&core, "T");
+        let mut records: Vec<_> = ["a", "b", "c", "d", "e"]
+            .into_iter()
+            .map(|id| core.session_record("host", id).unwrap())
+            .collect();
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = agent.agent_session.clone();
+        record.terminal_id = "T".into();
+        records.push(record);
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: records,
+            },
+        )
+        .unwrap();
+        core.select(Some(key("saved")), |_| {});
+        // Polling and notification routes now address saved, not the old terminal key.
+        show(&core, "a");
+        core.route_runtime(vec![(key("saved"), RuntimeState::default())]);
+        for id in ["b", "c", "d", "e"] {
+            show(&core, id);
+        }
+        assert!(
+            core.read_live(&key("T"), |_| ()).is_none(),
+            "obsolete pane identity remains protected by stale approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn registration_merges_the_saved_disk_cache_and_cancels_the_old_backfill() {
+        let (core, _directory) = core(&[]);
+        core.cache_conversation(&key("saved"), &Arc::new(vec![message("cached")]), true)
+            .unwrap();
+        lock(&core.session_book).histories.clear();
+        let agent = pane("T", Some("thread"));
+        core.select(Some(key("T")), |s| s.agents = vec![agent.clone()]);
+        let job = tokio::spawn(std::future::pending::<()>());
+        let cancelled = job.abort_handle();
+        core.update_live(&key("T"), |live| {
+            live.sync_job = Some(job);
+            live.composer.ready = true;
+            live.approval = Some(approval("waiting"));
+            live.stage_pending(PendingItem {
+                item: Item::new(
+                    "local-prompt".into(),
+                    Role::User,
+                    vec![Block::Text("accepted".into())],
+                ),
+                previous: BTreeSet::new(),
+                receipt: None,
+            });
+        });
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = agent.agent_session.clone();
+        record.terminal_id = "T".into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        // Even a telemetry publication adopts the full runtime without a selection command.
+        core.update(|_| {});
+        tokio::task::yield_now().await;
+        assert!(cancelled.is_finished());
+        let snapshot = core.snapshot();
+        assert_eq!(snapshot.conversation_context(), "host/saved");
+        assert_eq!(
+            snapshot
+                .conversation
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["cached", "local-prompt"]
+        );
+        assert!(snapshot.composer.ready);
+        assert_eq!(snapshot.approval.unwrap().id, "waiting");
+        assert!(core.read_live(&key("T"), |_| ()).is_none());
+        let echo = Arc::new(Item::new(
+            "provider-echo".into(),
+            Role::User,
+            vec![Block::Text("accepted".into())],
+        ));
+        for _ in 0..2 {
+            core.update_live(&key("saved"), |live| {
+                live.publish_conversation(vec![message("cached"), echo.clone()], true)
+            });
+            assert_eq!(
+                core.snapshot()
+                    .conversation
+                    .iter()
+                    .map(|m| m.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["cached", "provider-echo"]
+            );
+        }
+    }
+
+    #[test]
+    fn registration_merges_an_already_open_destination_and_resets_its_delta() {
+        let (core, _directory) = core(&[]);
+        let agent = pane("T", Some("thread"));
+        core.select(Some(key("saved")), |s| s.agents = vec![agent.clone()]);
+        core.update_live(&key("saved"), |live| {
+            live.stage_pending(PendingItem {
+                item: Item::new(
+                    "local-saved".into(),
+                    Role::User,
+                    vec![Block::Text("saved pending".into())],
+                ),
+                previous: BTreeSet::new(),
+                receipt: None,
+            })
+        });
+        let previous = core.snapshot().conversation_revision;
+        core.select(Some(key("T")), |_| {});
+        core.update_live(&key("T"), |live| {
+            live.stage_pending(PendingItem {
+                item: Item::new(
+                    "local-pane".into(),
+                    Role::User,
+                    vec![Block::Text("pane pending".into())],
+                ),
+                previous: BTreeSet::new(),
+                receipt: None,
+            })
+        });
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = agent.agent_session.clone();
+        record.terminal_id = "T".into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        show(&core, "saved");
+        assert_eq!(
+            core.read_live(&key("saved"), |live| live.pending.len()),
+            Some(2)
+        );
+        let ids: BTreeSet<_> = core
+            .snapshot()
+            .conversation
+            .iter()
+            .map(|m| m.id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            ["local-saved".to_owned(), "local-pane".to_owned()].into()
+        );
+        assert!(core.conversation_since("host/saved", previous).reset);
+        assert!(core.read_live(&key("T"), |_| ()).is_none());
+    }
+
+    #[test]
+    fn reporting_gap_ends_when_the_source_changes_disappears_or_is_archived() {
+        for change in ["thread", "provider", "missing", "archived"] {
+            let (core, _directory) = saved_on_launching_pane("thread");
+            core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+            busy(&core, "saved");
+            core.update(|s| s.agents = vec![pane("T", None)]);
+            assert!(core.snapshot().approval.is_some());
+            match change {
+                "thread" => core.update(|s| s.agents = vec![pane("T", Some("another"))]),
+                "provider" => core.update(|s| s.agents[0].agent = Some("codex".into())),
+                "missing" => core.update(|s| s.agents.clear()),
+                "archived" => {
+                    let mut record = core.session_record("host", "saved").unwrap();
+                    record.archived = true;
+                    core.install_catalog(
+                        "host",
+                        &Catalog {
+                            revision: 3,
+                            now_ms: 1,
+                            sessions: vec![record],
+                        },
+                    )
+                    .unwrap();
+                    core.update(|_| {});
+                }
+                _ => unreachable!(),
+            }
+            assert_reset(&core);
+            assert!(core.snapshot().selected_agent.is_none(), "{change}");
+        }
+    }
+
+    #[test]
+    fn another_confirmed_pane_takes_over_during_a_reporting_gap() {
+        let (core, _directory) = saved_on_launching_pane("thread");
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        busy(&core, "saved");
+        core.update(|s| s.agents = vec![pane("T", None), pane("U", Some("thread"))]);
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("U"));
+        assert_reset(&core);
+    }
+
+    #[test]
+    fn registration_preserves_all_destination_caches_when_waiting_sessions_exceed_the_bound() {
+        let (core, _directory) = core(&[]);
+        let agents: Vec<_> = (0..5)
+            .map(|i| pane(&format!("T{i}"), Some(&format!("thread-{i}"))))
+            .collect();
+        let mut records = Vec::new();
+        for (i, agent) in agents.iter().enumerate() {
+            let id = format!("saved-{i}");
+            core.cache_conversation(
+                &key(&id),
+                &Arc::new(vec![message(&format!("cached-{i}"))]),
+                true,
+            )
+            .unwrap();
+            core.select(Some(key(&agent.terminal_id)), |s| s.agents = agents.clone());
+            busy(&core, &agent.terminal_id);
+            let mut record = Record::draft(id, "claude".into(), String::new(), None, 1);
+            record.reference = agent.agent_session.clone();
+            record.terminal_id = agent.terminal_id.clone();
+            records.push(record);
+        }
+        lock(&core.session_book).histories.clear();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: records,
+            },
+        )
+        .unwrap();
+        core.update(|_| {});
+        for (i, agent) in agents.iter().enumerate() {
+            assert_eq!(
+                core.read_live(&key(&format!("saved-{i}")), |live| live.conversation[0]
+                    .id
+                    .clone()),
+                Some(format!("cached-{i}"))
+            );
+            assert!(core.read_live(&key(&agent.terminal_id), |_| ()).is_none());
+        }
     }
 }

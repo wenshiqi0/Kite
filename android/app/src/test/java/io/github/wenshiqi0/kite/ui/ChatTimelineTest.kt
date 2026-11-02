@@ -49,4 +49,25 @@ class ChatTimelineTest {
         assertEquals("", answered.text)
         assertEquals(listOf("message:sent", "work:a", "message:answered"), chatEntries(listOf(sent, tool("a"), answered)).map { it.key })
     }
+
+    @Test fun mixedAndMultipleToolBlocksKeepTheirSurroundingContentVisible() {
+        val first = tool("first")
+        val second = tool("second")
+        val mixed = text("mixed").copy(blocks = listOf(
+            BlockInfo.Text("before"), first.blocks.single(),
+            BlockInfo.QuestionReply(QuestionReplyInfo("q", "Question", "Answer")),
+            BlockInfo.Text("between"), second.blocks.single(), BlockInfo.Text("after"),
+        ))
+        val multiple = mixed.copy(id = "multiple", blocks = first.blocks + second.blocks)
+        assertNull(mixed.tool)
+        assertNull(multiple.tool)
+        val timeline = ChatTimelineState()
+        timeline.prepareContext("host/mixed")
+        timeline.apply(ConversationDeltaInfo("host/mixed", 1uL, true, listOf(ConversationEditInfo(0uL, 0uL, listOf(first, mixed, multiple, second)))))
+        assertEquals(listOf("work:first", "message:mixed", "message:multiple", "work:second"), timeline.rows.map { it.key })
+        assertEquals(mixed.blocks, (timeline.rows[1] as ChatEntry.Message).message.blocks)
+        // An existing pure-tool row must leave the collapsed group when it gains text.
+        timeline.apply(ConversationDeltaInfo("host/mixed", 2uL, false, listOf(ConversationEditInfo(0uL, 1uL, listOf(mixed.copy(id = "first"))))))
+        assertTrue(timeline.rows.first() is ChatEntry.Message)
+    }
 }

@@ -71,6 +71,17 @@ pub(super) fn saved_record<'a>(key: &ConversationKey, book: &'a SessionBook) -> 
         .find(|r| r.id == key.conversation)
 }
 
+pub(super) fn record_for_agent<'a>(
+    host: &str,
+    book: &'a SessionBook,
+    agent: &Agent,
+) -> Option<&'a Record> {
+    book.catalogs
+        .get(host)?
+        .iter()
+        .find(|record| record.matches(agent))
+}
+
 /// The pane serving a conversation. An archived record keeps its running agent out of
 /// the chat. `launching` is the pane opened for this conversation: a saved thread cannot
 /// match it until it reports that thread, and no other session-less pane may stand in.
@@ -331,6 +342,25 @@ impl AppCore {
         host: &str,
         catalog: &Catalog,
     ) -> Result<Catalog, AppError> {
+        // Prepare any persisted destination cache before publishing a newly known
+        // identity. Reconciliation must not read whole transcripts under its lock.
+        let snapshot = self.snapshot();
+        if snapshot.selected_host.as_deref() == Some(host) {
+            for record in &catalog.sessions {
+                let Some(agent) = snapshot.agents.iter().find(|agent| record.matches(agent)) else {
+                    continue;
+                };
+                let pane = ConversationKey::new(host, &agent.terminal_id);
+                if self.read_live(&pane, |_| ()).is_some() {
+                    let key = ConversationKey::new(host, &record.id);
+                    if let Some(seed) = self.live_seed(&key) {
+                        // Protected runtimes may exceed four; retain each seed in
+                        // the destination object before the cache LRU trims it.
+                        lock(&self.state).live.open(&key, Some(seed));
+                    }
+                }
+            }
+        }
         let mut book = lock(&self.session_book);
         if book
             .revisions
@@ -600,7 +630,7 @@ impl AppCore {
         let cached = self.read_live(key, |live| live.history.clone()).flatten();
         let history = history::read(&c.ssh, &reference, cached).await;
         if self.generation.load(Ordering::SeqCst) == generation
-            && self.read_live(key, |live| live.agent.is_none()) == Some(true)
+            && self.read_live(key, |live| live.active_agent().is_none()) == Some(true)
         {
             self.present_history(key, &history);
             self.record_history(c, key).await?;
@@ -929,13 +959,19 @@ mod tests {
         core.update(|s| s.agents.clear());
         assert!(core.snapshot().selected_agent.is_none());
         // A pane without a record yet is selected by its terminal.
-        core.select(Some(ConversationKey::new("host", "terminal")), |s| {
-            s.agents = vec![agent.clone()];
-        });
+        let mut unrecorded = agent.clone();
+        unrecorded.terminal_id = "unrecorded-terminal".into();
+        unrecorded.agent_session.as_mut().unwrap().value = "unrecorded-thread".into();
+        core.select(
+            Some(ConversationKey::new("host", &unrecorded.terminal_id)),
+            |s| {
+                s.agents = vec![unrecorded];
+            },
+        );
         let pane = core.snapshot();
         assert!(pane.selected_session.is_none());
-        assert_eq!(pane.selected_agent.as_deref(), Some("terminal"));
-        assert_eq!(pane.conversation_context(), "host/terminal");
+        assert_eq!(pane.selected_agent.as_deref(), Some("unrecorded-terminal"));
+        assert_eq!(pane.conversation_context(), "host/unrecorded-terminal");
         // A selection never survives on another host.
         core.update(|s| s.selected_host = Some("other".into()));
         let other = core.snapshot();

@@ -207,6 +207,10 @@ impl ReadRetry {
 }
 
 impl Transcript {
+    pub(super) fn cancel_sync(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.syncing = false;
+    }
     fn select(&mut self, scope: &str, cached: &[ItemRef]) {
         if self.scope != scope {
             *self = Self {
@@ -228,7 +232,7 @@ impl Transcript {
             .filter(|r| r.start > 0)
             .map(|r| Request::Before(r.start_cursor.clone()))
     }
-    fn status(&self) -> HistoryStatus {
+    pub(super) fn status(&self) -> HistoryStatus {
         HistoryStatus {
             loading: self.syncing,
             complete: !self.ranges.is_empty() && self.next().is_none(),

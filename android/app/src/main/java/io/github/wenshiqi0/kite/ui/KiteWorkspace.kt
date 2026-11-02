@@ -2,8 +2,6 @@ package io.github.wenshiqi0.kite.ui
 
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Rect
@@ -639,31 +637,13 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     }
 }
 @Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: ItemInfo, streaming: Boolean = false) {
-    val replies = message.questionReplies
-    if (replies.isNotEmpty()) {
-        AnsweredQuestions(replies)
-        return
-    }
     val user = message.role == ItemRole.USER
-    val context = LocalContext.current
-    val copyLabel = stringResource(R.string.copy_reply)
-    val files = message.attachments
-    val text = message.text
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                MessageAttachments(vm, files.filterNot { it.generatedImage }, updatePip, inspect)
-                GeneratedImages(vm, files.filter { it.generatedImage }, onExternalActivityChanged = updatePip, onOpenPreview = inspect)
-                if (text.isNotBlank()) {
-                    if (user) SelectionContainer { Text(text, color = KiteColors.Accent, fontSize = 16.sp, lineHeight = 25.sp) }
-                    else {
-                        MarkdownMessage(text,streaming=streaming)
-                        IconButton(onClick = {
-                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(copyLabel, text))
-                        }, modifier = Modifier.align(Alignment.End).size(40.dp).semantics { contentDescription = copyLabel }) {
-                            ProductIcon(Mark.Clipboard, Muted, Modifier.size(17.dp))
-                        }
-                    }
+                ItemContent(message, streaming, inspect, vm::openDesktop) { file ->
+                    if (file.generatedImage) GeneratedImages(vm, listOf(file), onExternalActivityChanged = updatePip, onOpenPreview = inspect)
+                    else MessageAttachments(vm, listOf(file), updatePip, inspect)
                 }
             }
         }

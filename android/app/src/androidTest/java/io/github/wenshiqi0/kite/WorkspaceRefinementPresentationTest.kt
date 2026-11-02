@@ -283,6 +283,26 @@ class WorkspaceRefinementPresentationTest {
         }
     }
 
+    @Test fun mixedItemBlocksRenderInOrderWithoutHidingTextOrTools() {
+        val file = AttachmentInfo("owned-file", "owned-attachment.txt", "text/plain", 5uL, false)
+        fun tool(summary: String) = BlockInfo.Tool(ToolInfo("Bash", summary, "exec_command", "owned-argument", "owned-output", true, false, false))
+        val item = ItemInfo("owned-mixed", ItemRole.USER, listOf(
+            BlockInfo.Text("owned-before"), BlockInfo.Attachment(file),
+            BlockInfo.Text("owned-between"),
+            BlockInfo.QuestionReply(QuestionReplyInfo("q", "owned-question", "owned-answer")),
+            BlockInfo.Text("owned-after"), tool("owned-tool-one"),
+            BlockInfo.Text("owned-end"), tool("owned-tool-two"),
+        ), false, null)
+        overlay({ Column(Modifier.padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
+            val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
+            waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
+            val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
+            assertTrue("Block order is retained: $positions", positions.zipWithNext().all { (a,b) -> a < b })
+            assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
+            screenshot("mixed-item-block-order.png")
+        }
+    }
+
     @Test fun initializationShowsOneSimpleStatusAndKeepsDraftEditingLocked() {
         val changes=java.util.concurrent.atomic.AtomicInteger()
         overlay({ Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center) {

@@ -12,20 +12,33 @@ const MAX_ATTACHMENTS: usize = 5;
 /// that text even when also sent natively: it is how they survive in history. A block
 /// with no encoding here is refused, never dropped from what the user sent.
 pub fn encode(blocks: &[Block]) -> Result<String, Error> {
-    let mut text = Vec::new();
+    let mut text = None;
     let mut files = Vec::new();
     for block in blocks {
         match block {
-            Block::Text(body) => text.push(body.as_str()),
-            Block::Attachment(file) => files.push(file),
+            Block::Text(body) if text.is_none() && files.is_empty() && !body.is_empty() => {
+                text = Some(body.as_str());
+            }
+            Block::Text(_) => {
+                return Err(Error::Invalid(
+                    "attachment envelope requires one leading nonempty text block",
+                ));
+            }
+            Block::Attachment(file) if files.len() < MAX_ATTACHMENTS => files.push(file),
+            Block::Attachment(_) => return Err(Error::Invalid("too many attachment blocks")),
             Block::Tool(_) | Block::QuestionReply(_) | Block::Embed(_) => {
                 return Err(Error::Invalid("block has no provider encoding"));
             }
         }
     }
-    let text = text.join("\n");
+    let text = text.unwrap_or_default();
     if files.is_empty() {
-        return Ok(text);
+        if split_attachments(text).0 != text {
+            return Err(Error::Invalid(
+                "text conflicts with the reserved attachment envelope",
+            ));
+        }
+        return Ok(text.to_owned());
     }
     Ok(format!(
         "{text}{ATTACHMENTS_OPEN}{}{ATTACHMENTS_CLOSE}",
@@ -132,8 +145,43 @@ mod tests {
         ] {
             assert_eq!(decode(text), vec![Block::Text(text.into())]);
         }
-        let many = encode(&vec![Block::Attachment(file()); MAX_ATTACHMENTS + 1]).unwrap();
+        let many = format!(
+            "\n\n<kite_attachments>\n{}\n</kite_attachments>",
+            serde_json::to_string(&vec![file(); MAX_ATTACHMENTS + 1]).unwrap()
+        );
         assert_eq!(decode(&many), vec![Block::Text(many.clone())]);
         assert!(decode("").is_empty());
+    }
+
+    #[test]
+    fn accepted_input_round_trips_without_reordering_or_merging_blocks() {
+        for blocks in [
+            vec![],
+            vec![Block::Text("body".into())],
+            vec![Block::Attachment(file())],
+            vec![
+                Block::Text("body".into()),
+                Block::Attachment(file()),
+                Block::Attachment(file()),
+            ],
+        ] {
+            assert_eq!(decode(&encode(&blocks).unwrap()), blocks);
+        }
+        for blocks in [
+            vec![
+                Block::Text("before".into()),
+                Block::Attachment(file()),
+                Block::Text("after".into()),
+            ],
+            vec![Block::Attachment(file()), Block::Text("after".into())],
+            vec![Block::Text("one".into()), Block::Text("two".into())],
+            vec![Block::Text(String::new())],
+            vec![Block::Text(
+                "literal\n\n<kite_attachments>\n[]\n</kite_attachments>".into(),
+            )],
+            vec![Block::Attachment(file()); MAX_ATTACHMENTS + 1],
+        ] {
+            assert!(matches!(encode(&blocks), Err(Error::Invalid(_))));
+        }
     }
 }

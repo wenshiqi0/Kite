@@ -65,7 +65,7 @@ Kite 沿用自己的名字，但一一对应 Medeo 概念：
 | `Thread` | Chat Thread | `{ id, conversation, title, items: Vec<ItemRef>, created_ms }`，有序、可不连续 | `kite-agent::threads`（新） |
 | `Reference` | 两种引用 | `Live { conversation, item }` 渲染时解析；`Snapshot { origin, captured_ms, blocks }` 不可变副本 | `kite-agent` |
 | `Origin` | 子 Session | `{ conversation, item: Option<ItemId>, turn: Option<String>, mode: Fork \| ContextCopy }` | `kite-agent::sessions` |
-| `Subscription` | Subscription | `{ key, read_revision, read_item, pinned, muted }`，本机、按设备 | `kite-store` 文档 |
+| `Subscription` | Subscription | `{ key, read_position, read_notice, pinned, muted }`，本机、按设备；阅读位置使用稳定 Item 身份与内容摘要 | `kite-store` 文档 |
 
 `Role` 保持 User/Assistant/Tool；工具调用仍按 call_id 合并成一条 Item，`Block::Tool` 承载 `Tool` 的字段。Android 的 Work 分组继续在原生做（RFC 0007），输入从 `MessageInfo` 变成 `ItemInfo`。
 
@@ -77,7 +77,7 @@ Kite 沿用自己的名字，但一一对应 Medeo 概念：
 
 `selected_agent` 不再是主键，由选中会话的 `LiveSession.agent` 投影；是否从 `CoreSnapshot` 移除留待原生不再依赖时决定。
 
-没有记录的 pane（尚无 `agent_session` 时，`select_agent` 也能选中）用 terminal ID 作为 `conversation`；记录出现后，下一次目录同步把选中项移到记录键上。旧的 terminal 键 `LiveSession` 留到 LRU 淘汰，无害但短暂冗余。
+没有记录的 pane（尚无 `agent_session` 时，`select_agent` 也能选中）用 terminal ID 作为 `conversation`。目录与当前 pane 的 thread 能确认同一身份后，在发布锁内把整个运行态移到记录键，选中项同时改指向；pending、审批、问题和日志一并迁移，旧键立即移除。目标键已有缓存或运行态时保留两边的历史与待确认消息，并强制原生重置展示镜像。旧键的回填任务取消，由正式键继续补齐；异步发送完成时重新解析所属记录，避免把回执写回已移除的键。
 
 规则：任何新函数不得自己拼 `host/…` 字符串。
 
@@ -94,7 +94,7 @@ AppCore
 - `LiveSession` 持有今天散落的 `history`、`history_window`、`pending_messages`、`composer`、`approval`、`question`、`response_activity`、`agent_pause`，以及它自己的同步任务句柄（RFC 0013 的后台同步按会话隔离、可取消）。`turn_revision` 不在其中：它在 `kite_agent::interaction::RuntimeState` 里，由该会话的 `ChatClient` 持有，已按会话隔离。
 - `live` 与 `selected` 和 `Snapshot` 同在 `AppCore.state: Mutex<CoreState>` 这一把发布锁内，保持 echo 对账与发布的原子性。
 - 切换会话 = `selected` 改指向；被挤出的 `LiveSession` 先落盘再丢弃。`open_session`、`archive_session`、`create_session`、`activate_session`、`sync_sessions` 不再各自清字段。淘汰规则见待定问题 5。切换时投影共享会话日志的 `Arc`，下一次编辑按写时复制拷贝这份有界日志，开销与基线等价。
-- 绑定规则：每次发布时由目录和实时 agent 重新推导 `LiveSession.agent`。同一终端从无 thread 到有 thread，或暂时丢失 thread，仍是同一个 agent，运行态不重置，只更新查找用的 `AgentKey`；只有终端变化、已知 thread 被另一个不同的值替换（中间丢失过也算），或不再有 agent 服务该会话时才重新绑定并清空运行态。
+- 绑定规则：每次发布时由目录和实时 agent 重新推导 `LiveSession.agent`。同一终端从无 thread 到有 thread 时保留运行态。正式记录已经确认过的同一 pane 暂时缺报 thread 时，保留最后确认的绑定、聊天和待办，但投影为暂不可输入，暂停运行态刷新；原 thread 恢复后直接继续。仅凭目录中的旧 terminal ID 不建立这种临时关联；另一 thread、另一 provider、pane 消失或记录归档都会结束旧绑定。临时缺报保护不放宽 `Record::matches`。
 - 慢恢复：`session-open` 可能在窗格上报 thread 前返回（有界等待后返回 `launch_pending` 窗格）。此时 `activate_session` 把返回的终端记为该 `LiveSession` 的临时绑定 `launching`，直到该窗格上报 thread，之后只按记录匹配；等待期间继续读记录已有 thread 的历史，不报同步失败。不放宽 `Record::matches`：记录里的 `terminal_id` 可能已过期（同一窗格 `/new` 后两条记录指向同一终端），Claude 窗格又可能长时间没有 session，放宽会把无关窗格绑到旧会话上，用户的输入可能发错 thread。临时绑定只在内存中，重连后回到按记录匹配。
 - `Snapshot` 仍然只发布选中会话的投影，`CoreSnapshot` 的字段先不变（Phase 1 不触碰 FFI），因此 Android 在这一步不改。
 - 审批、问题、通知到达时按 `ConversationKey` 路由到对应 `LiveSession`，不再只能命中"当前选中"。路由覆盖已有 client 的未归档会话；终端审批和未开过的会话在切换时读取，它们的状态继续由 `session-facts` 提供。非选中会话的审批进入该会话的运行态，并通过 Subscription（阶段 5）变成未读提示，而不是丢弃。新到通知按 `AgentNotice::conversation()` 找到会话并立刻读取其 client 的运行态，阶段 5 之前不增加单独字段。
@@ -102,10 +102,11 @@ AppCore
 ### 4. Item 与 Block
 
 - `kite-agent::parse_history` 直接产出 `Vec<Item>`；id 与 `positions` 排序规则不变（RFC 0013：传输位置不参与 ID）。
-- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 `turn/start input[]`，ACP prompt 的 blocks 由主机适配器从 `input[]` 转换（[uploads.ts](../../packages/providers/src/uploads.ts) 的 `nativeInput`）。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，阶段 4 新增 `kite_embed` 信封承载快照引用）；信封无法表示的块在编码时报错，不静默丢弃。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
+- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 `turn/start input[]`，ACP prompt 的 blocks 由主机适配器从 `input[]` 转换（[uploads.ts](../../packages/providers/src/uploads.ts) 的 `nativeInput`）。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，阶段 3 新增 `kite_embed` 信封承载快照引用）；信封无法表示的块在编码时报错，不静默丢弃。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
 - 本地缓存里的旧 `Message` 记录继续能读，读入时转为 blocks，下次保存时写成新格式；其中可能有 provider 已压缩掉的内容，不能丢。不支持降级。
 - FFI：`MessageInfo` → `ItemInfo { id, role, blocks: Vec<BlockInfo>, intermediate, origin }`，`BlockInfo` 为 UniFFI enum。`ConversationEditInfo.items` 改为 `Vec<ItemInfo>`。增量协议（`conversation_since`）不变。
-- Android：`ChatEntry.Message` 从 blocks 渲染；`ToolGroupCard` 读 `BlockInfo.Tool`；附件卡读 `BlockInfo.Attachment`；阶段 4 新增 `EmbedCard`。
+- Android：`ChatEntry.Message` 从 blocks 渲染；`ToolGroupCard` 读 `BlockInfo.Tool`；附件卡读 `BlockInfo.Attachment`；阶段 3 新增最小快照来源卡，阶段 4 扩展活引用交互。
+- Block 列表有序：原生逐块展示文本、附件、问答和工具，不能汇总后重新排序，也不能因问答或工具块隐藏同一 Item 的其他内容。只有单个 Tool 块组成的 Item 可以进入折叠工具组。阶段 2 的发送信封仅支持一个可选非空 Text 后接最多五个 Attachment；编码器拒绝多段文本、附件后的文本及其他变体，保证接受的输入可无损往返。历史读取仍保留旧信封的原样解析。阶段 3 的快照编码须另行定义有版本的结构，不通过这个受限格式强行展平。
 
 ### 5. Origin 与分叉
 
@@ -127,8 +128,9 @@ AppCore
 
 ### 7. Subscription
 
-- `kite-store` 新增 `subscriptions` 文档：`ConversationKey → { read_revision, read_item, pinned, muted }`，按设备保存，不上主机目录（它是个体关系，不是会话属性）。
-- 未读 = 该会话 `conversation_revision` 高于 `read_revision` 且最后一条 Item 不是本机用户发出的。原生打开会话、滚到底部时调用 `mark_read(key, revision, item)`。
+- `kite-store` 新增 `subscriptions` 文档：`ConversationKey → { read_position: Option<{ item, digest }>, read_notice, pinned, muted }`，按设备保存，不上主机目录（它是个体关系，不是会话属性）。`item` 是 provider 的稳定 Item ID；`digest` 是该 Item 的角色和类型化内容的摘要，覆盖流式文本、工具结果与完成状态；`read_notice` 是 RFC 0017 已验证事件的稳定接收位置。
+- `conversation_revision` 只服务当前进程的原生增量镜像，禁止持久化为阅读游标。缓存淘汰、重开、进程重启和历史回填不表示新活动。未读以已读锚点之后的新 assistant／工具条目、锚点自身尚未读到的内容变化，以及新到的已验证通知判断；不能只检查最后一条的角色。旧页回填位于锚点之前时不新增未读。pending 审批／问题单独保留待办状态，`mark_read` 不会处理待办。
+- 原生真正展示到相应条目后调用 `mark_read(key, item, digest, notice)`；打开会话但仍停在历史位置不自动清除后续未读。尚无 provider 回显的 `local-*` 行不能成为持久锚点。锚点因日志压缩暂时无法定位时保留旧位置和已有未读，不以当前消息数、展示 revision 或尾部角色猜测已读；等缓存／完整同步补齐后再判定。阶段 5 必须验证：重启后新消息、淘汰重开且内容不变、旧页回填、同一 Item 流式更新、重复通知、读到历史位置，以及 provider 压缩导致锚点缺失。
 - RFC 0017 的通知点击只负责跳转；是否清除红点由 `mark_read` 决定。置顶影响 `views()` 的排序，静音影响通知是否弹出，两者都不改主机目录。
 - `SessionInfo` 新增 `unread: bool`、`pinned`、`muted`；FFI 新增 `mark_read`、`set_subscription`。
 
@@ -150,12 +152,12 @@ Rust 仍不产生用户文案；"不可用引用""来自 X 的第 N 条"都是�
 |---|---|---|---|---|
 | 0 键统一 | `ConversationKey` 落地，删除五种键的拼接；`selected_agent` 改为派生 | `kite-app/core/key.rs`（新）、`core.rs`、`core/sessions.rs`、`core/conversation.rs`、`kite-agent/history.rs` | 现有 Rust 测试全绿；FFI 不变；真机切换会话、重连、归档无回归 | S |
 | 1 LiveSession | 运行态从 `AppCore` 拆到 `LiveSession`，有界多会话；审批/问题按键路由 | `core/live.rs`（新）、`core.rs` 瘦身、`core/sessions.rs` 删除五份清零代码、`core/pending.rs` 按会话 | 同上；新增测试：非选中会话收到审批不丢失，切回后可见；`core.rs` 行数下降并记录数字 | M |
-| 2 Item/Block | `Message` → `Item` + `Block`；附件走块；FFI `ItemInfo`；Android 按块渲染。`Block::Embed` 只定义类型，`EmbedCard` 与 `kite_embed` 属于阶段 4 | `kite-agent/lib.rs`、`composer.rs`（envelope 模块）、`kite-ffi/core_bridge.rs`、Android `ChatTimeline.kt`、`KiteWorkspace.kt` | RFC 0013 的一万条缓存重开测试通过；附件、生成图片、工具分组、问答回复在真机渲染一致；旧历史里的附件信封仍能读 | M |
-| 3 Origin/分叉 | `Record.origin`、`ForkSupport` 能力、Codex `thread/fork`、Claude `--fork-session`、ACP 快照拷贝、Android "从这条开始新会话" | `packages/protocol`、`packages/providers/{harness,codex,owner}.ts`、`kite-agent/providers.rs`、`core/sessions.rs`、Android 会话菜单 | 三类 provider 各一条真实分叉：Codex 截到中间一轮后新会话只含前半段；Claude 整会话分叉；Ply 新会话首轮带结构化快照；能力缺失时入口不出现 | M |
-| 4 Thread/引用 | `ThreadRecord`、叠加记录、`Block::Embed`、`kite_embed` 信封、Android 多选→保存 Thread/引用到… | `kite-agent/threads.rs`（新）、`catalog.ts`、`kite-ffi`、Android 抽屉与多选 | 活引用在源会话归档且 owner 回收后仍可渲染；源不可达显示不可用状态；快照进入 provider 后能从历史还原并跳回源 Item；目录 CAS 冲突重试覆盖 threads | L |
-| 5 Subscription | 本机阅读状态、未读、置顶、静音，与 RFC 0017 对接 | `kite-store`、`core/sessions.rs views()`、`SessionDrawer.kt` | 通知到达→未读；打开并滚到底→清除；置顶排序持久；静音不弹通知但保留未读 | S |
+| 2 Item/Block | `Message` → `Item` + `Block`；附件走块；FFI `ItemInfo`；Android 按块顺序渲染。`Block::Embed` 只定义类型，尚不进入 provider | `kite-agent/lib.rs`、`composer.rs`（envelope 模块）、`kite-ffi/core_bridge.rs`、Android `ChatTimeline.kt`、`KiteWorkspace.kt` | RFC 0013 的一万条缓存重开测试通过；附件、生成图片、工具分组、问答回复在真机渲染一致；混合块不隐藏内容；不支持的发送组合明确失败；旧信封仍能读 | M |
+| 3 Origin/分叉与最小快照 | `Record.origin`、`ForkSupport`、Codex `thread/fork`、Claude `--fork-session`、ACP 快照拷贝；`kite_embed` 的 Snapshot 编码／历史还原、大小边界和最小来源卡；Android "从这条开始新会话" | `packages/protocol`、`packages/providers/{harness,codex,owner}.ts`、`kite-agent/providers.rs`、`envelope`、`core/sessions.rs`、FFI 和 Android | 三类 provider 各一条真实分叉；Ply 首轮快照可从历史还原并展示来源；超限明确截断；能力缺失不显示入口；不依赖 Thread 或活引用 | M |
+| 4 Thread/活引用 | `ThreadRecord`、叠加记录、Live 引用解析、Thread 生成阶段 3 的快照、Android 多选→保存 Thread/引用到… | `kite-agent/threads.rs`（新）、`catalog.ts`、`kite-ffi`、Android 抽屉与多选 | 活引用在源会话归档且 owner 回收后仍可渲染；源不可达显示不可用状态；复用阶段 3 的快照往返与来源跳转；目录 CAS 冲突重试覆盖 threads | L |
+| 5 Subscription | 本机稳定阅读位置、未读、置顶、静音，与 RFC 0017 对接 | `kite-store`、`core/sessions.rs views()`、`SessionDrawer.kt` | 第 7 节的阅读位置回归全部通过；通知到达→未读；读到最新→清除；置顶排序持久；静音不弹通知但保留未读 | S |
 
-阶段 0–2 不改变任何用户可见功能，是为 3–5 做的抽象优化；如果只想先收益于"抽象变简单"，可以在阶段 2 之后停下来评估。
+阶段 0–2 保持现有聊天功能并为 3–5 做准备；切回会话立即显示缓存、后台继续回填、混合内容按块顺序显示及身份缺报期间暂停输入属于明确的行为调整，须回归验证。可以在阶段 2 之后停下来评估。
 
 ## 备选方案
 
@@ -180,6 +182,6 @@ Rust 仍不产生用户文案；"不可用引用""来自 X 的第 N 条"都是�
 1. **PRD 全文未读。** 本稿的 §3.2 内容块与 §4.3 两种引用的细节来自前序文档与摘要；登录后核对 PRD v1.3 是否对"引用在 Session 间同步"有更强要求（例如双向同步），再决定活引用是否需要变更通知。
 2. **Codex `thread/fork` 的分叉粒度是轮（turn），Item 是消息。** 用户选中 assistant 的中间一条时，截到它所在轮的上一轮还是本轮，需要定义并在界面上说明。
 3. **目录大小上限。** 现有 1 MB/1024 条（`catalog.ts`）。Thread 条目与叠加记录是否单独文件，取决于真实会话数；先在阶段 4 前用 wen.linux 的目录体积估算。
-4. **快照的大小边界。** `kite_embed` 进入 provider 输入会占用模型上下文；需要一个有界截断策略（按字节与条数）并在原生显示"已截断"状态。
+4. **快照的大小边界。** 阶段 3 的 `kite_embed` 进入 provider 输入会占用模型上下文；须在阶段 3 发布前确定有界截断策略（按字节与条数）并在原生显示"已截断"状态。
 5. **有界 LiveSession 的淘汰策略（已定）。** 默认 4 个，与现有 histories 一致。选中的会话和带待办审批或问题的会话都不淘汰，全部受保护时允许暂时超过 4 个。其余按最近一次被选中的时间淘汰，路由不算查看；先写入缓存再丢弃。未确认的本地待发行不受保护，淘汰后回显到达时仍会显示。终端解析出的审批只在选中时读取，不受淘汰保护，与基线等价。
 6. **iOS。** 本稿的原生部分只描述 Android；iOS 在阶段 2 起同步 `ItemInfo` 渲染，不单独排期。
