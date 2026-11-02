@@ -61,5 +61,42 @@ fn main() {
     build
         .file("native/kite_moonlight.c")
         .compile("kite_moonlight");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android")
+        && env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64")
+    {
+        // nanors uses Clang's __builtin_cpu_supports on x86. Rust links with
+        // -nodefaultlibs, so explicitly carry the NDK's matching CPU runtime
+        // through the static library into the final shared library.
+        let output = build
+            .get_compiler()
+            .to_command()
+            .arg("--print-libgcc-file-name")
+            .output()
+            .expect("query the target compiler runtime");
+        assert!(
+            output.status.success(),
+            "target compiler runtime query failed"
+        );
+        let runtime = String::from_utf8(output.stdout).expect("compiler runtime path is UTF-8");
+        let runtime = Path::new(runtime.trim());
+        assert!(
+            runtime.is_file(),
+            "target compiler runtime archive is missing"
+        );
+        let name = runtime
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .strip_prefix("lib")
+            .unwrap()
+            .strip_suffix(".a")
+            .unwrap();
+        println!(
+            "cargo:rustc-link-search=native={}",
+            runtime.parent().unwrap().display()
+        );
+        println!("cargo:rustc-link-lib=static={name}");
+    }
     println!("cargo:rerun-if-changed=native");
 }
