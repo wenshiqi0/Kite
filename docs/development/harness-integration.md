@@ -39,7 +39,7 @@ Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Cla
 | 主机入口 | [RFC 0014](../rfcs/0014-linux-host-node.md)：SSH 认证、私有 Unix socket、已知动作；[Node 实现](../../crates/kite-app/src/host_node/mod.rs) 负责配置、参数验证与版本 |
 | 桥接传输 | [bridge.rs](../../crates/kite-app/src/host_node/bridge.rs) / [wire.rs](../../crates/kite-app/src/host_node/wire.rs)：保留 stdin/stdout/stderr 和退出码的有界帧，不负责理解 provider 语义 |
 | 终端与 agent | [Herdr API 客户端](../../crates/kite-herdr/src/api.rs)：`agent.list`、`agent.start`、`agent.prompt`、`agent.read`、`agent.send_keys` 及 pane/workspace 身份 |
-| 主机机制 | [kite_codex.py](../../backend/kite_codex.py)：会话索引原子写入、恢复锁、进程/socket 注册、Codex owner、附件与历史投影；不是通用 provider 插件系统 |
+| 主机机制 | [codex.ts](../../packages/providers/src/codex.ts)：会话索引原子写入、恢复锁、进程/socket 注册、Codex owner、附件与历史投影；不是通用 provider 插件系统 |
 | 会话领域 | [sessions.rs](../../crates/kite-agent/src/sessions.rs)：provider、持久引用、归档、目录修订与合并；[RFC 0007](../rfcs/0007-sessions-and-interactions.md) 规定生命周期 |
 | 统一消息与运行状态 | [消息模型和解析](../../crates/kite-agent/src/lib.rs)、[history.rs](../../crates/kite-agent/src/history.rs)、[interaction.rs](../../crates/kite-agent/src/interaction.rs)；[RFC 0013](../rfcs/0013-complete-transcript-and-dark-workspace.md) 规定完整会话和展示边界 |
 | 结构化聊天 | [composer.rs](../../crates/kite-agent/src/composer.rs) 与 [Core](../../crates/kite-app/src/core.rs)：当前直接使用 Codex app-server 语义，不能将其方法原样假设为所有 harness 的协议 |
@@ -106,7 +106,7 @@ Node API、主机适配器协议、Herdr API、provider 协议是不同的版本
 
 | 改动 | 读取与检查 |
 | --- | --- |
-| 新增会话 provider | `sessions.rs` 的 `observe` / `create`、Python `session_open`、Herdr 对 provider kind 的真实支持、客户端会话选择入口 |
+| 新增会话 provider | `sessions.rs` 的 `observe` / `create`、TypeScript `sessionOpen`、Herdr 对 provider kind 的真实支持、客户端会话选择入口 |
 | 共享目录与客户端数据 | Rust provider 注册信息、主机探测、Core `Snapshot`、FFI `CoreSnapshot` / `AgentInfo` / `SessionInfo`；现有 `harness-scan` 发布可用项，客户端使用 `CoreSnapshot.providers` |
 | 历史与工具过程 | `history.rs` 的 provider/kind 校验与路径定位、`parse_history`、主机投影、Core 会话同步与缓存；不要只增加一处白名单 |
 | 结构化输入与交互 | `composer.rs`、`interaction.rs`、Core 的 provider 分支；按能力接入附件、Skill、额度和通知，不沿用 Codex 的假设 |
@@ -138,4 +138,4 @@ Rust 应用层编排和验证；主机适配器只承接平台机制。继续沿
 | 断线、初始化失败、归档与恢复 | 缓存历史可读，状态与重试明确；不因重连自动重发消息 | 恢复同一引用，保留唯一 owner 与原始历史 |
 | 未知或当前不可用的 provider | 保留历史和原 ID；不误标 Codex，不启用未经验证的操作 | 未知能力不默认当作支持 |
 
-按修改模块选用 [测试入口](../testing.md)：`cargo test -p kite-herdr -p kite-agent --locked`、`cargo test -p kite-app --features host-node --locked`、`python3 -m unittest discover -s backend -p 'test_*.py'`；客户端展示与真实模型验证另记。只修改本文或索引时，检查链接、源码对应关系和按需加载边界即可，不因此运行模型或打包 APK。
+按修改模块选用 [测试入口](../testing.md)：`cargo test -p kite-herdr -p kite-agent --locked`、`cargo test -p kite-app --features host-node --locked`、`bun run check`；客户端展示与真实模型验证另记。只修改本文或索引时，检查链接、源码对应关系和按需加载边界即可，不因此运行模型或打包 APK。

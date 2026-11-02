@@ -25,7 +25,7 @@ use skills::{Skill, SkillDraft};
 const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
-pub const BACKEND_SOURCE: &[u8] = include_bytes!("../../../backend/kite_codex.py");
+pub const BACKEND_SOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/host.js"));
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -873,3 +873,7 @@ fn asynchronous_answers_steer_the_current_turn_and_start_only_after_completion()
         .is_err()
     );
 }
+
+/// Native DSH plugin, bundled from strictly checked TypeScript.
+pub const DSH_PLUGIN_SOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dsh-plugin.mjs"));
+pub const CLIPBOARD_SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/clipboard.js"));

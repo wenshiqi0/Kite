@@ -1,8 +1,7 @@
-//! Validated local desktop commands; Python owns only X11/platform mechanics.
+//! Validated local desktop commands; Bun owns only X11/platform mechanics.
 use super::*;
 use serde::{Deserialize, Serialize};
 
-pub const SOURCE: &str = include_str!("../../../../backend/kite_desktop.py");
 pub const MAX_IMAGE: u64 = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -154,9 +153,10 @@ pub async fn execute(config: &Config, request: Request) -> Result<Value> {
         .parent()
         .ok_or(Error::Config("missing node directory"))?
         .join("desktop-artifacts");
-    let mut command = Command::new(&config.python);
+    let mut command = Command::new(&config.bun);
     command
-        .arg(config.backend.with_file_name("desktop-v1.py"))
+        .arg(&config.backend)
+        .arg("desktop")
         .env_remove("DISPLAY")
         .env_remove("XAUTHORITY")
         .env_remove("DBUS_SESSION_BUS_ADDRESS")

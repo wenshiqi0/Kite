@@ -70,3 +70,5 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 4. 代码落地后改成"已实现"。
 
 已采纳的 RFC 不再大改。要推翻或大幅修改，写一份新的 RFC，把旧的标成"已被取代"。
+
+- [0024 — Bun server packages and native Linux UI](0024-bun-server-monorepo.md)

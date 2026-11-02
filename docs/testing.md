@@ -30,19 +30,16 @@ The exact public-APK results and the distinction between connected notifications
 
 ## Linux status UI
 
-On Linux with Python GI, GTK 3, Xvfb and a session D-Bus:
+The client is native Rust/GTK 3. With Bun, Xvfb and a session D-Bus:
 
 ```sh
-cargo test -p kite-app --features host-node host_node:: --locked
+cargo test -p kite-desktop -p kite-app --features kite-app/host-node --locked
+cargo build -p kite-node -p kite-desktop --locked
 python3 -m unittest discover -s desktop/linux -p 'test_*.py'
-xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
-xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/operations_probe.py
-xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/upgrade_probe.py
+xvfb-run -a dbus-run-session -- bun run scripts/native-desktop-probe.ts
 ```
 
-The native probe uses an isolated CLI fixture. It verifies health transitions, stale-state clearing, timeout/recovery, menu actions and repeated launches. Without a tray it requires an automatically accessible window. On a supported Xfce/X11 desktop, run the probe in a private session bus with `--require-tray --evidence /path/to/owned-output` to additionally require a real embedded icon, hide/reopen the same window and record fixture screenshots. The probe does not stop real Herdr or Sunshine services. Trusted CI runs the missing-tray probe; actual Xfce results are recorded in [taskbar acceptance](product/2026-10-31/linux-taskbar/acceptance.md).
-
-`operations_probe.py` checks real GTK widgets while status and actions overlap: queued/deduplicated actions, health polling during startup, failures retained across healthy polls, successful retry, stable service widgets, skipped hidden-window rendering and three/fifteen-second foreground/background scheduling. Its optional `--evidence /owned/output` captures the failure and recovery panels. `upgrade_probe.py` uses two owned package directories on a private session bus, replaces the launcher and verifies a visible original GUI remains open until normal exit, after which the next launch loads the new release. Run it only on an isolated display and private bus. Installer unit tests cover interrupted-upgrade retry, running-executable verification, custom sockets, retained configuration/autostart preferences and deferred GUI updates and explicit first-migration refusal. Node tests cover batched cached probes, explicit refresh, service aliases, post-start cache invalidation and inspection timeout diagnostics.
+The native probe checks actual GTK rendering, a valid screenshot, single-instance activation, D-Bus actions and clean exit against an isolated CLI fixture. Rust presentation tests cover command deduplication, retained failures, timeout state and deferred upgrades. Installation tests cover native binary installation, custom sockets, preserved preferences and interrupted handover. The server X11 probe separately verifies pixels, Unicode input/keymap restoration and standard MCP images. These checks never query real user sessions or stop real Herdr/Sunshine services.
 
 For live upgrades, a **real systemd user manager** is required:
 
@@ -59,7 +56,7 @@ Agent docs/desktop acceptance uses an owned Node and X11 fixture:
 
 ```sh
 cargo build -p kite-node --locked
-xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
+KITE_QA_BUN="$(command -v bun)" xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
 uv run --no-project --with tiktoken python desktop/linux/qa/docs_budget.py --binary target/debug/kite-node
 python3 desktop/linux/qa/skill_consumers.py --binary target/debug/kite-node --dsh-source /path/to/installed/deepseek-harness
 ```
@@ -177,3 +174,7 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 ## Attachment previews and CJK Markdown
 
 `MarkdownNormalizationTest` covers CJK closing punctuation before adjacent text and preserves code/escapes/destinations. `NativePresentationTest` checks actual Markwon strong spans and literal code for this boundary. `AttachmentPreviewTest` covers image/audio/text selection, media time labels, UTF BOM and bounded text reading. Rust SSH fixtures exercise attachment frames and name/size/checksum failures. Host adapter tests reject traversal, symlink and FIFO paths and retain exact bytes. The owned live-upgrade heartbeat writer uses atomic replacement to eliminate its empty-read race. [Acceptance boundaries](product/2026-11-01/attachment-preview-and-markdown/acceptance.md).
+
+## Bun adapters and native Linux UI
+
+See [Bun server development](development/bun-server.md) for the strict typecheck, lint, fixture tests and owned X11 native panel probe. The old Python GUI probes are replaced by `scripts/native-desktop-probe.ts`; all client UI code is native.

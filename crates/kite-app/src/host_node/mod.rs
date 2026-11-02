@@ -24,7 +24,6 @@ use tokio::{
 mod bridge;
 mod desktop;
 mod docs;
-mod harness;
 mod lifecycle;
 mod mcp;
 mod notifications;
@@ -75,7 +74,7 @@ pub struct Config {
     pub socket: PathBuf,
     pub backend: PathBuf,
     pub herdr: PathBuf,
-    pub python: PathBuf,
+    pub bun: PathBuf,
     pub systemctl: PathBuf,
     #[serde(default = "crate::resources::default_agent_memory_limit")]
     pub agent_memory_limit_bytes: u64,
@@ -99,7 +98,7 @@ impl Config {
             || !self.socket.is_absolute()
             || !self.backend.is_absolute()
             || !self.herdr.is_absolute()
-            || !self.python.is_absolute()
+            || !self.bun.is_absolute()
             || !self.systemctl.is_absolute()
             || self
                 .push_service_account
@@ -505,15 +504,9 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     }
     if activated.is_some() {
         let source = format!(
-            "{}{}{}{}{}",
+            "{}{}",
             String::from_utf8_lossy(kite_agent::composer::BACKEND_SOURCE),
-            include_str!("../../../../backend/kite_push.py"),
-            desktop::SOURCE,
-            harness::SOURCES
-                .iter()
-                .map(|(_, source)| *source)
-                .collect::<String>(),
-            String::from_utf8_lossy(resources::SOURCE),
+            String::from_utf8_lossy(kite_agent::composer::DSH_PLUGIN_SOURCE)
         );
         let generation = config
             .backend
@@ -521,7 +514,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
             .ok_or(Error::Config("missing adapter directory"))?
             .join("adapters")
             .join(kite_agent::fingerprint(&source));
-        config.backend = generation.join("backend-v5.py");
+        config.backend = generation.join("host.js");
     }
     if let Some(parent) = config.backend.parent() {
         fs::create_dir_all(parent)?;
@@ -530,28 +523,11 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
     fs::write(&pending, kite_agent::composer::BACKEND_SOURCE)?;
     fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
     fs::rename(pending, &config.backend)?;
-    for (name, source) in harness::SOURCES {
-        let target = config.backend.with_file_name(name);
-        let pending = target.with_extension("pending");
-        fs::write(&pending, source)?;
-        fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
-        fs::rename(pending, target)?;
-    }
-    let push_backend = config.backend.with_file_name("push-v1.py");
-    let pending = push_backend.with_extension("pending");
-    fs::write(&pending, include_str!("../../../../backend/kite_push.py"))?;
-    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
-    fs::rename(pending, push_backend)?;
-    let desktop_backend = config.backend.with_file_name("desktop-v1.py");
-    let pending = desktop_backend.with_extension("pending");
-    fs::write(&pending, desktop::SOURCE)?;
-    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
-    fs::rename(pending, desktop_backend)?;
-    let resource_backend = config.backend.with_file_name("kite_resources.py");
-    let pending = resource_backend.with_extension("pending");
-    fs::write(&pending, resources::SOURCE)?;
-    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
-    fs::rename(pending, resource_backend)?;
+    let plugin = config.backend.with_file_name("dsh-plugin.mjs");
+    let pending = plugin.with_extension("pending");
+    fs::write(&pending, kite_agent::composer::DSH_PLUGIN_SOURCE)?;
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o600))?;
+    fs::rename(pending, plugin)?;
     let listener = if activated.is_some() {
         upgrade::inherited_listener(&config.socket)?
     } else {
@@ -685,14 +661,14 @@ impl Node {
             c.arg("remote-api-bridge");
             c
         } else {
-            let mut c = Command::new(&self.config.python);
+            let mut c = Command::new(&self.config.bun);
             c.arg(&self.config.backend).args(&request.args);
             c
         };
         command.envs(&self.config.environment);
         command
             .env("KITE_AGENT_RESOURCE_CONTROL", "1")
-            .env("KITE_CODEX_BACKEND_PATH", &self.config.backend);
+            .env("KITE_HOST_BACKEND_PATH", &self.config.backend);
         Ok(command)
     }
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
@@ -767,7 +743,7 @@ impl Node {
                 )
             }
             "sessions" => {
-                let mut c = Command::new(&self.config.python);
+                let mut c = Command::new(&self.config.bun);
                 c.arg(&self.config.backend)
                     .arg("catalog-read")
                     .envs(&self.config.environment);
@@ -1053,7 +1029,7 @@ mod tests {
             socket: root.join("node/host.sock"),
             backend: root.join("adapter.py"),
             herdr: PathBuf::from("/bin/sh"),
-            python: PathBuf::from("/usr/bin/python3"),
+            bun: PathBuf::from("/usr/bin/python3"),
             systemctl: PathBuf::from("/usr/bin/false"),
             agent_memory_limit_bytes: crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
             source_path: None,

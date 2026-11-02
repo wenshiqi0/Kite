@@ -1,7 +1,7 @@
 # kite 工程规范（SPEC）
 
 > 状态：生效 · 2026-10-28
-> 适用范围：`crates/` 下的全部 Rust 代码，以及 `android/`、`ios/` 与 `desktop/` 下的原生代码。
+> 适用范围：`packages/` 下的 TypeScript 服务端代码、`crates/` 下的全部 Rust 代码，以及 `android/`、`ios/` 与 `desktop/` 下的原生代码。
 > 本文汇总当前生效的硬性规则。每条规则的来龙去脉记录在 [docs/rfcs/](docs/rfcs/README.md) 里，整体设计见 [RFC 0001](docs/rfcs/0001-architecture.md)。要调整 crate 划分，或者调整 Rust 与原生界面的分界，按第 7 节的流程先写 RFC、改这份规范，再改代码。
 
 文中"必须""不得"是硬性要求，"应当"是默认做法，有充分理由时可以例外，但要在代码或提交说明里写明理由。
@@ -17,7 +17,7 @@
 
 手机操作按 [RFC 0005](docs/rfcs/0005-mobile-operation-and-session-entry.md) 使用统一源桌面坐标系和显式只看/操作模式；连接阶段与会话启动仍由 Rust Core 管理。
 
-聊天模型、思考强度和附件按 [RFC 0006](docs/rfcs/0006-rich-composer.md) 使用 Codex app-server v2：同一 pane 的 TUI 和手机连接同一持久服务器，保留 thread ID。`kite-agent` 持有结构化聊天协议和有界附件传输，原生仅提供私有缓存文件路径和展示。模型目录、设置、上传状态归 Rust；普通文件及不支持原生音频时通过主机路径提供给 agent。Linux 辅助程序位于 `backend/`，不得修改全局 Codex 服务或凭据。
+聊天模型、思考强度和附件按 [RFC 0006](docs/rfcs/0006-rich-composer.md) 使用 Codex app-server v2：同一 pane 的 TUI 和手机连接同一持久服务器，保留 thread ID。`kite-agent` 持有结构化聊天协议和有界附件传输，原生仅提供私有缓存文件路径和展示。模型目录、设置、上传状态归 Rust；普通文件及不支持原生音频时通过主机路径提供给 agent。Linux 辅助程序位于 `packages/`，不得修改全局 Codex 服务或凭据。
 
 显式 Skill 选择沿用同一协议与状态边界：Rust 按主机和会话持有目录及本条消息的选择，通过 `skills/list` 按 cwd 查询，发送原生 skill 输入；Android 在加号菜单提供名称/简介列表和可移除标签。发送成功清除选择，失败保留；不修改全局 skill 配置。
 
@@ -55,11 +55,13 @@ Linux Node 的兼容升级按 [RFC 0018](docs/rfcs/0018-live-node-upgrade.md) �
 
 主机资源与进程预算按 [RFC 0022](docs/rfcs/0022-host-resources-and-agent-budget.md)：Linux 适配器提供有界事实并执行 cgroup 机制，Rust 管理 CPU 差分、内存预警、共享预算和启动预留；客户端主机详情只展示与配置。资源同步独立于聊天。所有受管 provider 及本地工具子进程计入共享预算，控制服务不进入 agent 预算。已有进程迁移保守预留旧内存账目；严重压力或未落实限额时拒绝新启动，不自动重放任务。限额修改原子持久化，降低至当前用量以下时拒绝。
 
-Agent 能力按 [RFC 0019](docs/rfcs/0019-agent-docs-and-linux-desktop.md) 经统一 `kite docs`、CLI 和标准 MCP 暴露。文档正文仅维护一份，薄 SKILL 负责发现，按主题及调用方显式 revision 渐进返回；不得全局假定客户端已读。Linux X11 动作由应用层验证/选择目标，Python 平台适配器实现桌面机制；截图用私有制品和标准图像块，不以 base64 文本消耗模型上下文。新桌面接口允许任务授权范围内的输入与 argv 启动，不自动通过 shell 解释命令；既有只读 MCP 合同保留。
+Agent 能力按 [RFC 0019](docs/rfcs/0019-agent-docs-and-linux-desktop.md) 经统一 `kite docs`、CLI 和标准 MCP 暴露。文档正文仅维护一份，薄 SKILL 负责发现，按主题及调用方显式 revision 渐进返回；不得全局假定客户端已读。Linux X11 动作由应用层验证/选择目标，Bun/TypeScript 平台适配器实现桌面机制；截图用私有制品和标准图像块，不以 base64 文本消耗模型上下文。新桌面接口允许任务授权范围内的输入与 argv 启动，不自动通过 shell 解释命令；既有只读 MCP 合同保留。
 
 ```
 SPEC.md                  本规范
 Cargo.toml, Cargo.lock   Rust workspace 根，成员是 crates/*
+package.json, bun.lock   Bun workspace 根，成员是 packages/*
+packages/<package>/     TypeScript 服务端协议、机制与 provider 适配包
 crates/<crate>/          每个 crate 一个目录，目录名就是 crate 名
 desktop/linux/           Linux 原生主机控制面板与用户级安装入口
 target/                  构建输出，不提交
@@ -118,6 +120,7 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | `kite-app` | 以上全部 |
 | `kite-ffi` | `kite-app`（只能是它） |
 | `kite-node` | `kite-app`（只能是它） |
+| `kite-desktop` | 无内部依赖；原生 GTK 展示，仅调用结构化 CLI |
 
 - 依赖只能从上往下。表里没列出的内部依赖一律不允许，同层之间也一样。
 - `kite-ffi` 只依赖 `kite-app`。它需要的领域类型，由 `kite-app` 用 `pub use` 重新导出。
@@ -257,3 +260,9 @@ Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct Byte
 - 措辞修正、补充例子这类不改变规则的修改，可以直接改本规范，不需要 RFC。
 - 本规范和 RFC 冲突时，以本规范为准。已采纳的 RFC 如果没有同步进本规范，视为还没生效。
 - 代码评审以本规范为准。和规范冲突的代码，要么改代码，要么走 RFC 流程修改规范。
+
+## 8. Bun 服务端 packages
+
+按 [RFC 0024](docs/rfcs/0024-bun-server-monorepo.md)，仓库同时使用 Cargo workspace (`crates/*`) 与 Bun workspace (`packages/*`)。服务端平台及 provider 适配器使用 TypeScript strict 校验与 Bun 运行时，取代原 `backend/` Python 运行路径；原生 GTK 面板、安装与发布工具不属于服务端 TS 运行边界。Rust 继续持有客户端领域状态、SSH/IPC 与主机策略。packages 依赖从 host 到 providers/platform、runtime、protocol 单向流动。所有外部 JSON 必须从 unknown 验证；不得通过 any、关闭 strict 或忽略类型错误绕过检查。构建 bundle 进入 Cargo OUT_DIR，按摘要释放；生成物不提交。
+
+客户端内容必须使用原生语言：Android Kotlin，iOS/macOS Swift，Linux Rust/GTK。`kite-desktop` 为原生展示可执行入口，使用结构化 CLI 调用 `kite-node`；不得将 UI 迁入 Bun/TypeScript，也不得保留 Python GUI。该 crate 不引入 provider 或服务策略。

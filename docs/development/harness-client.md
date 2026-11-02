@@ -77,7 +77,7 @@
 
 Rust 与 FFI 合同共享，原生实现各自验收。当前 [iOS CoreController](../../ios/Kite/Data/CoreController.swift) 接收快照，[HostCheckView](../../ios/Kite/UI/HostCheckView.swift) 仍以主机检查为主，不能把 Android 新 harness 聊天完成说成 iOS 已完成同等界面。如果交付范围包含 iOS，必须补 provider 选择、会话/消息、能力控件和对应的 SwiftUI 体验，再用真实会话验收；不在 Swift 中另写一套 provider 协议。
 
-Linux 现有 [desktop.py](../../desktop/linux/desktop.py) 是主机面板，不是远程聊天客户端。Linux/macOS 客户端仍按 [RFC 0015](../rfcs/0015-desktop-client-and-host.md) 的阶段推进；仅安装新主机适配器不算这些客户端的展示已经支持。纯客户端场景使用远程目标的 provider 目录，不要求本机安装该 harness。
+Linux 现有 [kite-desktop](../../crates/kite-desktop/src/native.rs) 是主机面板，不是远程聊天客户端。Linux/macOS 客户端仍按 [RFC 0015](../rfcs/0015-desktop-client-and-host.md) 的阶段推进；仅安装新主机适配器不算这些客户端的展示已经支持。纯客户端场景使用远程目标的 provider 目录，不要求本机安装该 harness。
 
 ## 6. 客户端验收
 

@@ -49,7 +49,7 @@ async fn reap(node: &Node, fact: &Fact, reason: &str) -> Result<bool> {
     let mut request = serde_json::to_value(fact)?;
     request["reason"] = reason.into();
     let input = serde_json::to_vec(&request)?;
-    let mut command = Command::new(&node.config.python);
+    let mut command = Command::new(&node.config.bun);
     command
         .arg(&node.config.backend)
         .args(["lifecycle-reap", "--herdr"])
@@ -86,7 +86,7 @@ async fn reap(node: &Node, fact: &Fact, reason: &str) -> Result<bool> {
 }
 
 async fn scan(node: &Node) -> Result<()> {
-    let mut command = Command::new(&node.config.python);
+    let mut command = Command::new(&node.config.bun);
     command
         .arg(&node.config.backend)
         .args(["lifecycle-facts", "--herdr"])
@@ -228,7 +228,7 @@ mod tests {
         )
         .unwrap();
         let mut config = super::super::tests::config(root.path());
-        config.python = interpreter;
+        config.bun = interpreter;
         let node = Node {
             config,
             started: Instant::now(),

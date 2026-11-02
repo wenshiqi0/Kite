@@ -226,7 +226,7 @@ def main():
         resign_apk(built, compatibility_apk, tools, keystore, signing, v3=False)
         require(apk_payload(apk) == apk_payload(compatibility_apk),
                 "Compatibility signing changed application contents.")
-        run("cargo", "build", "--release", "--locked", "-p", "kite-node", capture=False)
+        run("cargo", "build", "--release", "--locked", "-p", "kite-node", "-p", "kite-desktop", capture=False)
         target = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "target")))
         host_binary = target / "release/kite-node"
         require(host_binary.is_file(), "Linux host binary was not produced.")

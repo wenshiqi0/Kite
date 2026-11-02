@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ESNext", "module": "Preserve", "moduleResolution": "Bundler",
+    "lib": ["ESNext"], "types": ["bun"], "noEmit": true,
+    "strict": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true, "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true, "noUnusedParameters": true,
+    "verbatimModuleSyntax": true, "allowImportingTsExtensions": true,
+    "skipLibCheck": true
+  },
+  "include": ["packages/**/*.ts", "scripts/**/*.ts"]
+}

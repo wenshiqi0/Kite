@@ -115,7 +115,7 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
             if node.draining() {
                 return;
             }
-            let mut command = Command::new(&node.config.python);
+            let mut command = Command::new(&node.config.bun);
             command
                 .arg(&node.config.backend)
                 .args(["notification-facts", "--herdr"])

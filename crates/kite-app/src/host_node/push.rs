@@ -225,9 +225,10 @@ pub(super) fn start(node: &Arc<Node>) -> notifications::Watch {
     }))
 }
 async fn transport(node: &Node, account: &Path, job: &Value) -> Result<Value> {
-    let mut command = Command::new(&node.config.python);
+    let mut command = Command::new(&node.config.bun);
     command
-        .arg(node.config.backend.with_file_name("push-v1.py"))
+        .arg(&node.config.backend)
+        .arg("push")
         .arg(account)
         .arg(
             node.config

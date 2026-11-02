@@ -18,7 +18,7 @@ Install as the desktop/SSH user without sudo. The installer checks the binary ag
 
 Default service references are `herdr.service` and `app-dev.lizardbyte.app.Sunshine.service`. Active services are reused without changing their processes or configuration. For custom unit/executable names, edit the corresponding configuration fields and restart only `kite-node.service`. **Start host services** starts configured inactive services; the panel does not stop external services. **Close panel** only closes the GUI.
 
-Alpha 17+ requires the live node. There is no automatic Python-direct fallback. Keep the same phone key, host address/port, trust and Sunshine pairing. Node installs `~/.local/lib/kite/backend-v5.py` and continues using the existing session catalogue, provider references, histories, owner registry and recovery leases. Earlier adapter files are left unchanged. Production sessions are not migrated to herdr-core.
+Alpha 17+ requires the live node. There is no automatic Python-direct fallback. Keep the same phone key, host address/port, trust and Sunshine pairing. Node installs `~/.local/lib/kite/host.js` and continues using the existing session catalogue, provider references, histories, owner registry and recovery leases. Earlier adapter files are left unchanged. Production sessions are not migrated to herdr-core.
 
 Host agent notifications and optional private FCM sender configuration are documented in [Agent notifications](notifications.md).
 

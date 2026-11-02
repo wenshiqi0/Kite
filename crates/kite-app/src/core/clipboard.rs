@@ -2,7 +2,7 @@ use super::*;
 use serde::Deserialize;
 
 const LIMIT: usize = 256 * 1024;
-const HELPER: &str = include_str!("../../../../backend/kite_clipboard.py");
+const HELPER: &str = kite_agent::composer::CLIPBOARD_SOURCE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -149,7 +149,7 @@ impl AppCore {
             }
             let mode = if text.is_some() { "write" } else { "read" };
             let command = format!(
-                "python3 -c {} {mode} {}",
+                "PATH=\"$HOME/.bun/bin:$PATH\" bun -e {} -- {mode} {}",
                 composer::quote(HELPER),
                 c.host.sunshine_port
             );

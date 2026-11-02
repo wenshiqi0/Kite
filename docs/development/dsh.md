@@ -45,4 +45,4 @@ Kite 在 `~/.local/state/kite/harnesses/` 保存逻辑会话、唯一 owner、�
 
 ## 验证
 
-`python3 -m unittest discover -s backend -p 'test_kite_harness.py'` 覆盖鉴权与隐藏、模型/effort、原生图片块、工具、审批重连、取消和唯一 owner。真实模型、Android 展示及发布证据保存在本轮产品验收记录；夹具不代替真实调用。
+`bun test packages/host/src/server.test.ts` 覆盖鉴权与隐藏、模型/effort、原生图片块、工具、审批重连、取消和唯一 owner。真实模型、Android 展示及发布证据保存在本轮产品验收记录；夹具不代替真实调用。

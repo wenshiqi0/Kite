@@ -47,3 +47,5 @@ Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite do
 ## License
 
 [GPL-3.0-only](LICENSE). Third-party notices are in [NOTICE.txt](NOTICE.txt).
+
+Server development uses the [Bun workspace](docs/development/bun-server.md) alongside Rust crates. Linux UI is the native `kite-desktop` Rust/GTK executable; Bun/TypeScript runs only server adapters.

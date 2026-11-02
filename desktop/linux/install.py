@@ -67,32 +67,29 @@ def refresh_gui(gui, environment):
     env = dict(os.environ, **environment)
     if not env.get('DBUS_SESSION_BUS_ADDRESS'):
         return
-    script = """from gi.repository import Gio, GLib
-bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-owner = bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus',
-    'org.freedesktop.DBus', 'NameHasOwner', GLib.Variant('(s)', ('io.github.wenshiqi0.Kite.Host',)),
-    GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
-if owner:
-    actions = bus.call_sync('io.github.wenshiqi0.Kite.Host', '/io/github/wenshiqi0/Kite/Host',
-        'org.gtk.Actions', 'List', None, GLib.VariantType.new('(as)'),
-        Gio.DBusCallFlags.NONE, 1500, None).unpack()[0]
-    if 'upgrade' in actions:
-        bus.call_sync('io.github.wenshiqi0.Kite.Host', '/io/github/wenshiqi0/Kite/Host',
-            'org.gtk.Actions', 'Activate', GLib.Variant('(sava{sv})', ('upgrade', [], {})),
-            None, Gio.DBusCallFlags.NONE, 1500, None)
-"""
-    # An unavailable graphical bus must not turn a healthy host upgrade into a failure.
-    subprocess.run(['/usr/bin/python3', '-c', script], env=env, capture_output=True, timeout=5)
+    # Native GApplication actions preserve the running panel until it is idle.
+    subprocess.run(['gdbus','call','--session','--dest',APP_ID,
+                    '--object-path','/io/github/wenshiqi0/Kite/Host',
+                    '--method','org.gtk.Actions.Activate','upgrade','[]','{}'],
+                   env=env, capture_output=True, timeout=5)
+
 
 
 def configuration(home):
     path = home / '.config/kite/node.json'
+    bun = shutil.which('bun')
+    if not bun:
+        raise RuntimeError('Install Bun 1.3.14 or newer before installing the host')
     if path.exists():
-        return json.loads(path.read_text())
+        value = json.loads(path.read_text())
+        value.pop('python', None)
+        value.setdefault('bun', str(Path(bun).resolve()))
+        value['backend'] = str(home / '.local/lib/kite/host.js')
+        return value
     herdr = shutil.which('herdr') or str(home / '.local/bin/herdr')
     if not Path(herdr).is_file():
         raise RuntimeError('Install herdr first')
-    env = {'PATH': str(home / '.local/bin') + ':' + str(home / '.cargo/bin') + ':/usr/local/bin:/usr/bin:/bin',
+    env = {'PATH': str(Path(bun).parent) + ':' + str(home / '.local/bin') + ':' + str(home / '.cargo/bin') + ':/usr/local/bin:/usr/bin:/bin',
            'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', '/run/user/' + str(os.getuid()))}
     # Adopt the actual capture session without changing the user's systemd environment.
     for proc in Path('/proc').iterdir():
@@ -108,8 +105,8 @@ def configuration(home):
             continue
     return dict(node_id=str(uuid.uuid4()), machine=socket.gethostname(),
                 socket=str(home / '.local/state/kite/node/host.sock'),
-                backend=str(home / '.local/lib/kite/backend-v5.py'), herdr=herdr,
-                python='/usr/bin/python3', systemctl=shutil.which('systemctl') or '/usr/bin/systemctl',
+                backend=str(home / '.local/lib/kite/host.js'), herdr=herdr,
+                bun=str(Path(bun).resolve()), systemctl=shutil.which('systemctl') or '/usr/bin/systemctl',
                 environment=env, services=[dict(name='Herdr', unit='herdr.service', external=True),
                                            dict(name='Sunshine', unit='app-dev.lizardbyte.app.Sunshine.service', external=True)])
 
@@ -117,6 +114,7 @@ def configuration(home):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', type=Path, default=ROOT / 'kite-node')
+    parser.add_argument('--desktop-binary', type=Path, default=ROOT / 'kite-desktop')
     parser.add_argument('--enable', action='store_true')
     parser.add_argument('--skill-dir', action='append', type=Path, default=[], help='Install the shared Kite SKILL.md into a harness discovery root')
     parser.add_argument('--migrate-node', action='store_true', help='Allow the first maintenance switch from a node without live handover')
@@ -151,7 +149,9 @@ def main():
         if migration and not args.migrate_node:
             raise RuntimeError('Running node has no live handover. First migration requires --migrate-node during a maintenance window; existing connections will reconnect.')
     # Read every asset and validate configuration before changing installed launchers.
-    files = {name: (ROOT / name).read_bytes() for name in ['desktop.py', 'strings.json']}
+    files = {'kite-desktop':args.desktop_binary.read_bytes(),'strings.json':(ROOT/'strings.json').read_bytes()}
+    if manifest_path.exists() and hashlib.sha256(files['kite-desktop']).hexdigest() != json.loads(manifest_path.read_text())['desktopSha256']:
+        raise RuntimeError('Native desktop binary checksum mismatch')
     files['skills/kite/SKILL.md']=(ROOT/'skills/kite/SKILL.md').read_bytes()
     skill_digest=hashlib.sha256(files['skills/kite/SKILL.md']).hexdigest()
     skill_targets=[directory.expanduser().resolve()/'kite' for directory in args.skill_dir]
@@ -172,7 +172,7 @@ def main():
     release.mkdir(parents=True, exist_ok=True, mode=0o700)
     atomic(release / 'kite-node', binary.read_bytes(), 0o700)
     for name, data in files.items():
-        atomic(release / name, data, 0o700 if name.endswith('.py') else 0o644)
+        atomic(release / name, data, 0o700 if name == 'kite-desktop' else 0o644)
     link = home / '.local/bin/kite-node'
     link.parent.mkdir(parents=True, exist_ok=True)
     pending = link.with_name('kite-node.new')
@@ -187,10 +187,12 @@ def main():
         atomic(target/'SKILL.md',files['skills/kite/SKILL.md'],0o644)
         atomic(target/'.kite-source.sha256',(skill_digest+'\n').encode(),0o644)
     gui = home / '.local/bin/kite-desktop'
-    atomic(gui, ('#!/bin/sh\nexec /usr/bin/python3 ' + "'" + str(release / 'desktop.py').replace("'", "'\\''") + "'" + ' "$@"\n').encode(), 0o700)
+    pending = gui.with_name('kite-desktop.new')
+    pending.unlink(missing_ok=True)
+    pending.symlink_to(release / 'kite-desktop')
+    pending.replace(gui)
     config_path = home / '.config/kite/node.json'
-    if not config_path.exists():
-        atomic(config_path, (json.dumps(config, indent=2) + '\n').encode())
+    atomic(config_path, (json.dumps(config, indent=2) + '\n').encode())
     unit = home / '.config/systemd/user/kite-node.service'
     units = ' '.join(s['unit'] for s in config['services'])
     quote = lambda p: '"' + str(p).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%') + '"'

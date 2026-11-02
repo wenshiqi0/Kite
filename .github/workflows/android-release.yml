@@ -8,7 +8,12 @@ on:
     paths:
       - 'android/**'
       - 'crates/**'
-      - 'backend/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'biome.json'
       - 'desktop/**'
       - 'docs/agent/**'
       - 'skills/**'
@@ -58,19 +63,23 @@ jobs:
       - name: Check Alpha publisher
         run: python3 -m unittest discover -s android/scripts -p 'test_*.py'
 
-      - name: Check host adapter
-        run: python3 -m unittest discover -s backend -p 'test_*.py'
+      - name: Install pinned Bun
+        run: curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+
+      - name: Check TypeScript server packages
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun install --frozen-lockfile
+          bun run check
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Check Linux host package
         run: python3 -m unittest discover -s desktop/linux -p 'test_*.py'
 
-      - name: Check Linux native status lifecycle
+      - name: Install native Linux QA dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-gi python3-cairo python3-gi-cairo gir1.2-gtk-3.0 xvfb dbus-x11 xdotool
-          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/tray_probe.py
-          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/operations_probe.py
-          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/upgrade_probe.py
+          sudo apt-get install -y libgtk-3-0 xvfb xauth dbus-x11 xdotool
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -116,10 +125,15 @@ jobs:
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Check native Linux panel
+        run: |
+          cargo build -p kite-desktop --locked
+          xvfb-run -a dbus-run-session -- bun run scripts/native-desktop-probe.ts
+
       - name: Check agent desktop CLI and MCP on owned X11
         run: |
           cargo build -p kite-node --locked
-          GDK_PIXBUF_MODULE_FILE=/dev/null xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
+          KITE_QA_BUN="$(command -v bun)" xvfb-run -a dbus-run-session -- /usr/bin/python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
 
       - name: Check agent documentation token budgets
         run: |

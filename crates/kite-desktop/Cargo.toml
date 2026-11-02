@@ -1,0 +1,10 @@
+[package]
+name = "kite-desktop"
+description = "Native GTK Linux host panel and tray"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+libloading.workspace = true
+serde_json.workspace = true

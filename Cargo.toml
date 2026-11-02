@@ -34,6 +34,7 @@ roxmltree = "0.21"
 hex = "0.4"
 base64 = "0.22"
 cc = "1"
+libloading = "0.8.9"
 jni = "0.21"
 android_logger = "0.15"
 

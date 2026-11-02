@@ -4,8 +4,6 @@ use crate::resources::{GIB, HostResources, RawResources, ResourceTracker, STARTU
 use std::{fs::OpenOptions, io::Write, os::unix::fs::MetadataExt};
 use tokio::task::JoinHandle;
 
-pub(super) const SOURCE: &[u8] = include_bytes!("../../../../backend/kite_resources.py");
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Reservation {
     pid: u32,
@@ -69,15 +67,16 @@ fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 async fn platform(node: &Node, action: &str, input: Option<Value>) -> Result<Vec<u8>> {
-    let helper = node.config.backend.with_file_name("kite_resources.py");
-    let mut command = Command::new(&node.config.python);
+    let helper = &node.config.backend;
+    let mut command = Command::new(&node.config.bun);
     command
         .arg(helper)
+        .arg("resources")
         .arg(action)
         .args(["--herdr"])
         .arg(&node.config.herdr)
         .envs(&node.config.environment)
-        .env("KITE_CODEX_BACKEND_PATH", &node.config.backend);
+        .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
     if let Some(input) = input {
         command
             .stdin(Stdio::piped())
@@ -353,7 +352,7 @@ mod tests {
 
     fn fixture(root: &Path) -> Node {
         let interpreter = root.join("resource-interpreter");
-        fs::write(&interpreter, "#!/usr/bin/python3\nimport json,sys,time\nfrom pathlib import Path\nr=Path(__file__).parent\na=sys.argv[2]\np=r/'sample.json'\nv=json.loads(p.read_text())\nif a=='configure':\n q=json.load(sys.stdin);v['agent_effective_limit_bytes']=q['limit_bytes'];p.write_text(json.dumps(v));print('{}')\nelif a=='orphans':print('{}')\nelif a=='sample':v['sampled_at_ms']=int(time.time()*1000);print(json.dumps(v))\nelse:raise AssertionError(a)\n").unwrap();
+        fs::write(&interpreter, "#!/usr/bin/python3\nimport json,sys,time\nfrom pathlib import Path\nr=Path(__file__).parent\na=sys.argv[3]\np=r/'sample.json'\nv=json.loads(p.read_text())\nif a=='configure':\n q=json.load(sys.stdin);v['agent_effective_limit_bytes']=q['limit_bytes'];p.write_text(json.dumps(v));print('{}')\nelif a=='orphans':print('{}')\nelif a=='sample':v['sampled_at_ms']=int(time.time()*1000);print(json.dumps(v))\nelse:raise AssertionError(a)\n").unwrap();
         fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
         fs::write(root.join("sample.json"),serde_json::to_vec(&json!({
             "sampled_at_ms":1000,"cpu_total_ticks":100,"cpu_idle_ticks":50,"cpu_cores":4,"load_average":[0.0,0.0,0.0],
@@ -363,7 +362,7 @@ mod tests {
             "agent_process_count":2,"agent_oom_kills":0,"enforced":true,"uncontained_owners":0,"processes":[]
         })).unwrap()).unwrap();
         let mut config = super::super::tests::config(root);
-        config.python = interpreter;
+        config.bun = interpreter;
         config.source_path = Some(root.join("config.json"));
         fs::write(
             config.source_path.as_ref().unwrap(),

@@ -25,7 +25,7 @@
 
 1. 在 Rust 的共享 provider 定义和主机探测中注册 `acme`、它的静态能力和原生品牌资源标识。主机探测只返回安装/连接/版本等事实，Core 得到当前主机的目录与可用操作；不靠 Kotlin 名单决定服务端是否接受该 provider。
 2. 更新 [Repository::create / observe](../../crates/kite-agent/src/sessions.rs)：现有过滤通过 `providers::registered` 接受 Codex、Claude 和 Kite 管理的 DSH；新增 provider 时同步注册和来源校验；保留 `Record.provider`、`reference` 和已有目录 CAS 行为。`Record::matches` 继续按原始引用或明确的待启动 terminal 身份关联，不能只比 cwd 或标题。
-3. 为 [session_open](../../backend/kite_codex.py) 实现 `acme` 的安装检查、创建/恢复参数与 owner 机制。该函数先分派 DSH 的 SDK owner，legacy 白名单只接受 Codex/Claude，`else` 是 Claude 的恢复逻辑；新增值必须显式分派，不能直接落入 Claude 分支。使用原有单会话锁、已有 owner 检查和响应丢失后的状态查询。
+3. 为 [session_open](../../packages/providers/src/codex.ts) 实现 `acme` 的安装检查、创建/恢复参数与 owner 机制。该函数先分派 DSH 的 SDK owner，legacy 白名单只接受 Codex/Claude，`else` 是 Claude 的恢复逻辑；新增值必须显式分派，不能直接落入 Claude 分支。使用原有单会话锁、已有 owner 检查和响应丢失后的状态查询。
 4. 返回真实 `Agent` / `AgentSession`。确认 `source`、`agent`、`kind`、`value` 的来源与有效性；原始 provider ID 不得被替换为 Codex，也不能把 pane ID 当作 provider 会话 ID。
 5. 在 [Core::create_session](../../crates/kite-app/src/core/sessions.rs) 更新 provider 校验及激活策略。当前 Codex 与 DSH 在创建后自动 `activate_session`，Claude 是待连接记录；新 provider 必须明确“创建即连接”还是“仅存草稿”。完整可用的新会话默认应完成实际激活，若仅支持草稿则界面明确提供连接入口。
 6. 分别验证 `open_session` 的历史查看与 `resume_session` 的实际恢复。查看记录不自动发送 prompt；归档不删除原始历史、不结束 agent。

@@ -1,0 +1,18 @@
+{
+  "name": "@kite/host",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@kite/protocol": "workspace:*",
+    "@kite/runtime": "workspace:*",
+    "@kite/platform": "workspace:*",
+    "@kite/providers": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  }
+}

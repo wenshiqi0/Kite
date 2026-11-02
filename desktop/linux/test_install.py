@@ -22,9 +22,10 @@ class InstallTests(unittest.TestCase):
             source = Path(directory) / 'package'
             source.mkdir()
             (source / 'kite-node').write_bytes(b'new binary')
+            (source / 'kite-desktop').write_bytes(b'new native desktop')
             (source/'skills/kite').mkdir(parents=True)
             (source/'skills/kite/SKILL.md').write_bytes((Path(__file__).resolve().parents[2]/'skills/kite/SKILL.md').read_bytes())
-            for name in ['desktop.py', 'strings.json', *['icons/kite-' + state + '.png' for state in ['ready', 'degraded', 'offline', 'busy']]]:
+            for name in ['strings.json', *['icons/kite-' + state + '.png' for state in ['ready', 'degraded', 'offline', 'busy']]]:
                 target = source / name
                 target.parent.mkdir(exist_ok=True)
                 target.write_bytes((installer.ROOT / name).read_bytes())
@@ -44,7 +45,7 @@ class InstallTests(unittest.TestCase):
                 calls.append(command)
                 return subprocess.CompletedProcess(command, 0, '', '')
 
-            with patch.object(installer, 'ROOT', source), patch.object(Path, 'home', return_value=home), \
+            with patch.object(installer, 'ROOT', source), patch.object(installer.shutil,'which', return_value='/owned/bun'), patch.object(Path, 'home', return_value=home), \
                     patch('sys.argv', ['install.py', '--enable']), \
                     patch.object(installer.subprocess, 'check_output', return_value='{"version":"test-alpha.1"}'), \
                     patch.object(installer, 'running_node_matches', return_value=False) as running, \
@@ -67,7 +68,8 @@ class InstallTests(unittest.TestCase):
                 running.assert_called_once_with(installer.digest(link))
                 ready.assert_called_once()
                 refresh.assert_called_once()
-            self.assertEqual(config.read_bytes(), config_bytes)
+            self.assertEqual(json.loads(config.read_text())['bun'],'/owned/bun')
+            self.assertEqual(json.loads(config.read_text())['socket'],'/private/custom.sock')
             self.assertIn('Hidden=true', autostart.read_text())
 
     def test_running_binary_is_read_from_proc_instead_of_installed_symlink(self):
@@ -81,7 +83,7 @@ class InstallTests(unittest.TestCase):
                 patch.object(installer.subprocess, 'Popen') as launch:
             installer.refresh_gui(Path('/owned/bin/kite-desktop'), {'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/owned/bus'})
         self.assertEqual(len(run.call_args_list), 1)
-        self.assertEqual(run.call_args.args[0][0], '/usr/bin/python3')
+        self.assertEqual(run.call_args.args[0][0], 'gdbus')
         launch.assert_not_called()
 
     def test_live_migration_is_explicit_and_refuses_before_changing_files(self):

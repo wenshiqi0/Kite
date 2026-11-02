@@ -62,10 +62,10 @@ with tempfile.TemporaryDirectory(prefix='kite-desktop-api-') as directory:
     root=Path(directory);node_dir=root/'node';node_dir.mkdir(mode=0o700)
     stable=root/'test-node';shutil.copyfile(binary,stable);stable.chmod(0o700);binary=stable
     interpreter=root/'interpreter'
-    interpreter.write_text('#!/usr/bin/python3\nimport os,sys\nif len(sys.argv)>2 and sys.argv[2]=="notification-facts": print("{\\\"facts\\\":[]}")\nelse: os.execv("/usr/bin/python3",["/usr/bin/python3",*sys.argv[1:]])\n');interpreter.chmod(0o700)
+    interpreter.write_text('#!/usr/bin/python3\nimport os,sys\nif len(sys.argv)>2 and sys.argv[2]=="notification-facts": print("{\\\"facts\\\":[]}")\nelse: os.execv(os.environ["KITE_QA_BUN"],["bun",*sys.argv[1:]])\n');interpreter.chmod(0o700)
     socket=node_dir/'host.sock';cfg=root/'node.json';state=root/'fixture.json'
     env={k:os.environ[k] for k in ['DISPLAY','XAUTHORITY','DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR','PATH'] if k in os.environ}
-    cfg.write_text(json.dumps(dict(node_id='owned-desktop-api',machine='owned-fixture',socket=str(socket),backend=str(root/'backend.py'),herdr='/usr/bin/true',python=str(interpreter),systemctl='/usr/bin/false',services=[],environment=env)))
+    cfg.write_text(json.dumps(dict(node_id='owned-desktop-api',machine='owned-fixture',socket=str(socket),backend=str(root/'host.js'),herdr='/usr/bin/true',bun=str(interpreter),systemctl='/usr/bin/false',services=[],environment=env)))
     process_env=dict(os.environ,NOTIFY_SOCKET='/owned-not-a-manager',LISTEN_FDS='99',CODEX_THREAD_ID='owned-not-a-real-thread',HERDR_ENV='1')
     node=subprocess.Popen([str(binary),'serve','--config',str(cfg)],env=process_env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     mcp=None;fixture_pid=None

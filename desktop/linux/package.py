@@ -4,11 +4,13 @@ from pathlib import Path
 import argparse,gzip,hashlib,io,json,tarfile
 
 ROOT=Path(__file__).resolve().parents[2]
-def package(binary,destination,version,commit):
+def package(binary,destination,version,commit,desktop_binary=None):
     binary=Path(binary);destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
-    manifest=dict(version=version,sourceCommit=commit,target='x86_64-unknown-linux-gnu',nodeApi=1,backendProtocol=5,harnessApi=2,docsApi=1,desktopApi=1,resourceApi=1,binarySha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+    desktop_binary=Path(desktop_binary) if desktop_binary else binary.with_name('kite-desktop')
+    manifest=dict(runtime='bun',minimumBunVersion='1.3.14',desktopSha256=hashlib.sha256(desktop_binary.read_bytes()).hexdigest(),version=version,sourceCommit=commit,target='x86_64-unknown-linux-gnu',nodeApi=1,backendProtocol=5,harnessApi=2,docsApi=1,desktopApi=1,resourceApi=1,binarySha256=hashlib.sha256(binary.read_bytes()).hexdigest())
     files={'kite-node':(binary.read_bytes(),0o755),'host-manifest.json':((json.dumps(manifest,indent=2)+'\n').encode(),0o644),'LICENSE':((ROOT/'LICENSE').read_bytes(),0o644)}
-    for name in ['desktop.py','strings.json','install.py']:files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o755 if name.endswith('.py') else 0o644)
+    files['kite-desktop']=(desktop_binary.read_bytes(),0o755)
+    for name in ['strings.json','install.py']:files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o755 if name.endswith('.py') else 0o644)
     files['skills/kite/SKILL.md']=((ROOT/'skills/kite/SKILL.md').read_bytes(),0o644)
     for state in ['ready','degraded','offline','busy']:
         name='icons/kite-'+state+'.png';files[name]=((ROOT/'desktop/linux'/name).read_bytes(),0o644)

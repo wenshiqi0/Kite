@@ -145,8 +145,8 @@ print(json.dumps(facts))
     interpreter.chmod(0o700)
     config = root / 'node.json'
     config.write_text(json.dumps(dict(node_id='owned-upgrade-probe', machine='owned-fixture',
-                                     socket=str(address), backend=str(root / 'adapters/backend-v5.py'),
-                                     herdr=str(herdr), python=str(interpreter), systemctl=str(manager / 'systemctl'),
+                                     socket=str(address), backend=str(root / 'adapters/host.js'),
+                                     herdr=str(herdr), bun=str(interpreter), systemctl=str(manager / 'systemctl'),
                                      services=[], environment={})))
     # The controlled interpreter supplies only owned notification facts; no real
     # catalogue, model, push credentials or provider is queried.
@@ -154,7 +154,8 @@ print(json.dumps(facts))
     package.mkdir()
     shutil.copyfile(binary, package / 'kite-node')
     (package / 'kite-node').chmod(0o700)
-    for name in ['desktop.py', 'strings.json']:
+    (package / 'kite-desktop').write_bytes(b'controlled native GUI')
+    for name in ['strings.json']:
         shutil.copyfile(source_root / name, package / name)
     shutil.copytree(source_root / 'icons', package / 'icons')
     shutil.copytree(source_root.parent.parent / 'skills', package / 'skills')
