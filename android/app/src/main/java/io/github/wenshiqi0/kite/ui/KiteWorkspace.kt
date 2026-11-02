@@ -152,7 +152,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val initializationFailed = vm.sessionStartup == SessionStartupPhase.FAILED
     val showInitialization = (initializingSession || initializationFailed) && (vm.creatingAgent || entries.isEmpty())
     val conversationContext=timeline.context
-    val streamingId=timeline.messages.lastOrNull{it.kind==MessageKind.ASSISTANT}?.id
+    val streamingId=timeline.messages.lastOrNull{it.role==ItemRole.ASSISTANT}?.id
     val cacheWindow=remember{LazyLayoutCacheWindow(1f,.5f)}
     val chatScroll=rememberLazyListState(cacheWindow=cacheWindow)
     var followTail by remember(conversationContext){mutableStateOf(true)}
@@ -376,7 +376,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             } else Button(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.kind}) { entry -> when (entry) {
+                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.role}) { entry -> when (entry) {
                         is ChatEntry.Message -> MessageCard(vm, updatePip, ::pauseHistory, entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
                         is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
                     } }
@@ -648,25 +648,28 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else KiteColors.Muted, Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
     }
 }
-@Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: MessageInfo, streaming: Boolean = false) {
-    if (message.questionReplies.isNotEmpty()) {
-        AnsweredQuestions(message.questionReplies)
+@Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: ItemInfo, streaming: Boolean = false) {
+    val replies = message.questionReplies
+    if (replies.isNotEmpty()) {
+        AnsweredQuestions(replies)
         return
     }
-    val user = message.kind == MessageKind.USER
+    val user = message.role == ItemRole.USER
     val context = LocalContext.current
     val copyLabel = stringResource(R.string.copy_reply)
+    val files = message.attachments
+    val text = message.text
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
         Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                MessageAttachments(vm, message.attachments.filterNot { it.generatedImage }, updatePip, inspect)
-                GeneratedImages(vm, message.attachments.filter { it.generatedImage }, onExternalActivityChanged = updatePip, onOpenPreview = inspect)
-                if (message.text.isNotBlank()) {
-                    if (user) SelectionContainer { Text(message.text, color = KiteColors.Accent, fontSize = 16.sp, lineHeight = 25.sp) }
+                MessageAttachments(vm, files.filterNot { it.generatedImage }, updatePip, inspect)
+                GeneratedImages(vm, files.filter { it.generatedImage }, onExternalActivityChanged = updatePip, onOpenPreview = inspect)
+                if (text.isNotBlank()) {
+                    if (user) SelectionContainer { Text(text, color = KiteColors.Accent, fontSize = 16.sp, lineHeight = 25.sp) }
                     else {
-                        MarkdownMessage(message.text,streaming=streaming)
+                        MarkdownMessage(text,streaming=streaming)
                         IconButton(onClick = {
-                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(copyLabel, message.text))
+                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(copyLabel, text))
                         }, modifier = Modifier.align(Alignment.End).size(40.dp).semantics { contentDescription = copyLabel }) {
                             ProductIcon(Mark.Clipboard, Muted, Modifier.size(17.dp))
                         }

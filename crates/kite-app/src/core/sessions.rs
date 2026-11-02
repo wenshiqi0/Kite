@@ -11,7 +11,7 @@ pub struct SessionCleanup {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct CachedConversation {
-    pub(super) messages: SharedMessages,
+    pub(super) messages: SharedItems,
     pub(super) available: bool,
     viewed_ms: i64,
 }
@@ -516,7 +516,7 @@ impl AppCore {
     pub(super) fn cache_conversation(
         &self,
         conversation: &ConversationKey,
-        messages: &SharedMessages,
+        messages: &SharedItems,
         available: bool,
     ) -> Result<bool, AppError> {
         let key = conversation.cache_key();
@@ -567,11 +567,10 @@ impl AppCore {
             && let Some(message) = conversation
                 .iter()
                 .rev()
-                .find(|m| m.tool.is_none() && !m.intermediate && !m.text.is_empty())
+                .find(|m| m.tool().is_none() && !m.intermediate && !m.blocks.is_empty())
         {
-            let (text, _) = composer::split_attachments(&message.text);
             let catalog = Repository::new(&c.ssh)
-                .note(&key.conversation, &text, false)
+                .note(&key.conversation, &message.display_text(), false)
                 .await?;
             self.install_catalog(&c.host.id, &catalog)?;
         }
@@ -794,7 +793,7 @@ impl AppCore {
         &self,
         c: &Connected,
         agent: &Agent,
-        text: &str,
+        item: &Item,
     ) -> Result<(), AppError> {
         let id = lock(&self.session_book)
             .catalogs
@@ -802,11 +801,10 @@ impl AppCore {
             .and_then(|records| records.iter().find(|r| r.matches(agent)))
             .map(|r| r.id.clone());
         if let Some(id) = id {
-            let (body, files) = composer::split_attachments(text);
+            let body = item.display_text();
             let display = if body.trim().is_empty() {
-                files
-                    .into_iter()
-                    .map(|f| f.name)
+                item.attachments()
+                    .map(|f| f.name.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
             } else {
@@ -969,14 +967,11 @@ mod tests {
     #[test]
     fn an_empty_successful_or_failed_read_never_erases_a_nonempty_cache() {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
-        let message = Message {
-            id: "old".into(),
-            role: Role::Assistant,
-            text: "retained history".into(),
-            intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
-        };
+        let message = Item::new(
+            "old".into(),
+            Role::Assistant,
+            vec![Block::Text("retained history".into())],
+        );
         let key = ConversationKey::new("host", "session");
         core.cache_conversation(&key, &Arc::new(vec![Arc::new(message.clone())]), true)
             .unwrap();
@@ -998,14 +993,13 @@ mod tests {
         let store = Store::open(directory.path()).unwrap();
         let conversation = ConversationKey::new("host", "session");
         let key = conversation.cache_key();
-        let messages: Vec<Message> = (0..10000)
-            .map(|i| Message {
-                id: format!("m-{i}"),
-                role: Role::Assistant,
-                text: format!("record {i}"),
-                intermediate: false,
-                tool: None,
-                question_replies: Vec::new(),
+        // Written before typed blocks: every saved record must still open.
+        let messages: Vec<serde_json::Value> = (0..10000)
+            .map(|i| {
+                serde_json::json!({
+                    "id":format!("m-{i}"), "role":"Assistant", "text":format!("record {i}"),
+                    "intermediate":false, "tool":null
+                })
             })
             .collect();
         let record = Record::draft("session".into(), "codex".into(), "saved".into(), None, 1);
@@ -1041,6 +1035,7 @@ mod tests {
         assert!(metadata.get("histories").is_none());
         assert_eq!(core.snapshot().conversation[0].id, "m-0");
         assert_eq!(core.snapshot().conversation[9999].id, "m-9999");
+        assert_eq!(core.snapshot().conversation[9999].text(), "record 9999");
         lock(&core.session_book).histories.clear();
         assert_eq!(
             core.cached_history(&conversation).unwrap().messages.len(),
@@ -1053,14 +1048,11 @@ mod tests {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
         *lock(&core.store) = Some(Store::open(directory.path()).unwrap());
         for i in 0..16 {
-            let records = Arc::new(vec![Arc::new(Message {
-                id: format!("m-{i}"),
-                role: Role::Assistant,
-                text: format!("conversation {i}"),
-                intermediate: false,
-                tool: None,
-                question_replies: Vec::new(),
-            })]);
+            let records = Arc::new(vec![Arc::new(Item::new(
+                format!("m-{i}"),
+                Role::Assistant,
+                vec![Block::Text(format!("conversation {i}"))],
+            ))]);
             core.cache_conversation(
                 &ConversationKey::new("host", format!("s-{i}")),
                 &records,

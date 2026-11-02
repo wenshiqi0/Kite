@@ -4,12 +4,8 @@ use super::*;
 impl LiveSession {
     /// Called under the publication lock: the conversation cannot change between
     /// the echo check and adding an optimistic row. All producers use the same path.
-    pub(super) fn stage_pending(&mut self, message: PendingMessage) {
-        if self
-            .pending
-            .iter()
-            .any(|p| p.message.id == message.message.id)
-        {
+    pub(super) fn stage_pending(&mut self, pending: PendingItem) {
+        if self.pending.iter().any(|p| p.item.id == pending.item.id) {
             return;
         }
         if self.pending.len() >= 32 {
@@ -20,13 +16,13 @@ impl LiveSession {
                 .unwrap_or(0);
             self.pending.remove(index);
         }
-        self.pending.push(message);
+        self.pending.push(pending);
         self.publish_conversation(self.conversation.as_ref().clone(), true);
     }
 
     /// Keep a bounded acknowledgement receipt so an already prepared history
     /// page cannot resurrect a local row or briefly erase its canonical echo.
-    pub(super) fn publish_conversation(&mut self, mut proposed: Vec<MessageRef>, available: bool) {
+    pub(super) fn publish_conversation(&mut self, mut proposed: Vec<ItemRef>, available: bool) {
         proposed.retain(|m| !m.id.starts_with("local-"));
         let mut messages = proposed;
         if self.pending.is_empty() {
@@ -45,7 +41,7 @@ impl LiveSession {
                 }
             } else if let Some(echo) = messages.iter().find(|m| {
                 m.role == Role::User
-                    && m.text == p.message.text
+                    && m.same_content(&p.item)
                     && !p.previous.contains(&m.id)
                     && !acknowledged.contains(&m.id)
             }) {
@@ -62,7 +58,7 @@ impl LiveSession {
             .map(|p| {
                 p.receipt
                     .clone()
-                    .unwrap_or_else(|| Arc::new(p.message.clone()))
+                    .unwrap_or_else(|| Arc::new(p.item.clone()))
             })
             .filter(|row| !visible.contains(row.id.as_str()))
             .collect();
@@ -104,26 +100,23 @@ mod tests {
         });
         (core, observer)
     }
-    fn row(id: &str) -> MessageRef {
-        Arc::new(Message {
-            id: id.into(),
-            role: Role::User,
-            text: "owned repeated prompt".into(),
-            intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
-        })
+    fn row(id: &str) -> ItemRef {
+        Arc::new(Item::new(
+            id.into(),
+            Role::User,
+            vec![Block::Text("owned repeated prompt".into())],
+        ))
     }
     fn stage(core: &AppCore, id: &str, previous: &[&str]) {
         core.update_live(&key(), |live| {
-            live.stage_pending(PendingMessage {
-                message: row(id).as_ref().clone(),
+            live.stage_pending(PendingItem {
+                item: row(id).as_ref().clone(),
                 previous: previous.iter().map(|id| (*id).into()).collect(),
                 receipt: None,
             });
         });
     }
-    fn publish(core: &AppCore, rows: Vec<MessageRef>) {
+    fn publish(core: &AppCore, rows: Vec<ItemRef>) {
         let selected = core.selected().unwrap();
         core.update_live(&selected, |live| live.publish_conversation(rows, true));
     }
@@ -233,14 +226,14 @@ mod tests {
     fn acknowledged_question_answers_retain_their_paired_metadata() {
         let (core, _) = core();
         let mut answer = row("local-answer").as_ref().clone();
-        answer.question_replies = vec![kite_agent::QuestionReply {
+        answer.blocks = vec![Block::QuestionReply(kite_agent::QuestionReply {
             id: "q".into(),
             question: "Which choice?".into(),
             answer: "First".into(),
-        }];
+        })];
         core.update_live(&key(), |live| {
-            live.stage_pending(PendingMessage {
-                message: answer.clone(),
+            live.stage_pending(PendingItem {
+                item: answer.clone(),
                 previous: BTreeSet::new(),
                 receipt: None,
             })
@@ -252,6 +245,13 @@ mod tests {
         let snapshot = core.snapshot();
         assert_eq!(snapshot.conversation.len(), 1);
         assert_eq!(snapshot.conversation[0].id, "answer-echo");
-        assert_eq!(snapshot.conversation[0].question_replies[0].answer, "First");
+        assert_eq!(
+            snapshot.conversation[0]
+                .question_replies()
+                .next()
+                .unwrap()
+                .answer,
+            "First"
+        );
     }
 }

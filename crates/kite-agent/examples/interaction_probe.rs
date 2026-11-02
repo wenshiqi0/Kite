@@ -114,20 +114,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let history = history::read(&ssh, reference, None).await;
     let reply = history
-        .messages
+        .items
         .iter()
         .rev()
         .find(|m| m.role == kite_agent::Role::Assistant && !m.intermediate)
         .ok_or("reply missing")?;
-    if !reply.text.contains("KITE-FORM-ANSWERS")
-        || !reply.text.contains("Rust freeform")
-        || !reply.text.contains("Blue")
+    if !reply.display_text().contains("KITE-FORM-ANSWERS")
+        || !reply.display_text().contains("Rust freeform")
+        || !reply.display_text().contains("Blue")
     {
         return Err("the actual model reply did not contain the submitted answers".into());
     }
     println!(
         "reconnected_answer_pass=true final_phase=idle choice_and_freeform_verified=true history_records={}",
-        history.messages.len()
+        history.items.len()
     );
     Ok(())
 }

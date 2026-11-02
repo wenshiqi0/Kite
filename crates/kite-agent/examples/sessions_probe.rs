@@ -103,9 +103,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let history = history::read(&ssh, &reference, None).await;
     if !history
-        .messages
+        .items
         .iter()
-        .any(|m| m.text == "KITE-ARCHIVE-CONTINUED")
+        .any(|m| m.text() == "KITE-ARCHIVE-CONTINUED")
     {
         return Err("background reply missing after archive".into());
     }

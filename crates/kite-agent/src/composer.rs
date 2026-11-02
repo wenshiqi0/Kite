@@ -1,4 +1,5 @@
 //! Codex app-server v2 over an authenticated SSH exec channel. One host owner per pane.
+use crate::Block;
 use crate::interaction::{Answer, RuntimeState};
 use crate::usage::{self, AccountUsage};
 use kite_ssh::{ByteStream, Session};
@@ -19,6 +20,7 @@ use tokio::{
     task::JoinHandle,
 };
 
+pub mod envelope;
 pub mod settings;
 pub mod skills;
 pub use settings::SessionSetting;
@@ -470,19 +472,17 @@ impl Client {
     }
     pub async fn send(
         &self,
-        text: &str,
-        attachments: &[Attachment],
+        blocks: &[Block],
         selected: &Selection,
         skills: &[Skill],
-    ) -> Result<String, Error> {
+    ) -> Result<(), Error> {
         let selected = selection(&self.models, selected)?;
         let model = self
             .models
             .iter()
             .find(|m| m.model == selected.model)
             .ok_or(Error::Invalid("model unavailable"))?;
-        let text = compose_prompt(text, attachments, skills)?;
-        let input = turn_input(&text, attachments, skills, model)?;
+        let input = turn_input(blocks, skills, model)?;
         if lock(&self.runtime).question().is_some_and(|q| q.blocking) {
             return Err(Error::Invalid("answer the pending model question"));
         }
@@ -507,21 +507,21 @@ impl Client {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        Ok(text)
+        Ok(())
     }
 }
 
-fn turn_input(
-    text: &str,
-    attachments: &[Attachment],
-    skills: &[Skill],
-    model: &Model,
-) -> Result<Vec<Value>, Error> {
-    let mut input = vec![json!({"type":"text","text":text})];
+/// `turn/start` input: harness owners translate these entries into their own
+/// native prompt blocks, ACP included.
+fn turn_input(blocks: &[Block], skills: &[Skill], model: &Model) -> Result<Vec<Value>, Error> {
+    let mut input = vec![json!({"type":"text","text":envelope::encode(blocks)?})];
     for skill in skills {
         input.push(json!({"type":"skill","name":skill.name,"path":skill.path}));
     }
-    for a in attachments {
+    for block in blocks {
+        let Block::Attachment(a) = block else {
+            continue;
+        };
         if a.mime.starts_with("image/") {
             if !model.input_modalities.iter().any(|v| v == "image") {
                 return Err(Error::Invalid("selected model does not accept images"));
@@ -536,22 +536,24 @@ fn turn_input(
     Ok(input)
 }
 
-pub fn compose_prompt(text: &str, files: &[Attachment], skills: &[Skill]) -> Result<String, Error> {
-    let text = if skills.is_empty() {
-        text.to_owned()
-    } else {
-        let mentions = skills
-            .iter()
-            .map(|s| format!("${}", s.name))
-            .collect::<Vec<_>>()
-            .join(" ");
-        if text.is_empty() {
-            mentions
-        } else {
-            format!("{mentions}\n\n{text}")
-        }
+/// The blocks of one user message: explicit skills are mentioned before its text.
+pub fn prompt_blocks(text: &str, files: &[Attachment], skills: &[Skill]) -> Vec<Block> {
+    let mentions = skills
+        .iter()
+        .map(|s| format!("${}", s.name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let text = match (mentions.is_empty(), text.is_empty()) {
+        (true, _) => text.to_owned(),
+        (false, true) => mentions,
+        (false, false) => format!("{mentions}\n\n{text}"),
     };
-    compose_text(&text, files)
+    let mut blocks = Vec::with_capacity(files.len() + 1);
+    if !text.is_empty() {
+        blocks.push(Block::Text(text));
+    }
+    blocks.extend(files.iter().cloned().map(Block::Attachment));
+    blocks
 }
 
 fn follow_up_request(
@@ -602,26 +604,6 @@ pub fn selection(models: &[Model], selected: &Selection) -> Result<Selection, Er
         effort: effort.clone(),
         settings: selected.settings.clone(),
     })
-}
-
-pub fn compose_text(text: &str, files: &[Attachment]) -> Result<String, Error> {
-    if files.is_empty() {
-        return Ok(text.into());
-    }
-    Ok(format!(
-        "{text}\n\n<kite_attachments>\n{}\n</kite_attachments>",
-        serde_json::to_string(files)?
-    ))
-}
-pub fn split_attachments(text: &str) -> (String, Vec<Attachment>) {
-    if let Some((body, tail)) = text.rsplit_once("\n\n<kite_attachments>\n")
-        && let Some(json) = tail.strip_suffix("\n</kite_attachments>")
-        && let Ok(files) = serde_json::from_str::<Vec<Attachment>>(json)
-        && files.len() <= 5
-    {
-        return (body.into(), files);
-    }
-    (text.into(), vec![])
 }
 
 async fn read_json(reader: &mut (impl AsyncBufRead + Unpin)) -> Result<Value, Error> {
@@ -827,13 +809,19 @@ mod tests {
             supported_reasoning_efforts: vec![],
             input_modalities: vec!["text".into(), "image".into()],
         };
-        let text = compose_prompt("Explain this", &files, &skills).unwrap();
+        let blocks = prompt_blocks("Explain this", &files, &skills);
         assert_eq!(
-            split_attachments(&text),
-            ("$report\n\nExplain this".into(), files.clone())
+            blocks,
+            vec![
+                Block::Text("$report\n\nExplain this".into()),
+                Block::Attachment(files[0].clone()),
+            ]
         );
-        let input = turn_input(&text, &files, &skills, &model).unwrap();
-        assert_eq!(input[0], json!({"type":"text","text":text}));
+        let input = turn_input(&blocks, &skills, &model).unwrap();
+        assert_eq!(
+            input[0],
+            json!({"type":"text","text":envelope::encode(&blocks).unwrap()})
+        );
         assert_eq!(
             input[1],
             json!({"type":"skill","name":"report","path":"/skills/report/SKILL.md"})
@@ -842,13 +830,14 @@ mod tests {
             input[2],
             json!({"type":"localImage","path":"/uploads/sample.png"})
         );
-        assert_eq!(compose_prompt("", &[], &skills).unwrap(), "$report");
         assert_eq!(
-            compose_prompt("plain text", &[], &[]).unwrap(),
-            "plain text"
+            prompt_blocks("", &[], &skills),
+            vec![Block::Text("$report".into())]
         );
+        let plain = prompt_blocks("plain text", &[], &[]);
+        assert_eq!(plain, vec![Block::Text("plain text".into())]);
         assert_eq!(
-            turn_input("plain text", &[], &[], &model).unwrap(),
+            turn_input(&plain, &[], &model).unwrap(),
             vec![json!({"type":"text","text":"plain text"})]
         );
     }
@@ -869,17 +858,30 @@ mod tests {
         assert_eq!(read_json(&mut r).await.unwrap()["id"], 2);
     }
     #[test]
-    fn attachments_survive_history_without_leaking_transport_markup_into_chat() {
-        let files = vec![Attachment {
-            id: "a".into(),
-            name: "photo.png".into(),
-            mime: "image/png".into(),
+    fn every_attachment_reaches_history_while_natively_readable_ones_also_go_natively() {
+        let file = |name: &str, mime: &str| Attachment {
+            id: name.into(),
+            name: name.into(),
+            mime: mime.into(),
             size: 3,
-            path: "/home/user/.local/share/kite/uploads/a/photo.png".into(),
-        }];
-        let text = compose_text("Look at this", &files).unwrap();
-        assert_eq!(split_attachments(&text), ("Look at this".into(), files));
-        assert!(split_attachments("<kite_attachments>broken").1.is_empty());
+            path: format!("/uploads/{name}"),
+        };
+        let files = [file("a.png", "image/png"), file("b.txt", "text/plain")];
+        let model = Model {
+            model: "model".into(),
+            display_name: "Model".into(),
+            description: String::new(),
+            hidden: false,
+            is_default: true,
+            default_reasoning_effort: "low".into(),
+            supported_reasoning_efforts: vec![],
+            input_modalities: vec!["image".into()],
+        };
+        let blocks = prompt_blocks("Look", &files, &[]);
+        let input = turn_input(&blocks, &[], &model).unwrap();
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[1]["type"], "localImage");
+        assert_eq!(envelope::decode(input[0]["text"].as_str().unwrap()), blocks);
     }
 }
 #[test]

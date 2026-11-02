@@ -5,8 +5,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatTimelineTest {
-    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = MessageInfo(questionReplies = emptyList(), id = id, text = id, kind = if (user) MessageKind.USER else MessageKind.ASSISTANT, tool = null, attachments = emptyList(), intermediate = intermediate)
-    private fun tool(id: String, complete: Boolean = true) = MessageInfo(questionReplies = emptyList(), id = id, text = "", kind = MessageKind.TOOL, attachments = emptyList(), intermediate = false, tool = ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))
+    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = ItemInfo(id = id, role = if (user) ItemRole.USER else ItemRole.ASSISTANT, blocks = listOf(BlockInfo.Text(id)), intermediate = intermediate, origin = null)
+    private fun tool(id: String, complete: Boolean = true) = ItemInfo(id = id, role = ItemRole.TOOL, blocks = listOf(BlockInfo.Tool(ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))), intermediate = false, origin = null)
 
     @Test fun progressTextRemainsVisibleBetweenCollapsedToolGroups() {
         val calls = (1..80).flatMap { listOf(text("progress-$it", intermediate = true), tool("tool-$it")) }
@@ -36,5 +36,17 @@ class ChatTimelineTest {
         val messages = listOf(text("progress", intermediate = true), text("reply"))
         assertEquals(messages, chatEntries(messages).map { (it as ChatEntry.Message).message })
         assertTrue(chatEntries(emptyList()).isEmpty())
+    }
+
+    @Test fun anAttachmentOrReplyItemReadsItsOwnBlocksAndStaysOutsideWorkGroups() {
+        val file = AttachmentInfo(id = "f", name = "notes.txt", mime = "text/plain", size = 5uL, generatedImage = false)
+        val reply = QuestionReplyInfo(id = "q", question = "Which?", answer = "This")
+        val sent = ItemInfo(id = "sent", role = ItemRole.USER, blocks = listOf(BlockInfo.Text("Read"), BlockInfo.Attachment(file)), intermediate = false, origin = null)
+        val answered = ItemInfo(id = "answered", role = ItemRole.USER, blocks = listOf(BlockInfo.QuestionReply(reply)), intermediate = false, origin = null)
+        assertEquals("Read", sent.text)
+        assertEquals(listOf(file), sent.attachments)
+        assertEquals(listOf(reply), answered.questionReplies)
+        assertEquals("", answered.text)
+        assertEquals(listOf("message:sent", "work:a", "message:answered"), chatEntries(listOf(sent, tool("a"), answered)).map { it.key })
     }
 }

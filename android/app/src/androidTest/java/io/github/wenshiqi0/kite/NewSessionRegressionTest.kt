@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.core.*
 import io.github.wenshiqi0.kite.ui.HostCheckViewModel
+import io.github.wenshiqi0.kite.ui.text
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -84,13 +85,13 @@ class NewSessionRegressionTest {
             assertTrue(visibleText(activity.getString(R.string.new_session_ready)))
             val marker="KITE_NEW_SESSION_READY_24"
             main{vm.draft="Reply exactly $marker. Do not use tools or inspect files.";vm.sendPrompt(requireNotNull(before.selectedAgent))}
-            waitFor("First assistant reply") {vm.engine.timeline.messages.any{it.kind==MessageKind.ASSISTANT&&it.text.contains(marker)}}
+            waitFor("First assistant reply") {vm.engine.timeline.messages.any{it.role==ItemRole.ASSISTANT&&it.text.contains(marker)}}
             waitFor("History materialized") {vm.engine.state.value!!.history.complete&&!vm.engine.state.value!!.history.failed&&!waiting()}
             val firstCount=vm.engine.timeline.messages.size;assertTrue(firstCount>=2)
             runBlocking{vm.engine.core.disconnect();vm.engine.core.connect(host.id)}
             waitFor("Reconnected") {vm.engine.state.value?.connection==ConnectionStatus.CONNECTED}
             main{vm.settingsVisible=false;vm.openSession(first)}
-            waitFor("Same conversation restored") {vm.engine.state.value?.selectedSession==first&&vm.engine.timeline.messages.any{it.kind==MessageKind.ASSISTANT&&it.text.contains(marker)}&&vm.engine.state.value!!.composer.ready&&!vm.sessionBusy}
+            waitFor("Same conversation restored") {vm.engine.state.value?.selectedSession==first&&vm.engine.timeline.messages.any{it.role==ItemRole.ASSISTANT&&it.text.contains(marker)}&&vm.engine.state.value!!.composer.ready&&!vm.sessionBusy}
             val second=fresh();assertNotEquals(first,second)
             assertTrue(vm.engine.state.value!!.composer.ready);assertFalse(vm.engine.state.value!!.history.failed);assertTrue(waiting())
             assertFalse(vm.engine.timeline.messages.any{it.text.contains(marker)})

@@ -23,10 +23,10 @@ impl AgentBinding {
     }
 }
 
-pub(super) struct PendingMessage {
-    pub(super) message: Message,
+pub(super) struct PendingItem {
+    pub(super) item: Item,
     pub(super) previous: BTreeSet<String>,
-    pub(super) receipt: Option<MessageRef>,
+    pub(super) receipt: Option<ItemRef>,
 }
 
 pub(super) struct LiveSession {
@@ -34,14 +34,14 @@ pub(super) struct LiveSession {
     pub(super) history: Option<Arc<history::History>>,
     pub(super) transcript: conversation::Transcript,
     pub(super) sync_job: Option<JoinHandle<()>>,
-    pub(super) pending: Vec<PendingMessage>,
+    pub(super) pending: Vec<PendingItem>,
     pub(super) composer: Composer,
     pub(super) approval: Option<Approval>,
     pub(super) question: Option<QuestionPrompt>,
     pub(super) response_activity: ResponseActivity,
     pub(super) agent_pause: AgentPause,
     pub(super) agent_output: String,
-    pub(super) conversation: SharedMessages,
+    pub(super) conversation: SharedItems,
     pub(super) journal: Arc<VecDeque<ConversationEdit>>,
     pub(super) revision: u64,
     pub(super) available: bool,
@@ -381,15 +381,12 @@ mod tests {
     fn key(id: &str) -> ConversationKey {
         ConversationKey::new("host", id)
     }
-    fn message(id: &str) -> MessageRef {
-        Arc::new(Message {
-            id: id.into(),
-            role: Role::Assistant,
-            text: format!("body of {id}"),
-            intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
-        })
+    fn message(id: &str) -> ItemRef {
+        Arc::new(Item::new(
+            id.into(),
+            Role::Assistant,
+            vec![Block::Text(format!("body of {id}"))],
+        ))
     }
     fn approval(id: &str) -> Approval {
         Approval {

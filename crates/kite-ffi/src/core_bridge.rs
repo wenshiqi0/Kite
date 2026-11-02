@@ -295,7 +295,7 @@ pub struct AgentInfo {
     pub managed_ready: bool,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
-pub enum MessageKind {
+pub enum ItemRole {
     User,
     Assistant,
     Tool,
@@ -589,14 +589,107 @@ pub struct QuestionReplyInfo {
     pub answer: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
-pub struct MessageInfo {
-    pub question_replies: Vec<QuestionReplyInfo>,
-    pub attachments: Vec<AttachmentInfo>,
+pub struct ItemOriginInfo {
+    pub conversation: String,
+    pub item: String,
+}
+impl From<&kite_app::ChatItemOrigin> for ItemOriginInfo {
+    fn from(origin: &kite_app::ChatItemOrigin) -> Self {
+        Self {
+            conversation: origin.conversation.clone(),
+            item: origin.item.clone(),
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum ReferenceInfo {
+    Live {
+        conversation: String,
+        item: String,
+    },
+    Snapshot {
+        origin: ItemOriginInfo,
+        captured_ms: i64,
+        blocks: Vec<BlockInfo>,
+    },
+}
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum BlockInfo {
+    Text { text: String },
+    Attachment { file: AttachmentInfo },
+    Tool { tool: ToolInfo },
+    QuestionReply { reply: QuestionReplyInfo },
+    Embed { reference: ReferenceInfo },
+}
+impl From<&kite_app::ChatBlock> for BlockInfo {
+    fn from(block: &kite_app::ChatBlock) -> Self {
+        use kite_app::{ChatBlock as B, ChatReference as R};
+        match block {
+            B::Text(text) => Self::Text { text: text.clone() },
+            B::Attachment(file) => Self::Attachment {
+                file: file.clone().into(),
+            },
+            B::Tool(t) => Self::Tool {
+                tool: ToolInfo {
+                    label: t.label(),
+                    summary: t.summary(),
+                    name: t.name.clone(),
+                    arguments: t.arguments.clone(),
+                    output: t.output.clone(),
+                    complete: t.complete,
+                    failed: t.failed,
+                    computer: t.computer,
+                },
+            },
+            B::QuestionReply(reply) => Self::QuestionReply {
+                reply: QuestionReplyInfo {
+                    id: reply.id.clone(),
+                    question: reply.question.clone(),
+                    answer: reply.answer.clone(),
+                },
+            },
+            B::Embed(R::Live { conversation, item }) => Self::Embed {
+                reference: ReferenceInfo::Live {
+                    conversation: conversation.clone(),
+                    item: item.clone(),
+                },
+            },
+            B::Embed(R::Snapshot {
+                origin,
+                captured_ms,
+                blocks,
+            }) => Self::Embed {
+                reference: ReferenceInfo::Snapshot {
+                    origin: origin.into(),
+                    captured_ms: *captured_ms,
+                    blocks: blocks.iter().map(Into::into).collect(),
+                },
+            },
+        }
+    }
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ItemInfo {
     pub id: String,
-    pub kind: MessageKind,
-    pub text: String,
+    pub role: ItemRole,
+    pub blocks: Vec<BlockInfo>,
     pub intermediate: bool,
-    pub tool: Option<ToolInfo>,
+    pub origin: Option<ItemOriginInfo>,
+}
+impl From<&kite_app::ChatItem> for ItemInfo {
+    fn from(item: &kite_app::ChatItem) -> Self {
+        Self {
+            id: item.id.clone(),
+            role: match item.role {
+                kite_app::ChatRole::User => ItemRole::User,
+                kite_app::ChatRole::Assistant => ItemRole::Assistant,
+                kite_app::ChatRole::Tool => ItemRole::Tool,
+            },
+            blocks: item.blocks.iter().map(Into::into).collect(),
+            intermediate: item.intermediate,
+            origin: item.origin.as_ref().map(Into::into),
+        }
+    }
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ApprovalChoice {
@@ -800,7 +893,7 @@ impl From<kite_app::HistoryStatus> for HistoryInfo {
 pub struct ConversationEditInfo {
     pub at: u64,
     pub remove: u64,
-    pub items: Vec<MessageInfo>,
+    pub items: Vec<ItemInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ConversationDeltaInfo {
@@ -808,39 +901,6 @@ pub struct ConversationDeltaInfo {
     pub revision: u64,
     pub reset: bool,
     pub edits: Vec<ConversationEditInfo>,
-}
-fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
-    let (text, attachments) = kite_app::split_chat_attachments(&m.text);
-    MessageInfo {
-        question_replies: m
-            .question_replies
-            .iter()
-            .map(|r| QuestionReplyInfo {
-                id: r.id.clone(),
-                question: r.question.clone(),
-                answer: r.answer.clone(),
-            })
-            .collect(),
-        attachments: attachments.into_iter().map(Into::into).collect(),
-        id: m.id.clone(),
-        kind: match m.role {
-            kite_app::ChatRole::User => MessageKind::User,
-            kite_app::ChatRole::Assistant => MessageKind::Assistant,
-            kite_app::ChatRole::Tool => MessageKind::Tool,
-        },
-        text,
-        intermediate: m.intermediate,
-        tool: m.tool.as_ref().map(|t| ToolInfo {
-            label: t.label(),
-            summary: t.summary(),
-            name: t.name.clone(),
-            arguments: t.arguments.clone(),
-            output: t.output.clone(),
-            complete: t.complete,
-            failed: t.failed,
-            computer: t.computer,
-        }),
-    }
 }
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CoreSnapshot {
@@ -1395,7 +1455,7 @@ impl KiteCore {
                 .map(|e| ConversationEditInfo {
                     at: e.at as u64,
                     remove: e.remove as u64,
-                    items: e.items.iter().map(|m| message_info(m)).collect(),
+                    items: e.items.iter().map(|item| item.as_ref().into()).collect(),
                 })
                 .collect(),
         }
@@ -1438,5 +1498,55 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
     {
         let _ = id;
         Err(KiteError::MediaUnavailable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kite_app::{ChatAttachment, ChatBlock, ChatItem, ChatItemOrigin, ChatReference, ChatRole};
+
+    #[test]
+    fn items_cross_the_boundary_as_typed_blocks() {
+        let image = ChatAttachment {
+            id: "abc".into(),
+            name: "generated.png".into(),
+            mime: "image/png".into(),
+            size: 3,
+            path: "kite-image:abc".into(),
+        };
+        let origin = ChatItemOrigin {
+            conversation: "source".into(),
+            item: "first".into(),
+        };
+        let mut item = ChatItem::new(
+            "item".into(),
+            ChatRole::Assistant,
+            vec![
+                ChatBlock::Text("body".into()),
+                ChatBlock::Attachment(image),
+                ChatBlock::Embed(ChatReference::Snapshot {
+                    origin: origin.clone(),
+                    captured_ms: 7,
+                    blocks: vec![ChatBlock::Text("copied".into())],
+                }),
+            ],
+        );
+        item.intermediate = true;
+        item.origin = Some(origin);
+        let info = ItemInfo::from(&item);
+        assert_eq!(info.id, "item");
+        assert!(matches!(info.role, ItemRole::Assistant));
+        assert!(info.intermediate);
+        assert_eq!(info.origin.unwrap().item, "first");
+        assert!(matches!(&info.blocks[0], BlockInfo::Text { text } if text == "body"));
+        assert!(matches!(&info.blocks[1], BlockInfo::Attachment { file } if file.generated_image));
+        let BlockInfo::Embed {
+            reference: ReferenceInfo::Snapshot { blocks, .. },
+        } = &info.blocks[2]
+        else {
+            panic!("snapshot reference expected");
+        };
+        assert!(matches!(&blocks[0], BlockInfo::Text { text } if text == "copied"));
     }
 }

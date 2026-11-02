@@ -360,7 +360,7 @@ async fn permission_choice_survives_model_changes_and_reaches_next_native_turn()
     assert_eq!(selection.settings["approval_mode"], "risk");
     fixture
         .client
-        .send("owned test", &[], &selection, &[])
+        .send(&[Block::Text("owned test".into())], &selection, &[])
         .await
         .unwrap();
     let requests = lock(&fixture.seen).clone();

@@ -16,14 +16,14 @@ impl AppCore {
             let file = snapshot
                 .conversation
                 .iter()
-                .flat_map(|m| composer::split_attachments(&m.text).1)
+                .flat_map(|m| m.attachments())
                 .chain(
                     snapshot
                         .composer
                         .uploads
                         .iter()
                         .filter(|u| !u.failed)
-                        .map(|u| u.attachment.clone()),
+                        .map(|u| &u.attachment),
                 )
                 .find(|file| {
                     file.id == id
@@ -38,7 +38,7 @@ impl AppCore {
                     )
                 })?;
             let connection = core.connection()?;
-            let bytes = composer::download_attachment(&connection.ssh, &file).await?;
+            let bytes = composer::download_attachment(&connection.ssh, file).await?;
             if core.snapshot().conversation_context() != context {
                 return Err(AppError::State(
                     "conversation changed during attachment download".into(),
@@ -62,15 +62,12 @@ impl AppCore {
                 || !id
                     .bytes()
                     .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-                || !snapshot.conversation.iter().any(|message| {
-                    composer::split_attachments(&message.text)
-                        .1
-                        .iter()
-                        .any(|file| {
-                            file.id == id
-                                && file.path == format!("kite-image:{id}")
-                                && file.mime.starts_with("image/")
-                        })
+                || !snapshot.conversation.iter().any(|item| {
+                    item.attachments().any(|file| {
+                        file.id == id
+                            && file.path == format!("kite-image:{id}")
+                            && file.mime.starts_with("image/")
+                    })
                 })
             {
                 return Err(AppError::State(

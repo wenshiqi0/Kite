@@ -2,8 +2,8 @@ use super::*;
 use kite_herdr::api::AgentSession;
 use std::collections::HashMap;
 
-pub type MessageRef = Arc<Message>;
-pub type SharedMessages = Arc<Vec<MessageRef>>;
+pub type ItemRef = Arc<Item>;
+pub type SharedItems = Arc<Vec<ItemRef>>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HistoryStatus {
@@ -19,7 +19,7 @@ pub struct ConversationEdit {
     pub revision: u64,
     pub at: usize,
     pub remove: usize,
-    pub items: Vec<MessageRef>,
+    pub items: Vec<ItemRef>,
 }
 #[derive(Clone, Debug)]
 pub struct ConversationDelta {
@@ -36,9 +36,9 @@ impl Snapshot {
 }
 
 impl LiveSession {
-    pub(super) fn replace_conversation(&mut self, messages: Vec<MessageRef>, available: bool) {
+    pub(super) fn replace_conversation(&mut self, messages: Vec<ItemRef>, available: bool) {
         let old = self.conversation.as_ref();
-        let equal = |a: &MessageRef, b: &MessageRef| Arc::ptr_eq(a, b) || a == b;
+        let equal = |a: &ItemRef, b: &ItemRef| Arc::ptr_eq(a, b) || a == b;
         let mut head = 0;
         while head < old.len().min(messages.len()) && equal(&old[head], &messages[head]) {
             head += 1;
@@ -66,18 +66,7 @@ impl LiveSession {
                 && (journal.len() > 128
                     || journal
                         .iter()
-                        .map(|e| {
-                            e.items
-                                .iter()
-                                .map(|m| {
-                                    m.text.len()
-                                        + m.tool
-                                            .as_ref()
-                                            .map(|t| t.arguments.len() + t.output.len())
-                                            .unwrap_or(0)
-                                })
-                                .sum::<usize>()
-                        })
+                        .map(|e| e.items.iter().map(|m| m.payload_len()).sum::<usize>())
                         .sum::<usize>()
                         > 8 * 1024 * 1024)
             {
@@ -104,7 +93,7 @@ impl LiveSession {
         if self.transcript.scope != scope || self.transcript.generation != token {
             return None;
         }
-        let pending: Vec<Message> = self
+        let pending: Vec<Item> = self
             .conversation
             .iter()
             .filter(|m| m.id.starts_with("local-"))
@@ -189,9 +178,9 @@ pub(super) struct Transcript {
     scope: String,
     file: String,
     size: u64,
-    records: HashMap<String, ((u64, u32), MessageRef)>,
+    records: HashMap<String, ((u64, u32), ItemRef)>,
     ranges: Vec<Range>,
-    visible: Vec<MessageRef>,
+    visible: Vec<ItemRef>,
     failed: bool,
     syncing: bool,
     generation: u64,
@@ -218,7 +207,7 @@ impl ReadRetry {
 }
 
 impl Transcript {
-    fn select(&mut self, scope: &str, cached: &[MessageRef]) {
+    fn select(&mut self, scope: &str, cached: &[ItemRef]) {
         if self.scope != scope {
             *self = Self {
                 scope: scope.into(),
@@ -312,32 +301,32 @@ impl Transcript {
             }
             self.cover(range);
         }
-        for (ordinal, message) in history.messages.iter().enumerate() {
+        for (ordinal, item) in history.items.iter().enumerate() {
             let order = history
                 .positions
-                .get(&message.id)
+                .get(&item.id)
                 .copied()
                 .unwrap_or((ordinal as u64, 0));
-            if let Some((old_order, old)) = self.records.get_mut(&message.id) {
+            if let Some((old_order, old)) = self.records.get_mut(&item.id) {
                 *old_order = (*old_order).min(order);
-                if old.as_ref() == message {
+                if old.as_ref() == item {
                     continue;
                 }
                 let merged = if matches!(request, Some(Request::Before(_))) {
-                    history::merge_message(message, old)
+                    history::merge_item(item, old)
                 } else {
-                    history::merge_message(old, message)
+                    history::merge_item(old, item)
                 };
                 if **old != merged {
                     *old = Arc::new(merged);
                 }
             } else {
                 self.records
-                    .insert(message.id.clone(), (order, Arc::new(message.clone())));
+                    .insert(item.id.clone(), (order, Arc::new(item.clone())));
             }
         }
     }
-    fn presentation(&mut self, latest: Option<&[Message]>) -> Vec<MessageRef> {
+    fn presentation(&mut self, latest: Option<&[Item]>) -> Vec<ItemRef> {
         if self.status().complete {
             let mut ordered: Vec<_> = self.records.values().collect();
             ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
@@ -387,7 +376,7 @@ impl Transcript {
                 .collect();
             for incoming in latest {
                 if let Some(&i) = index.get(&incoming.id) {
-                    let merged = history::merge_message(&self.visible[i], incoming);
+                    let merged = history::merge_item(&self.visible[i], incoming);
                     if *self.visible[i] != merged {
                         self.visible[i] = Arc::new(merged);
                     }
@@ -498,10 +487,10 @@ impl AppCore {
                     let shown = live.conversation.clone();
                     live.transcript.select(&scope, &shown);
                     // An empty transient read never erases the established conversation.
-                    if !value.messages.is_empty() || shown.is_empty() {
+                    if !value.items.is_empty() || shown.is_empty() {
                         live.transcript.ingest(value, None);
                     }
-                    let present = live.transcript.presentation(Some(&value.messages));
+                    let present = live.transcript.presentation(Some(&value.items));
                     live.history_status = live.transcript.status();
                     live.history = Some(value.clone());
                     live.publish_conversation(present, true);
@@ -686,20 +675,17 @@ mod tests {
             s.selected_host = Some(key.host.clone());
         });
     }
-    fn fill(core: &AppCore, key: &ConversationKey, messages: Vec<Message>) {
+    fn fill(core: &AppCore, key: &ConversationKey, messages: Vec<Item>) {
         core.update_live(key, |live| {
             live.replace_conversation(messages.into_iter().map(Arc::new).collect(), true);
         });
     }
-    fn message(i: usize) -> Message {
-        Message {
-            id: format!("message-{i}"),
-            role: Role::Assistant,
-            text: format!("record {i}"),
-            intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
-        }
+    fn message(i: usize) -> Item {
+        Item::new(
+            format!("message-{i}"),
+            Role::Assistant,
+            vec![Block::Text(format!("record {i}"))],
+        )
     }
     fn page(start: usize, end: usize, total: usize) -> history::History {
         let cursor = |p: usize| format!("1:2:{p}:{total}");
@@ -707,7 +693,7 @@ mod tests {
             key: "source".into(),
             stamp: total.to_string(),
             available: true,
-            messages: (start..end).map(message).collect(),
+            items: (start..end).map(message).collect(),
             positions: (start..end)
                 .map(|i| (format!("message-{i}"), (i as u64, 0)))
                 .collect(),
@@ -726,7 +712,7 @@ mod tests {
         transcript.select("host/thread", &[]);
         let latest = page(9000, 10000, 10000);
         transcript.ingest(&latest, None);
-        assert!(transcript.presentation(Some(&latest.messages)).is_empty());
+        assert!(transcript.presentation(Some(&latest.items)).is_empty());
         for start in (0..9000).step_by(1000).rev() {
             let request = transcript.next().unwrap();
             assert!(matches!(request, Request::Before(_)));
@@ -739,7 +725,7 @@ mod tests {
         let original = all[5000].clone();
         let new = page(9500, 10010, 10010);
         transcript.ingest(&new, None);
-        let all = transcript.presentation(Some(&new.messages));
+        let all = transcript.presentation(Some(&new.items));
         assert_eq!(all.len(), 10010);
         assert!(Arc::ptr_eq(&original, &all[5000]));
         assert_eq!(all[10009].id, "message-10009");
@@ -750,7 +736,7 @@ mod tests {
         transcript.select("host/thread", &[]);
         let first = page(0, 10, 10);
         transcript.ingest(&first, None);
-        transcript.presentation(Some(&first.messages));
+        transcript.presentation(Some(&first.items));
         let latest = page(90, 100, 100);
         transcript.ingest(&latest, None);
         assert!(!transcript.status().complete);
@@ -825,7 +811,7 @@ mod tests {
         core.update_live(&key, |live| {
             let mut records = live.conversation.as_ref().clone();
             let mut tail = message(9999);
-            tail.text = "streamed tail changed".into();
+            tail.blocks = vec![Block::Text("streamed tail changed".into())];
             records[9999] = Arc::new(tail);
             live.replace_conversation(records, true);
         });

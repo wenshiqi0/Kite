@@ -5,8 +5,9 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.core.ConnectionStatus
-import io.github.wenshiqi0.kite.core.MessageKind
+import io.github.wenshiqi0.kite.core.ItemRole
 import io.github.wenshiqi0.kite.ui.HostCheckViewModel
+import io.github.wenshiqi0.kite.ui.text
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -56,7 +57,7 @@ class LiveNodeChatTest {
         test.runOnMainSync { vm.selectModel(agent, model.model, effort) }
         waitFor("model selection") { vm.engine.state.value?.composer?.model == model.model && vm.engine.state.value?.composer?.effort == effort }
         val token = "KITE_NODE_ALPHA17_OWNED_OK"
-        val oldReplies = vm.engine.timeline.messages.count { it.kind == MessageKind.ASSISTANT && it.text.trim() == token }
+        val oldReplies = vm.engine.timeline.messages.count { it.role == ItemRole.ASSISTANT && it.text.trim() == token }
         if (resume != null) assertTrue("Restored provider history must contain the previous reply", oldReplies > 0)
         test.runOnMainSync {
             assertEquals(session.id, vm.engine.state.value!!.selectedSession)
@@ -66,7 +67,7 @@ class LiveNodeChatTest {
         }
         record.put("turnSubmitted", true).put("model", model.model).put("effort", effort)
         output.writeText(record.toString(2))
-        waitFor("owned model response") { vm.engine.timeline.messages.count { it.kind == MessageKind.ASSISTANT && it.text.trim() == token } > oldReplies }
+        waitFor("owned model response") { vm.engine.timeline.messages.count { it.role == ItemRole.ASSISTANT && it.text.trim() == token } > oldReplies }
         record.put("status", "PASS").put("reply", token).put("previousContextRecalled", resume != null)
         output.writeText(record.toString(2))
     }

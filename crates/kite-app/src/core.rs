@@ -1,7 +1,7 @@
 //! Process-owned domain state, command execution and cancellation.
 use crate::AppError;
 use kite_agent::{
-    Approval, Message, Role,
+    Approval, Block, Item, Role,
     composer::skills::SkillDraft,
     composer::{self, Client as ChatClient, Composer, Selection, Upload},
     fingerprint, history, process, providers,
@@ -37,9 +37,7 @@ mod conversation;
 mod images;
 mod key;
 mod live;
-pub use conversation::{
-    ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
-};
+pub use conversation::{ConversationDelta, ConversationEdit, HistoryStatus, ItemRef, SharedItems};
 mod notifications;
 mod pending;
 mod resources;
@@ -52,7 +50,7 @@ mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use key::ConversationKey;
 use key::{AgentKey, agent_source, approval_token, pane_key};
-use live::{AgentBinding, CoreState, LiveSession, PendingMessage};
+use live::{AgentBinding, CoreState, LiveSession, PendingItem};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
 
@@ -202,7 +200,7 @@ pub struct Snapshot {
     pub selected_session: Option<String>,
     context: String,
     pub agent_output: String,
-    pub conversation: SharedMessages,
+    pub conversation: SharedItems,
     conversation_journal: Arc<std::collections::VecDeque<ConversationEdit>>,
     pub conversation_revision: u64,
     pub conversation_available: bool,
@@ -1638,6 +1636,7 @@ impl AppCore {
                 ));
             }
             let attachments: Vec<_> = files.iter().map(|u| u.attachment.clone()).collect();
+            let blocks = composer::prompt_blocks(&text, &attachments, &skills);
             if core
                 .snapshot()
                 .question
@@ -1675,9 +1674,8 @@ impl AppCore {
                     .and_then(|m| m.get(&key).cloned())
                     .unwrap_or_else(|| client.initial.clone());
                 client
-                    .send(&text, &attachments, &selected, &skills)
+                    .send(&blocks, &selected, &skills)
                     .await
-                    .map(|_| ())
                     .map_err(AppError::from)
             } else {
                 if !files.is_empty() || !skills.is_empty() {
@@ -1702,7 +1700,6 @@ impl AppCore {
                     ResponseActivity::Failed
                 });
             core.update_live(&conversation, |live| live.response_activity = activity);
-            let text = composer::compose_prompt(&text, &attachments, &skills)?;
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Err(AppError::State(
                     "host changed during prompt submission".into(),
@@ -1712,7 +1709,8 @@ impl AppCore {
                 core.report(e);
             }
             if result.is_ok() {
-                if let Err(error) = core.note_sent_prompt(&c, &agent, &text).await {
+                let item = Item::new(format!("local-{}", new_device_id()?), Role::User, blocks);
+                if let Err(error) = core.note_sent_prompt(&c, &agent, &item).await {
                     core.report(&error);
                 }
                 if let Some(staged) = lock(&core.uploads).get_mut(&key) {
@@ -1727,18 +1725,10 @@ impl AppCore {
                     draft.sent(&skills);
                 }
                 core.publish_skills(&conversation, &key);
-                let message = Message {
-                    id: format!("local-{}", new_device_id()?),
-                    role: Role::User,
-                    intermediate: false,
-                    text,
-                    tool: None,
-                    question_replies: Vec::new(),
-                };
                 core.update_live(&conversation, |live| {
                     if core.generation.load(Ordering::SeqCst) == generation {
-                        live.stage_pending(PendingMessage {
-                            message,
+                        live.stage_pending(PendingItem {
+                            item,
                             previous,
                             receipt: None,
                         });
@@ -1886,14 +1876,11 @@ impl AppCore {
             if core.generation.load(Ordering::SeqCst) != generation {
                 return Ok(());
             }
-            let message = Message {
-                id: format!("local-question-{}", fingerprint(&request)),
-                role: Role::User,
-                text: kite_agent::question_reply_text(&replies),
-                intermediate: false,
-                tool: None,
-                question_replies: replies,
-            };
+            let item = Item::new(
+                format!("local-question-{}", fingerprint(&request)),
+                Role::User,
+                replies.into_iter().map(Block::QuestionReply).collect(),
+            );
             let previous = snapshot
                 .conversation
                 .iter()
@@ -1906,8 +1893,8 @@ impl AppCore {
                 }
                 live.question = runtime.question();
                 live.response_activity = runtime.phase();
-                live.stage_pending(PendingMessage {
-                    message,
+                live.stage_pending(PendingItem {
+                    item,
                     previous,
                     receipt: None,
                 });
