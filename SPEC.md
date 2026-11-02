@@ -29,6 +29,8 @@
 
 会话权限设置按 [RFC 0026](docs/rfcs/0026-session-permissions.md) 放在模型浮层：只展示原生后端公布或本机协议及管理约束允许的参数，按主机和会话保存，随下一条消息生效。权限应答使用统一实时 agent 清单，涵盖独立 owner 托管会话；审批卡展示具体操作、完整命令、工作目录和结构化参数，允许一次不改变会话策略。
 
+会话图谱按 [RFC 0027](docs/rfcs/0027-conversation-items-and-threads.md) 组织：Conversation 是持久记录，LiveSession 是一个会话的运行态，Item 由类型化 Block 组成，Thread 是有序、可不连续的 Item 编组，Reference 分活引用与快照，Origin 记录分叉来源，Subscription 是本机阅读状态。硬性规则：所有会话作用域的键必须从 `ConversationKey` 派生，不得另拼字符串；切换会话是替换运行态对象，不得逐字段清零；消息正文必须是类型化块，provider 历史中的 Kite 自有结构只能经统一 envelope 模块编解码；活引用只存在于 Kite 目录叠加层，进入 provider 的引用必须是带来源的快照；分叉能力按 provider 真实公布（Codex 按轮、Claude 整会话、ACP 快照拷贝），无能力时不显示入口；阅读状态、置顶与静音属于本机 Subscription，不写主机目录；原始 provider 历史仍不移动。分阶段实施顺序见该 RFC。
+
 模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
 
 聊天中的异步问题按 [RFC 0009](docs/rfcs/0009-async-questions-in-chat.md) 处理：Rust 关联真实 call ID、恢复待答表单，并通过同一线程的 TUI 回答信封提交；阻塞问题继续使用其 RPC 响应。提问控制记录通过同步升级的 Codex 历史体 v2 独立传输，主机只索引原始事实，Rust 决定待答状态，避免最近聊天窗口截断旧问题。Android 在聊天和输入区提供回答入口，异步问题不暂停 agent 或禁用普通消息。
@@ -101,9 +103,9 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 | crate | 层 | 职责 | 状态 |
 |---|---|---|---|
 | `kite-ssh` | 基础 | SSH 连接；ed25519 密钥的生成和解析；严格的主机密钥校验；执行命令；端口转发；保活和重连 | 已有连接、密钥、校验、exec/direct-tcpip 通道及保活；重连命令由应用层编排 |
-| `kite-store` | 基础 | 本地持久化：主机列表、已信任的主机密钥、对话缓存、设置。数据目录由原生层在初始化时传入 | 已有主机、信任记录、配对公钥和原子迁移；对话缓存待做 |
+| `kite-store` | 基础 | 本地持久化：主机列表、已信任的主机密钥、对话缓存、设置、本机订阅状态（RFC 0027）。数据目录由原生层在初始化时传入 | 已有主机、信任记录、配对公钥和原子迁移；对话缓存待做 |
 | `kite-herdr` | 领域 | 查找 herdr 并检查桥接；JSON API 客户端（agent 列表、事件订阅、发消息、读屏、发按键）；客户端协议的编解码和每个 pane 的单元格模型 | 已有查找、检查和 JSON API；二进制客户端协议待做 |
-| `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的消息模型；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | 已实现（Android Alpha 2） |
+| `kite-agent` | 领域 | 定位、增量读取和解析对话记录，转成统一的 Item/Block 模型；Thread、引用与分叉来源（RFC 0027）；根据 herdr 状态和对话记录推导状态行（结构化数据，见 4.1） | 已实现（Android Alpha 2）；RFC 0027 实施中 |
 | `kite-stream` | 领域 | Sunshine 配对和管理；通过 moonlight-common-c 建立 Moonlight 会话；把视频帧交给 `MediaSink`，接收串流输入 | Android 已接入配对、H.264 和基础输入；音频/iOS 视频待做 |
 | `kite-app` | 应用 | 编排领域 crate：多主机运行时、连接生命周期、视图模型（带版本号的快照）、命令；持有 tokio 运行时 | 已有持久会话、快照、任务取消和原生 SecretStore 回调 |
 | `kite-ffi` | 边界 | 唯一对外的库（Android 用 cdylib，iOS 用 staticlib）：UniFFI 导出（类型映射、错误映射）；媒体通道（Android 用 JNI，iOS 用 C ABI）；平台日志初始化。**不含业务逻辑** | 已有 Core/observer/SecretStore 导出及 Android JNI 媒体通道 |
@@ -156,7 +158,8 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 | 密钥生成和 SSH 认证 | 文案和本地化 |
 | 串流协议：配对、会话、组帧，输出视频帧 | 硬件解码和显示：MediaCodec / VideoToolbox、Surface |
 | 重连、超时和重试策略 | 敏感数据的安全存储：Android Keystore / iOS Keychain |
-| | 系统通知、手机剪贴板、权限申请、分享 |
+| 会话关系：分叉来源、Thread、叠加引用、快照生成；本机阅读状态 | 系统通知、手机剪贴板、权限申请、分享 |
+| | 多选、拖拽、嵌入卡片与"引用不可用"状态的展示 |
 
 容易划错的几处：
 
@@ -181,6 +184,7 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 - **状态推送**：
   - `kite-app` 维护各个视图模型（主机列表、agent 列表、某个 agent 的聊天、状态行、串流状态等），每个视图模型带一个单调递增的 revision。
   - `kite-ffi` 通过原生实现的 observer 回调推送快照。聊天消息这类不断增长的数据推送增量：追加一条，或更新某一条。
+  - 聊天条目以类型化的 Item/Block 记录推送；附件、工具调用、问答回复和嵌入引用都是块，不得把结构编码进文本字段（RFC 0027）。
   - 原生只保留最新快照，revision 比手上旧的直接丢弃。
 - **回调线程**：回调在 Rust 的工作线程上执行。原生实现必须立即返回：不得阻塞，也不得在回调里同步调回 Rust。需要更新界面时，切到主线程去做。
 - **SecretStore**：由原生实现的回调接口，按名字读写字节，底层用 Keystore / Keychain 加密。Rust 需要私钥时向它读取。私钥明文不得写进 `kite-store`。

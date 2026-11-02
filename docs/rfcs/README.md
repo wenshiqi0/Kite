@@ -35,6 +35,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0023](0023-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已实现 |
 
 | [0025](0025-ply-acp.md) | Ply ACP 插件接入 | 已实现，待发布 |
+| [0027](0027-conversation-items-and-threads.md) | 会话图谱：Conversation 键、Item 内容块与 Thread 引用 | 已采纳，实施中 |
 
 ## 什么时候写 RFC
 
