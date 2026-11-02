@@ -43,5 +43,24 @@ class ResourceTests(unittest.TestCase):
         with patch.object(resources.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="private")):
             with self.assertRaises(RuntimeError): resources.group("kite-agent-42-7.scope")
 
+    def test_dsh_and_ply_owners_share_resource_discovery_and_descendants(self):
+        import os
+        from types import SimpleNamespace
+        import kite_harness
+        identifier = "00000000-0000-0000-0000-000000000001"
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"KITE_HARNESS_STATE_DIR": directory}):
+            path = kite_harness.directory(identifier)
+            path.mkdir()
+            (path / "state.json").write_text(json.dumps(dict(pid=42, start_ticks="7")))
+            table = {42: dict(pid=42, ppid=1, started="7"), 43: dict(pid=43, ppid=42, started="8")}
+            for provider in ("dsh", "ply"):
+                record = dict(id="owned", provider=provider, reference=dict(source="kite:harness", agent=provider, value=identifier))
+                (path / "session.json").write_text(json.dumps(dict(id="owned", provider=provider)))
+                with patch.object(resources, "codex_module", return_value=SimpleNamespace(catalog_read=lambda: dict(sessions=[record]))), patch.object(resources.Path, "read_bytes", return_value=("python3\0/private/kite_harness_runtime.py\0"+identifier+"\0").encode()):
+                    values = resources.managed("unused", table)
+                self.assertEqual(len(values), 1)
+                self.assertEqual(values[0][0]["pane"], "kite-harness-"+identifier)
+                self.assertEqual({row["pid"] for row in values[0][1]}, {42, 43})
+
 
 if __name__ == "__main__": unittest.main()

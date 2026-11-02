@@ -176,17 +176,17 @@ def managed(binary, table):
                 owner = dict(pane=pane, pid=item["pid"], start_ticks=item["started"], shell_pid=item["pid"], registry_managed=False)
                 result.append((owner, descendants(table, [item["pid"]])))
             continue
-        if record.get("provider") == "dsh":
+        if record.get("provider") in ("dsh", "ply"):
             try:
                 import kite_harness
                 reference = record["reference"]
-                if reference.get("source") != "kite:harness" or reference.get("agent") != "dsh":
+                if reference.get("source") != "kite:harness" or reference.get("agent") != record["provider"]:
                     continue
                 directory = kite_harness.directory(reference["value"])
                 state = json.loads((directory / "state.json").read_text())
                 info = json.loads((directory / "session.json").read_text())
                 item = table.get(state["pid"])
-                if item is None or item["started"] != state["start_ticks"] or info["id"] != record["id"]:
+                if item is None or item["started"] != state["start_ticks"] or info["id"] != record["id"] or info.get("provider") != record["provider"]:
                     continue
                 argv = Path("/proc", str(item["pid"]), "cmdline").read_bytes().decode().split("\0")
                 if not any(Path(arg).name == "kite_harness_runtime.py" for arg in argv) or reference["value"] not in argv:
