@@ -14,7 +14,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -63,7 +63,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             lock(&core.skill_drafts)
                 .entry(key.clone())
                 .or_default()
@@ -74,13 +74,13 @@ impl AppCore {
         .await
     }
 
-    pub(super) fn publish_skills(&self, id: &str, key: &str) {
+    pub(super) fn publish_skills(&self, id: &str, key: &AgentKey) {
         self.update(|s| {
             if s.selected_agent.as_deref() == Some(id)
                 && s.selected_host
                     .as_ref()
                     .zip(s.agents.iter().find(|a| a.terminal_id == id))
-                    .is_some_and(|(host, a)| format!("{host}/{}", source_key(a)) == key)
+                    .is_some_and(|(host, a)| AgentKey::new(host, a) == *key)
             {
                 s.composer.skills = lock(&self.skill_drafts)
                     .get(key)
@@ -117,7 +117,7 @@ mod tests {
             "terminal_id":"same-pane", "agent":"codex", "agent_status":"idle", "workspace_id":"w", "tab_id":"t", "pane_id":"p", "cwd":"/project", "revision":1,
             "agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"thread-a"}
         })).unwrap();
-        let key = format!("host-a/{}", source_key(&agent));
+        let key = AgentKey::new("host-a", &agent);
         let skill = ChatSkill {
             name: "report".into(),
             description: "Write a report".into(),
@@ -136,7 +136,7 @@ mod tests {
         );
         core.update(|s| {
             s.selected_host = Some("host-a".into());
-            s.selected_agent = Some(agent.terminal_id.clone());
+            s.selected = Some(ConversationKey::new("host-a", &agent.terminal_id));
             s.agents = vec![agent];
         });
         core.publish_skills("same-pane", &key);
@@ -152,6 +152,7 @@ mod tests {
         assert!(core.snapshot().composer.skills.selected.is_empty());
         core.update(|s| {
             s.selected_host = Some("host-a".into());
+            s.selected = Some(ConversationKey::new("host-a", "same-pane"));
             s.agents[0].agent_session.as_mut().unwrap().value = "thread-b".into();
         });
         core.publish_skills("same-pane", &key);

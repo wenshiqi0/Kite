@@ -1,5 +1,5 @@
 use super::*;
-use kite_agent::sessions::{self as domain, Catalog, Record, Repository};
+use kite_agent::sessions::{Catalog, Record, Repository};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -22,19 +22,6 @@ pub(super) struct SessionBook {
     revisions: BTreeMap<String, u64>,
     #[serde(default, skip_serializing)]
     pub(super) histories: BTreeMap<String, CachedConversation>,
-}
-pub(super) fn history_document(key: &str) -> String {
-    // A namespaced 256-bit key encoded as letters fits Store's existing path contract.
-    fingerprint(&format!("conversation-cache/{key}"))
-        .bytes()
-        .map(|b| {
-            (if b.is_ascii_digit() {
-                b'a' + b - b'0'
-            } else {
-                b'k' + b - b'a'
-            }) as char
-        })
-        .collect()
 }
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -75,6 +62,19 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
             .then_with(|| a.id.cmp(&b.id))
     });
     result
+}
+
+/// An archived conversation keeps its running agent out of the chat.
+fn conversation_agent<'a>(
+    key: &ConversationKey,
+    record: Option<&Record>,
+    agents: &'a [Agent],
+) -> Option<&'a Agent> {
+    match record {
+        Some(record) if record.archived => None,
+        Some(record) => agents.iter().find(|a| record.matches(a)),
+        None => agents.iter().find(|a| a.terminal_id == key.conversation),
+    }
 }
 
 fn activity_status<'a>(
@@ -153,7 +153,9 @@ impl AppCore {
             let controls = fact
                 .filter(|f| f.controls_known)
                 .map(|f| kite_agent::async_input::history(&f.thread, f.controls.as_bytes()));
-            let client = clients.get(&chat_key(c, agent)).filter(|c| !c.is_closed());
+            let client = clients
+                .get(&AgentKey::new(&c.host.id, agent))
+                .filter(|c| !c.is_closed());
             if let (Some(client), Some(controls)) = (client, &controls) {
                 client.reconcile_async(controls);
             }
@@ -161,7 +163,7 @@ impl AppCore {
             let question = runtime.as_ref().is_some_and(|r| r.question().is_some())
                 || controls.as_ref().is_some_and(|h| !h.pending.is_empty());
             let paused = lock(&self.paused_processes)
-                .contains_key(&format!("{}/{}", c.host.id, agent.terminal_id));
+                .contains_key(&pane_key(&c.host.id, &agent.terminal_id));
             let status = activity_status(agent, paused, question, runtime.as_ref());
             states.insert(session.id.clone(), status.to_owned());
         }
@@ -177,15 +179,15 @@ impl AppCore {
         }
     }
 
-    fn cached_history(&self, host: &str, id: &str) -> Option<CachedConversation> {
-        let key = domain::cache_key(host, id);
+    fn cached_history(&self, conversation: &ConversationKey) -> Option<CachedConversation> {
+        let key = conversation.cache_key();
         if let Some(value) = lock(&self.session_book).histories.get(&key).cloned() {
             return Some(value);
         }
         let value = {
             lock(&self.store)
                 .as_ref()?
-                .read_document::<CachedConversation>(&history_document(&key))
+                .read_document::<CachedConversation>(&conversation.cache_document())
         };
         match value {
             Ok(Some(value)) => {
@@ -238,7 +240,7 @@ impl AppCore {
             let cache = lock(&self.session_book).histories.get(&key).cloned();
             if let Some(cache) = cache {
                 if let Some(store) = lock(&self.store).as_ref() {
-                    store.write_document(&history_document(&key), &cache)?;
+                    store.write_document(&ConversationKey::cache_document_of(&key), &cache)?;
                 }
                 lock(&self.history_cache_written).insert(key.clone(), Instant::now());
                 let book = lock(&self.session_book);
@@ -271,12 +273,11 @@ impl AppCore {
             .cloned()
             .flatten()
             .filter(|id| records.iter().any(|r| &r.id == id));
-        let cache = selected
-            .as_ref()
-            .and_then(|id| self.cached_history(&host, id));
+        let selected = selected.map(|id| ConversationKey::new(&host, id));
+        let cache = selected.as_ref().and_then(|key| self.cached_history(key));
         self.update(|s| {
             s.sessions = views(&records, &s.agents);
-            s.selected_session = selected;
+            s.selected = selected;
             if s.selected_agent.is_none() {
                 s.replace_shared_conversation(
                     cache
@@ -325,7 +326,13 @@ impl AppCore {
             .find(|r| r.id == id)
             .cloned()
     }
-    pub(super) fn preferred_agent(&self, host: &str, agents: &[Agent]) -> Option<String> {
+    /// The conversation to show once `agents` are known. A pane picked here moves
+    /// onto its record at the next catalog sync, which also restores that cache.
+    pub(super) fn preferred_conversation(
+        &self,
+        host: &str,
+        agents: &[Agent],
+    ) -> Option<ConversationKey> {
         let snapshot = self.snapshot();
         let book = lock(&self.session_book);
         let records = book
@@ -338,19 +345,32 @@ impl AppCore {
             .as_ref()
             .or_else(|| book.selected.get(host).and_then(Option::as_ref));
         if let Some(record) = selected.and_then(|id| records.iter().find(|r| &r.id == id)) {
-            return if record.archived {
-                None
-            } else {
-                agents
-                    .iter()
-                    .find(|a| record.matches(a))
-                    .map(|a| a.terminal_id.clone())
-            };
+            return Some(ConversationKey::new(host, &record.id));
         }
         agents
             .iter()
             .find(|a| !records.iter().any(|r| r.archived && r.matches(a)))
-            .map(|a| a.terminal_id.clone())
+            .map(|a| ConversationKey::new(host, &a.terminal_id))
+    }
+    /// `selected_session` and `selected_agent` follow from the selection, the
+    /// catalog and the live agents; every snapshot publishes them through here.
+    pub(super) fn derive_selection(&self, s: &mut Snapshot) {
+        if s.selected.as_ref().map(|key| &key.host) != s.selected_host.as_ref() {
+            s.selected = None;
+        }
+        let book = lock(&self.session_book);
+        let record = s.selected.as_ref().and_then(|key| {
+            book.catalogs
+                .get(&key.host)?
+                .iter()
+                .find(|r| r.id == key.conversation)
+        });
+        s.selected_session = record.map(|r| r.id.clone());
+        s.selected_agent = s
+            .selected
+            .as_ref()
+            .and_then(|key| conversation_agent(key, record, &s.agents))
+            .map(|a| a.terminal_id.clone());
     }
     pub(super) async fn sync_sessions(
         &self,
@@ -398,20 +418,17 @@ impl AppCore {
         let record = selected
             .as_ref()
             .and_then(|id| catalog.sessions.iter().find(|r| &r.id == id));
-        let active = record
-            .filter(|r| !r.archived)
-            .and_then(|r| agents.iter().find(|a| r.matches(a)))
-            .map(|a| a.terminal_id.clone())
-            .or_else(|| {
-                if selected.is_none() {
-                    current
-                        .selected_agent
-                        .clone()
-                        .filter(|id| agents.iter().any(|a| &a.terminal_id == id))
-                } else {
-                    None
-                }
-            });
+        let next = selected
+            .as_ref()
+            .or(current
+                .selected_agent
+                .as_ref()
+                .filter(|id| agents.iter().any(|a| &a.terminal_id == *id)))
+            .map(|id| ConversationKey::new(&c.host.id, id));
+        let active = next
+            .as_ref()
+            .and_then(|key| conversation_agent(key, record, agents))
+            .map(|a| a.terminal_id.clone());
         let session_changed = current.selected_session != selected;
         let changed = session_changed || current.selected_agent != active;
         if session_changed {
@@ -419,7 +436,7 @@ impl AppCore {
         }
         let cache = selected
             .as_ref()
-            .and_then(|id| self.cached_history(&c.host.id, id));
+            .and_then(|id| self.cached_history(&ConversationKey::new(&c.host.id, id)));
         let mut all_views = views(&catalog.sessions, agents);
         for view in &mut all_views {
             if let Some(previous) = current
@@ -434,8 +451,7 @@ impl AppCore {
         }
         self.update(|s| {
             s.sessions = all_views;
-            s.selected_session = selected.clone();
-            s.selected_agent = active;
+            s.selected = next;
             if changed {
                 if session_changed {
                     s.history_status = HistoryStatus::default();
@@ -509,12 +525,11 @@ impl AppCore {
     }
     fn cache_conversation(
         &self,
-        host: &str,
-        id: &str,
+        conversation: &ConversationKey,
         messages: &SharedMessages,
         available: bool,
     ) -> Result<bool, AppError> {
-        let key = domain::cache_key(host, id);
+        let key = conversation.cache_key();
         let mut book = lock(&self.session_book);
         if book.histories.get(&key).is_some_and(|v| {
             (Arc::ptr_eq(&v.messages, messages) || v.messages.as_ref() == messages.as_ref())
@@ -554,8 +569,7 @@ impl AppCore {
             return Ok(());
         };
         if self.cache_conversation(
-            &c.host.id,
-            &id,
+            &ConversationKey::new(&c.host.id, &id),
             &snapshot.conversation,
             snapshot.conversation_available,
         )? && let Some(message) = snapshot
@@ -609,28 +623,18 @@ impl AppCore {
                 let catalog = Repository::new(&c.ssh).read().await?;
                 core.install_catalog(&host, &catalog)?;
             }
-            let record = core
-                .session_record(&host, &id)
+            core.session_record(&host, &id)
                 .ok_or_else(|| AppError::State("session unavailable".into()))?;
-            let agents = core.snapshot().agents;
-            let active = if record.archived {
-                None
-            } else {
-                agents
-                    .iter()
-                    .find(|a| record.matches(a))
-                    .map(|a| a.terminal_id.clone())
-            };
-            let cache = core.cached_history(&host, &id);
+            let key = ConversationKey::new(&host, &id);
+            let cache = core.cached_history(&key);
             lock(&core.session_book)
                 .selected
                 .insert(host.clone(), Some(id.clone()));
             core.persist_session_book()?;
             core.reset_history_view();
             core.update(|s| {
-                s.selected_session = Some(id);
+                s.selected = Some(key);
                 s.history_status = HistoryStatus::default();
-                s.selected_agent = active;
                 s.replace_shared_conversation(
                     cache
                         .as_ref()
@@ -684,8 +688,7 @@ impl AppCore {
         }
         self.update(|s| {
             s.agents = agents;
-            s.selected_session = Some(id.into());
-            s.selected_agent = Some(agent.terminal_id);
+            s.selected = Some(ConversationKey::new(&c.host.id, id));
             s.composer = Composer::default();
             s.approval = None;
             s.question = None;
@@ -733,8 +736,7 @@ impl AppCore {
                     .selected
                     .insert(c.host.id.clone(), next.clone());
                 core.update(|s| {
-                    s.selected_session = next;
-                    s.selected_agent = None;
+                    s.selected = next.map(|id| ConversationKey::new(&c.host.id, id));
                     s.replace_conversation(Vec::new(), false);
                     s.conversation_available = false;
                     s.history_status = HistoryStatus::default();
@@ -830,8 +832,7 @@ impl AppCore {
             core.reset_history_view();
             core.update(|s| {
                 s.sessions = views(&catalog.sessions, &s.agents);
-                s.selected_session = Some(id.clone());
-                s.selected_agent = None;
+                s.selected = Some(ConversationKey::new(&c.host.id, &id));
                 s.replace_conversation(Vec::new(), false);
                 s.conversation_available = false;
                 s.history_status = HistoryStatus::default();
@@ -936,6 +937,61 @@ mod tests {
         assert_eq!(activity_status(&agent, false, false, None), "blocked");
     }
     #[test]
+    fn the_selected_agent_is_derived_from_the_selected_conversation() {
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let agent: Agent = serde_json::from_value(serde_json::json!({
+            "terminal_id":"terminal", "agent":"codex", "agent_status":"idle", "workspace_id":"w", "tab_id":"t", "pane_id":"p", "revision":1,
+            "agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"thread"}
+        })).unwrap();
+        let mut record = Record::draft("saved".into(), "codex".into(), "topic".into(), None, 1);
+        record.reference = agent.agent_session.clone();
+        let install = |revision, record: &Record| {
+            core.install_catalog(
+                "host",
+                &Catalog {
+                    revision,
+                    now_ms: 1,
+                    sessions: vec![record.clone()],
+                },
+            )
+            .unwrap();
+        };
+        install(1, &record);
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected = Some(ConversationKey::new("host", "saved"));
+            s.agents = vec![agent.clone()];
+        });
+        let selected = core.snapshot();
+        assert_eq!(selected.selected_session.as_deref(), Some("saved"));
+        assert_eq!(selected.selected_agent.as_deref(), Some("terminal"));
+        assert_eq!(selected.conversation_context(), "host/saved");
+        record.archived = true;
+        install(2, &record);
+        core.update(|_| {});
+        let archived = core.snapshot();
+        assert_eq!(archived.selected_session.as_deref(), Some("saved"));
+        assert!(archived.selected_agent.is_none());
+        record.archived = false;
+        install(3, &record);
+        core.update(|s| s.agents.clear());
+        assert!(core.snapshot().selected_agent.is_none());
+        // A pane without a record yet is selected by its terminal.
+        core.update(|s| {
+            s.agents = vec![agent.clone()];
+            s.selected = Some(ConversationKey::new("host", "terminal"));
+        });
+        let pane = core.snapshot();
+        assert!(pane.selected_session.is_none());
+        assert_eq!(pane.selected_agent.as_deref(), Some("terminal"));
+        assert_eq!(pane.conversation_context(), "host/terminal");
+        // A selection never survives on another host.
+        core.update(|s| s.selected_host = Some("other".into()));
+        let other = core.snapshot();
+        assert!(other.selected_agent.is_none() && other.selected_session.is_none());
+        assert_eq!(other.conversation_context(), "other/");
+    }
+    #[test]
     fn stale_poll_results_cannot_undo_an_archive() {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
         let record = Record::draft("a".into(), "codex".into(), "topic".into(), None, 1);
@@ -985,21 +1041,17 @@ mod tests {
             tool: None,
             question_replies: Vec::new(),
         };
-        core.cache_conversation(
-            "host",
-            "session",
-            &Arc::new(vec![Arc::new(message.clone())]),
-            true,
-        )
-        .unwrap();
+        let key = ConversationKey::new("host", "session");
+        core.cache_conversation(&key, &Arc::new(vec![Arc::new(message.clone())]), true)
+            .unwrap();
         for available in [true, false] {
             assert!(
                 !core
-                    .cache_conversation("host", "session", &Arc::new(Vec::new()), available)
+                    .cache_conversation(&key, &Arc::new(Vec::new()), available)
                     .unwrap()
             );
             assert_eq!(
-                lock(&core.session_book).histories[&domain::cache_key("host", "session")].messages,
+                lock(&core.session_book).histories[&key.cache_key()].messages,
                 Arc::new(vec![Arc::new(message.clone())])
             );
         }
@@ -1008,7 +1060,8 @@ mod tests {
     async fn old_inline_history_migrates_to_a_complete_independent_cache() {
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(directory.path()).unwrap();
-        let key = domain::cache_key("host", "session");
+        let conversation = ConversationKey::new("host", "session");
+        let key = conversation.cache_key();
         let messages: Vec<Message> = (0..10000)
             .map(|i| Message {
                 id: format!("m-{i}"),
@@ -1044,7 +1097,7 @@ mod tests {
         .unwrap();
         assert_eq!(core.snapshot().conversation.len(), 10000);
         let stored: CachedConversation = store
-            .read_document(&history_document(&key))
+            .read_document(&conversation.cache_document())
             .unwrap()
             .unwrap();
         assert_eq!(stored.messages.len(), 10000);
@@ -1054,10 +1107,7 @@ mod tests {
         assert_eq!(core.snapshot().conversation[9999].id, "m-9999");
         lock(&core.session_book).histories.clear();
         assert_eq!(
-            core.cached_history("host", "session")
-                .unwrap()
-                .messages
-                .len(),
+            core.cached_history(&conversation).unwrap().messages.len(),
             10000
         );
     }
@@ -1075,13 +1125,19 @@ mod tests {
                 tool: None,
                 question_replies: Vec::new(),
             })]);
-            core.cache_conversation("host", &format!("s-{i}"), &records, true)
-                .unwrap();
+            core.cache_conversation(
+                &ConversationKey::new("host", format!("s-{i}")),
+                &records,
+                true,
+            )
+            .unwrap();
         }
         core.flush_history_caches(true).unwrap();
         assert!(lock(&core.session_book).histories.len() <= 4);
         for i in 0..16 {
-            let cache = core.cached_history("host", &format!("s-{i}")).unwrap();
+            let cache = core
+                .cached_history(&ConversationKey::new("host", format!("s-{i}")))
+                .unwrap();
             assert_eq!(cache.messages[0].id, format!("m-{i}"));
             assert!(lock(&core.session_book).histories.len() <= 4);
         }

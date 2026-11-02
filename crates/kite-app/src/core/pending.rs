@@ -5,7 +5,7 @@ fn selected_key(s: &Snapshot) -> Option<String> {
     let host = s.selected_host.as_ref()?;
     let id = s.selected_agent.as_ref()?;
     let agent = s.agents.iter().find(|a| &a.terminal_id == id)?;
-    Some(format!("{host}/{id}/{}", source_key(agent)))
+    Some(pending_scope(host, agent))
 }
 
 impl AppCore {
@@ -113,7 +113,7 @@ mod tests {
         let core = AppCore::new(Arc::new(Secrets), observer.clone());
         core.update(|s| {
             s.selected_host = Some("host".into());
-            s.selected_agent = Some("terminal".into());
+            s.selected = Some(ConversationKey::new("host", "terminal"));
             s.agents = vec![serde_json::from_value(serde_json::json!({
                 "terminal_id":"terminal","agent_status":"working","workspace_id":"workspace","tab_id":"tab","pane_id":"workspace:p1","revision":1
             })).unwrap()];
@@ -214,7 +214,10 @@ mod tests {
         core.update(|s| s.selected_host = Some("another-host".into()));
         publish(&core, vec![row("other-host-echo")]);
         assert_eq!(ids(&core), ["other-host-echo"]);
-        core.update(|s| s.selected_host = Some("host".into()));
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected = Some(ConversationKey::new("host", "terminal"));
+        });
         let mut assistant = row("assistant").as_ref().clone();
         assistant.role = Role::Assistant;
         publish(&core, vec![Arc::new(assistant)]);

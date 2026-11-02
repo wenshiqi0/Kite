@@ -227,10 +227,11 @@ impl Fixture {
         core.chat_clients
             .lock()
             .await
-            .insert(chat_key(&connection, &agent), client.clone());
+            .insert(AgentKey::new(&connection.host.id, &agent), client.clone());
         *lock(&core.connected) = Some(connection);
         core.update(|state| {
-            state.selected_agent = Some(agent.terminal_id.clone());
+            state.selected_host = Some("owned-host".into());
+            state.selected = Some(ConversationKey::new("owned-host", &agent.terminal_id));
             state.agents = vec![agent.clone()];
             state.approval = client.runtime().approval();
             state.composer.selection = client.initial.clone();

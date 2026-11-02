@@ -17,7 +17,7 @@ impl AppCore {
                 .into_iter()
                 .find(|agent| agent.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&connection, &agent);
+            let key = AgentKey::new(&connection.host.id, &agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -34,7 +34,7 @@ impl AppCore {
                 let store = store
                     .as_ref()
                     .ok_or_else(|| AppError::State("store unavailable".into()))?;
-                let mut settings: BTreeMap<String, Selection> =
+                let mut settings: BTreeMap<AgentKey, Selection> =
                     store.read_document("chat-settings")?.unwrap_or_default();
                 let selected = settings
                     .entry(key)

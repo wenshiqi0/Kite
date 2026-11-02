@@ -35,6 +35,7 @@ use tokio::{
 pub mod clipboard;
 mod conversation;
 mod images;
+mod key;
 pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
@@ -48,6 +49,8 @@ mod approval_tests;
 mod permissions;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
+pub use key::ConversationKey;
+use key::{AgentKey, agent_source, approval_token, pane_key, pending_scope};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
 
@@ -190,9 +193,12 @@ pub struct Snapshot {
     pub host_resources: Option<crate::resources::HostResources>,
     pub agents: Vec<Agent>,
     pub providers: Vec<providers::Provider>,
+    /// Derived from `selected` at every publication; never assigned directly.
     pub selected_agent: Option<String>,
     pub sessions: Vec<ConversationSession>,
+    /// Derived from `selected` at every publication; never assigned directly.
     pub selected_session: Option<String>,
+    selected: Option<ConversationKey>,
     pub agent_output: String,
     pub conversation: SharedMessages,
     conversation_journal: Arc<std::collections::VecDeque<ConversationEdit>>,
@@ -230,6 +236,7 @@ impl Default for Snapshot {
             selected_agent: None,
             sessions: Vec::new(),
             selected_session: None,
+            selected: None,
             agent_output: String::new(),
             conversation: Arc::new(Vec::new()),
             conversation_journal: Arc::new(std::collections::VecDeque::new()),
@@ -313,10 +320,10 @@ pub struct AppCore {
     paused_processes: Mutex<BTreeMap<String, process::Token>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
     agent_starts: Mutex<BTreeMap<String, PendingAgentStart>>,
-    chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
-    chat_failures: Mutex<BTreeMap<String, Instant>>,
-    uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
-    skill_drafts: Mutex<BTreeMap<String, SkillDraft>>,
+    chat_clients: AsyncMutex<BTreeMap<AgentKey, Arc<ChatClient>>>,
+    chat_failures: Mutex<BTreeMap<AgentKey, Instant>>,
+    uploads: Mutex<BTreeMap<AgentKey, Vec<Upload>>>,
+    skill_drafts: Mutex<BTreeMap<AgentKey, SkillDraft>>,
     session_book: Mutex<SessionBook>,
     dirty_histories: Mutex<BTreeSet<String>>,
     history_cache_written: Mutex<BTreeMap<String, Instant>>,
@@ -410,6 +417,7 @@ impl AppCore {
         let snapshot = {
             let mut s = lock(&self.state);
             f(&mut s);
+            self.derive_selection(&mut s);
             s.revision = s.revision.saturating_add(1);
             s.clone()
         };
@@ -467,7 +475,7 @@ impl AppCore {
                 }
                 // One-shot migration: retain every old cache before removing its inline copy.
                 for (key, cache) in &book.histories {
-                    store.write_document(&sessions::history_document(key), cache)?;
+                    store.write_document(&ConversationKey::cache_document_of(key), cache)?;
                 }
                 if !book.histories.is_empty() {
                     store.write_document("sessions", &book)?;
@@ -641,7 +649,7 @@ impl AppCore {
                 let preferred = prepared
                     .as_ref()
                     .ok()
-                    .and_then(|agents| self.preferred_agent(&connection.host.id, agents));
+                    .and_then(|agents| self.preferred_conversation(&connection.host.id, agents));
                 if self.generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
@@ -649,7 +657,7 @@ impl AppCore {
                     s.connection = ConnectionPhase::Connected;
                     if let Ok(agents) = &prepared {
                         s.agents = agents.clone();
-                        s.selected_agent = preferred.clone();
+                        s.selected = preferred.clone();
                         s.agent_pause = AgentPause::Running;
                         s.connection_step = if agents.first().is_some_and(|a| a.launch_pending) {
                             ConnectionStep::Agent
@@ -805,9 +813,9 @@ impl AppCore {
             });
             match core.prepare_agent(&c).await {
                 Ok(agents) => {
-                    let preferred = core.preferred_agent(&c.host.id, &agents);
+                    let preferred = core.preferred_conversation(&c.host.id, &agents);
                     core.update(|s| {
-                        s.selected_agent = preferred;
+                        s.selected = preferred;
                         s.agents = agents;
                         s.agent_pause = AgentPause::Running;
                         s.connection_step = if s.agents.first().is_some_and(|a| a.launch_pending) {
@@ -913,14 +921,14 @@ impl AppCore {
                     }
                     if self.snapshot().agents != agents {
                         let selection_guard = self.operations.try_lock().ok();
-                        let preferred = self.preferred_agent(&connection.host.id, &agents);
+                        let preferred = self.preferred_conversation(&connection.host.id, &agents);
                         self.update(|s| {
                             if selection_guard.is_some()
                                 && !agents
                                     .iter()
                                     .any(|a| Some(&a.terminal_id) == s.selected_agent.as_ref())
                             {
-                                s.selected_agent = preferred;
+                                s.selected = preferred;
                                 if s.selected_session.is_none() {
                                     s.replace_conversation(Vec::new(), false);
                                 }
@@ -986,7 +994,7 @@ impl AppCore {
             .chat_clients
             .lock()
             .await
-            .get(&chat_key(c, &agent))
+            .get(&AgentKey::new(&c.host.id, &agent))
             .cloned();
         let text = if matches!(agent.agent.as_deref(), Some("dsh" | "ply")) {
             String::new()
@@ -1027,7 +1035,7 @@ impl AppCore {
         let mut approval =
             kite_agent::terminal_choices(agent.agent_status == "blocked", provider, &text);
         if let Some(a) = &mut approval {
-            a.id = format!("{}-{}-{}", source_key(&agent), agent.state_change_seq, a.id);
+            a.id = approval_id(&agent, &a.id);
         }
         if let Some(rpc) = runtime.as_ref().and_then(|r| r.approval()) {
             approval = Some(rpc);
@@ -1035,11 +1043,10 @@ impl AppCore {
         if question.is_some() {
             approval = None;
         }
-        let base = format!("{}/{}", c.host.id, selected);
-        if approval
-            .as_ref()
-            .is_some_and(|a| lock(&self.consumed_approvals).contains(&format!("{base}/{}", a.id)))
-        {
+        let base = pane_key(&c.host.id, selected);
+        if approval.as_ref().is_some_and(|a| {
+            lock(&self.consumed_approvals).contains(&approval_token(&c.host.id, selected, &a.id))
+        }) {
             approval = None;
         }
         // Reconciliation must not remove a recovery token during a pause/resume.
@@ -1075,7 +1082,7 @@ impl AppCore {
                 .agents
                 .iter()
                 .find(|a| a.terminal_id == selected)
-                .is_none_or(|a| source_key(a) != source_key(&agent))
+                .is_none_or(|a| agent_source(a) != agent_source(&agent))
         {
             return;
         }
@@ -1101,7 +1108,7 @@ impl AppCore {
         else {
             return;
         };
-        let key = chat_key(c, agent);
+        let key = AgentKey::new(&c.host.id, agent);
         let mut clients = self.chat_clients.lock().await;
         if clients.get(&key).is_some_and(|c| c.is_closed()) {
             clients.remove(&key);
@@ -1154,7 +1161,7 @@ impl AppCore {
         let stored = lock(&self.store)
             .as_ref()
             .and_then(|s| {
-                s.read_document::<BTreeMap<String, Selection>>("chat-settings")
+                s.read_document::<BTreeMap<AgentKey, Selection>>("chat-settings")
                     .ok()
                     .flatten()
             })
@@ -1173,9 +1180,9 @@ impl AppCore {
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| {
                 if s.selected_agent.as_deref() == Some(&agent.terminal_id)
-                    && s.agents
-                        .iter()
-                        .any(|a| a.terminal_id == agent.terminal_id && chat_key(c, a) == key)
+                    && s.agents.iter().any(|a| {
+                        a.terminal_id == agent.terminal_id && AgentKey::new(&c.host.id, a) == key
+                    })
                 {
                     s.composer = Composer {
                         ready: true,
@@ -1221,7 +1228,7 @@ impl AppCore {
                 .iter()
                 .find(|a| Some(&a.terminal_id) == snapshot.selected_agent.as_ref())
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, agent);
+            let key = AgentKey::new(&c.host.id, agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -1234,9 +1241,10 @@ impl AppCore {
                 core.update(|s| {
                     if s.selected_host.as_deref() == Some(&c.host.id)
                         && s.selected_agent.as_deref() == Some(&agent.terminal_id)
-                        && s.agents
-                            .iter()
-                            .any(|a| a.terminal_id == agent.terminal_id && chat_key(&c, a) == key)
+                        && s.agents.iter().any(|a| {
+                            a.terminal_id == agent.terminal_id
+                                && AgentKey::new(&c.host.id, a) == key
+                        })
                     {
                         s.composer.usage = client.usage();
                     }
@@ -1263,7 +1271,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -1294,7 +1302,7 @@ impl AppCore {
                 let store = store
                     .as_ref()
                     .ok_or_else(|| AppError::State("store unavailable".into()))?;
-                let mut settings: BTreeMap<String, Selection> =
+                let mut settings: BTreeMap<AgentKey, Selection> =
                     store.read_document("chat-settings")?.unwrap_or_default();
                 selected.settings = settings
                     .get(&key)
@@ -1331,7 +1339,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             if !core.chat_clients.lock().await.contains_key(&key) {
                 return Err(AppError::State("chat backend unavailable".into()));
             }
@@ -1427,14 +1435,14 @@ impl AppCore {
         })
         .await
     }
-    fn publish_uploads(&self, id: &str, key: &str) {
+    fn publish_uploads(&self, id: &str, key: &AgentKey) {
         let uploads = lock(&self.uploads).get(key).cloned().unwrap_or_default();
         self.update(|s| {
             if s.selected_agent.as_deref() == Some(id)
                 && s.selected_host
                     .as_ref()
                     .zip(s.agents.iter().find(|a| a.terminal_id == id))
-                    .is_some_and(|(h, a)| format!("{h}/{}", source_key(a)) == key)
+                    .is_some_and(|(h, a)| AgentKey::new(h, a) == *key)
             {
                 s.composer.uploads = uploads;
             }
@@ -1454,7 +1462,7 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             if let Some(files) = lock(&core.uploads).get_mut(&key) {
                 files.retain(|u| u.attachment.id != upload_id);
             }
@@ -1560,7 +1568,8 @@ impl AppCore {
             s.host_resources = None;
             s.agents.clear();
             s.providers.clear();
-            s.selected_agent = None;
+            // Only a saved conversation outlives the panes of this connection.
+            s.selected = s.selected.take().filter(|_| s.selected_session.is_some());
             s.history_status = HistoryStatus::default();
             s.agent_output.clear();
             s.replace_conversation(Vec::new(), false);
@@ -1591,12 +1600,14 @@ impl AppCore {
     pub async fn select_agent(self: &Arc<Self>, id: String) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
-            if !core.snapshot().agents.iter().any(|a| a.terminal_id == id) {
-                return Err(AppError::State("agent unavailable".into()));
-            }
+            let snapshot = core.snapshot();
+            let host = snapshot
+                .selected_host
+                .filter(|_| snapshot.agents.iter().any(|a| a.terminal_id == id))
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
             core.reset_history_view();
             core.update(|s| {
-                s.selected_agent = Some(id);
+                s.selected = Some(ConversationKey::new(host, id));
                 s.composer = Composer::default();
                 s.agent_output.clear();
                 s.replace_conversation(Vec::new(), false);
@@ -1624,7 +1635,7 @@ impl AppCore {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
             let generation = core.generation.load(Ordering::SeqCst);
-            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+            if lock(&core.paused_processes).contains_key(&pane_key(&c.host.id, &id)) {
                 return Err(AppError::State(
                     "resume the tracked agent process before submitting input".into(),
                 ));
@@ -1652,7 +1663,7 @@ impl AppCore {
                 .iter()
                 .map(|m| m.id.clone())
                 .collect();
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             let files = lock(&core.uploads).get(&key).cloned().unwrap_or_default();
             let skills = lock(&core.skill_drafts)
                 .get(&key)
@@ -1702,7 +1713,7 @@ impl AppCore {
                 let selected = lock(&core.store)
                     .as_ref()
                     .and_then(|s| {
-                        s.read_document::<BTreeMap<String, Selection>>("chat-settings")
+                        s.read_document::<BTreeMap<AgentKey, Selection>>("chat-settings")
                             .ok()
                             .flatten()
                     })
@@ -1778,7 +1789,7 @@ impl AppCore {
                         core.stage_pending_message(
                             s,
                             PendingMessage {
-                                key: format!("{}/{}/{}", c.host.id, id, source_key(&agent)),
+                                key: pending_scope(&c.host.id, &agent),
                                 message,
                                 previous,
                                 receipt: None,
@@ -1803,7 +1814,7 @@ impl AppCore {
                 return Err(AppError::State("unsupported terminal key".into()));
             }
             let c = core.connection()?;
-            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+            if lock(&core.paused_processes).contains_key(&pane_key(&c.host.id, &id)) {
                 return Err(AppError::State(
                     "resume the tracked agent process before submitting input".into(),
                 ));
@@ -1834,7 +1845,7 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
-            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+            if lock(&core.paused_processes).contains_key(&pane_key(&c.host.id, &id)) {
                 return Err(AppError::State(
                     "resume the tracked agent process before submitting input".into(),
                 ));
@@ -1850,7 +1861,7 @@ impl AppCore {
                     .chat_clients
                     .lock()
                     .await
-                    .get(&chat_key(&c, &agent))
+                    .get(&AgentKey::new(&c.host.id, &agent))
                     .cloned()
                     .ok_or_else(|| AppError::State("approval connection expired".into()))?;
                 client.approve(&request, choice).await?;
@@ -1873,7 +1884,7 @@ impl AppCore {
                 kite_agent::terminal_choices(agent.agent_status == "blocked", provider, &text)
                     .ok_or_else(|| AppError::State("approval is no longer available".into()))?;
             let keys = approval_action(&agent, &approval, &request, choice)?;
-            let token = format!("{}/{}/{}", c.host.id, id, request);
+            let token = approval_token(&c.host.id, &id, &request);
             if !lock(&core.consumed_approvals).insert(token) {
                 return Err(AppError::State("approval was already submitted".into()));
             }
@@ -1911,7 +1922,7 @@ impl AppCore {
             {
                 return Err(AppError::State("question selection changed".into()));
             }
-            if lock(&core.paused_processes).contains_key(&format!("{}/{}", c.host.id, id)) {
+            if lock(&core.paused_processes).contains_key(&pane_key(&c.host.id, &id)) {
                 return Err(AppError::State("resume the agent before answering".into()));
             }
             let agent = snapshot
@@ -1923,7 +1934,7 @@ impl AppCore {
                 .chat_clients
                 .lock()
                 .await
-                .get(&chat_key(&c, agent))
+                .get(&AgentKey::new(&c.host.id, agent))
                 .cloned()
                 .ok_or_else(|| AppError::State("question connection unavailable".into()))?;
             let generation = core.generation.load(Ordering::SeqCst);
@@ -1957,7 +1968,7 @@ impl AppCore {
                 core.stage_pending_message(
                     s,
                     PendingMessage {
-                        key: format!("{}/{}/{}", c.host.id, id, source_key(agent)),
+                        key: pending_scope(&c.host.id, agent),
                         message,
                         previous,
                         receipt: None,
@@ -1978,7 +1989,7 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
-            let key = format!("{}/{}", c.host.id, id);
+            let key = pane_key(&c.host.id, &id);
             let result = async {
                 if paused {
                     let agent = c
@@ -2406,10 +2417,6 @@ fn describe(error: &AppError) -> Failure {
     f
 }
 
-fn chat_key(c: &Connected, agent: &Agent) -> String {
-    format!("{}/{}", c.host.id, source_key(agent))
-}
-
 fn require_prompt_ready(snapshot: &Snapshot, agent: &Agent) -> Result<(), AppError> {
     if agent.launch_pending
         || (snapshot.selected_agent.as_deref() == Some(&agent.terminal_id)
@@ -2421,16 +2428,8 @@ fn require_prompt_ready(snapshot: &Snapshot, agent: &Agent) -> Result<(), AppErr
     Ok(())
 }
 
-fn source_key(agent: &Agent) -> String {
-    agent
-        .agent_session
-        .as_ref()
-        .map(history::key)
-        .unwrap_or_else(|| fingerprint(&agent.terminal_id))
-}
-
 fn approval_id(agent: &Agent, raw: &str) -> String {
-    format!("{}-{}-{}", source_key(agent), agent.state_change_seq, raw)
+    format!("{}-{}-{}", agent_source(agent), agent.state_change_seq, raw)
 }
 
 fn approval_action(

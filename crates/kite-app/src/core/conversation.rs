@@ -31,15 +31,10 @@ pub struct ConversationDelta {
 
 impl Snapshot {
     pub fn conversation_context(&self) -> String {
-        format!(
-            "{}/{}",
-            self.selected_host.as_deref().unwrap_or_default(),
-            self.selected_session
-                .as_ref()
-                .or(self.selected_agent.as_ref())
-                .map(String::as_str)
-                .unwrap_or_default()
-        )
+        match &self.selected {
+            Some(key) => key.context(),
+            None => ConversationKey::unselected_context(self.selected_host.as_deref()),
+        }
     }
     pub(super) fn replace_shared_conversation(
         &mut self,
@@ -408,13 +403,11 @@ impl AppCore {
                     .and_then(|id| self.session_record(host, id))
                     .and_then(|r| r.reference)
             });
-        let key = reference
-            .as_ref()
-            .map(history::key)
-            .or_else(|| snapshot.selected_session.clone())
-            .or_else(|| snapshot.selected_agent.clone())
-            .unwrap_or_default();
-        (format!("{host}/{key}"), reference)
+        let scope = match &snapshot.selected {
+            Some(key) => key.history_scope(reference.as_ref()),
+            None => ConversationKey::unselected_context(Some(host)),
+        };
+        (scope, reference)
     }
     pub(super) fn present_history(&self, value: &Arc<history::History>, messages: Vec<Message>) {
         let snapshot = self.snapshot();
@@ -438,7 +431,7 @@ impl AppCore {
         }
         if reference
             .as_ref()
-            .is_some_and(|r| history::key(r) != value.key)
+            .is_some_and(|r| ConversationKey::history_key(r) != value.key)
         {
             return;
         }
@@ -662,7 +655,7 @@ mod tests {
         .unwrap();
         core.update(|s| {
             s.selected_host = Some("host".into());
-            s.selected_session = Some("session".into());
+            s.selected = Some(ConversationKey::new("host", "session"));
             s.replace_conversation(vec![message(0)], true)
         });
         let before = core.snapshot().conversation;
@@ -810,7 +803,7 @@ mod tests {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
         core.update(|s| {
             s.selected_host = Some("host".into());
-            s.selected_session = Some("thread".into());
+            s.selected = Some(ConversationKey::new("host", "thread"));
             s.replace_conversation((0..10000).map(message).collect(), true);
         });
         let before = core.snapshot();
@@ -842,12 +835,13 @@ mod tests {
     fn context_changes_force_a_complete_reset_instead_of_replaying_another_session() {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
         core.update(|s| {
-            s.selected_session = Some("one".into());
+            s.selected_host = Some("host".into());
+            s.selected = Some(ConversationKey::new("host", "one"));
             s.replace_conversation(vec![message(1)], true);
         });
         let before = core.snapshot();
         core.update(|s| {
-            s.selected_session = Some("two".into());
+            s.selected = Some(ConversationKey::new("host", "two"));
             s.replace_conversation(vec![message(2)], true);
         });
         let delta =

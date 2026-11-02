@@ -1,7 +1,7 @@
 //! Durable host-owned conversation metadata. Provider history remains authoritative.
 use crate::{
     composer::{self, Error},
-    fingerprint, history,
+    history,
 };
 use kite_herdr::api::{Agent, AgentSession};
 use kite_ssh::Session;
@@ -242,10 +242,6 @@ impl<'a> Repository<'a> {
     }
 }
 
-pub fn cache_key(host: &str, id: &str) -> String {
-    fingerprint(&format!("{host}/{id}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +258,5 @@ mod tests {
         assert_ne!(history::key(&a), history::key(&b));
         let draft = Record::draft("draft".into(), "claude".into(), "".into(), None, 5);
         assert!(draft.reference.is_none() && !draft.archived && draft.automatic_title);
-        assert_ne!(cache_key("host-a", "draft"), cache_key("host-b", "draft"));
     }
 }
