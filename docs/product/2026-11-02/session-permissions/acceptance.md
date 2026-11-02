@@ -19,3 +19,5 @@ Android Debug/JNI/测试 APK、Lint 与 75 项 JVM 测试通过；Android 16 原
 ## 发布候选
 
 Alpha 62 标签保留且未发布：发现缺少主线 Alpha 61 的 desktop 观察隔离改动后取消了构建。合并完整主线，仅版本文件发生冲突，使用 Alpha 63 / versionCode 65 解决；不会移动或覆盖 Alpha 62 标签。Android 功能代码和已验收的 FFI/原生组件保持一致。
+
+Alpha 63 的两次标签运行均在隔离桌面 Unicode 内容哈希处失败（长度均为 512），原始观察和映射恢复证据已保留。权限、Rust 与 TypeScript 检查均通过。后续候选按 RFC 0027 修正映射通知等待窗口，并继续执行全部原校验，不降低断言。

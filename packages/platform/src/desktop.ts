@@ -400,7 +400,9 @@ export class X11 {
           this.x.XSync(this.display, 0);
           // XSync finishes the server update; GTK/Xlib clients still need an
           // event-loop turn to consume MappingNotify before the first key.
-          await sleep(50);
+          // Match the retention window so a 200–250ms busy target can refresh
+          // its keymap before any key in this batch is queued.
+          await sleep(350);
           await inputCommand(
             ["type", "--clearmodifiers", "--delay", "2", "--file", "-"],
             env,

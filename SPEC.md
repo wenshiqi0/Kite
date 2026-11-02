@@ -270,3 +270,5 @@ Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct Byte
 按 [RFC 0024](docs/rfcs/0024-bun-server-monorepo.md)，仓库同时使用 Cargo workspace (`crates/*`) 与 Bun workspace (`packages/*`)。服务端平台及 provider 适配器使用 TypeScript strict 校验与 Bun 运行时，取代原 `backend/` Python 运行路径；原生 GTK 面板、安装与发布工具不属于服务端 TS 运行边界。Rust 继续持有客户端领域状态、SSH/IPC 与主机策略。packages 依赖从 host 到 providers/platform、runtime、protocol 单向流动。所有外部 JSON 必须从 unknown 验证；不得通过 any、关闭 strict 或忽略类型错误绕过检查。构建 bundle 进入 Cargo OUT_DIR，按摘要释放；生成物不提交。
 
 客户端内容必须使用原生语言：Android Kotlin，iOS/macOS Swift，Linux Rust/GTK。`kite-desktop` 为原生展示可执行入口，使用结构化 CLI 调用 `kite-node`；不得将 UI 迁入 Bun/TypeScript，也不得保留 Python GUI。该 crate 不引入 provider 或服务策略。
+
+X11 Unicode 键码复用按 [RFC 0027](docs/rfcs/0027-unicode-mapping-settle.md) 在每批映射通知后和输入完成后使用 350ms 稳定窗口，保留原映射的条件恢复和不修改剪贴板的边界。
