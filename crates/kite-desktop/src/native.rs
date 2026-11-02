@@ -513,15 +513,20 @@ impl App {
             (self.gtk.gtk_widget_get_allocated_height)(self.window),
         );
         if !image.is_null() {
-            (self.gtk.gdk_pixbuf_savev)(
+            let pending = path.with_extension(format!("{}.pending", std::process::id()));
+            let saved = (self.gtk.gdk_pixbuf_savev)(
                 image,
-                c(&path.to_string_lossy()).as_ptr(),
+                c(&pending.to_string_lossy()).as_ptr(),
                 c("png").as_ptr(),
                 ptr::null_mut(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             );
             (self.gtk.g_object_unref)(image);
+            if saved == 0 || std::fs::rename(&pending, &path).is_err() {
+                let _ = std::fs::remove_file(pending);
+                eprintln!("native snapshot could not be saved");
+            }
         }
     }
 }
