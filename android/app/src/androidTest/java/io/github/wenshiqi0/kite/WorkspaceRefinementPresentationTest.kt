@@ -165,7 +165,7 @@ class WorkspaceRefinementPresentationTest {
     @Test fun permissionMenuShowsNativeOptionsAndSendsExactPolicy() {
         val settings=androidx.compose.runtime.mutableStateOf(listOf(SessionSettingInfo("approval_mode","Tool approval","ask",listOf(SettingChoiceInfo("ask","Ask"),SettingChoiceInfo("risk","Risk"),SettingChoiceInfo("bypass","Bypass")))))
         val selected=java.util.concurrent.atomic.AtomicReference("")
-        overlay({SessionPermissionControls(settings.value,true){id,value->selected.set("$id:$value");settings.value=settings.value.map{it.copy(currentValue=value)}}}) {
+        overlay({androidx.compose.material3.AlertDialog(onDismissRequest={},title={androidx.compose.material3.Text(test.targetContext.getString(R.string.chat_model_settings))},text={SessionPermissionControls(settings.value,true){id,value->selected.set("$id:$value");settings.value=settings.value.map{it.copy(currentValue=value)}}},confirmButton={androidx.compose.material3.TextButton(onClick={}){androidx.compose.material3.Text("关闭")}})}) {
             waitFor("Permission setting"){find(text="每次询问")!=null}
             assertNotNull(find(text="从下一条消息起生效"))
             assertTrue(actionNode(requireNotNull(find(text="每次询问")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
