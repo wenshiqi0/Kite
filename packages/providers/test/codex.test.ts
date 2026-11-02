@@ -25,9 +25,13 @@ const current = JSON.parse(readFileSync(state, "utf8"));
 let result;
 if (request.method === "pane.report_agent_session") {
   const p = request.params;
+  if (!p.resume_argv?.length || p.resume_argv[0].includes("/")) {
+    console.log(JSON.stringify({ id: request.id, error: { code: "invalid_resume_argv", message: "resume_argv must start with a plain command name" } }));
+    process.exit(0);
+  }
   // Match Herdr's sequence and same-owner session replacement guards.
   if (!${ignore} && p.seq > current.seq && p.session_start_source === "resume") {
-    writeFileSync(state, JSON.stringify({ thread: p.agent_session_id, seq: p.seq }));
+    writeFileSync(state, JSON.stringify({ thread: p.agent_session_id, seq: p.seq, resume: p.resume_argv }));
   }
   result = { type: "ok" };
 } else if (request.method === "agent.list") {
@@ -48,6 +52,11 @@ test("reconciles a stale Herdr thread after a sequenced native SessionStart repo
   const { binary, state } = herdrFixture(false);
   await reportSessionBinding("owned:p1", binary, "original-thread");
   expect(JSON.parse(readFileSync(state, "utf8")).thread).toBe("original-thread");
+  expect(JSON.parse(readFileSync(state, "utf8")).resume.slice(0, 3)).toEqual([
+    "kite-node",
+    "backend",
+    "tui",
+  ]);
 });
 
 test("does not treat an acknowledged but unapplied session report as a successful binding", async () => {

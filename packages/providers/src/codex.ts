@@ -235,7 +235,18 @@ export async function reportSessionBinding(
     // Herdr's native SessionStart hook orders reports by Unix nanoseconds.
     seq: Date.now() * 1_000_000,
     session_start_source: "resume",
-    resume_argv: selfCommand("tui", "--pane", pane, "--herdr", binary, "--thread", thread),
+    // Herdr persists only a bare command name, never an interpreter path.
+    resume_argv: [
+      "kite-node",
+      "backend",
+      "tui",
+      "--pane",
+      pane,
+      "--herdr",
+      binary,
+      "--thread",
+      thread,
+    ],
   });
   const agents = array((await api(binary, "agent.list", {})).agents).map(object);
   check(
