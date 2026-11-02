@@ -1,0 +1,79 @@
+{
+  "status": "PASS",
+  "tag": "v0.2.0-alpha.64",
+  "versionCode": 66,
+  "sourceCommit": "3f0abce02550acf08419fec80d5848205336f9c9",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.64",
+  "prerelease": true,
+  "draft": false,
+  "checksums": {
+    "kite-0.2.0-alpha.64-arm64-v8a.apk": "24e5401718d1ba9fffda6434978b82e215714624a377031848967986cf7bcbb1",
+    "kite-0.2.0-alpha.64-arm64-v8a-compat-v2.apk": "d8e13ac4ed925c1a5c1e859145df44e2b7a7547dedd6a1e1eeae1f029560ccf2",
+    "kite-host-0.2.0-alpha.64-linux-x86_64.tar.gz": "fda15feb92e247ea67c52c0bfc8c907d460278dd10d47ff649237f6fe1192b41",
+    "release-manifest.json": "307b38c56cb066647fd6df5dfb91138b7e2809db6ee7b0005bb4f258036ce261"
+  },
+  "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "primarySigningSchemes": [
+    1,
+    2,
+    3
+  ],
+  "compatibilitySigningSchemes": [
+    1,
+    2
+  ],
+  "signatureVerificationApis": [
+    23,
+    36
+  ],
+  "zipAlignmentKiB": 16,
+  "independentVerifier": "Debian apksigner 35.0.2 / Temurin JRE 21.0.13",
+  "compatibilityPayloadMatchesPrimary": true,
+  "linuxHostSourceMatches": true,
+  "workflowRuns": [
+    {
+      "conclusion": "success",
+      "databaseId": 41418283467,
+      "headBranch": "v0.2.0-alpha.64",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41418283467"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 41418279874,
+      "headBranch": "main",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41418279874"
+    }
+  ],
+  "compatibilityDownload": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/kite-0.2.0-alpha.64-arm64-v8a-compat-v2.apk",
+  "assets": [
+    {
+      "name": "kite-0.2.0-alpha.64-arm64-v8a-compat-v2.apk",
+      "bytes": 24206432,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/kite-0.2.0-alpha.64-arm64-v8a-compat-v2.apk"
+    },
+    {
+      "name": "kite-0.2.0-alpha.64-arm64-v8a.apk",
+      "bytes": 24206432,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/kite-0.2.0-alpha.64-arm64-v8a.apk"
+    },
+    {
+      "name": "kite-host-0.2.0-alpha.64-linux-x86_64.tar.gz",
+      "bytes": 3375260,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/kite-host-0.2.0-alpha.64-linux-x86_64.tar.gz"
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 1359,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/release-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 409,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.64/SHA256SUMS"
+    }
+  ],
+  "physicalPhoneInstall": "not performed",
+  "hostUpgrade": "not performed"
+}
