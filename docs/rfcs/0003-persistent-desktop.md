@@ -34,3 +34,13 @@ M1 仅检查 herdr，然后关闭 SSH。用户已要求继续完成“连接 her
 ## 对 SPEC 的影响
 
 开始落实已规划的 `kite-store`、`kite-stream`、KiteCore、SecretStore 与 JNI 媒体通道；不改变分层或通道所有权。记录本轮迁移决策、单串流限制和上述验收边界。实现并验证后更新里程碑状态。
+
+## 自动恢复连接（2026-11-03）
+
+此前 SSH 关闭只会进入 Failed 并停止前台服务，用户必须手动重连。Rust 现在在私有 `connection-intent` 文档保存显式连接目标，临时传输故障进入 Reconnecting；按 1/2/4/8/16/30 秒退避，无网时停止尝试，网络变化或返回前台唤醒探测。SSH/Herdr 读取有总超时，短探测失败后换代并释放旧客户端资源。手动断开清除持久意图并取消任务；切换主机或编辑活动配置不能被旧任务拉回。认证拒绝和主机身份错误保留人工处理，不能通过重试信任新指纹。
+
+自动恢复读取现有 agent 和会话目录，不调用新建/恢复 owner、模型轮次、消息重放或审批。会话选择、完整聊天缓存和原生草稿保留；仍然不可用的 owner 由用户显式继续。断线释放桌面输入并取消旧串流，成功后可按当前界面恢复只看视频。
+
+Android 前台服务覆盖 Connecting / Connected / Reconnecting，并请求 START_STICKY 恢复；Application 初始化会让 Rust 恢复保存的意图。服务提升与异步初始化顺序仍保证先调用 startForeground，快速失败后再停止。恢复期间显示状态和断开入口，临时断线不自动打开设置页。`ConnectivityManager.registerDefaultNetworkCallback` 只传事实，旧默认网络的 onLost 不得覆盖已经可用的新网络；恢复可连接内网/VPN 主机，不要求公网验证标志。
+
+来源：[Android 网络状态回调](https://developer.android.com/develop/connectivity/network-ops/reading-network-state)、[前台服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types)、[Service START_STICKY](https://developer.android.com/reference/android/app/Service#START_STICKY)。前台服务不构成系统永不回收进程的保证；系统进程重建与真机省电行为分别验收。

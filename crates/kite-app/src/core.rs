@@ -23,18 +23,19 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
 use tokio::{
     runtime::Runtime,
-    sync::{Mutex as AsyncMutex, watch},
+    sync::{Mutex as AsyncMutex, Notify, watch},
     task::JoinHandle,
 };
 pub mod clipboard;
 mod conversation;
 mod images;
+mod recovery;
 pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
@@ -46,6 +47,8 @@ pub use sessions::SessionCleanup;
 #[cfg(test)]
 mod approval_tests;
 mod permissions;
+#[cfg(test)]
+mod recovery_tests;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use notifications::AgentNotice;
@@ -89,6 +92,7 @@ pub struct HostKeyPrompt {
 pub enum ConnectionPhase {
     Disconnected,
     Connecting,
+    Reconnecting,
     AwaitingTrust,
     Connected,
     Failed,
@@ -298,6 +302,12 @@ pub struct AppCore {
     operations: AsyncMutex<()>,
     connected: Mutex<Option<Arc<Connected>>>,
     connect_job: Mutex<Option<JoinHandle<()>>>,
+    recovery_job: Mutex<Option<JoinHandle<()>>>,
+    desired_connection: Mutex<Option<String>>,
+    recovery_attempt: AtomicU64,
+    network_available: AtomicBool,
+    network_revision: AtomicU64,
+    network_wake: Notify,
     poll_job: Mutex<Option<JoinHandle<()>>>,
     resource_job: Mutex<Option<JoinHandle<()>>>,
     desktop_job: AsyncMutex<Option<DesktopJob>>,
@@ -375,6 +385,12 @@ impl AppCore {
             operations: AsyncMutex::new(()),
             connected: Mutex::new(None),
             connect_job: Mutex::new(None),
+            recovery_job: Mutex::new(None),
+            desired_connection: Mutex::new(None),
+            recovery_attempt: AtomicU64::new(0),
+            network_available: AtomicBool::new(true),
+            network_revision: AtomicU64::new(0),
+            network_wake: Notify::new(),
             poll_job: Mutex::new(None),
             resource_job: Mutex::new(None),
             desktop_job: AsyncMutex::new(None),
@@ -498,6 +514,17 @@ impl AppCore {
                     next.device_id = new_device_id()?;
                     store.commit(next)?;
                 }
+                let intent = match store.read_document::<recovery::ConnectionIntent>("connection-intent") {
+                    Ok(Some(intent)) => intent,
+                    Ok(None) => {
+                        // Existing clients automatically opened their selected host on launch.
+                        let intent = recovery::ConnectionIntent { host_id: store.data().selected_host.clone() };
+                        store.write_document("connection-intent", &intent)?;
+                        intent
+                    }
+                    Err(error) => { log::warn!("connection intent unavailable: {error}"); recovery::ConnectionIntent::default() }
+                };
+                *lock(&core.desired_connection) = intent.host_id;
                 *lock(&core.store) = Some(store);
                 core.sync_store();
                 core.restore_session_cache();
@@ -547,8 +574,11 @@ impl AppCore {
             let id = host.id.clone();
             let edits_active = lock(&core.connected)
                 .as_ref()
-                .is_some_and(|c| c.host.id == id && c.host != host);
+                .is_some_and(|c| c.host.id == id && c.host != host)
+                || (lock(&core.desired_connection).as_ref() == Some(&id)
+                    && core.host(&id).is_ok_and(|old| old != host));
             if edits_active {
+                core.set_connection_intent(None)?;
                 core.disconnect_inner(true).await?;
             }
             {
@@ -578,44 +608,63 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let host = core.host(&host_id)?;
-            {
-                let mut store = lock(&core.store);
-                let store = store
-                    .as_mut()
-                    .ok_or_else(|| AppError::State("core is not initialized".into()))?;
-                let mut next = store.data().clone();
-                next.selected_host = Some(host.id.clone());
-                store.commit(next)?;
-            }
-            core.generation.fetch_add(1, Ordering::SeqCst);
-            core.update(|s| {
-                s.connection = ConnectionPhase::Connecting;
-                s.connection_step = ConnectionStep::Ssh;
-                s.selected_host = Some(host.id.clone());
-                s.failure = None;
-                s.host_resources = None;
-                s.pending_key = None;
-            });
-            core.disconnect_inner(false).await?;
-            let generation = core.generation.fetch_add(1, Ordering::SeqCst) + 1;
-            core.update(|s| {
-                s.connection = ConnectionPhase::Connecting;
-                s.connection_step = ConnectionStep::Ssh;
-                s.selected_host = Some(host.id.clone());
-                s.failure = None;
-                s.pending_key = None;
-            });
-            let task_core = core.clone();
-            let task = tokio::spawn(async move {
-                task_core.connect_flow(host, generation).await;
-            });
-            *lock(&core.connect_job) = Some(task);
-            Ok(())
+            core.set_connection_intent(Some(host_id))?;
+            core.recovery_attempt.store(0, Ordering::SeqCst);
+            core.begin_connection(host, false).await
         })
         .await
     }
 
-    async fn connect_flow(self: Arc<Self>, host: Host, generation: u64) {
+    async fn begin_connection(
+        self: &Arc<Self>,
+        host: Host,
+        automatic: bool,
+    ) -> Result<(), AppError> {
+        let core = self;
+        {
+            let mut store = lock(&core.store);
+            let store = store
+                .as_mut()
+                .ok_or_else(|| AppError::State("core is not initialized".into()))?;
+            let mut next = store.data().clone();
+            next.selected_host = Some(host.id.clone());
+            store.commit(next)?;
+        }
+        core.generation.fetch_add(1, Ordering::SeqCst);
+        core.update(|s| {
+            s.connection = if automatic {
+                ConnectionPhase::Reconnecting
+            } else {
+                ConnectionPhase::Connecting
+            };
+            s.connection_step = ConnectionStep::Ssh;
+            s.selected_host = Some(host.id.clone());
+            s.failure = None;
+            s.host_resources = None;
+            s.pending_key = None;
+        });
+        core.disconnect_inner(false).await?;
+        let generation = core.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        core.update(|s| {
+            s.connection = if automatic {
+                ConnectionPhase::Reconnecting
+            } else {
+                ConnectionPhase::Connecting
+            };
+            s.connection_step = ConnectionStep::Ssh;
+            s.selected_host = Some(host.id.clone());
+            s.failure = None;
+            s.pending_key = None;
+        });
+        let task_core = core.clone();
+        let task = tokio::spawn(async move {
+            task_core.connect_flow(host, generation, automatic).await;
+        });
+        *lock(&core.connect_job) = Some(task);
+        Ok(())
+    }
+
+    async fn connect_flow(self: Arc<Self>, host: Host, generation: u64, automatic: bool) {
         let result = self.open_connection(&host, generation).await;
         if self.generation.load(Ordering::SeqCst) != generation {
             if let Ok(c) = result {
@@ -637,7 +686,12 @@ impl AppCore {
                     s.capability = Some(connection.capability.clone());
                     s.host_key_fingerprint = Some(connection.ssh.host_key_fingerprint());
                 });
-                let prepared = self.prepare_agent(&connection).await;
+                // Transport recovery only observes the existing owners. It never starts or resumes work.
+                let prepared = if automatic {
+                    self.fetch_agents(&connection).await
+                } else {
+                    self.prepare_agent(&connection).await
+                };
                 let preferred = prepared
                     .as_ref()
                     .ok()
@@ -658,6 +712,7 @@ impl AppCore {
                         };
                     }
                 });
+                self.recovery_attempt.store(0, Ordering::SeqCst);
                 if let Err(e) = prepared {
                     self.update(|s| {
                         s.failure = Some(Failure {
@@ -696,7 +751,14 @@ impl AppCore {
             }),
             Err(error) => {
                 self.report(&error);
-                self.update(|s| s.connection = ConnectionPhase::Failed);
+                if recovery::retryable(&error) {
+                    self.schedule_recovery(&host.id, generation);
+                } else {
+                    if let Err(error) = self.set_connection_intent(None) {
+                        self.report(&error);
+                    }
+                    self.update(|s| s.connection = ConnectionPhase::Failed);
+                }
             }
         }
     }
@@ -836,13 +898,25 @@ impl AppCore {
     }
 
     async fn poll_connection(self: Arc<Self>, connection: Arc<Connected>, generation: u64) {
+        let mut network_revision = self.network_revision.load(Ordering::SeqCst).wrapping_sub(1);
         loop {
             if self.generation.load(Ordering::SeqCst) != generation {
                 return;
             }
-            if connection.ssh.is_closed() {
+            let network_changed = self.network_revision.load(Ordering::SeqCst) != network_revision;
+            let unreachable = if network_changed {
+                network_revision = self.network_revision.load(Ordering::SeqCst);
+                !self.network_available.load(Ordering::SeqCst)
+                    || !recovery::probe(&connection.ssh).await
+            } else {
+                false
+            };
+            if self.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            if connection.ssh.is_closed() || unreachable {
                 self.update(|s| {
-                    s.connection = ConnectionPhase::Failed;
+                    s.connection = ConnectionPhase::Reconnecting;
                     s.failure = Some(Failure {
                         code: FailureCode::Connection,
                         details: "SSH connection closed".into(),
@@ -862,9 +936,20 @@ impl AppCore {
                 if let Some(job) = self.desktop_job.lock().await.as_ref() {
                     let _ = job.cancel.send(true);
                 }
+                self.schedule_recovery(&connection.host.id, generation);
                 return;
             }
-            match self.fetch_agents(&connection).await {
+            let agents = tokio::select! {
+                result = tokio::time::timeout(Duration::from_secs(55), self.fetch_agents(&connection)) => result,
+                _ = self.network_wake.notified() => continue,
+            };
+            if agents.is_err() && !recovery::probe(&connection.ssh).await {
+                self.schedule_recovery(&connection.host.id, generation);
+                return;
+            }
+            match agents
+                .unwrap_or_else(|_| Err(AppError::Ssh(SshError::Timeout("reading host agents"))))
+            {
                 Ok(mut agents) => {
                     let mut failed_starts = Vec::new();
                     {
@@ -951,7 +1036,10 @@ impl AppCore {
                 self.report(&error);
             }
             self.refresh_session_activity(&connection, generation).await;
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {},
+                _ = self.network_wake.notified() => {},
+            }
         }
     }
 
@@ -1497,6 +1585,7 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let host = core.host(&id)?;
+            core.set_connection_intent(None)?;
             core.disconnect_inner(true).await?;
             {
                 let mut store = lock(&core.store);
@@ -1516,11 +1605,15 @@ impl AppCore {
         let core = self.clone();
         dispatch(async move {
             let _guard = core.operations.lock().await;
+            core.set_connection_intent(None)?;
             core.disconnect_inner(true).await
         })
         .await
     }
     async fn disconnect_inner(&self, notify: bool) -> Result<(), AppError> {
+        if let Some(job) = lock(&self.recovery_job).take() {
+            job.abort();
+        }
         if let Some(job) = lock(&self.notification_job).take() {
             job.abort();
         }
