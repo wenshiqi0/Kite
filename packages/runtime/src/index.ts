@@ -188,15 +188,19 @@ export function processContext(pid: number): {
       }),
   );
   return {
-    argv: readFileSync(`/proc/${pid}/cmdline`).toString().split("\0"),
+    argv: linuxArgv(pid),
     environment,
     cwd: realpathSync(`/proc/${pid}/cwd`),
   };
 }
+function linuxArgv(pid: number): string[] {
+  const args = readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+  // /proc includes an argv terminator; a real empty argument is still retained.
+  if (args.at(-1) === "") args.pop();
+  return args;
+}
 export function processArgv(pid: number): string[] {
-  return process.platform === "darwin"
-    ? darwinContext(pid).argv
-    : readFileSync(`/proc/${pid}/cmdline`).toString().split("\0");
+  return process.platform === "darwin" ? darwinContext(pid).argv : linuxArgv(pid);
 }
 /** Open relative to an already checked directory without following the final symlink. */
 export function readOwnedAt(directory: number, name: string, limit: number): Buffer {

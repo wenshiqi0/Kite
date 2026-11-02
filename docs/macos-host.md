@@ -36,6 +36,6 @@ Node API 1、backend 5、harness 2、会话目录及原始历史合同保持不�
 
 Mac 暂不支持 Linux cgroup 共享内存硬限额、进程暂停、X11 agent 桌面操作。Node 返回 `resourceApi=0`，限额写入明确拒绝，provider `pause=false`，MCP 不声明 X11 工具。Sunshine 的 Moonlight 视频/输入服务独立于这些能力。
 
-Android **Alpha 68 及以上**增加 Mac 捕获尺寸探测：通过 SSH 调用 Mac Node，由实际 Sunshine 监听进程和选定 CGDisplayID 取得像素尺寸。不会套用 Linux X11、固定 720p 或 SSH 登录默认显示器。首次桌面授权、配对、手机安装和物理音频分别验收。
+Android **Alpha 69 及以上**增加 Mac 捕获尺寸探测：通过 SSH 调用 Mac Node，由实际 Sunshine 监听进程和选定 CGDisplayID 取得像素尺寸。不会套用 Linux X11、固定 720p 或 SSH 登录默认显示器。首次桌面授权、配对、手机安装和物理音频分别验收。
 
 参见 [本轮验收](product/2026-11-03/macos-host/acceptance.md)、[RFC 0029](rfcs/0029-macos-host.md) 和 [官方 Sunshine Mac 支持说明](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html)。
