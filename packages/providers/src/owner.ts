@@ -313,6 +313,12 @@ export class Owner {
         thread: { id: this.info.thread, status: { type: this.turn ? "active" : "idle" } },
       };
     }
+    if (method === "thread/turns/list") {
+      return {
+        data: this.turn ? [{ id: this.turn, status: "inProgress", items: [] }] : [],
+        nextCursor: null,
+      };
+    }
     if (method === "turn/interrupt") {
       check(this.turn && p.turnId === this.turn, "turn expired");
       this.cancelled = true;
