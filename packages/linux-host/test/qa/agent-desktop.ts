@@ -16,7 +16,7 @@ import { array, check, type Json, object, parse, string } from "@kite/protocol";
 import { atomic, sha256, sleep } from "@kite/runtime";
 import { RpcError, RpcProcess } from "@kite/runtime/rpc";
 import { command } from "../../src/command";
-import { keyboardMapHash } from "./x11";
+import { keyboardMapHash, keyboardMapSummary } from "./x11";
 
 const { values } = parseArgs({
   options: { binary: { type: "string" }, evidence: { type: "string" } },
@@ -119,6 +119,10 @@ try {
   check(fixture().manager_environment_cleared, "launch environment was not sanitized");
   const before = keyboardMapHash(),
     entry = object(fixture().entry);
+  if (values.evidence) {
+    mkdirSync(values.evidence, { recursive: true });
+    atomic(join(values.evidence, "keyboard-map.json"), keyboardMapSummary());
+  }
   await ownFocus();
   await cli([
     "click",
@@ -253,6 +257,19 @@ try {
     atomic(join(values.evidence, "native-validation.json"), result);
     writeFileSync(join(values.evidence, "owned-crop.png"), png);
   }
+} catch (error) {
+  if (values.evidence) {
+    mkdirSync(values.evidence, { recursive: true });
+    if (existsSync(statePath)) copyFileSync(statePath, join(values.evidence, "failed-state.json"));
+    try {
+      const shot = await cli(["screenshot"]);
+      copyFileSync(string(shot.path), join(values.evidence, "failed-screen.png"));
+      atomic(join(values.evidence, "keyboard-map-after.json"), keyboardMapSummary());
+    } catch {
+      /* retain the original failure when diagnostics are unavailable */
+    }
+  }
+  throw error;
 } finally {
   rpc?.close();
   if (fixturePid) {

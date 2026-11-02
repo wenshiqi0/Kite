@@ -130,7 +130,17 @@ jobs:
       - name: Check agent desktop CLI and MCP on owned X11
         run: |
           cargo build -p kite-node --locked
-          xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node
+          mkdir -p "$RUNNER_TEMP/kite-x11"
+          KITE_QA_DEBUG_OBSERVATIONS="$RUNNER_TEMP/kite-x11/known-input.json" xvfb-run -a dbus-run-session -- bun run packages/linux-host/test/qa/agent-desktop.ts --binary target/debug/kite-node --evidence "$RUNNER_TEMP/kite-x11"
+
+      - name: Retain owned X11 failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: kite-x11-failure-${{ github.run_id }}
+          path: ${{ runner.temp }}/kite-x11/*
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Check agent documentation token budgets
         run: |

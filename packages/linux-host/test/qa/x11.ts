@@ -40,3 +40,35 @@ export function keyboardMapHash(): string {
     x11.symbols.XCloseDisplay(handle);
   }
 }
+
+export function keyboardMapSummary(): {
+  minimum: number;
+  maximum: number;
+  columns: number;
+  emptyCodes: number[];
+} {
+  const handle = display(),
+    low = new Int32Array(1),
+    high = new Int32Array(1),
+    width = new Int32Array(1);
+  let values: ReturnType<typeof x11.symbols.XGetKeyboardMapping> = null;
+  try {
+    x11.symbols.XDisplayKeycodes(handle, ptr(low), ptr(high));
+    const count = (high[0] || 0) - (low[0] || 0) + 1;
+    values = x11.symbols.XGetKeyboardMapping(handle, low[0] || 0, count, ptr(width));
+    check(values, "owned keyboard map unavailable");
+    const bytes = Buffer.from(toArrayBuffer(values, 0, count * (width[0] || 0) * 8)),
+      emptyCodes: number[] = [];
+    for (let i = 0; i < count; i++)
+      if (
+        bytes
+          .subarray(i * (width[0] || 0) * 8, (i + 1) * (width[0] || 0) * 8)
+          .every((byte) => byte === 0)
+      )
+        emptyCodes.push((low[0] || 0) + i);
+    return { minimum: low[0] || 0, maximum: high[0] || 0, columns: width[0] || 0, emptyCodes };
+  } finally {
+    if (values) x11.symbols.XFree(values);
+    x11.symbols.XCloseDisplay(handle);
+  }
+}

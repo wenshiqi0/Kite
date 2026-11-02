@@ -67,7 +67,8 @@ const handle = display(),
   tile = api.gtk_drawing_area_new(),
   callbacks: JSCallback[] = [];
 check(window && box && entry && target && tile, "GTK fixture widgets unavailable");
-let running = true;
+let running = true,
+  lastObserved = "";
 const state: Record<string, unknown> = {
   left: 0,
   right: 0,
@@ -121,6 +122,10 @@ function save(): void {
     };
   }
   atomic(statePath, state);
+  if (process.env.KITE_QA_DEBUG_OBSERVATIONS)
+    atomic(process.env.KITE_QA_DEBUG_OBSERVATIONS, {
+      codepoints: [...lastObserved].map((char) => char.codePointAt(0)),
+    });
 }
 connect(
   tile,
@@ -142,6 +147,7 @@ connect(
       const value = api.gtk_entry_get_text(entry);
       if (value) {
         const body = new CString(value).toString();
+        lastObserved = body;
         state.text_matched = body === "Kite 你好 19";
         state.text_length = [...body].length;
         state.text_sha256 = sha256(body);
