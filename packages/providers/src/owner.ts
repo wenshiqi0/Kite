@@ -24,7 +24,7 @@ import {
   string,
 } from "@kite/protocol";
 import { atomic, lines, locked, readJson, same, startTicks } from "@kite/runtime";
-import { TurnCancelled } from "@kite/runtime/rpc";
+import { RpcTimeoutError, TurnCancelled } from "@kite/runtime/rpc";
 import { nativeModelId, optionalObject } from "@kite/runtime/socket";
 import {
   type HarnessInfo,
@@ -266,7 +266,12 @@ export class Owner {
           error instanceof TurnCancelled ? "interrupted" : "failed",
           error instanceof TurnCancelled
             ? null
-            : { message: "Harness turn failed; inspect the conversation before retrying" },
+            : {
+                message:
+                  error instanceof RpcTimeoutError
+                    ? "Harness turn timed out; inspect the conversation before continuing"
+                    : "Harness turn failed; inspect the conversation before retrying",
+              },
         ),
       );
     }

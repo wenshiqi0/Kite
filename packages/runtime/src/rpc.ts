@@ -14,6 +14,11 @@ export class RpcError extends Error {
   }
 }
 export class TurnCancelled extends Error {}
+export class RpcTimeoutError extends Error {
+  constructor() {
+    super("native request timed out; delivery may have occurred");
+  }
+}
 export class RpcProcess {
   readonly child: Bun.Subprocess<"pipe", "pipe", "ignore">;
   private counter = 0;
@@ -51,14 +56,36 @@ export class RpcProcess {
     this.child.stdin.write(data);
     void this.child.stdin.flush();
   }
-  call(method: string, params: Json, timeout = 40_000, onId?: (id: number) => void): Promise<Json> {
-    if (this.closed || this.child.exitCode !== null)
+  call(
+    method: string,
+    params: Json,
+    timeout = 40_000,
+    onId?: (id: number) => void,
+    cancelOnTimeout?: () => void,
+  ): Promise<Json> {
+    if (this.closed || this.child.exitCode !== null || this.child.signalCode !== null)
       return Promise.reject(new Error("native runtime is closed"));
     const id = ++this.counter;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("native request timed out; delivery may have occurred"));
+        const error = new RpcTimeoutError();
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        if (!cancelOnTimeout) {
+          this.pending.delete(id);
+          reject(error);
+          return;
+        }
+        // Keep the request registered until native cancellation completes. A late
+        // success still belongs to the expired request, never the next turn.
+        pending.resolve = () => reject(error);
+        pending.reject = () => reject(error);
+        pending.timer = setTimeout(() => this.close(), 5000);
+        try {
+          cancelOnTimeout();
+        } catch {
+          this.close();
+        }
       }, timeout);
       this.pending.set(id, { resolve, reject, timer });
       try {
@@ -98,7 +125,7 @@ export class RpcProcess {
     }
     this.pending.clear();
     this.child.stdin.end();
-    if (this.child.exitCode === null) {
+    if (this.child.exitCode === null && this.child.signalCode === null) {
       try {
         process.kill(-this.child.pid, "SIGTERM");
       } catch {
