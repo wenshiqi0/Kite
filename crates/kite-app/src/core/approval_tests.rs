@@ -23,6 +23,7 @@ impl Observer for ObserverSink {
 struct Peer {
     agent: Value,
     catalog: Arc<Mutex<Value>>,
+    opened: Arc<Mutex<Value>>,
     seen: Arc<Mutex<Vec<Value>>>,
     channels: BTreeMap<ChannelId, (String, Vec<u8>)>,
 }
@@ -74,6 +75,10 @@ impl server::Handler for Peer {
         }
         if command.ends_with("session-facts --herdr 'fixture-herdr'") {
             return finish(session, channel, json!({"facts":[]}));
+        }
+        if command.contains("session-open") {
+            let agent = lock(&self.opened).clone();
+            return finish(session, channel, json!({"agent":agent}));
         }
         if command.ends_with("catalog-read") {
             let catalog = lock(&self.catalog).clone();
@@ -165,6 +170,7 @@ struct Fixture {
     client: Arc<ChatClient>,
     agent: Agent,
     catalog: Arc<Mutex<Value>>,
+    opened: Arc<Mutex<Value>>,
     connection: Arc<Connected>,
     seen: Arc<Mutex<Vec<Value>>>,
     ssh: Arc<Session>,
@@ -184,6 +190,8 @@ impl Fixture {
         let seen = Arc::new(Mutex::new(vec![]));
         let catalog = Arc::new(Mutex::new(json!({"revision":1,"now_ms":1,"sessions":[]})));
         let shared_catalog = catalog.clone();
+        let opened = Arc::new(Mutex::new(Value::Null));
+        let shared_opened = opened.clone();
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let records = seen.clone();
@@ -193,6 +201,7 @@ impl Fixture {
                 let handler = Peer {
                     agent: native_agent.clone(),
                     catalog: shared_catalog.clone(),
+                    opened: shared_opened.clone(),
                     seen: records.clone(),
                     channels: BTreeMap::new(),
                 };
@@ -267,6 +276,7 @@ impl Fixture {
             client,
             agent,
             catalog,
+            opened,
             connection,
             seen,
             ssh,
@@ -483,5 +493,63 @@ async fn a_notice_routes_a_waiting_request_to_its_own_conversation() {
         core.read_live(&ConversationKey::new("owned-host", "gone"), |_| ())
             .is_none()
     );
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn a_slow_resume_binds_the_returned_pane_until_it_reports_the_same_thread() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    let key = ConversationKey::new("owned-host", "resumed");
+    // Another thread than the fixture's own running pane.
+    let reference = kite_herdr::api::AgentSession {
+        source: "kite:harness".into(),
+        agent: "ply".into(),
+        kind: "id".into(),
+        value: "87654321-4321-4321-4321-cba987654321".into(),
+    };
+    let mut record =
+        kite_agent::sessions::Record::draft("resumed".into(), "ply".into(), String::new(), None, 1);
+    record.reference = Some(reference.clone());
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 1,
+        now_ms: 1,
+        sessions: vec![record],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    // The bounded wait in session-open ended before the pane reported its thread.
+    let launching = json!({"terminal_id":"slow","pane_id":"slow-pane","workspace_id":"owned","tab_id":"owned","agent":"ply","agent_status":"working","revision":1,"launch_pending":true});
+    *lock(&fixture.opened) = launching.clone();
+    core.activate_session(&fixture.connection, "resumed")
+        .await
+        .unwrap();
+    let opened = core.snapshot();
+    assert_eq!(opened.selected_session.as_deref(), Some("resumed"));
+    assert_eq!(opened.selected_agent.as_deref(), Some("slow"));
+
+    // The catalog sync that follows does not undo it, and its history is not a failure.
+    let mut pane: Agent = serde_json::from_value(launching).unwrap();
+    core.sync_sessions(&fixture.connection, std::slice::from_ref(&pane), 0)
+        .await
+        .unwrap();
+    assert_eq!(core.snapshot().selected_agent.as_deref(), Some("slow"));
+    core.refresh_selected(&fixture.connection, 0, false)
+        .await
+        .unwrap();
+    let starting = core.snapshot();
+    assert_eq!(starting.selected_agent.as_deref(), Some("slow"));
+    assert!(starting.history_status.waiting && !starting.history_status.failed);
+
+    core.update_live(&key, |live| {
+        live.response_activity = ResponseActivity::Sending;
+        live.agent_output = "starting up".into();
+    });
+    pane.launch_pending = false;
+    pane.agent_session = Some(reference);
+    core.update(|s| s.agents = vec![pane]);
+    let bound = core.snapshot();
+    assert_eq!(bound.selected_agent.as_deref(), Some("slow"));
+    assert_eq!(bound.response_activity, ResponseActivity::Sending);
+    assert_eq!(bound.agent_output, "starting up");
     fixture.stop().await;
 }

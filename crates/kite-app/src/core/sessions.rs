@@ -71,15 +71,23 @@ pub(super) fn saved_record<'a>(key: &ConversationKey, book: &'a SessionBook) -> 
         .find(|r| r.id == key.conversation)
 }
 
-/// The pane serving a conversation. An archived record keeps its running agent out of the chat.
+/// The pane serving a conversation. An archived record keeps its running agent out of
+/// the chat. `launching` is the pane opened for this conversation: a saved thread cannot
+/// match it until it reports that thread, and no other session-less pane may stand in.
 pub(super) fn conversation_agent<'a>(
     key: &ConversationKey,
     book: &SessionBook,
     agents: &'a [Agent],
+    launching: Option<&str>,
 ) -> Option<&'a Agent> {
     match saved_record(key, book) {
         Some(record) if record.archived => None,
-        Some(record) => agents.iter().find(|a| record.matches(a)),
+        Some(record) => agents.iter().find(|a| record.matches(a)).or_else(|| {
+            let terminal = launching?;
+            agents
+                .iter()
+                .find(|a| a.terminal_id == terminal && a.agent_session.is_none())
+        }),
         None => agents.iter().find(|a| a.terminal_id == key.conversation),
     }
 }
@@ -197,7 +205,8 @@ impl AppCore {
         let snapshot = self.snapshot();
         let client = {
             let book = lock(&self.session_book);
-            conversation_agent(key, &book, &snapshot.agents).map(|a| AgentKey::new(&key.host, a))
+            conversation_agent(key, &book, &snapshot.agents, None)
+                .map(|a| AgentKey::new(&key.host, a))
         };
         let Some(client) = client else {
             return;
@@ -627,7 +636,7 @@ impl AppCore {
         })
         .await
     }
-    async fn activate_session(&self, c: &Connected, id: &str) -> Result<(), AppError> {
+    pub(super) async fn activate_session(&self, c: &Connected, id: &str) -> Result<(), AppError> {
         let agent = Repository::new(&c.ssh).resume(id, &c.path).await?;
         let catalog = Repository::new(&c.ssh).archive(id, false).await?;
         self.install_catalog(&c.host.id, &catalog)?;
@@ -649,9 +658,17 @@ impl AppCore {
                 },
             );
         }
-        self.select(Some(ConversationKey::new(&c.host.id, id)), |s| {
-            s.agents = agents;
-            s.failure = None;
+        let key = ConversationKey::new(&c.host.id, id);
+        self.select_state(Some(key.clone()), |state| {
+            state.snapshot.agents = agents;
+            state.snapshot.failure = None;
+            if let Some(live) = state.live.get_mut(&key) {
+                // A slow start returns before the pane reports its thread.
+                live.launching = agent
+                    .agent_session
+                    .is_none()
+                    .then(|| agent.terminal_id.clone());
+            }
         });
         Ok(())
     }

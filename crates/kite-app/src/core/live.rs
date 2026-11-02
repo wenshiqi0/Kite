@@ -8,17 +8,36 @@ use std::collections::VecDeque;
 /// Conversations kept live at once, matching the in-memory transcript cache.
 const LIVE_LIMIT: usize = 4;
 
-/// The pane currently serving a conversation, and the provider thread it runs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The pane currently serving a conversation.
+#[derive(Clone, Debug)]
 pub(super) struct AgentBinding {
     pub(super) terminal: String,
+    /// The pane's current lookup key; it changes when the pane learns its thread.
     pub(super) key: AgentKey,
+    /// The last thread the pane reported.
+    thread: Option<String>,
 }
 impl AgentBinding {
-    pub(super) fn new(host: &str, agent: &Agent) -> Self {
+    fn new(host: &str, agent: &Agent) -> Self {
         Self {
             terminal: agent.terminal_id.clone(),
             key: AgentKey::new(host, agent),
+            thread: agent
+                .agent_session
+                .as_ref()
+                .map(ConversationKey::history_key),
+        }
+    }
+    /// A pane that learns or briefly loses its thread is still the same agent; only
+    /// another terminal or a different thread replaces it.
+    fn same_agent(&self, next: &Self) -> bool {
+        self.terminal == next.terminal
+            && (self.thread.is_none() || next.thread.is_none() || self.thread == next.thread)
+    }
+    fn follow(&mut self, next: Self) {
+        self.key = next.key;
+        if next.thread.is_some() {
+            self.thread = next.thread;
         }
     }
 }
@@ -31,6 +50,8 @@ pub(super) struct PendingItem {
 
 pub(super) struct LiveSession {
     pub(super) agent: Option<AgentBinding>,
+    /// The pane `session-open` returned for this conversation, until it reports a thread.
+    pub(super) launching: Option<String>,
     pub(super) history: Option<Arc<history::History>>,
     pub(super) transcript: conversation::Transcript,
     pub(super) sync_job: Option<JoinHandle<()>>,
@@ -55,6 +76,7 @@ impl LiveSession {
             .unwrap_or_default();
         Self {
             agent: None,
+            launching: None,
             history: None,
             transcript: conversation::Transcript::default(),
             sync_job: None,
@@ -76,6 +98,25 @@ impl LiveSession {
     /// A request that only this conversation can show keeps it out of eviction.
     fn needs_attention(&self) -> bool {
         self.approval.is_some() || self.question.is_some()
+    }
+    /// Returns whether the serving agent changed, which starts it from an empty runtime.
+    fn rebind(
+        &mut self,
+        next: Option<AgentBinding>,
+        paused_token: impl FnOnce(&AgentBinding) -> bool,
+    ) -> bool {
+        match (&mut self.agent, next) {
+            (None, None) => false,
+            (Some(current), Some(next)) if current.same_agent(&next) => {
+                current.follow(next);
+                false
+            }
+            (_, next) => {
+                let token = next.as_ref().is_some_and(paused_token);
+                self.bind(next, token);
+                true
+            }
+        }
     }
     /// What an agent left behind does not apply to the one serving the conversation next.
     fn bind(&mut self, agent: Option<AgentBinding>, paused_token: bool) {
@@ -127,14 +168,21 @@ impl LiveSessions {
             })
             .map(|(key, _)| key.clone())
     }
-    fn open(&mut self, key: &ConversationKey, seed: Option<CachedConversation>) {
+    fn open(
+        &mut self,
+        key: &ConversationKey,
+        seed: Option<CachedConversation>,
+    ) -> &mut LiveSession {
         let revision = self.revision_floor.wrapping_add(1);
-        let session = self
-            .sessions
+        self.sessions
             .entry(key.clone())
-            .or_insert_with(|| LiveSession::new(revision, seed));
+            .or_insert_with(|| LiveSession::new(revision, seed))
+    }
+    /// Only a selection counts as viewing; routing keeps the eviction order.
+    fn view(&mut self, key: &ConversationKey, seed: Option<CachedConversation>) {
         self.clock += 1;
-        session.viewed = self.clock;
+        let clock = self.clock;
+        self.open(key, seed).viewed = clock;
     }
     /// The least recently viewed sessions over the bound. The caller persists them
     /// before dropping them; when everything is protected the bound waits.
@@ -254,31 +302,45 @@ impl AppCore {
         self.observer.changed(snapshot);
     }
     /// The catalog and live agents decide which pane serves each conversation; every
-    /// publication re-derives that and projects the selected session from it.
-    fn reconcile(&self, state: &mut CoreState) {
-        if state.selected.as_ref().map(|key| &key.host) != state.snapshot.selected_host.as_ref() {
-            state.selected = None;
+    /// publication re-derives that and projects the selected session from it. Returns
+    /// whether that changed what the selected session shows.
+    fn reconcile(&self, state: &mut CoreState) -> bool {
+        let mut changed = false;
+        if state.selected.as_ref().map(|key| &key.host) != state.snapshot.selected_host.as_ref()
+            && state.selected.take().is_some()
+        {
+            changed = true;
         }
         let book = lock(&self.session_book);
         let paused = lock(&self.paused_processes);
+        let agents = &state.snapshot.agents;
         for (key, live) in &mut state.live.sessions {
-            let agent = sessions::conversation_agent(key, &book, &state.snapshot.agents)
-                .map(|agent| AgentBinding::new(&key.host, agent));
-            if live.agent != agent {
-                let token = agent
-                    .as_ref()
-                    .is_some_and(|a| paused.contains_key(&pane_key(&key.host, &a.terminal)));
-                live.bind(agent, token);
+            // Once the pane reports a thread, the record alone decides.
+            if live.launching.as_ref().is_some_and(|terminal| {
+                agents
+                    .iter()
+                    .any(|a| &a.terminal_id == terminal && a.agent_session.is_some())
+            }) {
+                live.launching = None;
             }
+            let agent = sessions::conversation_agent(key, &book, agents, live.launching.as_deref())
+                .map(|agent| AgentBinding::new(&key.host, agent));
+            let rebound = live.rebind(agent, |a| {
+                paused.contains_key(&pane_key(&key.host, &a.terminal))
+            });
+            changed |= rebound && state.selected.as_ref() == Some(key);
         }
         drop(paused);
-        state.snapshot.selected_session = state
+        let session = state
             .selected
             .as_ref()
             .and_then(|key| sessions::saved_record(key, &book))
             .map(|record| record.id.clone());
         drop(book);
+        changed |= state.snapshot.selected_session != session;
+        state.snapshot.selected_session = session;
         state.project();
+        changed
     }
     /// A conversation's saved cache, read outside the state lock because it can be
     /// a whole transcript on disk. Live sessions already hold theirs.
@@ -291,13 +353,20 @@ impl AppCore {
     /// Point the selection at `next` and publish `f` with it. Everything session
     /// scoped comes along with that session's object.
     pub(super) fn select(&self, next: Option<ConversationKey>, f: impl FnOnce(&mut Snapshot)) {
+        self.select_state(next, |state| f(&mut state.snapshot));
+    }
+    pub(super) fn select_state(
+        &self,
+        next: Option<ConversationKey>,
+        f: impl FnOnce(&mut CoreState),
+    ) {
         let seed = next.as_ref().and_then(|key| self.live_seed(key));
         let evicted = self.update_state(|state| {
             if let Some(key) = &next {
-                state.live.open(key, seed);
+                state.live.view(key, seed);
             }
             state.selected = next;
-            f(&mut state.snapshot);
+            f(state);
             state.live.evict(state.selected.as_ref())
         });
         self.retire(evicted);
@@ -330,14 +399,19 @@ impl AppCore {
                 runtimes.push((key, runtime));
             }
             // Bind first: a new binding starts from an empty runtime.
-            self.reconcile(&mut state);
+            let changed = self.reconcile(&mut state);
             for (key, runtime) in runtimes {
                 if let Some(live) = state.live.get_mut(&key).filter(|l| l.agent.is_some()) {
                     live.route(&runtime);
                 }
             }
             let selected = state.selected.clone();
-            state.live.evict(selected.as_ref())
+            let evicted = state.live.evict(selected.as_ref());
+            // Nothing routed here is on screen, but this reconcile may have changed it.
+            if changed {
+                self.publish(state);
+            }
+            evicted
         };
         self.retire(evicted);
     }
@@ -562,5 +636,199 @@ mod tests {
         );
         core.update(|s| s.agents = vec![agent("three")]);
         assert_eq!(core.snapshot().agent_pause, AgentPause::Unknown);
+    }
+
+    fn pane(terminal: &str, thread: Option<&str>) -> Agent {
+        let mut value = serde_json::json!({
+            "terminal_id":terminal, "agent":"claude", "agent_status":"working", "workspace_id":"w", "tab_id":"t", "pane_id":"p", "revision":1
+        });
+        if let Some(thread) = thread {
+            value["agent_session"] = serde_json::json!({
+                "source":"herdr:claude", "agent":"claude", "kind":"id", "value":thread
+            });
+        }
+        serde_json::from_value(value).unwrap()
+    }
+    fn busy(core: &AppCore, id: &str) {
+        core.update_live(&key(id), |live| {
+            live.response_activity = ResponseActivity::Sending;
+            live.agent_output = "pane text".into();
+            live.approval = Some(approval("waiting"));
+        });
+    }
+    fn assert_kept(core: &AppCore, terminal: &str) {
+        let s = core.snapshot();
+        assert_eq!(s.selected_agent.as_deref(), Some(terminal));
+        assert_eq!(s.response_activity, ResponseActivity::Sending);
+        assert_eq!(s.agent_output, "pane text");
+        assert_eq!(s.approval.unwrap().id, "waiting");
+    }
+    fn assert_reset(core: &AppCore) {
+        let s = core.snapshot();
+        assert_eq!(s.response_activity, ResponseActivity::Idle);
+        assert!(s.agent_output.is_empty() && s.approval.is_none());
+    }
+    /// A draft record bound to its pane by terminal, as `session-open` leaves it.
+    fn draft_on_pane(id: &str, terminal: &str) -> (Arc<AppCore>, tempfile::TempDir) {
+        let (core, directory) = core(&[]);
+        let mut record = Record::draft(id.into(), "claude".into(), String::new(), None, 1);
+        record.terminal_id = terminal.into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        (core, directory)
+    }
+
+    #[test]
+    fn a_pane_learning_its_thread_keeps_the_running_conversation() {
+        let (core, _directory) = draft_on_pane("draft", "T");
+        core.select(Some(key("draft")), |s| s.agents = vec![pane("T", None)]);
+        busy(&core, "draft");
+        assert_kept(&core, "T");
+        // The lookup key moves to the thread while everything on screen stays.
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        assert_kept(&core, "T");
+        let expected = AgentKey::new("host", &pane("T", Some("thread")));
+        assert_eq!(
+            core.read_live(&key("draft"), |live| live
+                .agent
+                .as_ref()
+                .unwrap()
+                .key
+                .clone()),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn another_thread_on_the_same_pane_is_another_agent_even_after_a_gap() {
+        let (core, _directory) = draft_on_pane("draft", "T");
+        core.select(Some(key("draft")), |s| {
+            s.agents = vec![pane("T", Some("first"))]
+        });
+        busy(&core, "draft");
+        // A brief loss of the thread is not a new agent.
+        core.update(|s| s.agents = vec![pane("T", None)]);
+        assert_kept(&core, "T");
+        core.update(|s| s.agents = vec![pane("T", Some("first"))]);
+        assert_kept(&core, "T");
+        core.update(|s| s.agents = vec![pane("T", None)]);
+        core.update(|s| s.agents = vec![pane("T", Some("second"))]);
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("T"));
+        assert_reset(&core);
+        busy(&core, "draft");
+        core.update(|s| s.agents = vec![pane("T", Some("third"))]);
+        assert_reset(&core);
+    }
+
+    /// A saved conversation whose thread is known, resumed on a pane still launching.
+    fn saved_on_launching_pane(thread: &str) -> (Arc<AppCore>, tempfile::TempDir) {
+        let (core, directory) = core(&[]);
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = pane("old", Some(thread)).agent_session;
+        record.terminal_id = "T".into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        core.select_state(Some(key("saved")), |state| {
+            state.snapshot.agents = vec![pane("T", None)];
+            state.live.get_mut(&key("saved")).unwrap().launching = Some("T".into());
+        });
+        (core, directory)
+    }
+
+    #[test]
+    fn a_resumed_pane_serves_its_conversation_before_it_reports_the_thread() {
+        let (core, _directory) = saved_on_launching_pane("thread");
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("T"));
+        busy(&core, "saved");
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        assert_kept(&core, "T");
+        assert_eq!(
+            core.read_live(&key("saved"), |live| live.launching.clone()),
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn a_resumed_pane_reporting_another_thread_stops_serving_the_conversation() {
+        let (core, _directory) = saved_on_launching_pane("thread");
+        busy(&core, "saved");
+        core.update(|s| s.agents = vec![pane("T", Some("another"))]);
+        assert!(core.snapshot().selected_agent.is_none());
+        assert_reset(&core);
+    }
+
+    #[test]
+    fn an_unrelated_session_less_pane_never_binds_to_a_saved_conversation() {
+        let (core, _directory) = saved_on_launching_pane("thread");
+        core.update_live(&key("saved"), |live| live.launching = None);
+        core.update(|s| s.agents = vec![pane("T", None)]);
+        assert!(core.snapshot().selected_agent.is_none());
+    }
+
+    #[test]
+    fn routing_a_session_does_not_count_as_viewing_it() {
+        let (core, _directory) = core(&["a", "b", "c", "d", "e"]);
+        for id in ["a", "b", "c", "d"] {
+            show(&core, id);
+        }
+        core.route_runtime(vec![(key("a"), RuntimeState::default())]);
+        show(&core, "e");
+        let state = lock(&core.state);
+        assert!(!state.live.sessions.contains_key(&key("a")));
+        assert!(state.live.sessions.contains_key(&key("b")));
+    }
+
+    #[derive(Default)]
+    struct Recording(Mutex<Vec<Snapshot>>);
+    impl Observer for Recording {
+        fn changed(&self, snapshot: Snapshot) {
+            lock(&self.0).push(snapshot);
+        }
+    }
+
+    #[test]
+    fn routing_publishes_only_when_it_changed_what_the_selected_session_shows() {
+        let observed = Arc::new(Recording::default());
+        let core = AppCore::new(Arc::new(Secrets), observed.clone());
+        let mut record = Record::draft("a".into(), "claude".into(), String::new(), None, 1);
+        record.reference = pane("T", Some("thread")).agent_session;
+        let catalog = |revision, sessions| Catalog {
+            revision,
+            now_ms: 1,
+            sessions,
+        };
+        let other = Record::draft("b".into(), "claude".into(), String::new(), None, 1);
+        core.install_catalog("host", &catalog(1, vec![record.clone(), other.clone()]))
+            .unwrap();
+        core.select(Some(key("b")), |s| {
+            s.selected_host = Some("host".into());
+            s.agents = vec![pane("T", Some("thread"))];
+        });
+        core.select(Some(key("a")), |_| {});
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("T"));
+        let published = lock(&observed.0).len();
+        core.route_runtime(vec![(key("b"), RuntimeState::default())]);
+        assert_eq!(lock(&observed.0).len(), published);
+        // The catalog changed underneath: this reconcile is the first to see it.
+        record.archived = true;
+        core.install_catalog("host", &catalog(2, vec![record, other]))
+            .unwrap();
+        core.route_runtime(vec![(key("b"), RuntimeState::default())]);
+        assert_eq!(lock(&observed.0).len(), published + 1);
+        assert!(lock(&observed.0).last().unwrap().selected_agent.is_none());
     }
 }

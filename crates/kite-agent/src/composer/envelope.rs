@@ -9,16 +9,21 @@ const ATTACHMENTS_CLOSE: &str = "\n</kite_attachments>";
 const MAX_ATTACHMENTS: usize = 5;
 
 /// The text a provider stores for a user message. Attachments keep their tail in
-/// that text even when also sent natively: it is how they survive in history.
+/// that text even when also sent natively: it is how they survive in history. A block
+/// with no encoding here is refused, never dropped from what the user sent.
 pub fn encode(blocks: &[Block]) -> Result<String, Error> {
-    let text = text_of(blocks);
-    let files: Vec<&Attachment> = blocks
-        .iter()
-        .filter_map(|block| match block {
-            Block::Attachment(file) => Some(file),
-            _ => None,
-        })
-        .collect();
+    let mut text = Vec::new();
+    let mut files = Vec::new();
+    for block in blocks {
+        match block {
+            Block::Text(body) => text.push(body.as_str()),
+            Block::Attachment(file) => files.push(file),
+            Block::Tool(_) | Block::QuestionReply(_) | Block::Embed(_) => {
+                return Err(Error::Invalid("block has no provider encoding"));
+            }
+        }
+    }
+    let text = text.join("\n");
     if files.is_empty() {
         return Ok(text);
     }
@@ -48,17 +53,6 @@ fn split_attachments(text: &str) -> (&str, Vec<Attachment>) {
         return (body, files);
     }
     (text, vec![])
-}
-
-fn text_of(blocks: &[Block]) -> String {
-    let parts: Vec<&str> = blocks
-        .iter()
-        .filter_map(|block| match block {
-            Block::Text(text) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect();
-    parts.join("\n")
 }
 
 #[cfg(test)]
@@ -95,6 +89,37 @@ mod tests {
         let stored = encode(&blocks).unwrap();
         assert!(stored.starts_with("\n\n<kite_attachments>\n"));
         assert_eq!(decode(&stored), blocks);
+    }
+
+    #[test]
+    fn blocks_without_an_encoding_are_refused_instead_of_dropped() {
+        let tool = crate::Tool {
+            name: "Bash".into(),
+            arguments: String::new(),
+            output: String::new(),
+            complete: false,
+            failed: false,
+            computer: false,
+        };
+        let reply = crate::QuestionReply {
+            id: "q".into(),
+            question: "Which?".into(),
+            answer: "This".into(),
+        };
+        let embed = crate::Reference::Live {
+            conversation: "source".into(),
+            item: "first".into(),
+        };
+        for block in [
+            Block::Tool(tool),
+            Block::QuestionReply(reply),
+            Block::Embed(embed),
+        ] {
+            assert!(matches!(
+                encode(&[Block::Text("kept".into()), block]),
+                Err(Error::Invalid(_))
+            ));
+        }
     }
 
     #[test]

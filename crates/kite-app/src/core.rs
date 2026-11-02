@@ -50,7 +50,7 @@ mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use key::ConversationKey;
 use key::{AgentKey, agent_source, approval_token, pane_key};
-use live::{AgentBinding, CoreState, LiveSession, PendingItem};
+use live::{CoreState, LiveSession, PendingItem};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
 
@@ -995,7 +995,12 @@ impl AppCore {
             text
         };
         let cached = self.read_live(key, |live| live.history.clone()).flatten();
-        let history = if let Some(reference) = &agent.agent_session {
+        // A resumed pane keeps showing its saved thread until it reports one itself.
+        let reference = agent.agent_session.clone().or_else(|| {
+            self.session_record(&key.host, &key.conversation)
+                .and_then(|record| record.reference)
+        });
+        let history = if let Some(reference) = &reference {
             history::read(&c.ssh, reference, cached).await
         } else {
             Arc::new(history::History::default())
@@ -1066,10 +1071,14 @@ impl AppCore {
                 lock(&self.paused_processes).get(&base).cloned(),
             )
         };
-        let binding = AgentBinding::new(&c.host.id, &agent);
-        if self.generation.load(Ordering::SeqCst) != generation
-            || self.read_live(key, |live| live.agent.as_ref() == Some(&binding)) != Some(true)
-        {
+        // The pane may have moved on during these reads: skip this round, keep the state.
+        let source = AgentKey::new(&c.host.id, &agent);
+        let current = self.read_live(key, |live| {
+            live.agent
+                .as_ref()
+                .is_some_and(|a| a.terminal == agent.terminal_id && a.key == source)
+        });
+        if self.generation.load(Ordering::SeqCst) != generation || current != Some(true) {
             return;
         }
         self.present_history(key, &history);
