@@ -1,0 +1,78 @@
+{
+  "status": "PASS",
+  "tag": "v0.2.0-alpha.67",
+  "versionCode": 69,
+  "sourceCommit": "192e65394c56bde508948a3433d87cd8798b3404",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.67",
+  "prerelease": true,
+  "draft": false,
+  "checksums": {
+    "kite-0.2.0-alpha.67-arm64-v8a.apk": "6a9221d8b3817382577e869fb95788897443783e7c962b7d7895edd438bee891",
+    "kite-0.2.0-alpha.67-arm64-v8a-compat-v2.apk": "69df91cb293cbe7b834d8155283f178667a8f6e072fae38b28ebc7dc422207bc",
+    "kite-host-0.2.0-alpha.67-linux-x86_64.tar.gz": "c5064567c126ca52e4ce89067b890d2f009c23f665b6e4c9e449c3e36b3bf460",
+    "release-manifest.json": "ccfabb3ba4ed881a2827ebf78eb6758a2910f3263c88a8bee3502d8cc9fc96b9"
+  },
+  "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signatureVerificationApis": [
+    23,
+    36
+  ],
+  "zipAlignmentKiB": 16,
+  "compatibilityPayloadMatchesPrimary": true,
+  "assets": [
+    {
+      "name": "kite-0.2.0-alpha.67-arm64-v8a-compat-v2.apk",
+      "bytes": 25406560,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.67/kite-0.2.0-alpha.67-arm64-v8a-compat-v2.apk"
+    },
+    {
+      "name": "kite-0.2.0-alpha.67-arm64-v8a.apk",
+      "bytes": 25406560,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.67/kite-0.2.0-alpha.67-arm64-v8a.apk"
+    },
+    {
+      "name": "kite-host-0.2.0-alpha.67-linux-x86_64.tar.gz",
+      "bytes": 3408000,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.67/kite-host-0.2.0-alpha.67-linux-x86_64.tar.gz"
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 1359,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.67/release-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 409,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.67/SHA256SUMS"
+    }
+  ],
+  "workflowRuns": [
+    {
+      "conclusion": "success",
+      "databaseId": 41534302359,
+      "headSha": "192e65394c56bde508948a3433d87cd8798b3404",
+      "status": "completed",
+      "url": "https://github.com/wenshiqi0/Kite/actions/runs/41534302359"
+    }
+  ],
+  "mergedPullRequests": [
+    13,
+    14
+  ],
+  "host": {
+    "status": "PASS",
+    "version": "0.2.0-alpha.67",
+    "sourceCommit": "192e65394c56bde508948a3433d87cd8798b3404",
+    "nodeIdPreserved": true,
+    "health": "ready",
+    "runningBinaryMatchesPublicPackage": true,
+    "configurationAndSshTrustPreserved": true,
+    "externalServicePidsPreserved": true,
+    "liveOwnersPreserved": 6,
+    "savedSessionReferencesPreserved": 53,
+    "currentSavedSessions": 53,
+    "sessionDeletionBackendPresent": true,
+    "deletionProbe": "invalid ID rejected before any catalog or owner mutation",
+    "deployment": "compatible live handover"
+  }
+}
