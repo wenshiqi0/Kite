@@ -1,9 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { array, check, type Json, json, object, parse, string } from "@kite/protocol";
-import { bounded, privateDir, sha256, sleep, startTicks, tryLock } from "@kite/runtime";
+import { bounded, live, privateDir, sha256, sleep, startTicks, tryLock } from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
 import { listening } from "@kite/runtime/socket";
 
@@ -59,6 +68,30 @@ const row = (id = "a".repeat(32), provider = "ply") => ({
   cwd: root,
 });
 describe("catalog and owned upload CLI", () => {
+  test("the CLI deletes drafts idempotently and fences stale catalog writes", async () => {
+    const home = fresh();
+    expect(
+      (await command(home, ["catalog-write"], JSON.stringify({ revision: 0, sessions: [row()] })))
+        .code,
+    ).toBe(0);
+    const args = ["session-delete", "--id", "a".repeat(32), "--herdr", "unavailable"];
+    const deleted = await command(home, args);
+    expect(deleted.code).toBe(0);
+    expect(object(parse(deleted.stdout.toString())).sessions).toEqual([]);
+    expect((await command(home, args)).code).toBe(0);
+    const stale = await command(
+      home,
+      ["catalog-write"],
+      JSON.stringify({ revision: 1, sessions: [row()] }),
+    );
+    expect(object(parse(stale.stdout.toString())).conflict).toBe(true);
+    const freshWrite = await command(
+      home,
+      ["catalog-write"],
+      JSON.stringify({ revision: 2, sessions: [row()] }),
+    );
+    expect(object(parse(freshWrite.stdout.toString())).sessions).toEqual([]);
+  });
   test("accepts the Rust Catalog wire DTO without an on-disk version field", async () => {
     const home = fresh();
     const result = await command(
@@ -199,6 +232,100 @@ describe("catalog and owned upload CLI", () => {
     ).toBe(1);
     expect(existsSync(join(home, ".local/share/kite/uploads", "d".repeat(32)))).toBe(false);
   });
+});
+
+describe("explicit owner termination", () => {
+  for (const mode of ["bound", "unbound", "shared", "foreign-terminal"])
+    test(mode === "foreign-terminal"
+      ? "an unrelated terminal foreground is never signalled"
+      : mode === "shared"
+        ? "a shared loaded backend and its tools are retained"
+        : `deletion stops a real ${mode} owner and its stubborn tool before removing the record`, async () => {
+      const shared = mode === "shared",
+        retained = shared || mode === "foreign-terminal";
+      const home = fresh(),
+        path = privateDir(join(home, "owner")),
+        socket = join(path, "backend.sock"),
+        thread = crypto.randomUUID(),
+        pane = "owned:p1";
+      const owner = Bun.spawn(
+        [
+          process.execPath,
+          resolve("packages/host/test/fixtures/deletion-owner.ts"),
+          socket,
+          JSON.stringify(shared ? [thread, crypto.randomUUID()] : [thread]),
+          path,
+          "app-server",
+          `unix://${socket}`,
+        ],
+        { detached: true, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+      );
+      let toolPid = 0,
+        toolTicks: string | undefined;
+      try {
+        const reader = owner.stdout.getReader();
+        expect((await reader.read()).done).toBe(false);
+        reader.releaseLock();
+        toolPid = Number(object(parse(readFileSync(join(path, "tool.json"), "utf8"))).pid);
+        toolTicks = startTicks(toolPid);
+        const ticks = startTicks(owner.pid);
+        check(ticks && toolTicks, "owned process identity unavailable");
+        const registry = privateDir(join(home, ".local/state/kite/codex"));
+        writeFileSync(
+          join(registry, `${sha256(pane).slice(0, 20)}.json`),
+          JSON.stringify({ protocol: 1, pane, pid: owner.pid, start_ticks: ticks, socket }),
+        );
+        const herdr = join(home, "herdr.ts");
+        writeFileSync(
+          herdr,
+          `#!${process.execPath}\nconst r=JSON.parse(await Bun.stdin.text());let result;
+if(r.method==="pane.process_info") result={process_info:{shell_pid:123,foreground_process_group_id:${mode === "foreign-terminal" ? owner.pid : 123},foreground_processes:${JSON.stringify(mode === "foreign-terminal" ? [{ pid: owner.pid, name: "unrelated" }] : [])}}};
+else if(r.method==="agent.list") result={agents:[{pane_id:"owned:p1",agent_session:{source:"herdr:codex",agent:"codex",kind:"id",value:${JSON.stringify(thread)}}}]};
+else throw new Error("unexpected mutation");console.log(JSON.stringify({id:r.id,result}));\n`,
+        );
+        chmodSync(herdr, 0o700);
+        const saved = {
+          ...row("a".repeat(32), "codex"),
+          pane_id: pane,
+          reference:
+            mode === "unbound"
+              ? null
+              : { source: "herdr:codex", agent: "codex", kind: "id", value: thread },
+        };
+        expect(
+          (
+            await command(
+              home,
+              ["catalog-write"],
+              JSON.stringify({ revision: 0, sessions: [saved] }),
+            )
+          ).code,
+        ).toBe(0);
+        const deleted = await command(home, ["session-delete", "--id", saved.id, "--herdr", herdr]);
+        expect(deleted.code).toBe(retained ? 1 : 0);
+        expect(live(owner.pid, ticks)).toBe(retained);
+        expect(live(toolPid, toolTicks)).toBe(retained);
+        const catalog = object(parse((await command(home, ["catalog-read"])).stdout.toString()));
+        expect(array(catalog.sessions)).toHaveLength(retained ? 1 : 0);
+        if (mode === "unbound") {
+          const rediscovery = {
+            ...saved,
+            id: "b".repeat(64),
+            reference: { source: "herdr:codex", agent: "codex", kind: "id", value: thread },
+          };
+          const write = await command(
+            home,
+            ["catalog-write"],
+            JSON.stringify({ revision: catalog.revision, sessions: [rediscovery] }),
+          );
+          expect(object(parse(write.stdout.toString())).sessions).toEqual([]);
+        }
+      } finally {
+        if (toolPid && toolTicks && live(toolPid, toolTicks)) process.kill(toolPid, "SIGKILL");
+        owner.kill("SIGKILL");
+        await owner.exited;
+      }
+    }, 15000);
 });
 for (const provider of ["dsh", "ply"] as const)
   describe(`${provider} native protocol owner`, () => {

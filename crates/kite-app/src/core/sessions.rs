@@ -235,13 +235,13 @@ impl AppCore {
             {
                 continue;
             }
-            let cache = lock(&self.session_book).histories.get(&key).cloned();
+            let book = lock(&self.session_book);
+            let cache = book.histories.get(&key).cloned();
             if let Some(cache) = cache {
                 if let Some(store) = lock(&self.store).as_ref() {
                     store.write_document(&history_document(&key), &cache)?;
                 }
                 lock(&self.history_cache_written).insert(key.clone(), Instant::now());
-                let book = lock(&self.session_book);
                 if book.histories.get(&key).is_some_and(|current| {
                     Arc::ptr_eq(&current.messages, &cache.messages)
                         && current.available == cache.available
@@ -307,6 +307,23 @@ impl AppCore {
         }
         let changed = book.catalogs.get(host) != Some(&catalog.sessions)
             || book.revisions.get(host) != Some(&catalog.revision);
+        let removed: Vec<_> = book
+            .catalogs
+            .get(host)
+            .into_iter()
+            .flatten()
+            .filter(|record| !catalog.sessions.iter().any(|r| r.id == record.id))
+            .map(|record| domain::cache_key(host, &record.id))
+            .collect();
+        // Keep the book lease through removal so a stale history writer cannot recreate the file.
+        for key in removed {
+            book.histories.remove(&key);
+            lock(&self.dirty_histories).remove(&key);
+            lock(&self.history_cache_written).remove(&key);
+            if let Some(store) = lock(&self.store).as_ref() {
+                store.remove_document(&history_document(&key))?;
+            }
+        }
         if changed {
             book.catalogs.insert(host.into(), catalog.sessions.clone());
             book.revisions.insert(host.into(), catalog.revision);
@@ -516,6 +533,13 @@ impl AppCore {
     ) -> Result<bool, AppError> {
         let key = domain::cache_key(host, id);
         let mut book = lock(&self.session_book);
+        if book
+            .catalogs
+            .get(host)
+            .is_some_and(|records| !records.iter().any(|r| r.id == id))
+        {
+            return Ok(false);
+        }
         if book.histories.get(&key).is_some_and(|v| {
             (Arc::ptr_eq(&v.messages, messages) || v.messages.as_ref() == messages.as_ref())
                 && v.available == available
@@ -755,6 +779,118 @@ impl AppCore {
         .await
     }
 
+    pub async fn delete_session(
+        self: &Arc<Self>,
+        host_id: String,
+        id: String,
+    ) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let connection = core.connection()?;
+            let record = core.session_record(&connection.host.id, &id);
+            if connection.host.id != host_id {
+                return Err(AppError::State(
+                    "session deletion belongs to another host".into(),
+                ));
+            }
+            let catalog = Repository::new(&connection.ssh)
+                .delete(&id, &connection.path)
+                .await?;
+            let agents: Vec<_> = core
+                .snapshot()
+                .agents
+                .into_iter()
+                .filter(|a| {
+                    !record.as_ref().is_some_and(|r| {
+                        r.matches(a) || (!r.pane_id.is_empty() && r.pane_id == a.pane_id)
+                    })
+                })
+                .collect();
+            if let Some(record) = &record {
+                let key = format!(
+                    "{}/{}",
+                    connection.host.id,
+                    record
+                        .reference
+                        .as_ref()
+                        .map(history::key)
+                        .unwrap_or_else(|| fingerprint(&record.terminal_id))
+                );
+                core.chat_clients.lock().await.remove(&key);
+                lock(&core.chat_failures).remove(&key);
+                lock(&core.uploads).remove(&key);
+                lock(&core.skill_drafts).remove(&key);
+                lock(&core.paused_processes)
+                    .remove(&format!("{}/{}", connection.host.id, record.terminal_id));
+                core.persist_pauses()?;
+            }
+            core.apply_session_deletion(&connection.host.id, &id, &catalog, agents)?;
+            core.refresh_resources(&connection, core.generation.load(Ordering::SeqCst))
+                .await;
+            Ok(())
+        })
+        .await
+    }
+
+    fn apply_session_deletion(
+        &self,
+        host: &str,
+        id: &str,
+        catalog: &Catalog,
+        agents: Vec<Agent>,
+    ) -> Result<(), AppError> {
+        let selected = self.snapshot().selected_session.as_deref() == Some(id);
+        if selected {
+            self.reset_history_view();
+        }
+        let catalog = self.install_catalog(host, catalog)?;
+        let next = if selected {
+            catalog
+                .sessions
+                .iter()
+                .filter(|r| !r.archived)
+                .max_by_key(|r| r.updated_ms)
+                .map(|r| r.id.clone())
+        } else {
+            self.snapshot().selected_session
+        };
+        lock(&self.session_book)
+            .selected
+            .insert(host.into(), next.clone());
+        let cache = selected
+            .then(|| next.as_ref().and_then(|id| self.cached_history(host, id)))
+            .flatten();
+        self.update(|snapshot| {
+            snapshot.sessions = views(&catalog.sessions, &agents);
+            snapshot.agents = agents;
+            if selected {
+                snapshot.selected_session = next;
+                snapshot.selected_agent = None;
+                snapshot.replace_shared_conversation(
+                    cache
+                        .as_ref()
+                        .map(|c| c.messages.as_ref().clone())
+                        .unwrap_or_default(),
+                    cache.is_some_and(|c| c.available),
+                );
+                snapshot.history_status = HistoryStatus::default();
+                snapshot.composer = Composer::default();
+                snapshot.approval = None;
+                snapshot.question = None;
+                snapshot.response_activity = ResponseActivity::Idle;
+                snapshot.agent_output.clear();
+                snapshot.agent_pause = AgentPause::Running;
+                snapshot.failure = None;
+            }
+        });
+        if selected {
+            *lock(&self.history) = None;
+        }
+        self.persist_session_book()?;
+        Ok(())
+    }
+
     pub async fn release_archived_sessions(
         self: &Arc<Self>,
         host_id: String,
@@ -959,6 +1095,138 @@ mod tests {
         let effective = core.install_catalog("host", &old).unwrap();
         assert_eq!(effective.revision, 2);
         assert!(effective.sessions[0].archived);
+    }
+    #[test]
+    fn deleting_the_selected_session_clears_its_cache_and_selects_the_next_active_record() {
+        let directory = tempfile::tempdir().unwrap();
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        *lock(&core.store) = Some(Store::open(directory.path()).unwrap());
+        let removed = Record::draft("removed".into(), "codex".into(), "removed".into(), None, 1);
+        let next = Record::draft("next".into(), "codex".into(), "next".into(), None, 2);
+        let mut archived = Record::draft(
+            "archived".into(),
+            "codex".into(),
+            "archived".into(),
+            None,
+            3,
+        );
+        archived.archived = true;
+        let previous = Catalog {
+            revision: 1,
+            now_ms: 1,
+            sessions: vec![removed, next.clone(), archived.clone()],
+        };
+        core.install_catalog("host", &previous).unwrap();
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected_session = Some("removed".into());
+            s.selected_agent = Some("old-agent".into());
+        });
+        let messages = Arc::new(vec![Arc::new(Message {
+            id: "old".into(),
+            role: Role::Assistant,
+            text: "old conversation".into(),
+            intermediate: false,
+            tool: None,
+            question_replies: Vec::new(),
+        })]);
+        core.cache_conversation("host", "removed", &messages, true)
+            .unwrap();
+        core.flush_history_caches(true).unwrap();
+        let key = domain::cache_key("host", "removed");
+        let latest = Catalog {
+            revision: 2,
+            now_ms: 2,
+            sessions: vec![next, archived],
+        };
+        core.apply_session_deletion("host", "removed", &latest, vec![])
+            .unwrap();
+        let snapshot = core.snapshot();
+        assert_eq!(snapshot.selected_session.as_deref(), Some("next"));
+        assert!(snapshot.selected_agent.is_none() && snapshot.conversation.is_empty());
+        assert!(!lock(&core.session_book).histories.contains_key(&key));
+        assert!(!lock(&core.dirty_histories).contains(&key));
+        let store = lock(&core.store);
+        assert!(
+            store
+                .as_ref()
+                .unwrap()
+                .read_document::<CachedConversation>(&history_document(&key))
+                .unwrap()
+                .is_none()
+        );
+        drop(store);
+        assert!(
+            !core
+                .cache_conversation("host", "removed", &messages, true)
+                .unwrap()
+        );
+        core.flush_history_caches(true).unwrap();
+        assert!(core.cached_history("host", "removed").is_none());
+        assert_eq!(
+            core.install_catalog("host", &previous)
+                .unwrap()
+                .sessions
+                .len(),
+            2
+        );
+        let stored: SessionBook = lock(&core.store)
+            .as_ref()
+            .unwrap()
+            .read_document("sessions")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.selected["host"].as_deref(), Some("next"));
+    }
+    #[test]
+    fn deleting_a_background_or_last_session_keeps_selection_consistent() {
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let selected = Record::draft("selected".into(), "codex".into(), "".into(), None, 1);
+        let background = Record::draft("background".into(), "codex".into(), "".into(), None, 2);
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 1,
+                now_ms: 1,
+                sessions: vec![selected.clone(), background],
+            },
+        )
+        .unwrap();
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected_session = Some("selected".into());
+            s.selected_agent = Some("active".into());
+        });
+        core.apply_session_deletion(
+            "host",
+            "background",
+            &Catalog {
+                revision: 2,
+                now_ms: 2,
+                sessions: vec![selected],
+            },
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(
+            core.snapshot().selected_session.as_deref(),
+            Some("selected")
+        );
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("active"));
+        core.apply_session_deletion(
+            "host",
+            "selected",
+            &Catalog {
+                revision: 3,
+                now_ms: 3,
+                sessions: vec![],
+            },
+            vec![],
+        )
+        .unwrap();
+        assert!(core.snapshot().selected_session.is_none());
+        assert!(core.snapshot().selected_agent.is_none());
+        assert!(core.snapshot().sessions.is_empty());
     }
     #[test]
     fn cached_archived_record_and_provider_survive_round_trip() {

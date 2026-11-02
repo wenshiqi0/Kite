@@ -19,6 +19,7 @@ import {
   sessionOpen,
   upgrade,
 } from "@kite/providers/codex";
+import { sessionDelete } from "@kite/providers/deletion";
 import { harnessAgents, harnessDirectory, providers } from "@kite/providers/harness";
 import { historyProjection, historyStamp } from "@kite/providers/history";
 import { lifecycleFacts, lifecycleReap, notificationFacts } from "@kite/providers/lifecycle";
@@ -202,6 +203,9 @@ export async function main(argv: string[]): Promise<void> {
       break;
     case "session-open":
       output(await sessionOpen(arg("id"), arg("herdr")));
+      break;
+    case "session-delete":
+      output(json(await sessionDelete(arg("id"), arg("herdr"))));
       break;
     case "lifecycle-facts":
       output(await lifecycleFacts(arg("herdr")));

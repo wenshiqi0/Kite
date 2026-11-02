@@ -24,6 +24,7 @@ import io.github.wenshiqi0.kite.data.toForm
 import io.github.wenshiqi0.kite.data.cacheAttachment
 import io.github.wenshiqi0.kite.core.UploadInfo
 import io.github.wenshiqi0.kite.core.QuestionInfo
+import io.github.wenshiqi0.kite.core.SessionInfo
 import io.github.wenshiqi0.kite.core.QuestionAnswerInfo
 import io.github.wenshiqi0.kite.media.DesktopInput
 import io.github.wenshiqi0.kite.media.PointerMotion
@@ -88,6 +89,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var orientationRequest by mutableIntStateOf(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
         private set
     var sessionBusy by mutableStateOf(false)
+        private set
+    var sessionToDelete by mutableStateOf<Pair<String, SessionInfo>?>(null)
         private set
     var releasingArchived by mutableStateOf(false)
         private set
@@ -282,7 +285,20 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         sessionBusy = true
         engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
     }
+    fun requestSessionDeletion(session: SessionInfo) {
+        val host = engine.state.value?.selectedHost ?: return
+        if (!sessionBusy) sessionToDelete = host to session
+    }
+    fun dismissSessionDeletion() { sessionToDelete = null }
+    fun deleteSession() {
+        val (host, session) = sessionToDelete ?: return
+        if (sessionBusy) return
+        sessionToDelete = null
+        sessionBusy = true
+        engine.command { try { engine.core.deleteSession(host, session.id) } finally { sessionBusy = false } }
+    }
     fun releaseArchivedSessions() {
+        if (sessionBusy) return
         if (releasingArchived) return
         val host = engine.state.value?.selectedHost ?: return
         releasingArchived = true
