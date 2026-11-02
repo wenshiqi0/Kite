@@ -1,9 +1,9 @@
 /** Owned GTK input target. Records counts and hashes, never arbitrary input text. */
 import { CString, dlopen, JSCallback, ptr, FFIType as T } from "bun:ffi";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { check } from "@kite/protocol";
-import { atomic, sha256, sleep } from "@kite/runtime";
+import { sha256, sleep } from "@kite/runtime";
 import { display, inputFocus, x11 } from "./x11";
 
 const { values } = parseArgs({
@@ -125,9 +125,16 @@ function save(): void {
       height: api.gtk_widget_get_allocated_height(widget),
     };
   }
-  atomic(statePath, state);
+  // Observations need atomic visibility, not durable storage. Fsync on this
+  // GTK thread can stall event dispatch on CI and distort the input under test.
+  const observe = (path: string, value: unknown) => {
+    const pending = `${path}.${process.pid}.pending`;
+    writeFileSync(pending, JSON.stringify(value), { mode: 0o600 });
+    renameSync(pending, path);
+  };
+  observe(statePath, state);
   if (process.env.KITE_QA_DEBUG_OBSERVATIONS)
-    atomic(process.env.KITE_QA_DEBUG_OBSERVATIONS, {
+    observe(process.env.KITE_QA_DEBUG_OBSERVATIONS, {
       codepoints: [...lastObserved].map((char) => char.codePointAt(0)),
     });
 }
