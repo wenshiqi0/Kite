@@ -1,11 +1,15 @@
 /** Owned GTK input target. Records counts and hashes, never arbitrary input text. */
 import { CString, dlopen, JSCallback, ptr, FFIType as T } from "bun:ffi";
+import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { check } from "@kite/protocol";
 import { atomic, sha256, sleep } from "@kite/runtime";
 import { display, inputFocus, x11 } from "./x11";
 
-const { values } = parseArgs({ options: { state: { type: "string" } }, strict: true });
+const { values } = parseArgs({
+  options: { state: { type: "string" }, control: { type: "string" } },
+  strict: true,
+});
 check(values.state && process.env.DISPLAY, "owned fixture needs --state and DISPLAY");
 // The owned widget tests direct key delivery, independently of host IM daemons.
 process.env.GTK_IM_MODULE = "gtk-im-context-simple";
@@ -217,7 +221,8 @@ api.gtk_window_present(window);
 api.gtk_widget_grab_focus(entry);
 const started = Date.now();
 let saved = 0,
-  focused = false;
+  focused = false,
+  dispatchMs = 5;
 try {
   while (running) {
     while (api.gtk_events_pending()) api.gtk_main_iteration_do(0);
@@ -236,10 +241,16 @@ try {
       }
     }
     if (Date.now() - saved >= 100) {
+      if (values.control && existsSync(values.control)) {
+        const requested = Number(JSON.parse(readFileSync(values.control, "utf8")).dispatchMs);
+        if (Number.isSafeInteger(requested) && requested >= 1 && requested <= 250)
+          dispatchMs = requested;
+      }
+      state.dispatch_ms = dispatchMs;
       save();
       saved = Date.now();
     }
-    await sleep(5);
+    await sleep(dispatchMs);
   }
 } finally {
   const surface = api.gtk_widget_get_window(window);

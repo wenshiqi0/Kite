@@ -1160,6 +1160,7 @@ impl AppCore {
             composer::selection(&client.models, stored.as_ref().unwrap_or(&client.initial))
                 .unwrap_or_else(|_| client.initial.clone());
         let uploads = lock(&self.uploads).get(&key).cloned().unwrap_or_default();
+        let error_details = client.runtime().error.unwrap_or_default();
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| {
                 if s.selected_agent.as_deref() == Some(&agent.terminal_id)
@@ -1169,6 +1170,7 @@ impl AppCore {
                 {
                     s.composer = Composer {
                         ready: true,
+                        details: error_details,
                         models: client.models.clone(),
                         selection: selected,
                         uploads,

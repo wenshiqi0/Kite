@@ -406,7 +406,9 @@ export class X11 {
             env,
             part,
           );
-          await sleep(Math.min(500, 50 + part.length));
+          // A short batch can still be queued in a busy application's event
+          // loop. Keep its mapping stable before reusing the limited key pool.
+          await sleep(batches.length > 1 ? 250 : Math.min(500, 50 + part.length));
         } finally {
           for (const slot of assigned) {
             const currentWidth = Buffer.alloc(4),

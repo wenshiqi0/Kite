@@ -276,7 +276,10 @@
     <string name="response_thinking">正在思考…</string>
     <string name="response_tools">正在使用工具…</string>
     <string name="response_replying">正在回复…</string>
-    <string name="response_failed">请求未完成，请查看详情</string>
+    <string name="response_failed">执行失败</string>
+    <string name="response_model_capacity">模型服务繁忙</string>
+    <string name="response_model_capacity_hint">可以稍后重试，或在模型菜单选择其他模型。</string>
+    <string name="response_failure_no_details">后端未提供详细错误原因。</string>
     <string name="go_answer">回答问题</string>
     <string name="question_pending_short">待回答</string>
     <string name="question_pending_hint">有问题需要你回答</string>
