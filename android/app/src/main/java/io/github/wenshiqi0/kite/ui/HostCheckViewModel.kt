@@ -60,6 +60,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var copyingAttachments by mutableStateOf(false)
         private set
     val sending: Boolean get() = engine.state.value?.selectedAgent?.let { it in sendingAgents } ?: false
+    val interrupting: Boolean get() = engine.state.value?.selectedAgent?.let { it in interruptingAgents } ?: false
     val sessionStartup: SessionStartupPhase get() {
         val state = engine.state.value
         val agent = state?.agents?.find { it.id == state.selectedAgent }
@@ -118,6 +119,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     private var draftAgent: String? = null
     private val agentDrafts = mutableMapOf<String, String>()
     private val sendingAgents = androidx.compose.runtime.mutableStateListOf<String>()
+    private val interruptingAgents = androidx.compose.runtime.mutableStateListOf<String>()
     private var loaded = false
     private var notificationRoute: Job? = null
     private var noticeRouteSerial=0L
@@ -320,7 +322,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun selectAgent(id: String) = engine.command { engine.core.selectAgent(id) }
     fun sendPrompt(id: String) {
-        if (submissionLocked || engine.state.value?.selectedAgent != id) return
+        if (submissionLocked || interrupting || engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
         val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty() && engine.state.value?.composer?.skills?.selected.isNullOrEmpty()) || sending || copyingAttachments || skillBusy) return
@@ -334,6 +336,15 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                 if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context)
             }
             finally { sendingAgents.remove(id) }
+        }
+    }
+    fun interruptAgent(id: String) {
+        val state = engine.state.value ?: return
+        if (submissionLocked || interrupting || state.selectedAgent != id || state.agentPause != AgentPauseStatus.RUNNING) return
+        interruptingAgents.add(id)
+        engine.command {
+            try { engine.core.interruptAgent(id) }
+            finally { interruptingAgents.remove(id) }
         }
     }
     fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
@@ -382,8 +393,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         engine.command { engine.core.setAgentPaused(id, state.agentPause == AgentPauseStatus.RUNNING) }
     }
     fun promptAgent(id: String, text: String) {
-        if (submissionLocked || engine.state.value?.selectedAgent != id) return
-        engine.command { if (!submissionLocked && engine.state.value?.selectedAgent == id) engine.core.promptAgent(id, text) }
+        if (submissionLocked || interrupting || engine.state.value?.selectedAgent != id) return
+        engine.command { if (!submissionLocked && !interrupting && engine.state.value?.selectedAgent == id) engine.core.promptAgent(id, text) }
     }
     fun approve(pin: String) = engine.command { engine.core.approvePairing(pin) }
     fun takeOver(enabled: Boolean) {

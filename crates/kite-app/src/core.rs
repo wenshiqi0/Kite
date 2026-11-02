@@ -1749,6 +1749,75 @@ impl AppCore {
         .await
     }
 
+    pub async fn interrupt_agent(self: &Arc<Self>, id: String) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let c = core.connection()?;
+            let generation = core.generation.load(Ordering::SeqCst);
+            let snapshot = core.snapshot();
+            if snapshot.selected_agent.as_deref() != Some(&id) {
+                return Err(AppError::State("selected agent changed".into()));
+            }
+            if snapshot.agent_pause != AgentPause::Running
+                || lock(&core.paused_processes).contains_key(&pane_key(&c.host.id, &id))
+            {
+                return Err(AppError::State(
+                    "resume the agent before interrupting".into(),
+                ));
+            }
+            let agent = snapshot
+                .agents
+                .iter()
+                .find(|a| a.terminal_id == id)
+                .ok_or_else(|| AppError::State("agent unavailable".into()))?;
+            require_prompt_ready(&snapshot, agent)?;
+            let provider = snapshot
+                .providers
+                .iter()
+                .find(|p| Some(p.id.as_str()) == agent.agent.as_deref())
+                .ok_or_else(|| AppError::State("selected harness is unavailable".into()))?;
+            if provider.managed_chat {
+                let client = core
+                    .chat_clients
+                    .lock()
+                    .await
+                    .get(&AgentKey::new(&c.host.id, agent))
+                    .cloned()
+                    .ok_or_else(|| AppError::State("chat connection unavailable".into()))?;
+                client.interrupt().await?;
+                let runtime = client.runtime();
+                core.update_live(&core.agent_conversation(&c.host.id, agent), |live| {
+                    if core.generation.load(Ordering::SeqCst) == generation
+                        && live.agent.as_ref().is_some_and(|a| a.terminal == id)
+                    {
+                        live.response_activity = runtime.phase();
+                        live.question = runtime.question();
+                        live.approval = runtime.approval();
+                    }
+                });
+            } else if provider.terminal {
+                let live = core
+                    .fetch_agents(&c)
+                    .await?
+                    .into_iter()
+                    .find(|a| {
+                        a.terminal_id == id
+                            && a.pane_id == agent.pane_id
+                            && a.agent_session == agent.agent_session
+                    })
+                    .ok_or_else(|| AppError::State("agent session changed".into()))?;
+                if live.agent_status == "working" || live.agent_status == "blocked" {
+                    c.api.send_keys(&live.pane_id, &["Escape".into()]).await?;
+                }
+            } else {
+                return Err(AppError::State("harness interruption unavailable".into()));
+            }
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn send_agent_key(self: &Arc<Self>, id: String, key: String) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {

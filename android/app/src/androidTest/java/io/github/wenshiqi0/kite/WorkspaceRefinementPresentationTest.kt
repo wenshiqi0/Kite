@@ -78,6 +78,61 @@ class WorkspaceRefinementPresentationTest {
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
         if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,null,System.currentTimeMillis())
 
+    @Test fun composerStopsActiveWorkAndKeepsTheNormalSendActionWhenIdle() {
+        val working = androidx.compose.runtime.mutableStateOf(false)
+        val hasInput = androidx.compose.runtime.mutableStateOf(false)
+        val ready = androidx.compose.runtime.mutableStateOf(false)
+        val interrupting = androidx.compose.runtime.mutableStateOf(false)
+        val sends = java.util.concurrent.atomic.AtomicInteger()
+        val stops = java.util.concurrent.atomic.AtomicInteger()
+        val send = test.targetContext.getString(R.string.send_prompt)
+        val stop = test.targetContext.getString(R.string.interrupt_agent)
+        fun button(description: String) = actionNode(requireNotNull(find(description=description)), AccessibilityNodeInfo.ACTION_CLICK)
+        fun unavailable(description: String): Boolean {
+            var node=find(description=description) ?: return false
+            while(true) {
+                if(!node.isEnabled)return true
+                node=node.parent ?: return false
+            }
+        }
+        overlay({
+            Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.BottomCenter) {
+                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=32.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                    ChatDraftField(if(hasInput.value)"追加指令" else "",{},Modifier.weight(1f),enabled=ready.value)
+                    ComposerActionButton(working.value,hasInput.value,ready.value,ready.value,false,interrupting.value,{sends.incrementAndGet()},{stops.incrementAndGet()})
+                }
+            }
+        }) {
+            waitFor("Initialization shows a normal disabled send action"){find(description=send)!=null}
+            assertTrue(unavailable(send))
+            assertNull(find(description=stop))
+            screenshot("composer-initializing-send.png")
+            main { ready.value=true }
+            waitFor("Idle empty input retains send"){find(description=send)!=null}
+            assertTrue(unavailable(send))
+            screenshot("composer-idle-send.png")
+            main { working.value=true }
+            waitFor("Active empty input offers interruption"){find(description=stop)!=null}
+            assertTrue(button(stop).isEnabled)
+            assertTrue(button(stop).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Stop invokes only the interrupt callback"){stops.get()==1}
+            assertEquals(0,sends.get())
+            screenshot("composer-working-stop.png")
+            main { interrupting.value=true }
+            waitFor("In-flight interruption is disabled"){unavailable(stop)}
+            gesture(bounds(stop),0f)
+            assertEquals("A real duplicate tap cannot resubmit interruption",1,stops.get())
+            main { interrupting.value=false; hasInput.value=true }
+            waitFor("Drafts can still send follow-up instructions during work"){find(description=send)!=null}
+            assertTrue(button(send).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Follow-up submits once"){sends.get()==1}
+            assertEquals(1,stops.get())
+            main { working.value=false; hasInput.value=false }
+            waitFor("Completion restores the disabled empty send action"){unavailable(send)}
+            assertNull(find(description=stop))
+        }
+    }
+
     @Test fun archivedReleaseUsesOneActionAndShowsProgressAndResult() {
         val calls = java.util.concurrent.atomic.AtomicInteger()
         overlay({ArchivedReleaseControls(true,false,null){calls.incrementAndGet()}}) {

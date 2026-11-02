@@ -2,14 +2,11 @@ package io.github.wenshiqi0.kite.ui
 
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Rect
-import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -92,16 +89,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val responseInProgress = presentationPhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING)
     val currentSession = state?.sessions?.find { it.id == state.selectedSession }
     val context = LocalContext.current
-    val voiceUnavailable = stringResource(R.string.voice_unavailable)
     val sendTextFailure = stringResource(R.string.error_send_text)
     val restoreDesktop = stringResource(R.string.restore_desktop)
     val returnChat = stringResource(R.string.return_chat)
-    val sendPromptLabel = stringResource(R.string.send_prompt)
     val menuDescription = stringResource(R.string.navigation_menu)
     val moreDescription = stringResource(R.string.more_actions)
     val splitDescription = stringResource(R.string.resize_split)
     val addDescription = stringResource(R.string.compose_add)
-    val voiceDescription = stringResource(R.string.voice_input)
     val frameCounts = stringResource(R.string.video_frame_counts, state?.desktop?.receivedFrames?.toLong() ?: 0L, state?.desktop?.renderedFrames?.toLong() ?: 0L)
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val drawerActive = drawer.currentValue != DrawerValue.Closed || drawer.targetValue != DrawerValue.Closed
@@ -193,13 +187,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         if(vm.inPip||vm.pipTransition||chatHeight<16||!followTail||chatScroll.isScrollInProgress||entries.isEmpty())return@LaunchedEffect
         withFrameNanos{};withFrameNanos{}
         if(followTail&&!chatScroll.isScrollInProgress)chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount-1).coerceAtLeast(0))
-    }
-    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        vm.externalActivity = false
-        updatePip()
-        if (result.resultCode == Activity.RESULT_OK) result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { value ->
-            vm.draft = if (vm.draft.isBlank()) value else vm.draft + " " + value
-        }
     }
     val attachments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.externalActivity = false
@@ -454,13 +441,16 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                     if (providerInfo?.models == true) IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=!initializingSession&&providerInfo?.models==true,modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
                     ChatDraftField(if(vm.creatingAgent)"" else vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()},enabled=!initializingSession)
-                    if (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()) IconButton(onClick = { agent?.id?.let(vm::sendPrompt) }, modifier = Modifier.semantics { contentDescription = sendPromptLabel }, enabled = !vm.submissionLocked && agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && state?.composer?.uploads?.all { it.ready } != false && composeReason == null) {
-                        if (vm.sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else ProductIcon(Mark.Send, if(vm.submissionLocked)Muted else Blue)
-                    } else IconButton(onClick = {
-                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        vm.externalActivity = true; updatePip()
-                        runCatching { voice.launch(intent) }.onFailure { vm.externalActivity = false; updatePip(); warning = voiceUnavailable }
-                    }, modifier = Modifier.semantics { contentDescription = voiceDescription }, enabled = !initializingSession) { ProductIcon(Mark.Mic) }
+                    ComposerActionButton(
+                        working = vm.sessionStartup == SessionStartupPhase.READY && if (providerInfo?.managedChat == true) state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.WAITING) else agent?.status in listOf("working", "blocked"),
+                        hasInput = !vm.creatingAgent && (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()),
+                        canSend = !vm.submissionLocked && agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && !vm.interrupting && state?.composer?.uploads?.all { it.ready } != false && composeReason == null,
+                        canInterrupt = !vm.submissionLocked && agent != null && state?.agentPause == AgentPauseStatus.RUNNING && (providerInfo?.managedChat == true || providerInfo?.terminal == true),
+                        sending = vm.sending,
+                        interrupting = vm.interrupting,
+                        onSend = { agent?.id?.let(vm::sendPrompt) },
+                        onInterrupt = { agent?.id?.let(vm::interruptAgent) },
+                    )
                 }
                 }
                 }

@@ -1404,6 +1404,12 @@ impl KiteCore {
             .await
             .map_err(Into::into)
     }
+    pub async fn interrupt_agent(&self, agent_id: String) -> Result<(), KiteError> {
+        self.inner
+            .interrupt_agent(agent_id)
+            .await
+            .map_err(Into::into)
+    }
     pub async fn send_agent_key(&self, agent_id: String, key: String) -> Result<(), KiteError> {
         self.inner
             .send_agent_key(agent_id, key)
