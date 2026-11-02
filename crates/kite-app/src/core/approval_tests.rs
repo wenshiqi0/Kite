@@ -1,4 +1,4 @@
-//! Real AppCore approval commands over local SSH, with managed agents absent from Herdr.
+//! Real AppCore approval and interruption commands over local SSH, including managed owners absent from Herdr.
 use super::*;
 use russh::keys::PrivateKey;
 use russh::server::{self, Auth, Msg, Session as ServerSession, VerifiedPublicKey};
@@ -24,6 +24,7 @@ struct Peer {
     agent: Value,
     seen: Arc<Mutex<Vec<Value>>>,
     channels: BTreeMap<ChannelId, (String, Vec<u8>)>,
+    active: bool,
 }
 fn send(session: &mut ServerSession, channel: ChannelId, value: Value) -> Result<(), russh::Error> {
     session.data(channel, format!("{value}\n").into_bytes())
@@ -134,6 +135,23 @@ impl server::Handler for Peer {
                     json!({"thread":{"id":THREAD,"status":{"type":"active"}}})
                 }
                 "turn/start" => json!({"turn":{"id":"turn-2","status":"inProgress"}}),
+                "thread/turns/list" => {
+                    json!({"data":if self.active { vec![json!({"id":"turn-1","status":"inProgress"})] } else { vec![] },"nextCursor":null})
+                }
+                "turn/interrupt" => {
+                    assert_eq!(
+                        request["params"],
+                        json!({"threadId":THREAD,"turnId":"turn-1"})
+                    );
+                    assert!(self.active);
+                    self.active = false;
+                    send(
+                        session,
+                        channel,
+                        json!({"method":"turn/completed","params":{"threadId":THREAD,"turn":{"id":"turn-1","status":"interrupted"}}}),
+                    )?;
+                    json!({})
+                }
                 method => panic!("unexpected native request {method}"),
             };
             send(
@@ -176,6 +194,7 @@ impl Fixture {
                     agent: native_agent.clone(),
                     seen: records.clone(),
                     channels: BTreeMap::new(),
+                    active: true,
                 };
                 let config = config.clone();
                 tokio::spawn(async move {
@@ -248,6 +267,52 @@ impl Fixture {
     async fn stop(self) {
         self.ssh.close().await.unwrap();
         self.listener.abort();
+    }
+}
+
+#[tokio::test]
+async fn interruption_reaches_each_managed_owner_and_rejects_stale_or_paused_controls() {
+    for provider in ["codex", "dsh", "ply"] {
+        let fixture = Fixture::start(provider).await;
+        let id = fixture.agent.terminal_id.clone();
+        fixture.core.update(|s| {
+            s.composer.ready = true;
+            s.providers = vec![providers::Provider {
+                id: provider.into(),
+                managed_chat: true,
+                models: true,
+                attachments: true,
+                skills: false,
+                usage: false,
+                pause: false,
+                terminal: false,
+                release: true,
+            }];
+        });
+        assert!(
+            fixture
+                .core
+                .interrupt_agent("stale-agent".into())
+                .await
+                .is_err()
+        );
+        fixture.core.update(|s| s.agent_pause = AgentPause::Paused);
+        assert!(fixture.core.interrupt_agent(id.clone()).await.is_err());
+        fixture.core.update(|s| s.agent_pause = AgentPause::Running);
+        fixture.core.interrupt_agent(id.clone()).await.unwrap();
+        assert_eq!(fixture.client.runtime().phase(), ResponseActivity::Idle);
+        assert!(fixture.client.runtime().approval().is_none());
+        // Tapping a now-stale stop action must not send another cancellation or a new turn.
+        fixture.core.interrupt_agent(id).await.unwrap();
+        let seen = lock(&fixture.seen).clone();
+        assert_eq!(
+            seen.iter()
+                .filter(|r| r["method"] == "turn/interrupt")
+                .count(),
+            1
+        );
+        assert!(seen.iter().all(|r| r["method"] != "turn/start"));
+        fixture.stop().await;
     }
 }
 

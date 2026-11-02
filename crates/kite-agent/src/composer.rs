@@ -468,6 +468,18 @@ impl Client {
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, Error> {
         self.rpc.request(method, params).await
     }
+    pub async fn interrupt(&self) -> Result<(), Error> {
+        let turns = self
+            .request(
+                "thread/turns/list",
+                json!({"threadId":self.thread,"limit":1,"itemsView":"notLoaded","sortDirection":"desc"}),
+            )
+            .await?;
+        if let Some(params) = interrupt_request(&self.thread, &turns)? {
+            self.request("turn/interrupt", params).await?;
+        }
+        Ok(())
+    }
     pub async fn send(
         &self,
         text: &str,
@@ -508,6 +520,24 @@ impl Client {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         Ok(text)
+    }
+}
+
+fn interrupt_request(thread: &str, turns: &Value) -> Result<Option<Value>, Error> {
+    let latest = turns["data"]
+        .as_array()
+        .ok_or(Error::Invalid("active turn list unavailable"))?
+        .first();
+    match latest.map(|turn| turn["status"].as_str()) {
+        Some(Some("inProgress")) => {
+            let turn = latest.unwrap()["id"]
+                .as_str()
+                .filter(|id| !id.trim().is_empty())
+                .ok_or(Error::Invalid("active turn identity unavailable"))?;
+            Ok(Some(json!({"threadId":thread,"turnId":turn})))
+        }
+        None | Some(Some("completed" | "failed" | "interrupted")) => Ok(None),
+        _ => Err(Error::Invalid("active turn status unavailable")),
     }
 }
 
@@ -801,6 +831,41 @@ pub async fn download_attachment(ssh: &Session, file: &Attachment) -> Result<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn interruption_uses_only_the_current_active_turn() {
+        assert_eq!(
+            interrupt_request(
+                "owned-thread",
+                &json!({"data":[{"id":"active","status":"inProgress"}]})
+            )
+            .unwrap(),
+            Some(json!({"threadId":"owned-thread","turnId":"active"}))
+        );
+        for status in ["completed", "failed", "interrupted"] {
+            // A stale stop tap must neither interrupt an old turn nor start a new one.
+            assert_eq!(
+                interrupt_request(
+                    "owned-thread",
+                    &json!({"data":[{"id":"done","status":status}]})
+                )
+                .unwrap(),
+                None
+            );
+        }
+        assert_eq!(
+            interrupt_request("new-thread", &json!({"data":[]})).unwrap(),
+            None
+        );
+        for invalid in [
+            json!({}),
+            json!({"data":[{"status":"inProgress"}]}),
+            json!({"data":[{"id":" ","status":"inProgress"}]}),
+            json!({"data":[{"id":"unknown","status":"unknown"}]}),
+        ] {
+            assert!(interrupt_request("owned-thread", &invalid).is_err());
+        }
+    }
+
     #[test]
     fn explicit_skills_and_attachments_share_one_turn_input() {
         let skills = vec![Skill {
