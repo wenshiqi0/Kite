@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { stopOwner } from "@kite/platform";
+import { killScope, type OwnerIdentity, reclaimCache, scopeName, stopOwner } from "@kite/platform";
 import {
   array,
   check,
@@ -8,6 +8,8 @@ import {
   json,
   type ObjectValue,
   object,
+  type Provider,
+  RPC_LIMIT,
   type SessionRecord,
   string,
   UUID,
@@ -25,23 +27,15 @@ import {
   startTicks,
   stopped,
 } from "@kite/runtime";
-import { catalogRead, sessionLock } from "./catalog";
-import {
-  api,
-  backendRpc,
-  ownerLock,
-  type Registry,
-  readRegistry,
-  registryPath,
-  sameReference,
-} from "./codex";
-import { harnessAgents, harnessDirectory } from "./harness";
+import { catalogRead, catalogRoot, catalogUnlocked, sessionLock } from "./catalog";
+import { api, backendRpc, ownerLock, readRegistry, registryPath, sameReference } from "./codex";
+import { harnessAgents, harnessDirectory, harnessInfo } from "./harness";
 import { historyFiles, questionRecords } from "./history";
 
-interface LifecycleFact {
+export interface LifecycleFact {
   session_id: string;
   pane: string;
-  owner: Registry;
+  owner: OwnerIdentity;
   reference: SessionRecord["reference"];
   archived: boolean;
   idle: boolean;
@@ -50,7 +44,7 @@ interface LifecycleFact {
   last_activity_ms: number;
   tui_pid: number | null;
 }
-export async function lifecycleFact(
+async function codexLifecycleFact(
   record: SessionRecord,
   binary: string,
   knownAgents?: ObjectValue[],
@@ -131,77 +125,226 @@ export async function lifecycleFact(
     tui_pid: remote ? Number(first?.pid) : null,
   };
 }
+/** Every managed provider proves its own durable context and owns its release mechanism. */
+export interface HarnessLifecycle {
+  snapshot(record: SessionRecord, agents?: ObjectValue[]): Promise<LifecycleFact>;
+  ownerLock(record: SessionRecord): string;
+  sharesOwner(record: SessionRecord, owner: OwnerIdentity, other: SessionRecord): boolean;
+  release(record: SessionRecord, expected: LifecycleFact): Promise<Json>;
+}
+export async function managedLifecycleFact(record: SessionRecord): Promise<LifecycleFact> {
+  const ref = record.reference;
+  check(
+    (record.provider === "dsh" || record.provider === "ply") &&
+      ref?.source === "kite:harness" &&
+      ref.agent === record.provider &&
+      ref.kind === "id",
+    "unmanaged harness reference",
+  );
+  const path = harnessDirectory(ref.value),
+    info = harnessInfo(readJson(join(path, "session.json"))),
+    state = object(readJson(join(path, "state.json"))),
+    pid = Number(state.pid),
+    ticks = string(state.start_ticks);
+  check(
+    info.id === record.id &&
+      info.thread === ref.value &&
+      info.provider === record.provider &&
+      startTicks(pid) === ticks,
+    "harness owner identity changed",
+  );
+  const pane = record.pane_id;
+  check(pane, "missing harness pane");
+  const owner: OwnerIdentity = {
+      pane,
+      pid,
+      start_ticks: ticks,
+      budget_unit: scopeName(pane, pid, ticks),
+    },
+    histories: Json[] = [],
+    mtimes: number[] = [];
+  for (const name of ["history.jsonl", "native.json", "queued.json"]) {
+    const file = join(path, name);
+    if (existsSync(file)) {
+      const stat = statSync(file, { bigint: true });
+      histories.push([
+        name,
+        Number(stat.dev),
+        Number(stat.ino),
+        Number(stat.size),
+        Number(stat.mtimeNs),
+      ]);
+      mtimes.push(Number(stat.mtimeNs / 1000000n));
+    }
+  }
+  const queued = join(path, "queued.json"),
+    context = join(path, "native.json"),
+    queueEmpty = !existsSync(queued) || same(readJson(queued, 36 * 1024 * 1024), []);
+  const saved = existsSync(context) ? readJson(context, RPC_LIMIT) : null;
+  const hasContext = Array.isArray(saved)
+    ? saved.length > 0
+    : saved && typeof saved === "object"
+      ? Object.keys(saved).length > 0
+      : Boolean(saved);
+  const restorable = existsSync(context)
+    ? hasContext
+    : state.status === "idle" && !existsSync(join(path, "history.jsonl"));
+  return {
+    session_id: record.id,
+    pane,
+    owner,
+    reference: ref,
+    archived: Boolean(record.archived),
+    idle:
+      state.protocol === 2 &&
+      ["idle", "done", "failed", "cancelled"].includes(String(state.status)) &&
+      queueEmpty,
+    persisted: restorable && queueEmpty,
+    activity: sha256(JSON.stringify([state, histories.sort()])),
+    last_activity_ms: Math.max(0, ...mtimes),
+    tui_pid: null,
+  };
+}
+const changed = (a: LifecycleFact, b: LifecycleFact) =>
+  ["owner", "reference", "activity"].some((k) => !same(object(json(a))[k], object(json(b))[k]));
+async function releaseCodex(
+  record: SessionRecord,
+  fresh: LifecycleFact,
+  binary: string,
+): Promise<Json> {
+  const owner = fresh.owner,
+    pane = fresh.pane,
+    no = (reason: string) => ({ reclaimed: false, reason });
+  if (fresh.tui_pid !== null) {
+    const pid = fresh.tui_pid,
+      ticks = startTicks(pid);
+    check(ticks, "TUI identity unavailable");
+    if (stopped(pid)) return no("tui_paused");
+    process.kill(pid, "SIGTERM");
+    const deadline = Date.now() + 4000;
+    while (live(pid, ticks) && Date.now() < deadline) await sleep(50);
+    if (live(pid, ticks)) return no("tui_still_connected");
+  }
+  const after = await codexLifecycleFact(record, binary);
+  if (changed(after, fresh) || !after.idle || !after.persisted) return no("activity_changed");
+  if (!same(readRegistry(pane), owner) || pgid(owner.pid) !== owner.pid) return no("owner_changed");
+  if (owner.budget_unit) await stopOwner(owner);
+  else process.kill(-owner.pid, "SIGTERM");
+  const deadline = Date.now() + 4000;
+  while (live(owner.pid, owner.start_ticks) && Date.now() < deadline) await sleep(50);
+  if (live(owner.pid, owner.start_ticks)) return no("owner_still_running");
+  if (same(readJson(registryPath(pane)), owner)) unlinkSync(registryPath(pane));
+  return { reclaimed: true, session_id: record.id };
+}
+export function lifecycleAdapters(binary: string): Partial<Record<Provider, HarnessLifecycle>> {
+  const managed: HarnessLifecycle = {
+    snapshot: managedLifecycleFact,
+    ownerLock: (record) => {
+      check(record.reference, "missing harness reference");
+      return join(harnessDirectory(record.reference.value), "owner.lock");
+    },
+    sharesOwner: (record, _owner, other) => same(other.reference, record.reference),
+    release: async (record, expected) => {
+      const fresh = await managedLifecycleFact(record);
+      if (changed(fresh, expected) || !fresh.idle || !fresh.persisted)
+        return { reclaimed: false, reason: "activity_changed" };
+      const owner = fresh.owner;
+      check(startTicks(owner.pid) === owner.start_ticks, "harness owner changed before release");
+      const cgroup = readFileSync(`/proc/${owner.pid}/cgroup`, "utf8").trim();
+      check(
+        owner.budget_unit && cgroup.endsWith(`/kite-agents.slice/${owner.budget_unit}`),
+        "harness owner is outside its managed scope",
+      );
+      await reclaimCache(owner.budget_unit);
+      await killScope(owner.budget_unit);
+      return { reclaimed: true, session_id: record.id };
+    },
+  };
+  return {
+    codex: {
+      snapshot: (record, agents) => codexLifecycleFact(record, binary, agents),
+      ownerLock: (record) => {
+        check(record.pane_id, "missing pane");
+        return ownerLock(record.pane_id);
+      },
+      sharesOwner: (_record, owner, other) => {
+        if (!other.pane_id) return false;
+        try {
+          const alias = readRegistry(other.pane_id);
+          return alias.pid === owner.pid && alias.start_ticks === owner.start_ticks;
+        } catch {
+          return false;
+        }
+      },
+      release: (record, expected) => releaseCodex(record, expected, binary),
+    },
+    dsh: managed,
+    ply: managed,
+  };
+}
+export async function lifecycleFact(
+  record: SessionRecord,
+  binary: string,
+  agents?: ObjectValue[],
+): Promise<LifecycleFact> {
+  const adapter = lifecycleAdapters(binary)[record.provider];
+  check(adapter, "unsupported lifecycle provider");
+  return adapter.snapshot(record, agents);
+}
 export async function lifecycleFacts(binary: string): Promise<Json> {
   const records = (await catalogRead()).sessions,
-    agents = array((await api(binary, "agent.list", {})).agents).map(object),
+    adapters = lifecycleAdapters(binary),
     facts: LifecycleFact[] = [];
-  for (const r of records) {
-    if (r.provider !== "codex" || !r.pane_id) continue;
+  let agents: ObjectValue[] = [];
+  try {
+    agents = array((await api(binary, "agent.list", {})).agents).map(object);
+  } catch {
+    /* managed harnesses do not depend on Herdr availability */
+  }
+  for (const record of records) {
+    const adapter = adapters[record.provider];
+    if (!adapter || !record.pane_id) continue;
     try {
-      facts.push(await lifecycleFact(r, binary, agents));
+      facts.push(await adapter.snapshot(record, agents));
     } catch {
       /* unavailable facts never authorize stopping */
     }
   }
   return json({ facts });
 }
-export async function lifecycleReap(expected: ObjectValue, binary: string): Promise<Json> {
+export async function lifecycleReap(
+  expected: ObjectValue,
+  binary: string,
+  adapters = lifecycleAdapters(binary),
+): Promise<Json> {
   const id = string(expected.session_id),
-    pane = string(expected.pane),
-    reason = string(expected.reason);
-  check(["archived", "idle_timeout"].includes(reason), "invalid lifecycle request");
-  return locked(sessionLock(id), () =>
-    locked(ownerLock(pane), async () => {
-      const catalog = await catalogRead(),
-        record = catalog.sessions.find((r) => r.id === id);
-      const no = (why: string) => ({ reclaimed: false, reason: why });
-      if (!record || record.pane_id !== pane || record.provider !== "codex")
-        return no("record_changed");
-      if (reason === "archived" && !record.archived) return no("unarchived");
-      const fresh = await lifecycleFact(record, binary);
+    pane = string(expected.pane);
+  check(expected.reason === "archived", "invalid lifecycle request");
+  const no = (reason: string) => ({ reclaimed: false, reason });
+  return locked(sessionLock(id), async () => {
+    const record = (await catalogRead()).sessions.find((r) => r.id === id),
+      adapter = record ? adapters[record.provider] : undefined;
+    if (!record || !adapter || record.pane_id !== pane) return no("record_changed");
+    return locked(adapter.ownerLock(record), async () => {
+      if (!record.archived) return no("unarchived");
+      const fresh = await adapter.snapshot(record);
       for (const field of ["owner", "reference", "activity", "archived"] as const)
         if (!same(fresh[field], expected[field])) return no("activity_changed");
       if (!fresh.idle || !fresh.persisted) return no("not_idle_or_not_persisted");
-      const owner = fresh.owner;
-      for (const other of catalog.sessions) {
-        if (other.id === id || !other.pane_id) continue;
-        try {
-          const alias = readRegistry(other.pane_id);
-          if (alias.pid === owner.pid && alias.start_ticks === owner.start_ticks)
-            return no("shared_owner");
-        } catch {
-          /* no alias */
-        }
-      }
-      if (fresh.tui_pid !== null) {
-        const pid = fresh.tui_pid,
-          ticks = startTicks(pid);
-        check(ticks, "TUI identity unavailable");
-        if (stopped(pid)) return no("tui_paused");
-        process.kill(pid, "SIGTERM");
-        const deadline = Date.now() + 4000;
-        while (live(pid, ticks) && Date.now() < deadline) await sleep(50);
-        if (live(pid, ticks)) return no("tui_still_connected");
-      }
-      const after = await lifecycleFact(record, binary);
-      if (
-        ["owner", "reference", "activity"].some(
-          (field) => !same(object(json(after))[field], object(json(fresh))[field]),
-        ) ||
-        !after.idle
-      )
-        return no("activity_changed");
-      if (!same(readRegistry(pane), owner) || pgid(owner.pid) !== owner.pid)
-        return no("owner_changed");
-      if (owner.budget_unit) await stopOwner(owner);
-      else process.kill(-owner.pid, "SIGTERM");
-      const deadline = Date.now() + 4000;
-      while (live(owner.pid, owner.start_ticks) && Date.now() < deadline) await sleep(50);
-      if (live(owner.pid, owner.start_ticks)) return no("owner_still_running");
-      if (same(readJson(registryPath(pane)), owner)) unlinkSync(registryPath(pane));
-      return { reclaimed: true, session_id: id };
-    }),
-  );
+      return locked(join(catalogRoot(), "sessions.lock"), async () => {
+        const latest = catalogUnlocked().sessions,
+          current = latest.find((r) => r.id === id);
+        if (
+          !current ||
+          ["archived", "reference", "provider", "pane_id"].some((k) => !same(current[k], record[k]))
+        )
+          return no("record_changed");
+        if (latest.some((r) => r.id !== id && adapter.sharesOwner(record, fresh.owner, r)))
+          return no("shared_owner");
+        return adapter.release(record, fresh);
+      });
+    });
+  });
 }
 export async function notificationFacts(binary: string, includeArchived = false): Promise<Json> {
   const records = (await catalogRead()).sessions,

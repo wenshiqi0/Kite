@@ -1,8 +1,7 @@
-//! Reclaim inactive provider owners independently of connected phone clients.
+//! Release archived provider owners independently of connected phone clients.
 use super::*;
 use tokio::task::JoinHandle;
 
-const IDLE_TIMEOUT_MS: u64 = 60 * 60 * 1000;
 const SCAN_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -24,17 +23,8 @@ struct Facts {
     facts: Vec<Fact>,
 }
 
-fn reason(fact: &Fact, now: u64) -> Option<&'static str> {
-    if !fact.idle || !fact.persisted {
-        return None;
-    }
-    if fact.archived {
-        return Some("archived");
-    }
-    if fact.last_activity_ms > 0 && now.checked_sub(fact.last_activity_ms)? >= IDLE_TIMEOUT_MS {
-        return Some("idle_timeout");
-    }
-    None
+fn reclaimable(fact: &Fact) -> bool {
+    fact.archived && fact.idle && fact.persisted
 }
 
 fn now_ms() -> u64 {
@@ -45,9 +35,9 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-async fn reap(node: &Node, fact: &Fact, reason: &str) -> Result<bool> {
+async fn reap(node: &Node, fact: &Fact) -> Result<bool> {
     let mut request = serde_json::to_value(fact)?;
-    request["reason"] = reason.into();
+    request["reason"] = "archived".into();
     let input = serde_json::to_vec(&request)?;
     let mut command = Command::new(&node.config.bun);
     command
@@ -55,6 +45,7 @@ async fn reap(node: &Node, fact: &Fact, reason: &str) -> Result<bool> {
         .args(["lifecycle-reap", "--herdr"])
         .arg(&node.config.herdr)
         .envs(&node.config.environment)
+        .env("KITE_HOST_BACKEND_PATH", &node.config.backend)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -85,36 +76,51 @@ async fn reap(node: &Node, fact: &Fact, reason: &str) -> Result<bool> {
     .map_err(|_| Error::Protocol("lifecycle reap timed out"))?
 }
 
-async fn scan(node: &Node) -> Result<()> {
+pub(super) async fn scan(node: &Node) -> Result<crate::SessionCleanup> {
+    let _scan = tokio::time::timeout(Duration::from_secs(3), node.lifecycle_scan.lock())
+        .await
+        .map_err(|_| Error::Protocol("session cleanup already in progress"))?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut command = Command::new(&node.config.bun);
     command
         .arg(&node.config.backend)
         .args(["lifecycle-facts", "--herdr"])
         .arg(&node.config.herdr)
-        .envs(&node.config.environment);
+        .envs(&node.config.environment)
+        .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
     let bytes = bounded_output(command).await?;
     let facts: Facts = serde_json::from_slice(&bytes)?;
     if facts.facts.len() > 1024 {
         return Err(Error::Protocol("lifecycle fact capacity exceeded"));
     }
-    for fact in facts.facts {
+    let mut result = crate::SessionCleanup::default();
+    for fact in facts.facts.into_iter().filter(|fact| fact.archived) {
         if node.draining() {
-            return Ok(());
+            return Err(Error::Protocol("session cleanup generation is draining"));
         }
-        let Some(reason) = reason(&fact, now_ms()) else {
+        if !reclaimable(&fact) {
+            result.retained += 1;
             continue;
-        };
-        match reap(node, &fact, reason).await {
-            Ok(true) => {
+        }
+        if tokio::time::Instant::now() >= deadline {
+            result.retained += 1;
+            continue;
+        }
+        match tokio::time::timeout_at(deadline, reap(node, &fact)).await {
+            Ok(Ok(true)) => {
+                result.reclaimed += 1;
                 node.lifecycle_reclaimed.fetch_add(1, Ordering::Relaxed);
-                log::info!("reclaimed inactive session {} ({reason})", fact.session_id);
+                log::info!("released archived session {}", fact.session_id);
             }
-            Ok(false) => {}
-            Err(_) => log::debug!("session lifecycle revalidation unavailable"),
+            Ok(Ok(false)) => result.retained += 1,
+            Ok(Err(_)) | Err(_) => {
+                result.failed += 1;
+                log::debug!("session lifecycle revalidation unavailable");
+            }
         }
     }
     node.lifecycle_last_scan.store(now_ms(), Ordering::Relaxed);
-    Ok(())
+    Ok(result)
 }
 
 pub(super) struct Watch(JoinHandle<()>);
@@ -140,8 +146,11 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
                 log::debug!("session lifecycle facts unavailable");
             }
             drop(observation);
+            tokio::select! {
+                _ = tokio::time::sleep(SCAN_INTERVAL) => {},
+                _ = node.lifecycle_wake.notified() => {},
+            }
             drop(node);
-            tokio::time::sleep(SCAN_INTERVAL).await;
         }
     }))
 }
@@ -166,45 +175,34 @@ mod tests {
     }
 
     #[test]
-    fn idle_session_expires_after_one_hour_without_polling_extending_its_life() {
-        let fact = fact();
-        for now in [1001, 60_000, IDLE_TIMEOUT_MS + 999] {
-            assert_eq!(reason(&fact, now), None);
+    fn unarchived_sessions_never_expire() {
+        let mut fact = fact();
+        for activity in [0, 1, u64::MAX] {
+            fact.last_activity_ms = activity;
+            assert!(!reclaimable(&fact));
         }
-        assert_eq!(reason(&fact, IDLE_TIMEOUT_MS + 1000), Some("idle_timeout"));
-        let mut active_again = fact;
-        active_again.last_activity_ms = IDLE_TIMEOUT_MS;
-        assert_eq!(reason(&active_again, IDLE_TIMEOUT_MS + 1000), None);
     }
 
     #[test]
-    fn archived_sessions_are_reclaimed_only_after_work_and_history_are_settled() {
+    fn archived_sessions_require_finished_work_and_persisted_history() {
         let mut fact = fact();
         fact.archived = true;
         fact.idle = false;
-        assert_eq!(reason(&fact, 10 * IDLE_TIMEOUT_MS), None);
+        assert!(!reclaimable(&fact));
         fact.idle = true;
         fact.persisted = false;
-        assert_eq!(reason(&fact, 10 * IDLE_TIMEOUT_MS), None);
+        assert!(!reclaimable(&fact));
         fact.persisted = true;
-        assert_eq!(reason(&fact, 1001), Some("archived"));
-    }
-
-    #[test]
-    fn missing_activity_and_a_clock_rollback_do_not_expire_sessions() {
-        let mut fact = fact();
-        assert_eq!(reason(&fact, 999), None);
-        fact.last_activity_ms = 0;
-        assert_eq!(reason(&fact, 10 * IDLE_TIMEOUT_MS), None);
+        assert!(reclaimable(&fact));
     }
 
     #[tokio::test]
-    async fn host_scan_reaps_expired_and_archived_owners_but_keeps_live_work() {
+    async fn client_command_releases_only_archived_owners_and_reports_retained_work() {
         let root = tempfile::tempdir().unwrap();
         let interpreter = root.path().join("interpreter");
         fs::write(
             &interpreter,
-            "#!/usr/bin/python3\nimport json,sys\nfrom pathlib import Path\nr=Path(__file__).parent\nif sys.argv[2]=='lifecycle-facts':print((r/'facts.json').read_text())\nelif sys.argv[2]=='lifecycle-reap':\n p=json.load(sys.stdin)\n with (r/'attempts').open('a') as f:f.write(json.dumps(p)+'\\n')\n print(json.dumps({'reclaimed':p['session_id']!='changed'}))\nelse:raise AssertionError(sys.argv)\n",
+            "#!/usr/bin/python3\nimport json,sys,os\nfrom pathlib import Path\nr=Path(__file__).parent\nassert os.environ['KITE_HOST_BACKEND_PATH']==sys.argv[1]\nif sys.argv[2]=='lifecycle-facts':print((r/'facts.json').read_text())\nelif sys.argv[2]=='lifecycle-reap':\n p=json.load(sys.stdin)\n with (r/'attempts').open('a') as f:f.write(json.dumps(p)+'\\n')\n print(json.dumps({'reclaimed':p['session_id']!='changed'}))\nelse:raise AssertionError(sys.argv)\n",
         )
         .unwrap();
         fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
@@ -217,11 +215,13 @@ mod tests {
         let mut active = expired.clone();
         active.session_id = "active".into();
         active.idle = false;
+        active.archived = true;
         let mut recent = expired.clone();
         recent.session_id = "recent".into();
         recent.last_activity_ms = now_ms();
         let mut changed = expired.clone();
         changed.session_id = "changed".into();
+        changed.archived = true;
         fs::write(
             root.path().join("facts.json"),
             serde_json::to_vec(&json!({"facts":[expired,archived,active,recent,changed]})).unwrap(),
@@ -236,6 +236,8 @@ mod tests {
             backend_calls: AtomicU64::new(0),
             lifecycle_last_scan: AtomicU64::new(0),
             lifecycle_reclaimed: AtomicU64::new(0),
+            lifecycle_scan: Mutex::new(()),
+            lifecycle_wake: tokio::sync::Notify::new(),
             resources: super::super::resources::Resources::open(
                 root.path(),
                 crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
@@ -250,16 +252,24 @@ mod tests {
             upgrade: None,
             observation_gate: RwLock::new(()),
         };
-        scan(&node).await.unwrap();
+        let result = node
+            .control(&NodeRequest::new("sessions-release-archived"))
+            .await
+            .unwrap();
+        assert_eq!(result, json!({"reclaimed":1,"retained":2,"failed":0}));
         let attempts: Vec<Value> = fs::read_to_string(root.path().join("attempts"))
             .unwrap()
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert_eq!(attempts.len(), 3);
-        assert_eq!(attempts[0]["reason"], "idle_timeout");
-        assert_eq!(attempts[1]["reason"], "archived");
-        assert_eq!(node.lifecycle_reclaimed.load(Ordering::Relaxed), 2);
+        assert_eq!(attempts.len(), 2);
+        assert!(
+            attempts
+                .iter()
+                .all(|attempt| attempt["reason"] == "archived")
+        );
+        assert_eq!(attempts[0]["session_id"], "archived");
+        assert_eq!(node.lifecycle_reclaimed.load(Ordering::Relaxed), 1);
         assert!(node.lifecycle_last_scan.load(Ordering::Relaxed) > 0);
     }
 }

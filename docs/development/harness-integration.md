@@ -81,6 +81,8 @@ Node API、主机适配器协议、Herdr API、provider 协议是不同的版本
 
 ### 3.2 会话与 owner 生命周期
 
+- **资源释放是 harness 接入的统一协议能力。** 托管接入必须实现 [HarnessLifecycle](../../packages/providers/src/lifecycle.ts) 的 `snapshot`、`ownerLock`、`sharesOwner`、`release`，并在 provider 目录声明 `release`。宿主与客户端使用同一个 `sessions-release-archived` 命令，不按 provider 名称推测或拼装退出信号。适配器负责验证恢复上下文已落盘、与输入/恢复串行化、释放自身 owner 和全部本地子进程，并返回结构化结果；协议不能把“已断开客户端”当作“资源已释放”。尚无受管 owner 的外部终端明确声明 `release=false`。
+- 已归档且空闲、可恢复的 owner 立即释放；执行中、等待审批、暂停、未知或上下文未落盘时返回保留，工作结束后继续释放。未归档会话没有闲置回收期限。释放保持原会话引用、provider 原始历史和归档状态；恢复使用原引用重新建立唯一 owner，不重放用户输入。
 - 记录、运行进程和连接客户端具有独立生命周期。逻辑归档保留 provider 原始历史与后台任务；关闭面板、断开手机或停止桌面串流不结束 agent。
 - 恢复操作使用单会话锁，先核对已有 pane、provider 引用和 owner。已有 owner 暂停、超时或暂时不可达时，不视为不存在并创建第二个 owner。
 - 启动请求的响应丢失后，先查询现状；不盲目重放。读取历史可以有界重试，用户消息、回答、审批和控制操作不自动重发。

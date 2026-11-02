@@ -23,7 +23,7 @@ import {
   RPC_LIMIT,
   string,
 } from "@kite/protocol";
-import { atomic, lines, readJson, same, startTicks } from "@kite/runtime";
+import { atomic, lines, locked, readJson, same, startTicks } from "@kite/runtime";
 import { TurnCancelled } from "@kite/runtime/rpc";
 import { nativeModelId, optionalObject } from "@kite/runtime/socket";
 import {
@@ -66,7 +66,7 @@ export class Owner {
   constructor(readonly path: string) {
     this.info = harnessInfo(readJson(join(path, "session.json")));
     const saved = join(path, "native.json");
-    this.saved = existsSync(saved) ? readJson(saved) : undefined;
+    this.saved = existsSync(saved) ? readJson(saved, RPC_LIMIT) : undefined;
     this.migration = this.saved === undefined ? migrationContext(path) : undefined;
   }
   private serialize<T>(fn: () => Promise<T> | T): Promise<T> {
@@ -272,96 +272,98 @@ export class Owner {
     }
   }
   request(method: string, p: ObjectValue): Promise<Json> {
-    return this.serialize(async () => {
-      if (method === "initialize") {
-        if (!this.adapter.alive()) {
-          check(!this.turn, "native turn disconnected");
-          this.adapter.close();
-          await this.connect();
-        }
-        return { serverInfo: { name: "kite-harness", version: "2" } };
-      }
-      if (method === "initialized") return {};
-      if (method === "model/list") return json({ data: this.adapter.models, nextCursor: null });
-      if (method === "config/read")
-        return {
-          config: {
-            model: this.adapter.currentModel,
-            model_reasoning_effort: this.adapter.currentEffort,
-          },
-        };
-      if (method === "account/read") return { account: null, requiresOpenaiAuth: false };
-      if (method === "thread/loaded/list") return { data: [this.info.thread] };
-      check(p.threadId === this.info.thread, "harness thread mismatch");
-      if (method === "thread/resume") {
-        this.offerPermission();
-        if (object(readJson(join(this.path, "state.json"))).status === "failed") {
-          this.notify("error", {
-            willRetry: false,
-            error: { message: "The previous harness turn failed; inspect history before retrying" },
-          });
-          return { thread: { id: this.info.thread, status: { type: "systemError" } } };
-        }
-        return {
-          thread: { id: this.info.thread, status: { type: this.turn ? "active" : "idle" } },
-        };
-      }
-      if (method === "turn/interrupt") {
-        check(this.turn && p.turnId === this.turn, "turn expired");
-        this.cancelled = true;
-        this.queued = [];
-        atomic(join(this.path, "queued.json"), []);
-        this.adapter.cancel();
-        return {};
-      }
-      check(method === "turn/start", "unsupported harness operation");
-      const model = string(p.model),
-        effort = optionalString(p.effort),
-        row = this.adapter.models.find((r) => r.model === model);
-      check(row, "model unavailable");
-      const efforts = row.supportedReasoningEfforts.map((e) => e.reasoningEffort);
-      check(
-        efforts.includes(effort) || (!efforts.length && !effort),
-        "reasoning effort unavailable",
-      );
-      const blocks = nativeInput(p.input, row),
-        prompt = textContent(blocks);
-      if (this.turn) {
-        check(!this.cancelled && this.appends < 16, "pending input limit reached");
-        const delivered =
-          same(this.selection, [model, effort]) &&
-          !this.queued.length &&
-          (await this.adapter.steer(blocks));
-        if (!delivered) {
-          const pending: Queued[] = [...this.queued, [blocks, model, effort]];
-          check(
-            Buffer.byteLength(JSON.stringify(pending)) <= 36 * 1024 * 1024,
-            "pending input exceeds limit",
-          );
-          this.queued = pending;
-          atomic(join(this.path, "queued.json"), pending);
-        }
-        this.appends++;
-        this.message("user", prompt);
-        return { turn: { id: this.turn, status: "inProgress" } };
-      }
+    return this.serialize(() =>
+      ["initialize", "turn/start"].includes(method)
+        ? locked(join(this.path, "owner.lock"), () => this.requestLocked(method, p))
+        : this.requestLocked(method, p),
+    );
+  }
+  private async requestLocked(method: string, p: ObjectValue): Promise<Json> {
+    if (method === "initialize") {
       if (!this.adapter.alive()) {
+        check(!this.turn, "native turn disconnected");
         this.adapter.close();
         await this.connect();
       }
-      this.adapter.prepare();
-      this.selection = [model, effort];
-      this.cancelled = false;
-      this.appends = 0;
-      const turn = crypto.randomUUID();
-      this.turn = turn;
-      this.state("working");
-      this.message("user", prompt, `${turn}:user`);
-      queueMicrotask(() => {
-        void this.run([blocks, model, effort], turn);
-      });
-      return { turn: { id: turn, status: "inProgress" } };
+      return { serverInfo: { name: "kite-harness", version: "2" } };
+    }
+    if (method === "initialized") return {};
+    if (method === "model/list") return json({ data: this.adapter.models, nextCursor: null });
+    if (method === "config/read")
+      return {
+        config: {
+          model: this.adapter.currentModel,
+          model_reasoning_effort: this.adapter.currentEffort,
+        },
+      };
+    if (method === "account/read") return { account: null, requiresOpenaiAuth: false };
+    if (method === "thread/loaded/list") return { data: [this.info.thread] };
+    check(p.threadId === this.info.thread, "harness thread mismatch");
+    if (method === "thread/resume") {
+      this.offerPermission();
+      if (object(readJson(join(this.path, "state.json"))).status === "failed") {
+        this.notify("error", {
+          willRetry: false,
+          error: { message: "The previous harness turn failed; inspect history before retrying" },
+        });
+        return { thread: { id: this.info.thread, status: { type: "systemError" } } };
+      }
+      return {
+        thread: { id: this.info.thread, status: { type: this.turn ? "active" : "idle" } },
+      };
+    }
+    if (method === "turn/interrupt") {
+      check(this.turn && p.turnId === this.turn, "turn expired");
+      this.cancelled = true;
+      this.queued = [];
+      atomic(join(this.path, "queued.json"), []);
+      this.adapter.cancel();
+      return {};
+    }
+    check(method === "turn/start", "unsupported harness operation");
+    const model = string(p.model),
+      effort = optionalString(p.effort),
+      row = this.adapter.models.find((r) => r.model === model);
+    check(row, "model unavailable");
+    const efforts = row.supportedReasoningEfforts.map((e) => e.reasoningEffort);
+    check(efforts.includes(effort) || (!efforts.length && !effort), "reasoning effort unavailable");
+    const blocks = nativeInput(p.input, row),
+      prompt = textContent(blocks);
+    if (this.turn) {
+      check(!this.cancelled && this.appends < 16, "pending input limit reached");
+      const delivered =
+        same(this.selection, [model, effort]) &&
+        !this.queued.length &&
+        (await this.adapter.steer(blocks));
+      if (!delivered) {
+        const pending: Queued[] = [...this.queued, [blocks, model, effort]];
+        check(
+          Buffer.byteLength(JSON.stringify(pending)) <= 36 * 1024 * 1024,
+          "pending input exceeds limit",
+        );
+        this.queued = pending;
+        atomic(join(this.path, "queued.json"), pending);
+      }
+      this.appends++;
+      this.message("user", prompt);
+      return { turn: { id: this.turn, status: "inProgress" } };
+    }
+    if (!this.adapter.alive()) {
+      this.adapter.close();
+      await this.connect();
+    }
+    this.adapter.prepare();
+    this.selection = [model, effort];
+    this.cancelled = false;
+    this.appends = 0;
+    const turn = crypto.randomUUID();
+    this.turn = turn;
+    this.state("working");
+    this.message("user", prompt, `${turn}:user`);
+    queueMicrotask(() => {
+      void this.run([blocks, model, effort], turn);
     });
+    return { turn: { id: turn, status: "inProgress" } };
   }
   private response(value: ObjectValue): Promise<void> {
     return this.serialize(async () => {

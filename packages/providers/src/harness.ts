@@ -183,6 +183,7 @@ export async function providers(): Promise<Json[]> {
           usage: p === "codex",
           pause: p === "codex" || p === "claude",
           terminal: p === "codex" || p === "claude",
+          release: p !== "claude",
         };
       } catch {
         return null;

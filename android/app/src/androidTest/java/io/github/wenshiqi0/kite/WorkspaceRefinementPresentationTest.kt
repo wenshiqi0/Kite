@@ -78,9 +78,29 @@ class WorkspaceRefinementPresentationTest {
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
         if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,null,System.currentTimeMillis())
 
+    @Test fun archivedReleaseUsesOneActionAndShowsProgressAndResult() {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        overlay({ArchivedReleaseControls(true,false,null){calls.incrementAndGet()}}) {
+            waitFor("Archive release action appears"){find(text="释放后台进程")!=null}
+            assertTrue(actionNode(requireNotNull(find(text="释放后台进程")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Release action submitted once"){calls.get()==1}
+            screenshot("archived-release-action.png")
+        }
+        overlay({ArchivedReleaseControls(true,true,null){calls.incrementAndGet()}}) {
+            waitFor("Release progress appears"){find(text="正在释放")!=null}
+            screenshot("archived-release-progress.png")
+        }
+        val result=test.targetContext.getString(R.string.archived_release_result,3,1,0)
+        overlay({ArchivedReleaseControls(false,false,result){calls.incrementAndGet()}}) {
+            waitFor("Release result preserves session history"){find(text="已释放 3 个会话后台")!=null}
+            assertNotNull(find(text="会话记录已保留"))
+            screenshot("archived-release-result.png")
+        }
+    }
+
     @Test fun verifiedDshIsSelectableAndUnavailableProvidersAreAbsent() {
         val selected=java.util.concurrent.atomic.AtomicReference("")
-        val dsh=ProviderInfo("dsh",true,true,true,false,false,false,false)
+        val dsh=ProviderInfo("dsh",true,true,true,false,false,false,false,true)
         val ply=dsh.copy(id="ply")
         overlay({HarnessChoices(listOf(dsh,ply),"dsh",selected::set)}) {
             waitFor("Verified DSH appears"){find(text="DSH")!=null}

@@ -376,6 +376,8 @@ mod tests {
             backend_calls: AtomicU64::new(0),
             lifecycle_last_scan: AtomicU64::new(0),
             lifecycle_reclaimed: AtomicU64::new(0),
+            lifecycle_scan: Mutex::new(()),
+            lifecycle_wake: tokio::sync::Notify::new(),
             resources: Resources::open(root, 10 * GIB).unwrap(),
             permits: Arc::new(Semaphore::new(4)),
             notifications: None,

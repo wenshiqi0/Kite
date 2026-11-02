@@ -15,6 +15,8 @@ pub struct Provider {
     pub usage: bool,
     pub pause: bool,
     pub terminal: bool,
+    #[serde(default)]
+    pub release: bool,
 }
 
 #[derive(Debug, Deserialize)]

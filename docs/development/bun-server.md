@@ -34,17 +34,17 @@ xvfb-run -a dbus-run-session -- bun run scripts/native-desktop-probe.ts
 KITE_QA_BUN="$(command -v bun)" xvfb-run -a dbus-run-session -- python3 desktop/linux/qa/agent_desktop_probe.py --binary target/debug/kite-node
 ```
 
-Fixture tests use temporary homes, Unix sockets, local model catalogs and deterministic ACP/MCP peers. They cover state conflicts, immutable files, complete history paging, question controls, native image blocks, unique owners, approval reconnect, cancellation and bounded IO. They do not spend provider credits or modify a running user node. Real provider/phone acceptance remains a separate release check.
+Fixture tests use temporary homes, Unix sockets, local model catalogs and deterministic ACP/MCP peers. They cover state conflicts, immutable files, complete history paging, question controls, native image blocks, unique owners, approval reconnect, cancellation and bounded IO. The typed lifecycle contract preserves Alpha 51: only archived owners are released, with saved-context and alias checks under the input/restore/catalog leases; unarchived owners have no idle expiry. They do not spend provider credits or modify a running user node. Real provider/phone acceptance remains a separate release check.
 
 ## Local verification (2026-11-02)
 
 - Frozen Bun installation; strict typecheck; Biome; AST-based package dependency validation: PASS.
-- Bun protocol/platform/CLI tests: 24 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
-- Relevant Rust tests: 128 passed; Rustfmt and Clippy with warnings denied: PASS.
+- Bun protocol/platform/CLI tests: 28 passed, including full history paging, real Unix WebSocket framing, RS256 token signing/cache, concurrent catalog writes, uploads, ACP/MCP approvals, native cancellation, queued input and owner restart.
+- Workspace Rust tests: 157 passed; Rustfmt and Clippy with warnings denied: PASS.
 - Installer/package and Alpha publisher tests: 13 passed.
 - Native Rust/GTK panel on owned X11/private D-Bus: screenshot visually checked, single-instance and GApplication actions passed.
 - Real Rust Node → Bun → X11/standard MCP: pixels/crop metadata, UTF-8 and max-length typing, distinct Unicode batches with restored keymap, keyboard/chords, clicks, scroll and sanitized launch environment passed.
 - Disposable cgroup kernel probe: a 128 MiB limit was enforced; the owned excessive allocation produced one OOM kill; the temporary scope/slice was removed.
 - Real user-systemd Node/installer handover probe: continuous frames, exactly-once in-flight mutation, preserved agent PID, new-generation routing, failed-candidate recovery and single-writer notification/push handover passed.
 
-These are local source checks and isolated integration results. This refactor has not been installed over the running user node, published as an Alpha, or verified with a real model/phone. `0.2.0-alpha.51` is reserved in source for the next matching release.
+These are local source checks and isolated integration results. This refactor has not been installed over the running user node, published as an Alpha, or verified with a real model/phone. `0.2.0-alpha.52` is reserved in source for the next matching release.

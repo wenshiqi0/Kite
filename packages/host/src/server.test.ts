@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { array, check, type Json, json, object, parse, string } from "@kite/protocol";
-import { bounded, privateDir, sha256, sleep, startTicks } from "@kite/runtime";
+import { bounded, privateDir, sha256, sleep, startTicks, tryLock } from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
 import { listening } from "@kite/runtime/socket";
 
@@ -312,12 +312,27 @@ for (const provider of ["dsh", "ply"] as const)
         expect(ownerPid).not.toBe(previousOwner);
         const resumed = rpc();
         await resumed.call("initialize", {});
-        await resumed.call("turn/start", {
-          threadId: thread,
-          model,
-          effort: "high",
-          input: [{ type: "text", text: "restored owned context" }],
-        });
+        const lease = tryLock(join(path, "owner.lock"));
+        check(lease, "owner lease unavailable");
+        let accepted = false;
+        const submission = resumed
+          .call("turn/start", {
+            threadId: thread,
+            model,
+            effort: "high",
+            input: [{ type: "text", text: "restored owned context" }],
+          })
+          .then((value) => {
+            accepted = true;
+            return value;
+          });
+        try {
+          await sleep(30);
+          expect(accepted).toBe(false);
+        } finally {
+          lease();
+        }
+        await submission;
         await waitStatus(path, "done");
         expect(readFileSync(join(path, "history.jsonl"), "utf8")).toContain(
           "restored owned context",

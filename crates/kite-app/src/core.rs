@@ -42,6 +42,7 @@ mod notifications;
 mod pending;
 mod resources;
 mod sessions;
+pub use sessions::SessionCleanup;
 mod skills;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use notifications::AgentNotice;

@@ -172,6 +172,8 @@ struct Node {
     backend_calls: AtomicU64,
     lifecycle_last_scan: AtomicU64,
     lifecycle_reclaimed: AtomicU64,
+    lifecycle_scan: Mutex<()>,
+    lifecycle_wake: tokio::sync::Notify,
     resources: resources::Resources,
     permits: Arc<Semaphore>,
     notifications: Option<notifications::Journal>,
@@ -201,7 +203,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
         }
         Some("--help" | "-h") => {
             println!(
-                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured Linux X11 desktop\n  kite status | sessions | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
+                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured Linux X11 desktop\n  kite status | sessions [release-archived] | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
             );
             return Ok(0);
         }
@@ -251,6 +253,11 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 } else {
                     serve(data).await?;
                 }
+                Ok(0)
+            }
+            "sessions" if args.get(1).map(String::as_str) == Some("release-archived") => {
+                if args.len() != 2 { return Err(Error::Config("sessions release-archived accepts no arguments")); }
+                println!("{}", rpc(&socket, NodeRequest::new("sessions-release-archived")).await?);
                 Ok(0)
             }
             "resources" => {
@@ -556,6 +563,8 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
         backend_calls: AtomicU64::new(0),
         lifecycle_last_scan: AtomicU64::new(0),
         lifecycle_reclaimed: AtomicU64::new(0),
+        lifecycle_scan: Mutex::new(()),
+        lifecycle_wake: tokio::sync::Notify::new(),
         resources,
         permits: Arc::new(Semaphore::new(64)),
         notifications: journal,
@@ -639,7 +648,15 @@ impl Node {
                 Ok(command) => {
                     self.backend_calls.fetch_add(1, Ordering::Relaxed);
                     json_line(&mut write, &json!({"ok":true})).await?;
-                    bridge::server(read, write, command).await
+                    let result = bridge::server(read, write, command).await;
+                    if result.is_ok()
+                        && request.args.first().is_some_and(|action| {
+                            action == "catalog-write" || action == "session-facts"
+                        })
+                    {
+                        self.lifecycle_wake.notify_one();
+                    }
+                    result
                 }
                 Err(error) => {
                     json_line(&mut write, &json!({"ok":false,"error":error.to_string()})).await
@@ -674,7 +691,11 @@ impl Node {
     async fn control(&self, request: &NodeRequest) -> Result<Value> {
         let _registration = if matches!(
             request.method.as_str(),
-            "push-register" | "resource-admit" | "resource-ready" | "resource-limit"
+            "push-register"
+                | "resource-admit"
+                | "resource-ready"
+                | "resource-limit"
+                | "sessions-release-archived"
         ) {
             let gate = self.observation_gate.read().await;
             if self.draining() {
@@ -685,6 +706,7 @@ impl Node {
             None
         };
         match request.method.as_str() {
+            "sessions-release-archived" => Ok(serde_json::to_value(lifecycle::scan(self).await?)?),
             "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
             "resource-limit" => Ok(serde_json::to_value(
                 self.resources
@@ -739,7 +761,7 @@ impl Node {
                     "degraded"
                 };
                 Ok(
-                    json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"idleTimeoutSeconds":3600,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
+                    json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
                 )
             }
             "sessions" => {

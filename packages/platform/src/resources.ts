@@ -1,5 +1,5 @@
 /** Linux mechanisms only. Rust remains responsible for memory admission and thresholds. */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
 import { join } from "node:path";
 import { check, integer, type Json, object, type SessionRecord, string } from "@kite/protocol";
@@ -372,6 +372,17 @@ export async function configure(
     return { applied: true, reserved_bytes: reserved, effective_limit_bytes: maximum };
   });
 }
+export async function reclaimCache(unit: string): Promise<void> {
+  const path = await group(unit);
+  if (!path || !/^kite-agent-\d+-\d+\.scope$/.test(unit) || !path.includes(`/${SLICE}/`)) return;
+  try {
+    const stats = pairs(join(path, "memory.stat")),
+      size = (stats.file || 0) - (stats.shmem || 0);
+    if (size > 0) writeFileSync(join(path, "memory.reclaim"), `${size} swappiness=0\n`);
+  } catch {
+    /* proactive reclaim may be unsupported or memory may remain in use */
+  }
+}
 export async function killScope(unit: string): Promise<void> {
   const path = await group(unit);
   if (!path) return;
@@ -400,6 +411,7 @@ export async function stopOwner(owner: OwnerIdentity): Promise<void> {
       proc(owner.pid).cgroup.endsWith(`/${unit}`),
     "resource owner identity changed",
   );
+  await reclaimCache(unit);
   await killScope(unit);
 }
 export async function reapOrphans(): Promise<void> {
