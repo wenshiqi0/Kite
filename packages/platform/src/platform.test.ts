@@ -13,6 +13,7 @@ import {
   type ProcessFact,
   resourceRoot,
   scopeName,
+  userManagerCgroup,
 } from "./resources";
 
 let root = "",
@@ -116,4 +117,20 @@ test("desktop environment removes supervisor and agent identity variables", () =
     for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
     Object.assign(process.env, previous);
   }
+});
+
+test("sampling uses the user manager outside the app slice", async () => {
+  const manager = "/user.slice/user-1000.slice/user@1000.service";
+  let queries = 0;
+  const lookup = async () => {
+    queries++;
+    return manager;
+  };
+  expect(await userManagerCgroup(`${manager}/app.slice/kite-node.service`, lookup)).toBe(manager);
+  expect(queries).toBe(0);
+  expect(
+    await userManagerCgroup(`${manager}/kite.slice/kite-agents.slice/kite-agent-1-2.scope`, lookup),
+  ).toBe(manager);
+  expect(await userManagerCgroup(undefined, lookup)).toBe(manager);
+  expect(queries).toBe(2);
 });

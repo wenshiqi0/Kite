@@ -479,6 +479,15 @@ function pairs(path: string): Record<string, number> {
     return {};
   }
 }
+export async function userManagerCgroup(
+  current: string | undefined,
+  lookup: () => Promise<string> = () =>
+    command(["systemctl", "--user", "show", "-p", "ControlGroup", "--value"]),
+): Promise<string> {
+  const marker = current?.indexOf("/app.slice/") ?? -1;
+  if (current && marker >= 0) return current.slice(0, marker);
+  return lookup();
+}
 export async function sample(): Promise<Json> {
   const mem = Object.fromEntries(
     readFileSync("/proc/meminfo", "utf8")
@@ -521,9 +530,7 @@ export async function sample(): Promise<Json> {
         /* stale registries are not live owners */
       }
     }
-  const manager =
-      table.get(process.pid)?.cgroup.split("/app.slice/")[0] ||
-      (await command(["systemctl", "--user", "show", "-p", "ControlGroup", "--value"])),
+  const manager = await userManagerCgroup(table.get(process.pid)?.cgroup),
     budget = join("/sys/fs/cgroup", manager, "kite.slice", SLICE),
     events = pairs(join(budget, "memory.events")),
     stats = pairs(join(budget, "cpu.stat")),
