@@ -455,6 +455,24 @@ records
         assert_eq!(tool.output, "hello");
         assert!(tool.complete);
     }
+
+    #[test]
+    fn async_message_receipts_merge_across_pages_and_reconnect_as_one_assistant_message() {
+        let call = parse_history("codex", br#"{"type":"response_item","_kite_offset":100,"payload":{"type":"function_call","call_id":"async-message","name":"send_message_to_user_async","arguments":"{\"message\":\"Shared config is ready.\"}"}}
+"#);
+        let output = parse_history("codex", br#"{"type":"response_item","_kite_offset":200,"payload":{"type":"function_call_output","call_id":"async-message","output":"{\"accepted\":true}"}}
+"#);
+        for messages in [merge(&call, &output), merge(&output, &call)] {
+            let messages = merge(&messages, &merge(&call, &output));
+            assert_eq!(messages.len(), 1);
+            assert!(messages[0].tool.as_ref().unwrap().complete);
+            let displayed = messages[0].presentation();
+            assert_eq!(displayed.id, "async-message");
+            assert_eq!(displayed.role, crate::Role::Assistant);
+            assert_eq!(displayed.text, "Shared config is ready.");
+            assert!(displayed.tool.is_none());
+        }
+    }
 }
 
 #[cfg(test)]

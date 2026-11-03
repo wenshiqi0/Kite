@@ -812,6 +812,7 @@ pub struct ConversationDeltaInfo {
     pub edits: Vec<ConversationEditInfo>,
 }
 fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
+    let m = m.presentation();
     let (text, attachments) = kite_app::split_chat_attachments(&m.text);
     MessageInfo {
         question_replies: m
@@ -1469,5 +1470,37 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
     {
         let _ = id;
         Err(KiteError::MediaUnavailable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_async_message_calls_reach_native_clients_as_assistant_text() {
+        let message = kite_app::ChatMessage {
+            id: "async-message".into(),
+            role: kite_app::ChatRole::Tool,
+            text: String::new(),
+            intermediate: false,
+            question_replies: Vec::new(),
+            tool: Some(kite_app::ChatTool {
+                name: "send_message_to_user_async".into(),
+                arguments: r#"{"message":"**Ready**. Continue working."}"#.into(),
+                output: r#"{"accepted":true}"#.into(),
+                complete: true,
+                failed: false,
+                computer: false,
+            }),
+        };
+        let displayed = message_info(&message);
+        assert_eq!(displayed.id, message.id);
+        assert!(matches!(displayed.kind, MessageKind::Assistant));
+        assert_eq!(displayed.text, "**Ready**. Continue working.");
+        assert!(!displayed.intermediate);
+        assert!(displayed.tool.is_none());
+        assert!(displayed.question_replies.is_empty());
+        assert!(message.tool.is_some());
     }
 }
