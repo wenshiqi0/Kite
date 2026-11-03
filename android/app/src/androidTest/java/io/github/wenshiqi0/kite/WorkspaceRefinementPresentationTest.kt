@@ -13,7 +13,11 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
@@ -25,6 +29,8 @@ import io.github.wenshiqi0.kite.ui.*
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 import io.github.wenshiqi0.kite.ui.theme.KiteTheme
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -77,6 +83,107 @@ class WorkspaceRefinementPresentationTest {
     }
     private fun usage(status:UsageStatus=UsageStatus.READY)=AccountUsageInfo(status,if(status==UsageStatus.UNAVAILABLE)UsageUnavailable.NO_DATA else UsageUnavailable.NONE,false,false,"pro",
         if(status==UsageStatus.UNAVAILABLE)emptyList()else listOf(UsageBucketInfo("codex",null,UsageWindowInfo(73u,300uL,System.currentTimeMillis()/1000+7200),UsageWindowInfo(52u,10080uL,System.currentTimeMillis()/1000+259200),null,false,false)),true,null,System.currentTimeMillis())
+
+    @Test fun streamingRepliesRetainTheirViewAndFollowOnlyWhileReadingTheTail() {
+        val body = androidx.compose.runtime.mutableStateOf("STREAM 检查进度\n\n" + (1..32).joinToString("\n") { "第 $it 行：已读取配置，继续检查。" })
+        val streaming = androidx.compose.runtime.mutableStateOf(true)
+        val following = androidx.compose.runtime.mutableStateOf(true)
+        val feedback = androidx.compose.runtime.mutableStateOf(true)
+        lateinit var list: LazyListState
+        lateinit var scope: CoroutineScope
+        lateinit var nativeRoot: View
+        fun atTail(): Boolean {
+            var result = false
+            main {
+                val layout = list.layoutInfo
+                val last = layout.visibleItemsInfo.lastOrNull()
+                result = last?.key == "conversation-tail" && !list.canScrollForward &&
+                    last.offset + last.size + layout.afterContentPadding <= layout.viewportEndOffset
+            }
+            return result
+        }
+        fun nativeReply(): MarkdownTextView? {
+            fun visit(view: View): MarkdownTextView? {
+                if (view is MarkdownTextView && view.text.startsWith("STREAM")) return view
+                if (view is android.view.ViewGroup) for (i in 0 until view.childCount) visit(view.getChildAt(i))?.let { return it }
+                return null
+            }
+            var result: MarkdownTextView? = null
+            main { result = visit(nativeRoot) }
+            return result
+        }
+        overlay({
+            nativeRoot = androidx.compose.ui.platform.LocalView.current
+            list = rememberLazyListState()
+            scope = rememberCoroutineScope()
+            ChatTailFollow(list, "owned-streaming-fixture") { following.value }
+            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 32.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().height(420.dp), state = list,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(40, key = { "history:$it" }) { androidx.compose.material3.Text("历史消息 $it\n保留阅读位置。") }
+                    item(key = "streaming-reply") {
+                        androidx.compose.material3.Surface(color = KiteColors.Surface, modifier = Modifier.widthIn(max = 340.dp)) {
+                            MarkdownMessage(body.value, streaming = streaming.value, modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp))
+                        }
+                    }
+                    if (feedback.value) item(key = "response-feedback") { ResponseFeedback(ResponsePhase.RESPONDING, false) }
+                    item(key = "conversation-tail") { Spacer(Modifier.height(8.dp)) }
+                }
+            }
+        }) {
+            waitFor("Initial long reply reaches the measured tail", ::atTail)
+            val original = requireNotNull(nativeReply())
+            val rendered = original.text
+            repeat(6) { step ->
+                main { streaming.value = step % 2 != 0 }
+                test.waitForIdleSync(); SystemClock.sleep(60)
+                main { assertSame("Phase changes retain selectable text", rendered, original.text) }
+                assertSame(original, nativeReply())
+            }
+            val draws = java.util.concurrent.atomic.AtomicInteger()
+            val missing = java.util.concurrent.atomic.AtomicInteger()
+            val drawnText = java.util.concurrent.atomic.AtomicReference("")
+            val observer = android.view.ViewTreeObserver.OnDrawListener {
+                draws.incrementAndGet()
+                drawnText.set(original.text.toString())
+                if (!original.isShown || original.height == 0) missing.incrementAndGet()
+            }
+            main { nativeRoot.viewTreeObserver.addOnDrawListener(observer) }
+            try {
+                repeat(24) { step ->
+                    val marker = "新增第 $step 行：回复持续生成，保持底部稳定。"
+                    val next = body.value + "\n" + marker
+                    main { body.value = next }
+                    test.waitForIdleSync()
+                    waitFor("Growing reply is drawn at its measured tail") {
+                        var measured = false
+                        main { measured = original.text.contains(marker) && original.layout?.let { it.height <= original.height } == true }
+                        measured && atTail() && drawnText.get().contains(marker)
+                    }
+                    assertSame("Streaming must not recreate the native reply", original, nativeReply())
+                }
+                assertTrue("Each streaming update reaches an Android draw", draws.get() >= 24)
+                assertEquals("A streaming draw must retain the visible reply", 0, missing.get())
+                SystemClock.sleep(160)
+                screenshot("streaming-chat-stable-tail.png")
+            } finally {
+                main { nativeRoot.viewTreeObserver.removeOnDrawListener(observer) }
+            }
+            main { following.value = false; scope.launch { list.scrollToItem(9, 11) } }
+            waitFor("Reader can inspect earlier messages") { list.firstVisibleItemIndex == 9 && list.firstVisibleItemScrollOffset == 11 }
+            main { body.value += "\n后台继续生成。" }
+            test.waitForIdleSync(); SystemClock.sleep(160)
+            assertEquals(9, list.firstVisibleItemIndex)
+            assertEquals(11, list.firstVisibleItemScrollOffset)
+            main { following.value = true }
+            waitFor("Explicit return to latest resumes following", ::atTail)
+            main { body.value = "STREAM **完成**"; streaming.value = false; feedback.value = false }
+            test.waitForIdleSync()
+            waitFor("Completion and reply shrink settle at the tail", ::atTail)
+            assertEquals("STREAM 完成", nativeReply()?.text?.toString())
+        }
+    }
 
     @Test fun composerStopsActiveWorkAndKeepsTheNormalSendActionWhenIdle() {
         val working = androidx.compose.runtime.mutableStateOf(false)
