@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0-alpha.73",
+  "versionCode": 75,
+  "sourceCommit": "c3240db3fd20bb27f32aa2b39196a0b5d931d890",
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.73",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/41653012627",
+  "workflowConclusion": "success",
+  "prerelease": true,
+  "manifestSha256MatchesPublishedAsset": true,
+  "publishedApkDigestsMatchManifestAndChecksums": true,
+  "manifestSigningCertificateMatchesRepositoryPin": true,
+  "signaturesAndFullArtifactDownloadsVerifiedBy": "tagged CI publisher",
+  "localVerification": "Downloaded manifest and checksum list; matched GitHub asset digests and source identity. Full APK verification was performed by CI."
+}
