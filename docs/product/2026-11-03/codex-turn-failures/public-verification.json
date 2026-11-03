@@ -1,0 +1,49 @@
+{
+  "status": "PASS",
+  "tag": "v0.2.0-alpha.70",
+  "versionCode": 72,
+  "sourceCommit": "85c88239502ebfd245f2b1250439e5befa2bed0b",
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.70",
+  "prerelease": true,
+  "draft": false,
+  "checksums": {
+    "kite-0.2.0-alpha.70-arm64-v8a.apk": "faaf24e68795573be22588bd85b75fbeb41fc8e9a566eb9a6dae6260f9aadf42",
+    "kite-0.2.0-alpha.70-arm64-v8a-compat-v2.apk": "63eb20418a10a2e59372f9a0c21aaf65dad7e5e6b765d1481f8114b3efe6847c",
+    "kite-host-0.2.0-alpha.70-linux-x86_64.tar.gz": "bb3b8e89568a9cb63a0a2da1f799ebef7ef87f93a382a6c23c3eb0ffce6b98ed",
+    "release-manifest.json": "baf0c3c8fb8775910bc85519e66ad57983ef4dce29095ade49857e046020d25d"
+  },
+  "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "signatureVerificationApis": [
+    23,
+    36
+  ],
+  "zipAlignmentKiB": 16,
+  "compatibilityPayloadMatchesPrimary": true,
+  "assets": [
+    {
+      "name": "kite-0.2.0-alpha.70-arm64-v8a-compat-v2.apk",
+      "bytes": 25418848,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.70/kite-0.2.0-alpha.70-arm64-v8a-compat-v2.apk"
+    },
+    {
+      "name": "kite-0.2.0-alpha.70-arm64-v8a.apk",
+      "bytes": 25418848,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.70/kite-0.2.0-alpha.70-arm64-v8a.apk"
+    },
+    {
+      "name": "kite-host-0.2.0-alpha.70-linux-x86_64.tar.gz",
+      "bytes": 3452094,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.70/kite-host-0.2.0-alpha.70-linux-x86_64.tar.gz"
+    },
+    {
+      "name": "release-manifest.json",
+      "bytes": 1359,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.70/release-manifest.json"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 409,
+      "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.70/SHA256SUMS"
+    }
+  ]
+}
