@@ -195,7 +195,7 @@ export async function questionRecords(file: string): Promise<Buffer> {
         try {
           const saved = object(readJson(cache));
           if (
-            saved.version === 3 &&
+            saved.version === 4 &&
             saved.device === info.dev &&
             saved.inode === info.ino &&
             typeof saved.offset === "number" &&
@@ -230,7 +230,11 @@ export async function questionRecords(file: string): Promise<Buffer> {
           ) {
             r = {
               type: "event_msg",
-              payload: { type: p.type, turn_id: String(p.turn_id || row.start) },
+              payload: {
+                type: p.type,
+                turn_id: String(p.turn_id || row.start),
+                failed: p.error != null,
+              },
             };
             keep = true;
           } else if (
@@ -277,7 +281,7 @@ export async function questionRecords(file: string): Promise<Buffer> {
       }
       const result = Buffer.from(compact.map((r) => `${JSON.stringify(r)}\n`).join(""));
       check(result.length <= 1024 * 1024, "question history index exceeds transport capacity");
-      atomic(cache, { version: 3, device: info.dev, inode: info.ino, offset, rows: compact });
+      atomic(cache, { version: 4, device: info.dev, inode: info.ino, offset, rows: compact });
       return result;
     } finally {
       closeSync(fd);
@@ -322,18 +326,26 @@ export function cursorPosition(
   );
   return p;
 }
-const displayRecord = (r: ObjectValue) =>
-  r.type === "response_item" &&
-  [
-    "message",
-    "function_call",
-    "custom_tool_call",
-    "computer_call",
-    "function_call_output",
-    "custom_tool_call_output",
-    "computer_call_output",
-    "image_generation_call",
-  ].includes(String(object(r.payload).type));
+const displayRecord = (r: ObjectValue) => {
+  const payload = object(r.payload);
+  if (r.type === "event_msg")
+    return (
+      ["task_complete", "task_aborted"].includes(String(payload.type)) && payload.error != null
+    );
+  return (
+    r.type === "response_item" &&
+    [
+      "message",
+      "function_call",
+      "custom_tool_call",
+      "computer_call",
+      "function_call_output",
+      "custom_tool_call_output",
+      "computer_call_output",
+      "image_generation_call",
+    ].includes(String(payload.type))
+  );
+};
 export async function historyProjection(
   file: string,
   before?: string,

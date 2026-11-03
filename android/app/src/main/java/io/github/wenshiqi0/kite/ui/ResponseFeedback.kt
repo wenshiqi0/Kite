@@ -19,6 +19,11 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.ResponsePhase
 
 @Composable
+fun TurnFailureMessage(details: String) {
+    ResponseFeedback(ResponsePhase.FAILED, sending = false, details = details)
+}
+
+@Composable
 fun ResponseFeedback(phase: ResponsePhase, sending: Boolean, waitingForApproval: Boolean = false, details: String = "") {
     val current = if (sending && phase == ResponsePhase.IDLE) ResponsePhase.SENDING else phase
     val failure = responseFailureDetails(current, details)

@@ -4,6 +4,7 @@ import {
   closeSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -46,6 +47,65 @@ function projection(body: Buffer): { control: string; rows: string[] } {
   };
 }
 describe("append-safe complete history projection", () => {
+  test("retains failed terminal records in display pages and only their outcome in controls", async () => {
+    const file = join(home, "failed-turn.jsonl");
+    const error = {
+      message: "Selected model is at capacity. Please try a different model.",
+      codex_error_info: "server_overloaded",
+    };
+    writeFileSync(file, message("progress"));
+    const cursor = string(
+      object(parse(string(projection(await historyProjection(file)).rows[0]))).end,
+    );
+    const failed = {
+      type: "event_msg",
+      payload: { type: "task_complete", turn_id: "failed-turn", last_agent_message: null, error },
+    };
+    appendFileSync(file, `${JSON.stringify(failed)}\n`);
+    const page = projection(await historyProjection(file, undefined, cursor));
+    expect(page.rows).toHaveLength(2);
+    expect(object(parse(string(page.rows[1]))).payload).toEqual(failed.payload);
+    expect(object(parse(page.control.trim())).payload).toEqual({
+      type: "task_complete",
+      turn_id: "failed-turn",
+      failed: true,
+    });
+    expect(page.control).not.toContain(error.message);
+    expect(page.control).not.toContain("last_agent_message");
+
+    // Previously cached terminal records had already dropped the error field.
+    const directory = join(home, ".local/state/kite/codex/history");
+    const name = readdirSync(directory).find((name) => name.endsWith(".json"));
+    if (!name) throw new Error("history cache missing");
+    const cache = join(directory, name);
+    const saved = object(parse(readFileSync(cache, "utf8")));
+    saved.version = 3;
+    saved.rows = [
+      { type: "event_msg", payload: { type: "task_complete", turn_id: "failed-turn" } },
+    ];
+    writeFileSync(cache, JSON.stringify(saved));
+    expect(object(parse((await questionRecords(file)).toString().trim())).payload).toEqual({
+      type: "task_complete",
+      turn_id: "failed-turn",
+      failed: true,
+    });
+
+    appendFileSync(
+      file,
+      `${message("continued")}${JSON.stringify({ type: "event_msg", payload: { type: "task_complete", turn_id: "next-turn", error: null } })}\n`,
+    );
+    const recovered = projection(await historyProjection(file));
+    expect(recovered.rows.slice(1).map((row) => object(parse(row)).type)).toEqual([
+      "response_item",
+      "event_msg",
+      "response_item",
+    ]);
+    expect(object(parse(recovered.control.trim())).payload).toEqual({
+      type: "task_complete",
+      turn_id: "next-turn",
+      failed: false,
+    });
+  });
   test("pages backwards and forwards without dropping or duplicating messages", async () => {
     const file = join(home, "rollout.jsonl");
     writeFileSync(

@@ -60,7 +60,15 @@ pub fn terminal_from_controls(bytes: &[u8]) -> Option<Terminal> {
                 return None;
             }
             let kind = match record["payload"]["type"].as_str() {
-                Some("task_complete") => Kind::Completed,
+                Some("task_complete") => {
+                    if record["payload"]["failed"] == true
+                        || record["payload"].get("error").is_some_and(|e| !e.is_null())
+                    {
+                        Kind::Failed
+                    } else {
+                        Kind::Completed
+                    }
+                }
                 Some("task_aborted") => Kind::Failed,
                 _ => return None,
             };
@@ -304,6 +312,47 @@ mod tests {
             questions_known: true,
             lifecycle: false,
             terminal: None,
+        }
+    }
+    #[test]
+    fn terminal_errors_emit_failed_notifications_once_across_reconnects() {
+        let mut journal = Ledger::new("node".into());
+        let mut input = fact("working", 1);
+        input.lifecycle = true;
+        journal.observe(&[input.clone()], 1);
+        let controls = br#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"failed-turn","failed":true}}"#;
+        input.status = "idle".into();
+        input.terminal = terminal_from_controls(controls);
+        journal.observe(&[input.clone()], 2);
+        let bytes = serde_json::to_vec(&journal).unwrap();
+        let mut restored: Ledger = serde_json::from_slice(&bytes).unwrap();
+        restored.observe(&[input], 3);
+        let events = restored.page(Some("node:0")).events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, Kind::Failed);
+        assert_eq!(events[0].source, "failed-turn");
+        for (payload, expected) in [
+            (
+                serde_json::json!({"type":"task_complete","turn_id":"raw","error":{"message":"at capacity"}}),
+                Kind::Failed,
+            ),
+            (
+                serde_json::json!({"type":"task_complete","turn_id":"success","error":null}),
+                Kind::Completed,
+            ),
+            (
+                serde_json::json!({"type":"task_complete","turn_id":"success","failed":false}),
+                Kind::Completed,
+            ),
+            (
+                serde_json::json!({"type":"task_aborted","turn_id":"aborted"}),
+                Kind::Failed,
+            ),
+        ] {
+            let bytes =
+                serde_json::to_vec(&serde_json::json!({"type":"event_msg","payload":payload}))
+                    .unwrap();
+            assert_eq!(terminal_from_controls(&bytes).unwrap().kind, expected);
         }
     }
     #[test]

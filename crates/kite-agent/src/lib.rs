@@ -17,6 +17,7 @@ pub enum Role {
     User,
     Assistant,
     Tool,
+    Error,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,7 +150,7 @@ fn codex_message_text(v: &Value) -> String {
 }
 
 fn add_text(messages: &mut Vec<Message>, id: String, role: Role, text: String) {
-    if text.trim().is_empty() {
+    if text.trim().is_empty() && role != Role::Error {
         return;
     }
     if let Some(m) = messages.iter_mut().find(|m| m.id == id) {
@@ -258,6 +259,22 @@ fn model_question_answer(
     }
 }
 
+/// Terminal errors are records in their original turn, independent of page boundaries.
+fn turn_error_id(record: &Value) -> Option<String> {
+    let payload = &record["payload"];
+    if record["type"] != "event_msg"
+        || !matches!(
+            payload["type"].as_str(),
+            Some("task_complete" | "task_aborted")
+        )
+        || payload.get("error").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    let turn = payload["turn_id"].as_str()?;
+    (!turn.is_empty() && turn.len() <= 128).then(|| format!("turn-error-{turn}"))
+}
+
 /// Parse bounded JSONL records. Partial writes and non-conversation metadata are ignored.
 pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
     let mut messages = Vec::new();
@@ -326,6 +343,15 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                 }
             }
             "codex" | "dsh" | "ply" => {
+                if let Some(id) = turn_error_id(&v) {
+                    add_text(
+                        &mut messages,
+                        id,
+                        Role::Error,
+                        interaction::error_details(&v["payload"]["error"]).unwrap_or_default(),
+                    );
+                    continue;
+                }
                 if v["type"] != "response_item" {
                     continue;
                 }
@@ -544,6 +570,40 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_turns_remain_distinct_history_records_after_continuation() {
+        let failure = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"failed-turn","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"}}});
+        let next = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"continued"}]}});
+        let bytes = format!("{failure}\n{failure}\n{next}\n");
+        let messages = parse_history("codex", bytes.as_bytes());
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].id, "turn-error-failed-turn");
+        assert_eq!(messages[0].role, Role::Error);
+        assert!(messages[0].text.starts_with("server_overloaded:"));
+        assert!(messages[0].tool.is_none());
+        assert!(!messages[0].intermediate);
+        assert_eq!(messages[1].text, "continued");
+        let restored: Vec<Message> =
+            serde_json::from_slice(&serde_json::to_vec(&messages).unwrap()).unwrap();
+        assert_eq!(restored, messages);
+    }
+
+    #[test]
+    fn successful_turns_and_user_cancellations_do_not_invent_history_errors() {
+        for payload in [
+            serde_json::json!({"type":"task_complete","turn_id":"success","error":null}),
+            serde_json::json!({"type":"task_complete","turn_id":"success"}),
+            serde_json::json!({"type":"task_aborted","turn_id":"cancelled"}),
+        ] {
+            let record = serde_json::json!({"type":"event_msg","payload":payload});
+            assert!(parse_history("codex", record.to_string().as_bytes()).is_empty());
+        }
+        let record = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"no-details","error":{}}});
+        let messages = parse_history("codex", record.to_string().as_bytes());
+        assert_eq!(messages[0].role, Role::Error);
+        assert!(messages[0].text.is_empty());
+    }
+
     #[test]
     fn selected_skill_instructions_do_not_appear_as_extra_user_prompts() {
         let context = "<skill>\n<name>report</name>\n<path>/skills/report/SKILL.md</path>\nWrite a report.\n</skill>";
