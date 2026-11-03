@@ -43,7 +43,7 @@ RUN test "$TARGETARCH" = amd64 && \
     truncate -s 0 /etc/machine-id
 
 FROM rust:1.97.1-bookworm AS build
-COPY --from=oven/bun:1.3.14 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=runtime /usr/local/bin/bun /usr/local/bin/bun
 RUN apt-get update && apt-get install -y --no-install-recommends cmake pkg-config libopus-dev libx11-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml Cargo.lock package.json bun.lock bunfig.toml tsconfig.json ./
