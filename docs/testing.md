@@ -191,3 +191,7 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 ## Bun adapters and native Linux UI
 
 See [Bun server development](development/bun-server.md) for the strict typecheck, lint, fixture tests and owned X11 native panel probe. The old Python GUI probes are replaced by `scripts/native-desktop-probe.ts`; all client UI code is native.
+
+## Streaming chat stability
+
+`NativePresentationTest.responsePhaseChangesKeepTheSameSelectableMarkdown` retains the native text object across phase changes and completion of an already displayed strong span, while unfinished final markers still follow CommonMark. `WorkspaceRefinementPresentationTest.streamingRepliesRetainTheirViewAndFollowOnlyWhileReadingTheTail` uses the production tail follower with synthetic long replies. It awaits each of 24 actual Android draws and measured text heights, checks native-view retention and absence of hidden/zero-height draws, preserves a reader's history position, resumes explicit tail following and handles completion with a shorter reply and removed feedback. These are local native presentation checks; physical-handset flicker remains separate acceptance.

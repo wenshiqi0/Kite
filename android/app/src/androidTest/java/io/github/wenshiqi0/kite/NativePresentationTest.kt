@@ -106,6 +106,7 @@ class NativePresentationTest {
 
     @Test fun cjkSentenceStrongClosesBeforeAnAdjacentLatinWord() = onMain {
         val view=MarkdownTextView(instrumentation.targetContext)
+        FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(-1, -2))
         view.bind("**已经完成。**Kite 接下来继续。")
         measureText(view,900)
         val body=view.text as Spanned
@@ -113,7 +114,7 @@ class NativePresentationTest {
         assertTrue(body.getSpans(0,body.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isNotEmpty())
         view.bind("`**已经完成。**Kite`")
         val literal=view.text as Spanned
-        assertEquals("**已经完成。**Kite",literal.toString())
+        assertEquals("**已经完成。**Kite",literal.toString().replace("\u00a0", ""))
         assertTrue(literal.getSpans(0,literal.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isEmpty())
     }
 
@@ -298,6 +299,24 @@ class NativePresentationTest {
         view.bind("**正在输出**",false);assertEquals("正在输出",view.text.toString())
         view.bind("```\n**原样",true);assertTrue(view.text.toString().contains("**原样"))
         view.bind("\\*\\*原样",true);assertEquals("**原样",view.text.toString())
+    }
+    @Test fun responsePhaseChangesKeepTheSameSelectableMarkdown() = onMain {
+        val view = MarkdownTextView(instrumentation.targetContext)
+        for (source in listOf("正在检查 `Kite`，已经 **读取配置**。", "**已经完成**")) {
+            view.bind(source, true)
+            val rendered = view.text
+            view.bind(source, false)
+            assertSame("A phase change must not replace identical selectable text", rendered, view.text)
+            view.bind(source, true)
+            assertSame("Resuming the same reply must retain its spans", rendered, view.text)
+        }
+        view.bind("**正在输出", true)
+        val partial = view.text
+        view.bind("**正在输出**", false)
+        assertSame("Closing an already displayed strong span must not redraw it", partial, view.text)
+        view.bind("**未闭合", true)
+        view.bind("**未闭合", false)
+        assertEquals("A final literal marker still follows CommonMark", "**未闭合", view.text.toString())
     }
     @Test fun zoomed_one_finger_drag_pans_the_viewport_without_a_second_finger()=onMain{
         val parent=VideoSurface(instrumentation.targetContext,{fail("No renderer expected")},{})

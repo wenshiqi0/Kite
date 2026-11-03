@@ -183,11 +183,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
-    LaunchedEffect(conversationContext,entries.lastOrNull(),state?.approval?.id,state?.question?.id,state?.responsePhase,state?.composer?.details,chatHeight,vm.inPip,vm.pipTransition,followTail){
-        if(vm.inPip||vm.pipTransition||chatHeight<16||!followTail||chatScroll.isScrollInProgress||entries.isEmpty())return@LaunchedEffect
-        withFrameNanos{};withFrameNanos{}
-        if(followTail&&!chatScroll.isScrollInProgress)chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount-1).coerceAtLeast(0))
-    }
+    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && chatHeight >= 16 && entries.isNotEmpty() }
     val attachments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.externalActivity = false
         updatePip()
