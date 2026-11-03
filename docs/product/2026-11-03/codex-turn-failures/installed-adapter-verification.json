@@ -1,0 +1,6 @@
+{
+  "status": "PASS",
+  "installedHostRetainsFailureOutcome": true,
+  "notificationControlsExcludeErrorBody": true,
+  "terminalType": "task_complete"
+}
