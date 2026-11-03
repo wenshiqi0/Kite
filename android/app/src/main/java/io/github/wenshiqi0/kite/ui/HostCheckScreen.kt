@@ -94,7 +94,6 @@ internal fun DeviceKeyCard(key: DeviceKeyInfo) {
 @Composable
 private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Boolean, connected: Boolean) {
     val form = vm.form
-    var advanced by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.host_title), style = MaterialTheme.typography.titleMedium)
@@ -107,15 +106,6 @@ private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Bool
             }
             OutlinedTextField(form.username, { vm.updateForm(form.copy(username = it)) }, enabled = enabled, singleLine = true,
                 label = { Text(stringResource(R.string.host_username)) }, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = { advanced = !advanced }) { Text(stringResource(R.string.advanced_settings)) }
-            if (advanced) {
-                OutlinedTextField(form.herdrPath, { vm.updateForm(form.copy(herdrPath = it)) }, enabled = enabled, singleLine = true,
-                    label = { Text(stringResource(R.string.host_herdr_path)) }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(form.streamHost, { vm.updateForm(form.copy(streamHost = it)) }, enabled = enabled, singleLine = true,
-                    label = { Text(stringResource(R.string.stream_address)) }, supportingText = { Text(stringResource(R.string.stream_address_hint)) }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(form.sunshinePort, { vm.updateForm(form.copy(sunshinePort = it)) }, enabled = enabled, singleLine = true,
-                    label = { Text(stringResource(R.string.sunshine_port)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-            }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 OutlinedButton(onClick=vm::saveHostProfile,enabled=enabled,modifier=Modifier.weight(1f)){Text("保存")}
                 Button(onClick=vm::connect,enabled=enabled,modifier=Modifier.weight(1f)){Text("保存并连接")}

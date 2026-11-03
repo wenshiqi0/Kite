@@ -336,6 +336,10 @@ async fn install(args: &[String], restart: bool) -> Result<Value> {
         .unwrap_or("Mac")
         .to_owned();
     let config = Config {
+        configuration_version: existing
+            .as_ref()
+            .map_or(0, |config| config.configuration_version),
+        sunshine: existing.as_ref().and_then(|config| config.sunshine.clone()),
         node_id: existing
             .as_ref()
             .map(|c| c.node_id.clone())

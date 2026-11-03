@@ -115,13 +115,14 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
             if node.draining() {
                 return;
             }
-            let mut command = Command::new(&node.config.bun);
-            command
-                .arg(&node.config.backend)
-                .args(["notification-facts", "--herdr"])
-                .arg(&node.config.herdr)
-                .envs(&node.config.environment);
             let result = async {
+                let config = node.config.current()?;
+                let mut command = Command::new(&config.bun);
+                command
+                    .arg(&config.backend)
+                    .args(["notification-facts", "--herdr"])
+                    .arg(&config.herdr)
+                    .envs(&config.environment);
                 let bytes = bounded_output(command).await?;
                 let source: Facts = serde_json::from_slice(&bytes)?;
                 if source.facts.len() > 1024 {

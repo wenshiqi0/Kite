@@ -36,6 +36,7 @@ fn now_ms() -> u64 {
 }
 
 async fn reap(node: &Node, fact: &Fact) -> Result<bool> {
+    let config = node.config.current()?;
     let mut request = serde_json::to_value(fact)?;
     request["reason"] = "archived".into();
     let input = serde_json::to_vec(&request)?;
@@ -43,8 +44,8 @@ async fn reap(node: &Node, fact: &Fact) -> Result<bool> {
     command
         .arg(&node.config.backend)
         .args(["lifecycle-reap", "--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
+        .arg(&config.herdr)
+        .envs(&config.environment)
         .env("KITE_HOST_BACKEND_PATH", &node.config.backend)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -77,6 +78,7 @@ async fn reap(node: &Node, fact: &Fact) -> Result<bool> {
 }
 
 pub(super) async fn scan(node: &Node) -> Result<crate::SessionCleanup> {
+    let config = node.config.current()?;
     let _scan = tokio::time::timeout(Duration::from_secs(3), node.lifecycle_scan.lock())
         .await
         .map_err(|_| Error::Protocol("session cleanup already in progress"))?;
@@ -85,8 +87,8 @@ pub(super) async fn scan(node: &Node) -> Result<crate::SessionCleanup> {
     command
         .arg(&node.config.backend)
         .args(["lifecycle-facts", "--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
+        .arg(&config.herdr)
+        .envs(&config.environment)
         .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
     let bytes = bounded_output(command).await?;
     let facts: Facts = serde_json::from_slice(&bytes)?;
@@ -249,6 +251,7 @@ mod tests {
             notification_problem: None,
             push_problem: None,
             services: Mutex::new(None),
+            integration_health: Mutex::new(None),
             upgrade: None,
             observation_gate: RwLock::new(()),
         };

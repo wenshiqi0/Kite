@@ -8,7 +8,9 @@ On Linux, the local default budget is 10 GiB for actual memory used by managed a
 
 Linux's hard ceiling includes cache. Kite keeps that ceiling within the requested budget (less migration reservations); the kernel reclaims cache as resident allocations grow. It never raises the ceiling by the cache amount, so reclaiming cache cannot allow actual memory to exceed the requested budget.
 
-`kite status` reads the Node version, identity and configured service health. `ready` means those local services are active; it does not prove that a phone is connected, a model turn succeeds or desktop media is decoded.
+`kite status` reads the Node version, identity, shared host configuration and observed service/desktop health. On Linux, `~/.config/kite/node.json` owns the host name, shared desktop environment, Herdr executable and Sunshine settings. An empty `machine` follows the current system hostname. Service launchers read this file directly and pass environment/arguments to their native processes. Android reads the same published configuration when connecting and opening the desktop. Status exposes allowlisted settings and credential paths while keeping provider secrets private.
+
+`configuration.source` identifies the configuration file. `configuration.desktop`, `configuration.herdr` and `configuration.sunshine` show its effective shared settings. `desktop` and `sunshine` report bounded runtime probes. A configured Sunshine host is `ready` when its services, desktop and configured stream endpoint respond and the running Sunshine name matches the configured name. Configuration edits are reread by status and new commands. Restart a service to apply its startup settings.
 
 `kite status --refresh` forces service inspection. `kite ensure all` starts configured inactive services; it preserves active external services. Closing the native panel affects only the GUI. Existing agent owners have their own lifetime.
 

@@ -5,19 +5,19 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   symlinkSync,
   unlinkSync,
 } from "node:fs";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { array, check, type ObjectValue, object, parse, string } from "@kite/protocol";
 import { atomicBytes, sha256, sleep } from "@kite/runtime";
 import { type Command, command } from "./command";
+import { serviceLauncher, unifyConfiguration } from "./configuration";
 
 export const APP_ID = "io.github.wenshiqi0.Kite.Host";
 export const digest = (path: string): string => sha256(readFileSync(path));
@@ -135,7 +135,7 @@ export function configuration(
     delete value.python;
     value.bun ??= realpathSync(bun);
     value.backend = join(home, ".local/lib/kite/host.js");
-    return value;
+    return unifyConfiguration(value, home, which);
   }
   const herdr = which("herdr") || join(home, ".local/bin/herdr");
   check(existsSync(herdr), "install Herdr first");
@@ -143,35 +143,24 @@ export function configuration(
     PATH: `${dirname(bun)}:${home}/.local/bin:${home}/.cargo/bin:/usr/local/bin:/usr/bin:/bin`,
     XDG_RUNTIME_DIR: environment.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.()}`,
   };
-  for (const proc of readdirSync("/proc")) {
-    try {
-      if (!/^\d+$/.test(proc) || readFileSync(`/proc/${proc}/comm`, "utf8").trim() !== "sunshine")
-        continue;
-      for (const item of readFileSync(`/proc/${proc}/environ`, "utf8").split("\0")) {
-        const at = item.indexOf("="),
-          key = item.slice(0, at);
-        if (["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS"].includes(key))
-          env[key] = item.slice(at + 1);
-      }
-      break;
-    } catch {
-      /* a process may exit during inspection */
-    }
-  }
-  return {
-    node_id: crypto.randomUUID(),
-    machine: hostname(),
-    socket: join(home, ".local/state/kite/node/host.sock"),
-    backend: join(home, ".local/lib/kite/host.js"),
-    herdr,
-    bun: realpathSync(bun),
-    systemctl: which("systemctl") || "/usr/bin/systemctl",
-    environment: env,
-    services: [
-      { name: "Herdr", unit: "herdr.service", external: true },
-      { name: "Sunshine", unit: "app-dev.lizardbyte.app.Sunshine.service", external: true },
-    ],
-  };
+  return unifyConfiguration(
+    {
+      node_id: crypto.randomUUID(),
+      machine: "",
+      socket: join(home, ".local/state/kite/node/host.sock"),
+      backend: join(home, ".local/lib/kite/host.js"),
+      herdr,
+      bun: realpathSync(bun),
+      systemctl: which("systemctl") || "/usr/bin/systemctl",
+      environment: env,
+      services: [
+        { name: "Herdr", unit: "herdr.service", external: true },
+        { name: "Sunshine", unit: "app-dev.lizardbyte.app.Sunshine.service", external: true },
+      ],
+    },
+    home,
+    which,
+  );
 }
 export async function install(
   options: InstallOptions,
@@ -273,7 +262,26 @@ export async function install(
   link(gui, join(release, "kite-desktop"));
   const configPath = join(home, ".config/kite/node.json");
   mkdirSync(dirname(configPath), { recursive: true });
+  const backupPath = join(dirname(configPath), "node.before-unified.json");
+  if (existsSync(configPath) && !existsSync(backupPath)) {
+    const previous = readFileSync(configPath);
+    if (object(parse(previous.toString())).configuration_version !== 1) {
+      atomicBytes(backupPath, previous);
+    }
+  }
   atomicBytes(configPath, Buffer.from(`${JSON.stringify(config, null, 2)}\n`));
+  for (const service of services) {
+    if (service.name === "Sunshine" && !config.sunshine) continue;
+    const launcher = serviceLauncher(nodeLink, configPath, service);
+    if (!launcher) continue;
+    const path = join(
+      home,
+      ".config/systemd/user",
+      `${string(service.unit)}.d/50-kite-configuration.conf`,
+    );
+    mkdirSync(dirname(path), { recursive: true });
+    atomicBytes(path, Buffer.from(launcher));
+  }
   const unit = join(home, ".config/systemd/user/kite-node.service"),
     socketUnit = join(home, ".config/systemd/user/kite-node.socket"),
     units = services.map((s) => string(s.unit)).join(" ");

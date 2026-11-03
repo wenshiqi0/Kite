@@ -788,7 +788,8 @@ impl AppCore {
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| s.connection_step = ConnectionStep::HerdrDiscovery);
         }
-        composer::require_node(&ssh).await?;
+        let node = composer::require_node(&ssh).await?;
+        let host = configured_host(host, &node)?;
         let checked = check_api_bridge(&ssh, host.herdr_path.as_deref()).await?;
         if self.generation.load(Ordering::SeqCst) == generation {
             self.update(|s| s.connection_step = ConnectionStep::HerdrApi);
@@ -2231,7 +2232,9 @@ impl AppCore {
             }
         }
     }
-    fn client(&self, c: &Connected) -> Result<Client, AppError> {
+    async fn client(&self, c: &Connected) -> Result<Client, AppError> {
+        let node = composer::require_node(&c.ssh).await?;
+        let host = configured_host(&c.host, &node)?;
         let data = lock(&self.store)
             .as_ref()
             .ok_or_else(|| AppError::State("not initialized".into()))?
@@ -2239,11 +2242,10 @@ impl AppCore {
             .clone();
         Ok(Client::new(
             c.ssh.clone(),
-            c.host
-                .stream_host
+            host.stream_host
                 .clone()
-                .unwrap_or_else(|| c.host.host.clone()),
-            c.host.sunshine_port,
+                .unwrap_or_else(|| host.host.clone()),
+            host.sunshine_port,
             data.device_id,
             self.identity()?,
             data.paired_servers
@@ -2285,9 +2287,11 @@ impl AppCore {
         mut cancel: watch::Receiver<bool>,
     ) {
         let work = async {
-            let mut client = self.client(&c)?;
-            let (info, source) = tokio::time::timeout(Duration::from_secs(30), async {
-                Ok::<_, AppError>((client.info().await?, client.desktop_size().await?))
+            let (mut client, info, source) = tokio::time::timeout(Duration::from_secs(30), async {
+                let client = self.client(&c).await?;
+                let info = client.info().await?;
+                let source = client.desktop_size().await?;
+                Ok::<_, AppError>((client, info, source))
             })
             .await
             .map_err(|_| {
@@ -2545,6 +2549,36 @@ impl AppCore {
     }
 }
 
+fn configured_host(host: &Host, node: &serde_json::Value) -> Result<Host, AppError> {
+    let mut host = host.clone();
+    if node["configurationApi"] != 1 {
+        return Ok(host);
+    }
+    let configuration = &node["configuration"];
+    let herdr = configuration["herdr"]["executable"]
+        .as_str()
+        .filter(|path| path.starts_with('/') && !path.chars().any(char::is_control))
+        .ok_or_else(|| AppError::State("invalid host Herdr configuration".into()))?;
+    host.herdr_path = Some(herdr.into());
+    let sunshine = &configuration["sunshine"];
+    if !sunshine.is_null() {
+        host.sunshine_port = sunshine["port"]
+            .as_u64()
+            .and_then(|port| u16::try_from(port).ok())
+            .filter(|port| (6..=65514).contains(port))
+            .ok_or_else(|| AppError::State("invalid host Sunshine configuration".into()))?;
+        host.stream_host = sunshine["address"].as_str().map(str::to_owned);
+        if host
+            .stream_host
+            .as_ref()
+            .is_some_and(|address| address.is_empty() || address.chars().any(char::is_control))
+        {
+            return Err(AppError::State("invalid host streaming address".into()));
+        }
+    }
+    Ok(host)
+}
+
 fn describe(error: &AppError) -> Failure {
     let mut f = Failure {
         code: FailureCode::Connection,
@@ -2628,6 +2662,33 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use tokio::io::AsyncReadExt;
+
+    #[test]
+    fn managed_host_configuration_overrides_old_client_service_settings() {
+        let saved = Host {
+            id: "existing-host".into(),
+            host: "renamed-host".into(),
+            port: 22,
+            username: "user".into(),
+            herdr_path: Some("/old/herdr".into()),
+            stream_host: Some("former-host".into()),
+            sunshine_port: 47989,
+        };
+        let status = serde_json::json!({"configurationApi":1,"configuration":{
+            "herdr":{"executable":"/central/herdr"},
+            "sunshine":{"address":null,"port":48123}
+        }});
+        let host = configured_host(&saved, &status).unwrap();
+        assert_eq!(host.host, "renamed-host");
+        assert_eq!(host.id, "existing-host");
+        assert_eq!(host.herdr_path.as_deref(), Some("/central/herdr"));
+        assert_eq!(host.sunshine_port, 48123);
+        assert!(host.stream_host.is_none());
+        assert_eq!(
+            configured_host(&saved, &serde_json::json!({})).unwrap(),
+            saved
+        );
+    }
     struct Secrets {
         values: Mutex<BTreeMap<String, Vec<u8>>>,
         writes: AtomicU64,

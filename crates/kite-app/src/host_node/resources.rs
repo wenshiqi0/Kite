@@ -67,15 +67,16 @@ fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 async fn platform(node: &Node, action: &str, input: Option<Value>) -> Result<Vec<u8>> {
-    let helper = &node.config.backend;
-    let mut command = Command::new(&node.config.bun);
+    let config = node.config.current()?;
+    let helper = &config.backend;
+    let mut command = Command::new(&config.bun);
     command
         .arg(helper)
         .arg("resources")
         .arg(action)
         .args(["--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
+        .arg(&config.herdr)
+        .envs(&config.environment)
         .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
     if let Some(input) = input {
         command
@@ -404,6 +405,7 @@ mod tests {
             notification_problem: None,
             push_problem: None,
             services: Mutex::new(None),
+            integration_health: Mutex::new(None),
             upgrade: None,
             observation_gate: RwLock::new(()),
         }
