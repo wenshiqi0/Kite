@@ -33,7 +33,7 @@ Android 输入区不提供语音识别入口。空草稿时，正在工作的 ag
 
 显式删除会话按 RFC 0020：活动和归档列表都可直接删除，命令绑定目标主机及会话。删除授权立即终止该会话的任务；主机在会话、owner 和目录租约内验证身份、排除共享 owner，释放受管进程及其本地工具子进程，确认退出后才移除 Kite 记录。本机清除聊天缓存和选中状态，选择下一条活动会话或空列表；释放失败保留记录以供重试。私有删除标记阻止过期目录写入或发现结果复活记录，不保存对话内容；provider 原始历史文件保持原位。
 
-模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
+模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。Codex 全局 `AGENTS.md` 注入消息在 Android 仅显示一行“已加载全局指令”；首次加载及重新加载使用相同展示。识别仅限完整的全局指令信封及其可选环境上下文，普通消息、仓库级指令和信封后的用户请求保持正文展示；原始对话数据不变。
 
 聊天中的异步问题按 [RFC 0009](docs/rfcs/0009-async-questions-in-chat.md) 处理：Rust 关联真实 call ID、恢复待答表单，并通过同一线程的 TUI 回答信封提交；阻塞问题继续使用其 RPC 响应。提问控制记录通过同步升级的 Codex 历史体 v2 独立传输，主机只索引原始事实，Rust 决定待答状态，避免最近聊天窗口截断旧问题。Android 在聊天和输入区提供回答入口，异步问题不暂停 agent 或禁用普通消息。
 

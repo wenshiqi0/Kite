@@ -408,6 +408,7 @@
     <string name="attachment_save_failed">附件保存失败</string>
     <string name="answered_question">模型提问</string>
     <string name="answered_reply">你的回答</string>
+    <string name="global_instructions_loaded">已加载全局指令</string>
     <string name="session_initializing">正在初始化会话…</string>
     <string name="session_initialization_failed">会话初始化未完成</string>
     <string name="host_details">主机详情</string>

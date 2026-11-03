@@ -645,6 +645,10 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     }
 }
 @Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: MessageInfo, streaming: Boolean = false) {
+    if (remember(message) { isGlobalInstructionsMessage(message) }) {
+        GlobalInstructionsNotice()
+        return
+    }
     if (message.kind == MessageKind.ERROR) {
         TurnFailureMessage(message.text)
         return
