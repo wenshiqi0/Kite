@@ -174,7 +174,13 @@ struct MessageRow: View {
     let message: MessageInfo
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if let tool = message.tool {
+            if message.kind == .error {
+                Label(tr("phase_failed"), systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange)
+                if !message.text.isEmpty {
+                    Text(message.text).font(.callout).textSelection(.enabled)
+                }
+            } else if let tool = message.tool {
                 DisclosureGroup {
                     if !tool.arguments.isEmpty { Text(tool.arguments).font(.caption.monospaced()).textSelection(.enabled) }
                     if !tool.output.isEmpty { Text(tool.output).font(.caption.monospaced()).textSelection(.enabled) }
