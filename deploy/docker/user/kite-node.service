@@ -1,0 +1,23 @@
+[Unit]
+Description=Kite server node
+Requires=kite-node.socket kite-container-setup.service
+After=kite-node.socket kite-container-setup.service herdr.service app-dev.lizardbyte.app.Sunshine.service
+Wants=herdr.service app-dev.lizardbyte.app.Sunshine.service
+
+[Service]
+EnvironmentFile=-%h/.config/kite/harness.env
+Type=notify
+NotifyAccess=all
+Sockets=kite-node.socket
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/local/bin/kite-node serve --config %h/.config/kite/node.json --activated
+Restart=on-failure
+RestartSec=2
+UMask=0077
+KillMode=process
+TimeoutStartSec=30
+
+[Install]
+WantedBy=default.target

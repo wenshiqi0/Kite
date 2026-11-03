@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare persistent Kite container identity and desktop
+Before=ssh.service kite-xorg.service user@1000.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/run/kite/container.env
+ExecStart=/usr/local/sbin/kite-container initialize
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

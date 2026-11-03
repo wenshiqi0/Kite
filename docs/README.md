@@ -3,6 +3,7 @@
 - [Host setup](backend-setup.md): SSH, herdr, Sunshine, pairing and troubleshooting.
 - [Desktop client and host](desktop.md): dual roles, connections to other machines and independent local-service lifetime; current delivery and pending client acceptance.
 - [Linux desktop host](linux-desktop.md): install Kite Node, its native panel and taskbar status, reuse services and expose MCP queries.
+- [Docker server deployment](docker-host.md): complete desktop image, remote deployment, persistent identity and operation.
 - [Plan allowance](account-usage.md): view real Codex account windows and reset times from the left-hand model picker.
 - [Implementation status and next stages](implementation-plan.md): delivered Android features, herdr-core evaluation, desktop nodes and multi-machine MCP.
 - [Development](development.md): source layout, Android / iOS builds and generated bindings.

@@ -33,3 +33,4 @@ __pycache__/
 # Bun workspace dependencies and generated host bundles
 node_modules/
 coverage/
+/deploy/docker/.env

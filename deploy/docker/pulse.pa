@@ -1,0 +1,6 @@
+.fail
+load-module module-native-protocol-unix
+load-module module-stream-restore
+load-module module-null-sink sink_name=kite_audio sink_properties=device.description=Kite rate=48000 channels=2
+set-default-sink kite_audio
+set-default-source kite_audio.monitor

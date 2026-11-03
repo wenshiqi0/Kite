@@ -1,0 +1,13 @@
+[Unit]
+Description=Kite headless X11 desktop display
+Requires=kite-container-init.service
+After=kite-container-init.service
+Before=user@1000.service
+
+[Service]
+ExecStart=/usr/lib/xorg/Xorg :0 -config /etc/X11/kite-xorg.conf -auth /run/kite/Xauthority -nolisten tcp -noreset -novtswitch -sharevts +extension RANDR
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

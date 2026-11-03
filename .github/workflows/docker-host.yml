@@ -1,0 +1,95 @@
+name: Docker Linux server
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - deploy/docker/**
+      - packages/**
+      - crates/**
+      - scripts/**
+      - Cargo.*
+      - package.json
+      - bun.lock
+      - .dockerignore
+      - .github/workflows/docker-host.yml
+  push:
+    branches: [main]
+    tags: ['v*-alpha.*']
+    paths:
+      - deploy/docker/**
+      - packages/**
+      - crates/**
+      - scripts/**
+      - Cargo.*
+      - package.json
+      - bun.lock
+      - .dockerignore
+      - .github/workflows/docker-host.yml
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install pinned Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Check deployment tooling
+        run: |
+          bun install --frozen-lockfile
+          bun run check
+          bash -n deploy/docker/*.sh
+          docker compose -f deploy/docker/compose.yaml config --quiet
+
+      - name: Build the minimal server image
+        run: |
+          docker build --platform linux/amd64 --file deploy/docker/Dockerfile \
+            --build-arg SOURCE_COMMIT="$GITHUB_SHA" --tag kite-host:ci .
+
+      - name: Check actual container services and retained identity
+        run: |
+          sudo modprobe uinput
+          sudo modprobe uhid
+          sudo mkdir -p /dev/input
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked -p kite-app --example docker_desktop_probe
+          bun run packages/linux-host/test/qa/docker-host.ts --image kite-host:ci --evidence target/docker-qa --stream-probe target/debug/examples/docker_desktop_probe
+
+      - name: Publish the matching Alpha image
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^versionName=//p' android/version.properties)
+          test "$GITHUB_REF_NAME" = "v$version"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/host:$version"
+          echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag kite-host:ci "$image"
+          docker push "$image"
+
+      - name: Preserve non-secret validation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-host-validation
+          path: |
+            target/docker-qa/result.json
+            target/docker-qa/desktop.png
+            target/docker-qa/failure-journal.txt
+            target/docker-qa/stream.txt
+          if-no-files-found: ignore

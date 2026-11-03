@@ -1,0 +1,12 @@
+[Unit]
+Description=Persistent virtual desktop audio for Sunshine
+Requires=kite-container-setup.service
+After=kite-container-setup.service
+
+[Service]
+ExecStart=/usr/local/bin/kite-container-session audio
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

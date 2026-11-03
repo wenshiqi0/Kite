@@ -1,0 +1,16 @@
+Include /run/kite/sshd.conf
+HostKey /var/lib/kite-container/ssh/ssh_host_ed25519_key
+HostKey /var/lib/kite-container/ssh/ssh_host_rsa_key
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+AllowUsers kite
+AllowTcpForwarding yes
+GatewayPorts no
+X11Forwarding no
+UsePAM yes
+PrintMotd no
+Subsystem sftp internal-sftp

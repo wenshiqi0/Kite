@@ -12,7 +12,9 @@
     "test": "bun test packages",
     "build": "bun run scripts/build-host.ts",
     "check": "bun run typecheck && bun run lint && bun test packages",
-    "build:node": "cargo build -p kite-node --locked"
+    "build:node": "cargo build -p kite-node --locked",
+    "docker:build": "docker compose -f deploy/docker/compose.yaml build host",
+    "docker:deploy": "bun run packages/linux-host/src/docker.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.2",

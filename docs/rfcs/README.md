@@ -33,6 +33,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0021](0021-dsh-provider.md) | 可用 provider 目录与 DSH 托管会话 | 已实现（Alpha 45） |
 | [0022](0022-host-resources-and-agent-budget.md) | 主机资源概览与共享 Agent 内存预算 | 已实现 |
 | [0023](0023-harness-capability-parity.md) | Harness 原生能力与统一客户端展示 | 已实现 |
+| [0028](0028-docker-linux-host.md) | Docker Linux 纯服务端部署 | 已实现 |
 
 | [0025](0025-ply-acp.md) | Ply ACP 插件接入 | 已实现，待发布 |
 

@@ -61,6 +61,8 @@ Linux Node 的兼容升级按 [RFC 0018](docs/rfcs/0018-live-node-upgrade.md) �
 
 ## 2. 仓库布局
 
+Docker 部署按 [RFC 0028](docs/rfcs/0028-docker-linux-host.md) 作为用户级 Linux 安装之外的另一条交付路径：镜像为纯服务端，只安装 `kite-node`、Herdr、Sunshine、Bun 及用于 Sunshine 采集的 systemd、Xorg/Xfce、音频、输入法和中文字体；不构建或安装 `kite-desktop`、Kite 面板、托盘或客户端。容器外的客户端继续使用同一 SSH/Node/媒体接口和真实 cgroup v2 agent 预算。每台专用 Linux 服务器只运行一个完整桌面实例；镜像不包含用户凭据，home 与 SSH 身份分别持久化。容器替换是维护重启，不声明为 Node 的原位无缝交接。容器运行脚本位于 `deploy/docker`，部署命令属于 `@kite/linux-host`。
+
 主机资源与进程预算按 [RFC 0022](docs/rfcs/0022-host-resources-and-agent-budget.md)：Linux 适配器提供有界事实并执行 cgroup 机制，Rust 管理 CPU 差分、内存预警、共享预算和启动预留；客户端主机详情只展示与配置。资源同步独立于聊天。所有受管 provider 及本地工具子进程的实际内存计入共享预算；可回收的未映射文件缓存和内核缓存独立展示，不计入面板用量、预警、启动准入或调低校验，控制服务不进入 agent 预算。内核硬上限保持不高于预算，随常驻分配回收缓存，不因缓存放宽实际内存上限。已有进程迁移保守预留旧内存账目；严重压力或未落实限额时拒绝新启动，不自动重放任务。限额修改原子持久化，降低至当前实际用量以下时拒绝，安全调低先回收缓存并核验总量。
 
 Agent 能力按 [RFC 0019](docs/rfcs/0019-agent-docs-and-linux-desktop.md) 经统一 `kite docs`、CLI 和标准 MCP 暴露。文档正文仅维护一份，薄 SKILL 负责发现，按主题及调用方显式 revision 渐进返回；不得全局假定客户端已读。Linux X11 动作由应用层验证/选择目标，Bun/TypeScript 平台适配器实现桌面机制；截图用私有制品和标准图像块，不以 base64 文本消耗模型上下文。新桌面接口允许任务授权范围内的输入与 argv 启动，不自动通过 shell 解释命令；既有只读 MCP 合同保留。
