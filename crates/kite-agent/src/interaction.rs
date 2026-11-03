@@ -84,13 +84,14 @@ pub struct RuntimeState {
     answered_async: Vec<String>,
     turn_revision: u64,
 }
-fn error_details(value: &Value) -> Option<String> {
+pub(crate) fn error_details(value: &Value) -> Option<String> {
     let message = value["message"].as_str()?.trim();
     if message.is_empty() {
         return None;
     }
     let code = value["codexErrorInfo"]
         .as_str()
+        .or_else(|| value["codex_error_info"].as_str())
         .or_else(|| value["code"].as_str());
     let text = match code.filter(|code| !code.is_empty()) {
         Some(code) => format!("{code}: {message}"),

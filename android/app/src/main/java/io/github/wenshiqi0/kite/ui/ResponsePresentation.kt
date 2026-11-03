@@ -14,4 +14,5 @@ internal fun responseFailureDetails(phase: ResponsePhase, details: String): Stri
 
 internal fun responseIsModelCapacity(details: String): Boolean =
     details.contains("serverOverloaded", ignoreCase = true) ||
+        details.contains("server_overloaded", ignoreCase = true) ||
         details.contains("Selected model is at capacity", ignoreCase = true)

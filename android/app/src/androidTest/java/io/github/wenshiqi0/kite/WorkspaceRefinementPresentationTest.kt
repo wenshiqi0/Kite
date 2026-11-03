@@ -297,6 +297,23 @@ class WorkspaceRefinementPresentationTest {
         }
     }
 
+    @Test fun historicalTurnErrorsShowTheCauseAndRecoveryHint() {
+        val reason = "server_overloaded: Selected model is at capacity. Please try a different model."
+        overlay({Column(Modifier.padding(16.dp)) {
+            TurnFailureMessage(reason)
+            MarkdownMessage("下一轮可以继续，上一轮的失败原因仍然保留。")
+        }}) {
+            waitFor("Historical capacity failure remains readable"){find(text="server_overloaded")!=null}
+            assertNotNull(find(text=test.targetContext.getString(R.string.response_model_capacity)))
+            assertNotNull(find(text=test.targetContext.getString(R.string.response_model_capacity_hint)))
+            assertNotNull(find(text="上一轮的失败原因仍然保留"))
+            screenshot("codex-historical-capacity-error.png")
+        }
+        overlay({TurnFailureMessage("")}) {
+            waitFor("Missing provider details still produce a visible failure"){find(text=test.targetContext.getString(R.string.response_failure_no_details))!=null}
+        }
+    }
+
     @Test fun initializationShowsOneSimpleStatusAndKeepsDraftEditingLocked() {
         val changes=java.util.concurrent.atomic.AtomicInteger()
         overlay({ Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center) {
