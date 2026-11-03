@@ -26,6 +26,7 @@ class ResponsePresentationTest {
     }
     @Test fun modelCapacityKeepsItsSpecificPresentation() {
         assertTrue(responseIsModelCapacity("serverOverloaded: unavailable"))
+        assertTrue(responseIsModelCapacity("server_overloaded: unavailable"))
         assertTrue(responseIsModelCapacity("Selected model is at capacity. Please try a different model."))
         assertFalse(responseIsModelCapacity("chat connection closed"))
     }

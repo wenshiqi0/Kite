@@ -1,5 +1,9 @@
 # Testing
 
+## Codex terminal failures
+
+Provider projection tests preserve `task_complete.error` in paged conversation history, carry only an outcome flag in notification controls, and rebuild the old cache that discarded failures. Rust regressions cover failed versus successful completion, stable per-turn error identity and source ordering, serialization/backfill, and failure notification deduplication after restart. Historical errors use a separate message kind across the native boundary. Android timeline tests keep them outside collapsed tool groups; `WorkspaceRefinementPresentationTest.historicalTurnErrorsShowTheCauseAndRecoveryHint` renders the actual capacity error, recovery hint and missing-details fallback using synthetic data. No model turn is required.
+
 ## Explicit Skills
 
 Rust composer regressions verify cwd-scoped enabled catalogs, duplicate removal, descriptions and partial failures, interface display metadata and legacy summary fallback, friendly-name ordering, draft cancellation/refresh/success behavior, native skill references alongside attachments, and unchanged plain-text input. Display metadata never replaces the machine name or path sent to Codex. Core tests reject stale skill publications across hosts and provider threads and restore the original session's draft. `SkillPresentationTest` checks friendly titles/summaries, search by both display and machine metadata, and fallback for absent/blank fields. `SkillPickerPresentationTest` uses synthetic plugin metadata to check friendly names and summaries without internal identifiers or trigger instructions, search, multiple selections, removable chips and distinct empty/loading/error states without sending a model turn. Native test source compilation and device execution are separate checks.

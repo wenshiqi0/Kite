@@ -300,6 +300,7 @@ pub enum MessageKind {
     User,
     Assistant,
     Tool,
+    Error,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum AgentPauseStatus {
@@ -828,6 +829,7 @@ fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
             kite_app::ChatRole::User => MessageKind::User,
             kite_app::ChatRole::Assistant => MessageKind::Assistant,
             kite_app::ChatRole::Tool => MessageKind::Tool,
+            kite_app::ChatRole::Error => MessageKind::Error,
         },
         text,
         intermediate: m.intermediate,

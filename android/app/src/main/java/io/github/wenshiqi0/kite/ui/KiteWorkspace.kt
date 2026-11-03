@@ -649,6 +649,10 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     }
 }
 @Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: MessageInfo, streaming: Boolean = false) {
+    if (message.kind == MessageKind.ERROR) {
+        TurnFailureMessage(message.text)
+        return
+    }
     if (message.questionReplies.isNotEmpty()) {
         AnsweredQuestions(message.questionReplies)
         return

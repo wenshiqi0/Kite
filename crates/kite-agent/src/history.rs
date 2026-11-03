@@ -352,7 +352,9 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
             continue;
         };
         let p = &value["payload"];
-        let id = if p["type"] == "message" || p["type"] == "image_generation_call" {
+        let id = if let Some(id) = crate::turn_error_id(&value) {
+            id
+        } else if p["type"] == "message" || p["type"] == "image_generation_call" {
             p["id"]
                 .as_str()
                 .or_else(|| value["uuid"].as_str())
@@ -459,6 +461,19 @@ records
 mod transport_tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn terminal_error_identity_and_source_position_survive_history_backfill() {
+        let record = serde_json::json!({"type":"event_msg","_kite_offset":4321,"payload":{"type":"task_complete","turn_id":"failed","error":{"message":"model unavailable","codex_error_info":"server_overloaded"}}});
+        let projected = serde_json::to_vec(&record).unwrap();
+        let messages = parse_history("codex", &projected);
+        let positions = record_positions(&projected);
+        assert_eq!(positions[&messages[0].id], (4321, 0));
+        let mut original = record;
+        original.as_object_mut().unwrap().remove("_kite_offset");
+        let original = parse_history("codex", &serde_json::to_vec(&original).unwrap());
+        assert_eq!(messages, original);
+        assert_eq!(merge(&messages, &original), messages);
+    }
     #[test]
     fn compressed_pages_decode_with_a_hard_bound() {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
