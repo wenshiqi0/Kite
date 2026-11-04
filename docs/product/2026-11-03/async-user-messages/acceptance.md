@@ -11,3 +11,9 @@ Local validation:
 - `cargo clippy -p kite-agent -p kite-ffi --all-targets --locked -- -D warnings`, `cargo fmt --all --check` and `git diff --check` pass.
 
 The new worktree's pinned native submodules and Bun dependencies were initialized before running the successful checks. No user conversation was resumed or sent a message. This change does not require a Node upgrade. Android installation and physical-phone presentation are not claimed by these local tests; the tagged Alpha workflow supplies APK compilation, JVM tests, lint and publication checks.
+
+## Published Alpha 73
+
+[Alpha 73](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.73), versionCode 75, is published from `c3240db3fd20bb27f32aa2b39196a0b5d931d890`. Both jobs in the [tagged workflow](https://github.com/wenshiqi0/Kite/actions/runs/41653012627) passed, including complete Rust checks, native Linux fixtures, Android JVM tests/lint, signing/alignment verification and the publisher's full public-asset downloads/checksums.
+
+A separate read of the published manifest and checksum list confirms the source commit, version, stable certificate pin and both APK digests against GitHub's public asset metadata. Full APK signature and content verification was performed by CI. Exact publication facts are in [publication.json](publication.json). No handset installation or physical UI acceptance is claimed.
