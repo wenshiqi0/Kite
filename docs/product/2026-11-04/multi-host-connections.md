@@ -14,3 +14,10 @@ Rust `ClientCore` 管理每台主机独立的 `AppCore` 工作区，共享设备
 - `cargo test --workspace --locked`、Rust clippy、Android Release JVM tests、Release lint，以及 Debug instrumentation 源码编译。设备执行和 Mac/iOS 的 Xcode 执行单独记录，不以编译代替运行验收。
 
 发布包以 Alpha 81 GitHub prerelease 的附件、源码提交和校验清单为准。本次不重启用户主机服务，不发送模型任务。
+
+## 发布与运行证据
+
+- [Android 签名构建与发布](https://github.com/wenshiqi0/Kite/actions/runs/41817438079) 最终成功。首次发布因 GitHub HTTP 502 留下空草稿；仅重试失败的发布 job，沿用同一提交、同一 CI 制品，未改写标签或已有附件。
+- [Mac 原生测试与应用构建](https://github.com/wenshiqi0/Kite/actions/runs/41817417830) 成功。
+- [Alpha 81 prerelease](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.81) 绑定提交 `a9e60bcc402b88bb469277c049141668d1e6ac8e`，Android versionCode 为 83。附件 SHA256SUMS、源码提交和版本已复核；签名证书与 Alpha 80 相同，版本号从 82 递增到 83。
+- 已在独立 API 36 软件模拟器安装该 Release 的 compat-v2 APK，ADB 返回 `Success`。主界面已启动，随后模拟器报告 **Process system isn't responding**；系统 ANR 阻止后续列表交互验收。没有把此环境结果记作界面通过，也不据此推断真机或外网表现。测试模拟器已清理，原有模拟器与用户主机服务未改动。
