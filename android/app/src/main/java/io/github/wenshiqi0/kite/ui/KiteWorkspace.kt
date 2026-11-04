@@ -308,6 +308,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                 }
+                currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
+                    Box(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                        SubagentTree("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
+                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp))
+                    }
+                }
                 if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
                     Spacer(Modifier.width(8.dp))

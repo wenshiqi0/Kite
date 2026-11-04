@@ -142,3 +142,15 @@
 "no_sessions" = "尚无会话";
 "session_machine" = "目标机器";
 "active_sessions" = "活动";
+"subagents_count" = "子 agent · %d";
+"subagents_unavailable" = "暂时无法更新子 agent 状态";
+"subagent_running" = "运行中";
+"subagent_starting" = "启动中";
+"subagent_question" = "等待回答";
+"subagent_blocked" = "等待审批";
+"subagent_completed" = "已完成";
+"subagent_failed" = "运行失败";
+"subagent_stopped" = "已中断";
+"subagent_idle" = "空闲";
+"subagent_unknown" = "状态未知";
+"subagent_disconnected" = "已断开";

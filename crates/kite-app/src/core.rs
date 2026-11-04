@@ -69,6 +69,8 @@ pub struct ConversationSession {
     pub agent_id: Option<String>,
     pub status: String,
     pub recorded: bool,
+    pub subagents: Vec<kite_agent::subagents::Subagent>,
+    pub subagents_error: bool,
 }
 
 pub trait SecretStorage: Send + Sync {
@@ -2779,6 +2781,8 @@ mod tests {
     #[test]
     fn approval_cannot_cross_session_state_or_question() {
         let mut agent = Agent {
+            subagents: None,
+            subagents_error: false,
             launch_pending: false,
             interactive_ready: true,
             terminal_id: "t1".into(),

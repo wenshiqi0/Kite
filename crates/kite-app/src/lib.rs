@@ -39,6 +39,7 @@ pub use kite_stream::{
     StreamError, VideoFormat,
 };
 
+pub use kite_agent::subagents::Subagent;
 pub use kite_herdr::{BridgeCheck, CheckError};
 pub use kite_ssh::{KeyPair, SshError, Target};
 
