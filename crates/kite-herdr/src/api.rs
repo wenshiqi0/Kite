@@ -33,6 +33,23 @@ pub struct Agent {
     #[serde(default)]
     pub state_change_seq: u64,
     pub agent_session: Option<AgentSession>,
+    #[serde(default)]
+    pub subagents: Option<Vec<Subagent>>,
+    #[serde(default)]
+    pub subagents_error: bool,
+}
+
+/// Provider thread identities stay separate from terminal/pane identities.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Subagent {
+    pub id: String,
+    pub parent_id: String,
+    pub name: String,
+    pub task: String,
+    pub runtime_status: String,
+    pub active_flags: Vec<String>,
+    pub last_outcome: Option<String>,
+    pub updated_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

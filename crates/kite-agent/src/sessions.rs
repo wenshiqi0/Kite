@@ -23,6 +23,8 @@ pub struct Record {
     pub pane_id: String,
     pub workspace_id: String,
     pub agent_name: String,
+    #[serde(default)]
+    pub subagents: Vec<crate::subagents::Subagent>,
 }
 impl Record {
     pub fn matches(&self, agent: &Agent) -> bool {
@@ -56,6 +58,7 @@ impl Record {
             pane_id: String::new(),
             workspace_id: String::new(),
             agent_name: String::new(),
+            subagents: Vec::new(),
         }
     }
 }
@@ -146,6 +149,9 @@ impl<'a> Repository<'a> {
                 record.pane_id = agent.pane_id.clone();
                 record.workspace_id = agent.workspace_id.clone();
                 record.agent_name = agent.name.clone().unwrap_or_default();
+                if let Some(children) = &agent.subagents {
+                    record.subagents = children.iter().cloned().map(Into::into).collect();
+                }
                 if record.cwd.is_none() {
                     record.cwd = agent.cwd.clone();
                 }

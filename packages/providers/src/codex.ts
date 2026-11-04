@@ -44,6 +44,7 @@ import { bridgeSocket, listening, requirePrivateSocket } from "@kite/runtime/soc
 import { catalogRead, catalogRoot, patchSession, sessionLock, stateDir } from "./catalog";
 import { codexHistoryFiles, codexThread, setCodexArchived } from "./codex-storage";
 import { harnessDirectory, harnessInfo, openHarness } from "./harness";
+import { attachSubagents, codexSubagents } from "./subagents";
 import { websocketProxy } from "./websocket";
 export interface Registry extends OwnerIdentity {
   protocol: 1;
@@ -140,7 +141,16 @@ export async function herdrRequest(binary: string, request: ObjectValue): Promis
       ...response,
       result: {
         ...result,
-        agents: await reconcileAgentSessions(array(result.agents).map(object)),
+        agents: await attachSubagents(
+          await reconcileAgentSessions(array(result.agents).map(object)),
+          async (pane, thread) => {
+            if (!existsSync(registryPath(pane))) return undefined;
+            readRegistry(pane);
+            return codexSubagents(thread, (method, params) =>
+              backendRpc(pane, method, params, 2000),
+            );
+          },
+        ),
       },
     };
   }

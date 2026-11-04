@@ -69,6 +69,28 @@ fn views(records: &[Record], agents: &[Agent], sort: SessionSort) -> Vec<Convers
                     })
                     .unwrap_or_else(|| "saved".into()),
                 recorded: r.reference.is_some(),
+                subagents: live
+                    .and_then(|a| {
+                        a.subagents
+                            .as_ref()
+                            .map(|children| children.iter().cloned().map(Into::into).collect())
+                    })
+                    .unwrap_or_else(|| {
+                        r.subagents
+                            .iter()
+                            .cloned()
+                            .map(|mut child| {
+                                if matches!(
+                                    child.status.as_str(),
+                                    "working" | "blocked" | "question" | "starting"
+                                ) {
+                                    child.status = "unknown".into();
+                                }
+                                child
+                            })
+                            .collect()
+                    }),
+                subagents_error: live.is_some_and(|a| a.subagents_error),
             }
         })
         .collect();
@@ -1101,6 +1123,58 @@ impl AppCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_subagent_tree_retains_edges_and_terminal_outcomes_without_stale_running_states() {
+        let mut record = Record::draft("parent".into(), "codex".into(), "Parent".into(), None, 1);
+        record.reference = Some(kite_herdr::api::AgentSession {
+            source: "herdr:codex".into(),
+            agent: "codex".into(),
+            kind: "id".into(),
+            value: "root-thread".into(),
+        });
+        record.subagents = vec![
+            kite_agent::subagents::Subagent {
+                id: "child".into(),
+                parent_id: "root-thread".into(),
+                name: "Worker".into(),
+                task: "research".into(),
+                status: "working".into(),
+                updated_ms: 100,
+            },
+            kite_agent::subagents::Subagent {
+                id: "grandchild".into(),
+                parent_id: "child".into(),
+                name: "Verifier".into(),
+                task: "verify".into(),
+                status: "done".into(),
+                updated_ms: 90,
+            },
+        ];
+        let restored: Record =
+            serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        let saved = views(&[restored.clone()], &[], SessionSort::default()).remove(0);
+        assert_eq!(saved.subagents[0].status, "unknown");
+        assert_eq!(saved.subagents[1].status, "done");
+        assert_eq!(saved.subagents[1].parent_id, saved.subagents[0].id);
+        let mut live: Agent = serde_json::from_value(serde_json::json!({
+            "terminal_id":"terminal","agent":"codex","agent_status":"working","workspace_id":"w","tab_id":"w:t1","pane_id":"w:p1","revision":1,
+            "agent_session":record.reference,"subagents":record.subagents.iter().map(|child| serde_json::json!({
+                "id":child.id,"parent_id":child.parent_id,"name":child.name,"task":child.task,"updated_ms":child.updated_ms,
+                "runtime_status":if child.status == "working" {"active"} else {"notLoaded"},"active_flags":[],"last_outcome":if child.status == "done" {Some("completed")}else{None},
+            })).collect::<Vec<_>>(),
+        })).unwrap();
+        let current = views(&[restored.clone()], &[live.clone()], SessionSort::default()).remove(0);
+        assert_eq!(current.subagents[0].status, "working");
+        assert_eq!(current.agent_id.as_deref(), Some("terminal"));
+        live.subagents = None;
+        live.subagents_error = true;
+        let unavailable = views(&[restored], &[live], SessionSort::default()).remove(0);
+        assert!(unavailable.subagents_error);
+        assert_eq!(unavailable.subagents[0].status, "unknown");
+        assert_eq!(unavailable.subagents[1].status, "done");
+        assert_eq!(unavailable.agent_id.as_deref(), Some("terminal"));
+    }
 
     #[test]
     fn creation_order_does_not_move_on_activity_or_archive_and_ties_are_deterministic() {

@@ -95,7 +95,7 @@ struct WorkspaceView: View {
                     let workspace = model.snapshot?.hostConnections.first { $0.hostId == host.id }
                     let connection = workspace?.connection ?? .disconnected
                     let sessions = (workspace?.sessions ?? []).filter {
-                        $0.archived == model.showArchived && (sessionSearch.isEmpty || host.host.localizedCaseInsensitiveContains(sessionSearch) || $0.title.localizedCaseInsensitiveContains(sessionSearch) || $0.preview.localizedCaseInsensitiveContains(sessionSearch) || $0.provider.localizedCaseInsensitiveContains(sessionSearch))
+                        $0.archived == model.showArchived && (sessionSearch.isEmpty || host.host.localizedCaseInsensitiveContains(sessionSearch) || $0.title.localizedCaseInsensitiveContains(sessionSearch) || $0.preview.localizedCaseInsensitiveContains(sessionSearch) || $0.provider.localizedCaseInsensitiveContains(sessionSearch) || $0.subagents.contains { $0.name.localizedCaseInsensitiveContains(sessionSearch) || $0.task.localizedCaseInsensitiveContains(sessionSearch) })
                     }
                     let expanded = !collapsedMachines.contains(host.id) || !sessionSearch.isEmpty
                     if sessionSearch.isEmpty || !sessions.isEmpty {
@@ -118,6 +118,8 @@ struct WorkspaceView: View {
                                             model.command(scoped: false) { try await $0.archiveSession(hostId: host.id, sessionId: session.id, archived: !session.archived) }
                                         }.disabled(connection != .connected)
                                     }
+                                    SubagentTree(agents: session.subagents, failed: session.subagentsError, connected: connection == .connected)
+                                        .id("\(host.id)/\(session.id)").padding(.leading, 16)
                                 }
                                 if sessions.isEmpty { Text(tr("no_sessions")).font(.caption).foregroundStyle(.secondary) }
                             }

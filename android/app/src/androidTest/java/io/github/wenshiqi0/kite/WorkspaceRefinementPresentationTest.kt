@@ -38,6 +38,31 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun subagentTreeShowsParentsAndStatusesAndCollapsesOnlyTheSelectedBranch() {
+        val agents = listOf(
+            SubagentInfo("worker", "parent", "Worker", "research", "working", 0),
+            SubagentInfo("verifier", "worker", "Verifier", "research/verify", "done", 0),
+            SubagentInfo("auditor", "parent", "Auditor", "audit", "failed", 0),
+        )
+        overlay({
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                androidx.compose.material3.Text("父 agent · 项目检查")
+                SubagentTree("tree-fixture", agents, false, true, initiallyExpanded = true)
+            }
+        }) {
+            waitFor("nested worker is visible") { find(text = "Verifier") != null }
+            assertNotNull(find(text = "运行中"))
+            assertNotNull(find(text = "已完成"))
+            assertNotNull(find(text = "运行失败"))
+            screenshot("subagent-tree-expanded.png")
+            assertTrue(actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("only the worker branch collapses") { find(text = "Verifier") == null }
+            assertNotNull(find(text = "Auditor"))
+            assertNotNull(find(text = "运行失败"))
+            screenshot("subagent-tree-collapsed.png")
+        }
+    }
+
     private val test get()=InstrumentationRegistry.getInstrumentation()
     private fun main(block:()->Unit){var error:Throwable?=null;test.runOnMainSync{try{block()}catch(e:Throwable){error=e}};error?.let{throw it}}
     private fun waitFor(label:String,condition:()->Boolean){val end=SystemClock.uptimeMillis()+15000;while(!condition()&&SystemClock.uptimeMillis()<end)SystemClock.sleep(80);assertTrue(label,condition())}
