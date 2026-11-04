@@ -44,9 +44,11 @@ function fixture() {
     list: async () => records,
     async create(provider, cwd, title) {
       created++;
-      const record = {
+      if (provider !== "codex" && provider !== "ply" && provider !== "dsh")
+        throw new Error("unexpected fixture provider");
+      const record: SessionRecord = {
         id: "c".repeat(32),
-        provider: provider === "dsh" ? ("dsh" as const) : ("ply" as const),
+        provider,
         cwd,
         title,
       };
@@ -77,8 +79,18 @@ function fixture() {
           effort: "",
           async call(method, params) {
             owner.calls.push([method, params]);
-            if (method === "thread/turns/list")
+            if (method === "thread/read") {
+              return {
+                thread: {
+                  id: `thread-${record.id}`,
+                  status: { type: owner.active ? "active" : "idle" },
+                },
+              };
+            }
+            if (method === "thread/turns/list") {
+              if (record.provider === "codex") throw new Error("thread is not materialized yet");
               return { data: owner.active ? [{ id: "turn", status: "inProgress" }] : [] };
+            }
             if (method === "turn/start") {
               owner.active = true;
               return { turn: { id: "turn" } };
@@ -181,6 +193,43 @@ test("prompt cancellation reaches its owner while another session stays attached
   await pending;
   expect(f.outputs.find((r) => r.id === 9)?.result).toMatchObject({ stopReason: "cancelled" });
   expect(f.owners.get(f.records[1]?.id || "")?.calls).toEqual([]);
+  f.agent.close();
+});
+test("Codex ACP starts the first turn from live thread status and rejects an active thread", async () => {
+  const f = fixture();
+  await f.initialize();
+  await f.agent.receive({
+    id: 2,
+    method: "session/new",
+    params: { cwd: f.root, mcpServers: [], _meta: { kite: { provider: "codex" } } },
+  });
+  const id = String(object(f.outputs.find((r) => r.id === 2)?.result).sessionId),
+    owner = f.owners.get(id);
+  if (!owner) throw new Error("Codex owner not attached");
+  const prompt = (requestId: number) =>
+    f.agent.receive({
+      id: requestId,
+      method: "session/prompt",
+      params: { sessionId: id, prompt: [{ type: "text", text: "inspect" }] },
+    });
+
+  owner.active = true;
+  await prompt(3);
+  expect(f.outputs.find((r) => r.id === 3)?.error?.message).toBe(
+    "remote session already has an active turn",
+  );
+  expect(owner.calls.map(([method]) => method)).toEqual(["thread/read"]);
+
+  owner.active = false;
+  const first = prompt(4);
+  await until(() => owner.active);
+  expect(owner.calls.slice(1).map(([method]) => method)).toEqual(["thread/read", "turn/start"]);
+  owner.event({
+    method: "turn/completed",
+    params: { threadId: `thread-${id}`, turn: { id: "turn", status: "completed" } },
+  });
+  await first;
+  expect(f.outputs.find((r) => r.id === 4)?.result).toMatchObject({ stopReason: "end_turn" });
   f.agent.close();
 });
 test("streamed assistant deltas are not repeated by the final completed item", async () => {

@@ -522,17 +522,31 @@ export class KiteAcp implements AcpConnection {
         );
         check(!dirty.stdout.length, "remote build workspace contains tracked modifications");
       }
-      const turns = array(
-        object(
-          await binding.backend.call("thread/turns/list", {
-            threadId: binding.backend.thread,
-            limit: 1,
-            itemsView: "notLoaded",
-            sortDirection: "desc",
-          }),
-        ).data,
-      ).map(object);
-      check(turns[0]?.status !== "inProgress", "remote session already has an active turn");
+      const threadId = binding.backend.thread;
+      if (binding.record.provider === "codex") {
+        // Codex has live status before its first prompt creates turn history.
+        const thread = object(
+          object(await binding.backend.call("thread/read", { threadId, includeTurns: false }))
+            .thread,
+        );
+        check(thread.id === threadId, "remote session thread changed");
+        check(
+          string(object(thread.status).type) !== "active",
+          "remote session already has an active turn",
+        );
+      } else {
+        const turns = array(
+          object(
+            await binding.backend.call("thread/turns/list", {
+              threadId,
+              limit: 1,
+              itemsView: "notLoaded",
+              sortDirection: "desc",
+            }),
+          ).data,
+        ).map(object);
+        check(turns[0]?.status !== "inProgress", "remote session already has an active turn");
+      }
       if (binding.cancelRequested) return { stopReason: "cancelled" };
       const { promise: result, resolve, reject } = Promise.withResolvers<Json>();
       const pending: PendingTurn = {
