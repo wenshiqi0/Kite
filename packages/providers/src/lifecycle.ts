@@ -29,6 +29,7 @@ import {
 } from "@kite/runtime";
 import { catalogRead, catalogRoot, catalogUnlocked, sessionLock } from "./catalog";
 import { api, backendRpc, ownerLock, readRegistry, registryPath, sameReference } from "./codex";
+import { codexHistoryFiles, codexThread, setCodexArchived } from "./codex-storage";
 import { harnessAgents, harnessDirectory, harnessInfo } from "./harness";
 import { historyFiles, questionRecords } from "./history";
 
@@ -313,6 +314,57 @@ export async function lifecycleFacts(binary: string): Promise<Json> {
   }
   return json({ facts });
 }
+/** Sync native archive state only after any Kite owner has been released. */
+export async function archiveReleasedCodex(binary: string): Promise<Json> {
+  const result = { archived: 0, failed: 0 };
+  const { sessions } = await catalogRead();
+  const candidates = sessions.filter((record) => {
+    const thread = codexThread(record);
+    return record.archived && thread && codexHistoryFiles(thread).length > 0;
+  });
+  if (!candidates.length) return result;
+
+  const agents = array((await api(binary, "agent.list", {})).agents).map(object);
+  const deadline = Date.now() + 8000;
+  for (const candidate of candidates) {
+    if (Date.now() >= deadline) break;
+    const { id } = candidate;
+    try {
+      const archived = await locked(
+        sessionLock(id),
+        () =>
+          locked(
+            join(catalogRoot(), "sessions.lock"),
+            async () => {
+              const latest = catalogUnlocked().sessions;
+              const record = latest.find((r) => r.id === id);
+              const thread = record && codexThread(record);
+              if (!record?.archived || !thread || thread !== codexThread(candidate)) return false;
+              if (latest.some((r) => r.id !== id && codexThread(r) === thread)) return false;
+              if (record.pane_id && hasSavedOwner(record.pane_id)) return false;
+              if (
+                agents.some(
+                  (a) =>
+                    sameReference(a, record) ||
+                    (record.pane_id && a.pane_id === record.pane_id) ||
+                    (record.terminal_id && a.terminal_id === record.terminal_id),
+                )
+              )
+                return false;
+              return setCodexArchived(thread, true);
+            },
+            1000,
+          ),
+        1000,
+      );
+      if (archived) result.archived++;
+    } catch {
+      result.failed++;
+    }
+  }
+  return result;
+}
+
 export async function lifecycleReap(
   expected: ObjectValue,
   binary: string,

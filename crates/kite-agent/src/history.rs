@@ -131,15 +131,26 @@ provider={provider}
 kind={kind}
 value={value}
 cached={cached}
-if test "$provider" = claude; then root="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/projects"; pattern="$value.jsonl";
-else root="${{CODEX_HOME:-$HOME/.codex}}/sessions"; pattern="rollout-*-$value.jsonl"; fi
-if ! test -d "$root"; then printf 'kite-history-pending-v1\n'; exit 0; fi
-root=$(readlink -f "$root")
+archive=
+if test "$provider" = claude; then
+  root="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/projects"
+  pattern="$value.jsonl"
+else
+  codex_home="${{CODEX_HOME:-$HOME/.codex}}"
+  root="$codex_home/sessions"
+  archive="$codex_home/archived_sessions"
+  pattern="rollout-*-$value.jsonl"
+fi
+if ! test -d "$root" && ! test -d "$archive"; then printf 'kite-history-pending-v1\n'; exit 0; fi
+if test -d "$root"; then root=$(readlink -f "$root"); fi
+if test -d "$archive"; then archive=$(readlink -f "$archive"); fi
 if test "$kind" = path; then
   file=$(readlink -f "$value")
-  case "$file" in "$root"/*.jsonl) ;; *) exit 2;; esac
+  case "$file" in "$root"/*.jsonl) ;; "$archive"/*.jsonl) test -n "$archive";; *) exit 2;; esac
 else
-  files=$(find "$root" -maxdepth 6 -type f -name "$pattern" -print | head -n 2)
+  files=$(for dir in "$root" "$archive"; do
+    if test -d "$dir"; then find "$dir" -maxdepth 6 -type f -name "$pattern" -print; fi
+  done | head -n 2)
   count=$(printf '%s\n' "$files" | grep -c . || true)
   if test "$count" = 0; then printf 'kite-history-pending-v1\n'; exit 0; fi
   test "$count" = 1

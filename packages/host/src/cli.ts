@@ -34,7 +34,12 @@ import {
 import { sessionDelete } from "@kite/providers/deletion";
 import { harnessAgents, harnessDirectory, providers } from "@kite/providers/harness";
 import { historyProjection, historyStamp } from "@kite/providers/history";
-import { lifecycleFacts, lifecycleReap, notificationFacts } from "@kite/providers/lifecycle";
+import {
+  archiveReleasedCodex,
+  lifecycleFacts,
+  lifecycleReap,
+  notificationFacts,
+} from "@kite/providers/lifecycle";
 import { serveOwner } from "@kite/providers/owner";
 import { attachmentRead, readGeneratedImage, upload } from "@kite/providers/uploads";
 import { exec, input, lines } from "@kite/runtime";
@@ -232,6 +237,9 @@ export async function main(argv: string[]): Promise<void> {
       break;
     case "lifecycle-facts":
       output(await lifecycleFacts(arg("herdr")));
+      break;
+    case "lifecycle-archive":
+      output(await archiveReleasedCodex(arg("herdr")));
       break;
     case "lifecycle-reap":
       output(await lifecycleReap(object(parse((await input(65536)).toString())), arg("herdr")));

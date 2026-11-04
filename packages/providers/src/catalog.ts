@@ -9,6 +9,7 @@ import {
   type SessionRecord,
 } from "@kite/protocol";
 import { atomic, home, locked, privateDir, readJson, sha256 } from "@kite/runtime";
+import { codexThread, setCodexArchived } from "./codex-storage";
 export const catalogRoot = () => privateDir(join(home(), ".local/share/kite"));
 export const stateDir = () => privateDir(join(home(), ".local/state/kite/codex"));
 function deletionMarkers(record: SessionRecord): string[] {
@@ -56,9 +57,16 @@ export async function catalogWrite(value: unknown): Promise<Catalog | { conflict
   // The Rust Catalog wire DTO omits the on-disk schema version.
   const request = object(value);
   const incoming = catalog({ version: 1, ...request });
-  return locked(join(catalogRoot(), "sessions.lock"), () => {
+  return locked(join(catalogRoot(), "sessions.lock"), async () => {
     const current = catalogUnlocked();
     if (current.revision !== incoming.revision) return { conflict: true };
+    const archived = new Map(current.sessions.filter((r) => r.archived).map((r) => [r.id, r]));
+    for (const record of incoming.sessions) {
+      const previous = archived.get(record.id),
+        thread = codexThread(record);
+      if (!record.archived && previous && thread && thread === codexThread(previous))
+        await setCodexArchived(thread, false);
+    }
     return saveCatalogUnlocked(incoming);
   });
 }
