@@ -4,6 +4,8 @@ struct WorkspaceView: View {
     @Bindable var model: ClientModel
     @State private var editor: HostDraft?
     @State private var creatingSession = false
+    @State private var sessionSearch = ""
+    @State private var collapsedMachines: Set<String> = []
     @State private var desktopOnly = false
     @State private var visibility: NavigationSplitViewVisibility = .all
     @Environment(\.scenePhase) private var phase
@@ -39,12 +41,10 @@ struct WorkspaceView: View {
             .navigationSubtitle(model.selectedHost.map { "\($0.username)@\($0.host)" } ?? tr("native_workspace"))
             .toolbar {
                 ToolbarItemGroup {
-                    Button { openWindow(id: "local-host") } label: { Label(tr("local_host"), systemImage: "server.rack") }
                     if model.recovering {
                         Button(tr("cancel_reconnect")) { model.disconnect() }
                     }
                     if model.connected {
-                        Button { creatingSession = true } label: { Label(tr("new_session"), systemImage: "square.and.pencil") }
                         Button { model.disconnect() } label: { Label(tr("disconnect"), systemImage: "bolt.slash") }
                     }
                     SettingsLink { Image(systemName: "gearshape") }
@@ -63,93 +63,95 @@ struct WorkspaceView: View {
     }
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "paperplane.fill").font(.title2).foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Kite").font(.title3.weight(.semibold))
-                    Text(tr("remote_workspace")).font(.caption).foregroundStyle(.secondary)
-                }
+            HStack {
+                Text(tr("sessions")).font(.title3.weight(.semibold))
                 Spacer()
-                Button { editor = HostDraft() } label: { Image(systemName: "plus") }.help(tr("add_host"))
-            }.padding(18)
+            }.padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+            HStack(spacing: 8) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField(tr("search_sessions"), text: $sessionSearch).textFieldStyle(.plain)
+                }.font(.callout).padding(.horizontal, 9).frame(height: 32)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                Button { creatingSession = true } label: { Image(systemName: "plus").font(.title3) }
+                    .buttonStyle(.plain).frame(width: 30, height: 32).help(tr("new_session"))
+                    .disabled(model.busy || model.snapshot?.hostConnections.contains { $0.connection == .connected } != true)
+            }.padding(.horizontal, 12)
+            HStack {
+                Picker(tr("sessions"), selection: $model.showArchived) {
+                    Text(tr("active_sessions")).tag(false)
+                    Text(tr("archived_sessions")).tag(true)
+                }.pickerStyle(.segmented).labelsHidden()
+                Menu {
+                    Button(tr("sort_newest")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .newest) } }
+                    Button(tr("sort_oldest")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .oldest) } }
+                    Button(tr("sort_activity")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .recentActivity) } }
+                    Button(tr("sort_title")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .title) } }
+                } label: { Image(systemName: "line.3.horizontal.decrease") }
+                    .menuStyle(.borderlessButton).fixedSize().help(tr("session_sort"))
+            }.padding(.horizontal, 12).padding(.vertical, 8)
             List {
-                Section(tr("machines")) {
-                    ForEach(model.snapshot?.hosts ?? [], id: \.id) { host in
-                        let connection = model.snapshot?.hostConnections.first { $0.hostId == host.id }?.connection ?? .disconnected
-                        let selected = host.id == model.snapshot?.selectedHost
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: selected ? "checkmark.circle.fill" : "desktopcomputer").foregroundStyle(connection == .connected ? .cyan : .secondary).padding(.top, 3)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(host.host).fontWeight(.medium).lineLimit(1)
-                                Text(connectionLabel(for: connection))
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 2)
-                            Button { editor = HostDraft(host) } label: { Image(systemName: "pencil") }
-                                .buttonStyle(.borderless).help(tr("edit_host"))
-                            Button { model.connect(host.id) } label: { Image(systemName: host.id == model.snapshot?.selectedHost && model.connected ? "checkmark.circle.fill" : "arrow.right.circle") }
-                                .buttonStyle(.borderless).disabled(model.busy)
-                                .help(tr("connect"))
-                        }.padding(.vertical, 7)
-                            .contextMenu {
-                                Button(tr("edit_host")) { editor = HostDraft(host) }
-                                Button(tr("disconnect")) { model.command(scoped: false) { try await $0.disconnectHost(hostId: host.id) } }
-                            }
+                ForEach(model.snapshot?.hosts ?? [], id: \.id) { host in
+                    let workspace = model.snapshot?.hostConnections.first { $0.hostId == host.id }
+                    let connection = workspace?.connection ?? .disconnected
+                    let sessions = (workspace?.sessions ?? []).filter {
+                        $0.archived == model.showArchived && (sessionSearch.isEmpty || host.host.localizedCaseInsensitiveContains(sessionSearch) || $0.title.localizedCaseInsensitiveContains(sessionSearch) || $0.preview.localizedCaseInsensitiveContains(sessionSearch) || $0.provider.localizedCaseInsensitiveContains(sessionSearch))
                     }
-                    if model.snapshot?.hosts.isEmpty != false { Button(tr("add_host")) { editor = HostDraft() } }
-                }
-                if model.connected {
-                    if let state = model.snapshot, let host = state.selectedHost {
-                        Picker(tr("session_sort"), selection: Binding(get: { state.sessionSort }, set: { order in
-                            model.command { try await $0.setSessionSort(hostId: host, order: order) }
-                        })) {
-                            Text(tr("sort_newest")).tag(SessionSortOrder.newest)
-                            Text(tr("sort_oldest")).tag(SessionSortOrder.oldest)
-                            Text(tr("sort_activity")).tag(SessionSortOrder.recentActivity)
-                            Text(tr("sort_title")).tag(SessionSortOrder.title)
-                        }
-                    }
-                    Section {
-                        ForEach((model.snapshot?.sessions ?? []).filter { $0.archived == model.showArchived }, id: \.id) { session in
-                            Button { model.open(session) } label: {
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: session.id == model.snapshot?.selectedSession ? "bubble.left.fill" : "bubble.left")
-                                        .foregroundStyle(session.id == model.snapshot?.selectedSession ? .cyan : .secondary)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(session.title.isEmpty ? tr("untitled_session") : session.title).font(.callout).lineLimit(1)
-                                        Text(session.preview.isEmpty ? session.provider : session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                    }
-                                }.padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                            .listRowBackground(session.id == model.snapshot?.selectedSession ? Color.cyan.opacity(0.12) : Color.clear)
-                            .contextMenu {
-                                Button(tr(session.archived ? "restore_session" : "archive_session")) {
-                                    if let host = model.snapshot?.selectedHost {
-                                        model.command { try await $0.archiveSession(hostId: host, sessionId: session.id, archived: !session.archived) }
+                    let expanded = !collapsedMachines.contains(host.id) || !sessionSearch.isEmpty
+                    if sessionSearch.isEmpty || !sessions.isEmpty {
+                        Section {
+                            if expanded {
+                                ForEach(sessions, id: \.id) { session in
+                                    let selected = model.snapshot?.selectedHost == host.id && model.snapshot?.selectedSession == session.id
+                                    Button { model.open(session, hostId: host.id) } label: {
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Image(systemName: selected ? "bubble.left.fill" : "bubble.left").foregroundStyle(selected ? .cyan : .secondary)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(session.title.isEmpty ? tr("untitled_session") : session.title).font(.callout).lineLimit(1)
+                                                Text(session.preview.isEmpty ? session.provider : session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            }
+                                        }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                                    }.buttonStyle(.plain)
+                                    .listRowBackground(selected ? Color.cyan.opacity(0.12) : Color.clear)
+                                    .contextMenu {
+                                        Button(tr(session.archived ? "restore_session" : "archive_session")) {
+                                            model.command(scoped: false) { try await $0.archiveSession(hostId: host.id, sessionId: session.id, archived: !session.archived) }
+                                        }.disabled(connection != .connected)
                                     }
                                 }
+                                if sessions.isEmpty { Text(tr("no_sessions")).font(.caption).foregroundStyle(.secondary) }
                             }
-                        }
-                    } header: {
-                        HStack {
-                            Text(tr("sessions")); Spacer()
-                            Button { creatingSession = true } label: { Image(systemName: "plus") }.buttonStyle(.plain)
-                        }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Button {
+                                    if expanded { collapsedMachines.insert(host.id) } else { collapsedMachines.remove(host.id) }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "chevron.right").font(.caption2).rotationEffect(.degrees(expanded ? 90 : 0))
+                                        Circle().fill(connection == .connected ? Color.green : Color.secondary).frame(width: 5, height: 5)
+                                        Text(host.host).lineLimit(1)
+                                    }
+                                }.buttonStyle(.plain)
+                                Spacer(minLength: 0)
+                                Text(String(sessions.count)).font(.caption2)
+                                Menu {
+                                    Button(tr("machine_settings")) { editor = HostDraft(host) }
+                                    if connection == .connected {
+                                        Button(tr("disconnect")) { model.command(scoped: false) { try await $0.disconnectHost(hostId: host.id) } }
+                                    } else { Button(tr("connect")) { model.connect(host.id) } }
+                                } label: { Image(systemName: "ellipsis") }
+                                    .menuStyle(.borderlessButton).fixedSize().help(tr("machine_settings"))
+                            }.font(.caption)
+                        }.id(host.id)
                     }
-                    .id(model.snapshot?.selectedHost)
                 }
             }.listStyle(.sidebar)
-            Spacer(minLength: 0)
-            if model.connected {
-                Toggle(tr("archived_sessions"), isOn: $model.showArchived).toggleStyle(.checkbox).font(.caption).padding(14)
-            }
             Divider()
             HStack {
-                Circle().fill(model.connected ? .green : .secondary).frame(width: 6, height: 6)
-                Text(connectionLabel).font(.caption).foregroundStyle(.secondary)
+                Button { editor = HostDraft() } label: { Label(tr("add_host"), systemImage: "plus") }.buttonStyle(.plain)
                 Spacer()
-                Text("macOS").font(.caption2).foregroundStyle(.tertiary)
-            }.padding(14)
+                Button { openWindow(id: "local-host") } label: { Image(systemName: "server.rack") }.buttonStyle(.plain).help(tr("local_host"))
+            }.font(.caption).padding(14)
         }
     }
     private var connectionLabel: String {

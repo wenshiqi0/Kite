@@ -43,11 +43,16 @@ import {
 import { serveOwner } from "@kite/providers/owner";
 import { attachmentRead, readGeneratedImage, upload } from "@kite/providers/uploads";
 import { exec, input, lines } from "@kite/runtime";
+import { acpMain } from "./acp";
 export async function main(argv: string[]): Promise<void> {
   process.umask(0o077);
   installResourceHooks();
   const action = argv[0];
   check(action, "host action required");
+  if (action === "acp") {
+    await acpMain(argv.slice(1));
+    return;
+  }
   const output = (v: Json) => {
     process.stdout.write(`${JSON.stringify(v)}\n`);
   };

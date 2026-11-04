@@ -38,6 +38,8 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 ## 什么时候写 RFC
 
+- [0030 — 网络 ACP 与跨机器会话工作区](0030-network-acp-and-shared-workspaces.md)（已采纳，实施中）
+
 下面这些改动，先写 RFC：
 
 - 新增或拆分 crate，改变依赖规则。

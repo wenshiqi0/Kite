@@ -43,6 +43,10 @@ pub struct HostConnectionInfo {
     pub host_id: String,
     pub connection: ConnectionStatus,
     pub resources: Option<HostResourcesInfo>,
+    pub sessions: Vec<SessionInfo>,
+    pub selected_session: Option<String>,
+    pub providers: Vec<ProviderInfo>,
+    pub session_sort: SessionSortOrder,
 }
 
 impl From<kite_app::ConnectionPhase> for ConnectionStatus {
@@ -954,6 +958,10 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                     host_id: h.host_id,
                     connection: h.connection.into(),
                     resources: h.resources.map(Into::into),
+                    sessions: h.sessions.into_iter().map(Into::into).collect(),
+                    selected_session: h.selected_session,
+                    providers: h.providers.into_iter().map(Into::into).collect(),
+                    session_sort: h.session_sort.into(),
                 })
                 .collect(),
             session_sort: s.session_sort.into(),
@@ -1302,6 +1310,22 @@ impl KiteCore {
     pub async fn open_session(&self, host_id: String, session_id: String) -> Result<(), KiteError> {
         self.inner
             .open_session(host_id, session_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn open_workspace_session(
+        &self,
+        host_id: String,
+        session_id: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .open_workspace_session(host_id, session_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn set_workspace_sort(&self, order: SessionSortOrder) -> Result<(), KiteError> {
+        self.inner
+            .set_workspace_sort(order.into())
             .await
             .map_err(Into::into)
     }

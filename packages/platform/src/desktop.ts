@@ -27,7 +27,9 @@ const ptrValue = (value: Pointer | null): Pointer => {
   check(value, "x11_unavailable");
   return value;
 };
-const bytes = (value: Pointer, size: number) => Buffer.from(toArrayBuffer(value, 0, size));
+export const x11Bytes = (value: Pointer, size: number) =>
+  size === 0 ? Buffer.alloc(0) : Buffer.from(toArrayBuffer(value, 0, size));
+const bytes = x11Bytes;
 const cstr = (s: string) => Buffer.from(`${s}\0`);
 export function sessionEnvironment(): NodeJS.ProcessEnv {
   const env = { ...process.env },

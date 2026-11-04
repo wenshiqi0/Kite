@@ -83,6 +83,9 @@ struct TrustSheet: View {
 struct SessionEditor: View {
     let model: ClientModel
     @State private var provider = ""
+    @State private var machine = ""
+    private var available: [ProviderInfo] { model.snapshot?.hostConnections.first { $0.hostId == machine && $0.connection == .connected }?.providers ?? [] }
+    private func selectProvider() { if !available.contains(where: { $0.id == provider }) { provider = available.first(where: { $0.id == "codex" })?.id ?? available.first?.id ?? "" } }
     @State private var title = ""
     @State private var cwd = ""
     @Environment(\.dismiss) private var dismiss
@@ -90,8 +93,11 @@ struct SessionEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             Text(tr("new_session")).font(.title2.weight(.semibold))
             Form {
+                Picker(tr("session_machine"), selection: $machine) {
+                    ForEach((model.snapshot?.hosts ?? []).filter { host in model.snapshot?.hostConnections.contains { $0.hostId == host.id && $0.connection == .connected } == true }, id: \.id) { Text($0.host).tag($0.id) }
+                }
                 Picker(tr("harness"), selection: $provider) {
-                    ForEach(model.snapshot?.providers ?? [], id: \.id) { Text($0.id).tag($0.id) }
+                    ForEach(available, id: \.id) { Text($0.id).tag($0.id) }
                 }
                 TextField(tr("session_title"), text: $title)
                 TextField(tr("working_directory"), text: $cwd)
@@ -100,14 +106,20 @@ struct SessionEditor: View {
                 Spacer(); Button(tr("cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(tr("create")) {
                     let provider = provider, title = title, cwd = cwd
-                    if let host = model.snapshot?.selectedHost {
-                        model.command { try await $0.createSession(hostId: host, provider: provider, cwd: cwd, title: title) }
+                    if !machine.isEmpty {
+                        let host = machine
+                        model.command(scoped: false) { try await $0.createSession(hostId: host, provider: provider, cwd: cwd, title: title) }
                     }
                     dismiss()
-                }.buttonStyle(.borderedProminent).disabled(provider.isEmpty)
+                }.buttonStyle(.borderedProminent).disabled(provider.isEmpty || available.isEmpty)
             }
         }.padding(28).frame(width: 460)
-            .onAppear { provider = model.snapshot?.providers.first(where: { $0.id == "codex" })?.id ?? model.snapshot?.providers.first?.id ?? "" }
+            .onAppear {
+                machine = model.snapshot?.selectedHost.flatMap { host in model.snapshot?.hostConnections.first { $0.hostId == host && $0.connection == .connected }?.hostId } ?? model.snapshot?.hostConnections.first { $0.connection == .connected }?.hostId ?? ""
+                selectProvider()
+            }
+            .onChange(of: machine) { _, _ in cwd = ""; selectProvider() }
+            .onChange(of: available.map(\.id)) { _, _ in selectProvider() }
     }
 }
 

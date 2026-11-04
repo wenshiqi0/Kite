@@ -332,7 +332,7 @@ impl AppCore {
             .as_ref()
             .and_then(|id| self.cached_history(&host, id));
         self.update(|s| {
-            s.session_sort = book.sorts.get(&host).copied().unwrap_or_default();
+            s.session_sort = book.sorts.get(&host).copied().unwrap_or(s.session_sort);
             s.sessions = views(&records, &s.agents, s.session_sort);
             s.selected_session = selected;
             if s.selected_agent.is_none() {

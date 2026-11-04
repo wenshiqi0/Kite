@@ -1,9 +1,10 @@
+import { ptr } from "bun:ffi";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readJson } from "@kite/runtime";
-import { sessionEnvironment } from "../src/desktop";
+import { sessionEnvironment, x11Bytes } from "../src/desktop";
 import { payload } from "../src/push";
 import {
   descendants,
@@ -38,6 +39,11 @@ const proc = (pid: number, ppid: number, started = String(pid)): ProcessFact => 
   rss: 1,
   reserved: 2,
   cgroup: "/user.slice/kite-agents.slice/owned.scope",
+});
+test("empty X11 properties do not enter Bun's zero-length FFI conversion", () => {
+  const storage = Buffer.from([1, 2, 3]);
+  expect(x11Bytes(ptr(storage), 0)).toEqual(Buffer.alloc(0));
+  expect(x11Bytes(ptr(storage), 3)).toEqual(storage);
 });
 test("resource adoption follows every descendant and PID start identity", () => {
   const table = new Map([

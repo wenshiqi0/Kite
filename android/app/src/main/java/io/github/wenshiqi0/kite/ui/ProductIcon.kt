@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-enum class Mark { Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Stop, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows, Skill }
+enum class Mark { Search, Sort, Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Stop, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows, Skill }
 
 @Composable
 fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier = Modifier) {
@@ -25,6 +25,8 @@ fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier 
         fun line(x: Float, y: Float, xx: Float, yy: Float) = drawLine(color, Offset(x * unit, y * unit), Offset(xx * unit, yy * unit), stroke.width, StrokeCap.Round)
         fun box(x: Float, y: Float, w: Float, h: Float, r: Float = 2f) = drawRoundRect(color, Offset(x * unit, y * unit), Size(w * unit, h * unit), CornerRadius(r * unit), style = stroke)
         when (mark) {
+            Mark.Search -> {drawCircle(color, 6.5f*unit, Offset(10*unit,10*unit), style=stroke);line(15f,15f,21f,21f)}
+            Mark.Sort -> {line(4f,6f,20f,6f);line(4f,12f,15f,12f);line(4f,18f,10f,18f)}
             Mark.Windows -> {
                 drawRoundRect(color, Offset(3*unit,4*unit),Size(13*unit,12*unit),CornerRadius(2*unit),style=stroke)
                 drawRoundRect(color, Offset(8*unit,9*unit),Size(13*unit,12*unit),CornerRadius(2*unit),style=stroke)

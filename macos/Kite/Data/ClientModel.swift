@@ -152,9 +152,9 @@ final class ClientModel {
             try await core.disconnect()
         }
     }
-    func open(_ session: SessionInfo) {
-        guard !busy, let host = snapshot?.selectedHost else { return }
-        command { try await $0.openSession(hostId: host, sessionId: session.id) }
+    func open(_ session: SessionInfo, hostId: String? = nil) {
+        guard !busy, let host = hostId ?? snapshot?.selectedHost else { return }
+        command(scoped: false) { try await $0.openWorkspaceSession(hostId: host, sessionId: session.id) }
     }
     func send() {
         guard canSend, let id = snapshot?.selectedAgent, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

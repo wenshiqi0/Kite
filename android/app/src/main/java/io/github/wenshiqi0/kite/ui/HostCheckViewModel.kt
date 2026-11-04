@@ -103,7 +103,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     private val questionDrafts = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateMap<String, String>>()
     var creatingAgent by mutableStateOf(false)
         private set
-    private var wasConnecting = false
+    private var pendingConnectHost: String? = null
     private var lastConnection: ConnectionStatus? = null
     private var lastHost: String? = null
     var ctrlHeld by mutableStateOf(false)
@@ -138,7 +138,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                 if (state?.initialized == true && !loaded) {
                     loaded = true
                     val saved = state.hosts.find { it.id == state.selectedHost } ?: state.hosts.firstOrNull()
-                    if (saved == null) settingsVisible = true else {
+                    if (saved != null) {
                         form = saved.toForm()
                         if (state.connection == ConnectionStatus.DISCONNECTED && !engine.notificationNavigationActive) engine.command { engine.core.restoreConnection() }
                     }
@@ -155,17 +155,17 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     if (lastConnection == ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.RECONNECTING) {
                         if (showDesktop) closeDesktop()
-                        settingsVisible = true
                     }
                     if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.CONNECTED && videoSuspended && foreground && target != 0L && showDesktop) {
                         videoSuspended = false
                         retryDesktop()
                     }
-                    if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.FAILED) settingsVisible = true
+
                     lastConnection = state.connection
-                    if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
-                    if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { if(form.id==state.selectedHost){settingsVisible = false;hostEditorVisible=false}; wasConnecting = false }
-                    if (wasConnecting && state.connection == ConnectionStatus.FAILED) { settingsVisible = true; wasConnecting = false }
+                    if (pendingConnectHost == state.selectedHost && state.connection == ConnectionStatus.CONNECTED) {
+                        settingsVisible=false;hostEditorVisible=false;pendingConnectHost=null
+                    }
+                    if (pendingConnectHost == state.selectedHost && state.connection == ConnectionStatus.FAILED) pendingConnectHost=null
                     val draftContext = state.selectedSession?.let { "${state.selectedHost}/$it" } ?: state.selectedAgent?.let { "${state.selectedHost}/$it" }
                     if (draftContext != draftAgent) {
                         draftAgent?.let { agentDrafts[it] = draft }
@@ -227,6 +227,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+    fun openMachineSettings(hostId: String? = engine.state.value?.selectedHost) {
+        engine.state.value?.hosts?.find { it.id == hostId }?.let { form=it.toForm() }
+        clearLocalError();hostEditorVisible=true;settingsVisible=true
+    }
     fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
     fun openResourceDetails(hostId: String) {
         viewModelScope.launch {
@@ -260,11 +264,11 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun connectSaved(host:HostRecord){
         flushRemoteText?.invoke();hideTouchpad();fitVideo()
-        form=host.toForm();wasConnecting=true
+        form=host.toForm();pendingConnectHost=host.id
         engine.command {
             engine.ensureForeground()
             engine.core.connect(host.id)
-            if(engine.state.value?.selectedHost==host.id&&engine.state.value?.connection==ConnectionStatus.CONNECTED){settingsVisible=false;hostEditorVisible=false;wasConnecting=false}
+            if(engine.state.value?.selectedHost==host.id&&engine.state.value?.connection==ConnectionStatus.CONNECTED){settingsVisible=false;hostEditorVisible=false;pendingConnectHost=null}
         }
     }
     fun openHostDesktop(host: String) = engine.command {
@@ -275,12 +279,12 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun connect() {
         val host=validatedHost()?:return
-        wasConnecting = true
         settingsVisible = true
         fitVideo()
         engine.command {
             val id = engine.core.saveHost(host)
             form = host.toForm().copy(id = id)
+            pendingConnectHost=id
             engine.ensureForeground()
             engine.core.connect(id)
         }
@@ -288,16 +292,15 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun disconnect() {val host=engine.state.value?.selectedHost?:return;disconnectHost(host)}
     fun disconnectHost(host: String) {flushRemoteText?.invoke();hideTouchpad();engine.command { engine.core.disconnectHost(host) }}
     fun setSessionSort(order: io.github.wenshiqi0.kite.core.SessionSortOrder) {
-        val host=engine.state.value?.selectedHost?:return
-        engine.command { engine.core.setSessionSort(host,order) }
+        engine.command { engine.core.setWorkspaceSort(order) }
     }
     fun trust(hostId: String, fingerprint: String) = engine.command { engine.core.trustHost(hostId, fingerprint) }
     fun forget(hostId: String) = engine.command { engine.core.forgetHost(hostId) }
     fun prepareAgent() { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.ensureAgent(host) } }
-    fun createSession(provider: String, cwd: String, title: String) {
-        val host=engine.state.value?.selectedHost?:return
+    fun createSession(provider: String, cwd: String, title: String, hostId: String? = engine.state.value?.selectedHost) {
+        val host=hostId?:return
         if (creatingAgent || sessionBusy) return
-        if (!canStartResourceAgent(engine.state.value?.hostResources)) {
+        if (!canStartResourceAgent(engine.state.value?.hostConnections?.find { it.hostId == host }?.resources)) {
             localError = getApplication<Application>().getString(R.string.resource_new_sessions_paused)
             return
         }
@@ -308,7 +311,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         val host=hostId?:return
         if (sessionBusy) return
         sessionBusy = true
-        engine.command { try { engine.core.openSession(host, id) } finally { sessionBusy = false } }
+        engine.command { try { engine.core.openWorkspaceSession(host, id) } finally { sessionBusy = false } }
     }
     fun resumeSession(id: String) {
         val host=engine.state.value?.selectedHost?:return
@@ -334,10 +337,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         sessionBusy = true
         engine.command { try { engine.core.deleteSession(host, session.id) } finally { sessionBusy = false } }
     }
-    fun releaseArchivedSessions() {
+    fun releaseArchivedSessions(hostId: String? = engine.state.value?.selectedHost) {
         if (sessionBusy) return
         if (releasingArchived) return
-        val host = engine.state.value?.selectedHost ?: return
+        val host = hostId ?: return
         releasingArchived = true
         archiveReleaseStatus = null
         archiveReleaseHost = host

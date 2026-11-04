@@ -267,6 +267,10 @@ pub struct HostConnection {
     pub connection_step: ConnectionStep,
     pub failure: Option<Failure>,
     pub resources: Option<crate::resources::HostResources>,
+    pub sessions: Vec<ConversationSession>,
+    pub selected_session: Option<String>,
+    pub providers: Vec<providers::Provider>,
+    pub session_sort: SessionSort,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -425,6 +429,7 @@ impl AppCore {
                 key: base.key,
                 hosts: base.hosts,
                 selected_host: host.clone(),
+                session_sort: base.session_sort,
                 notification_problem: base.notification_problem,
                 ..Snapshot::default()
             }

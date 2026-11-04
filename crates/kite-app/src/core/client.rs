@@ -107,6 +107,10 @@ impl ClientCore {
                     connection_step: s.connection_step,
                     failure: s.failure.clone(),
                     resources: s.host_resources.clone(),
+                    sessions: s.sessions.clone(),
+                    selected_session: s.selected_session.clone(),
+                    providers: s.providers.clone(),
+                    session_sort: s.session_sort,
                 })
                 .collect();
             snapshot
@@ -177,9 +181,18 @@ impl ClientCore {
             .into_iter()
             .filter(|id| self.base.host(id).is_ok())
             .collect();
-        let selected = lock(&self.state).selected.clone();
-        if let Some(host) = selected {
-            self.runtime(&host)?;
+        let sort = lock(&self.base.store)
+            .as_ref()
+            .and_then(|store| {
+                store
+                    .read_document::<SessionSort>("workspace-sort")
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or_default();
+        self.base.update(|s| s.session_sort = sort);
+        for host in self.base.snapshot().hosts {
+            self.runtime(&host.id)?;
         }
         Ok(())
     }
@@ -260,6 +273,7 @@ impl ClientCore {
         if lock(&self.state).selected.is_none() {
             lock(&self.state).selected = Some(id.clone());
         }
+        self.runtime(&id)?;
         self.publish();
         Ok(id)
     }
@@ -363,6 +377,20 @@ impl ClientCore {
     pub async fn open_session(&self, host: String, id: String) -> Result<(), AppError> {
         self.runtime(&host)?.open_session(id).await
     }
+    pub async fn open_workspace_session(&self, host: String, id: String) -> Result<(), AppError> {
+        let _guard = self.operations.lock().await;
+        let runtime = self.runtime(&host)?;
+        if !runtime
+            .snapshot()
+            .sessions
+            .iter()
+            .any(|session| session.id == id)
+        {
+            return Err(AppError::State("session unavailable".into()));
+        }
+        self.select_inner(&host).await?;
+        runtime.open_session(id).await
+    }
     pub async fn resume_session(&self, host: String, id: String) -> Result<(), AppError> {
         self.runtime(&host)?.resume_session(id).await
     }
@@ -381,6 +409,8 @@ impl ClientCore {
         cwd: String,
         title: String,
     ) -> Result<(), AppError> {
+        let _guard = self.operations.lock().await;
+        self.select_inner(&host).await?;
         self.runtime(&host)?
             .create_session(provider, cwd, title)
             .await
@@ -401,6 +431,17 @@ impl ClientCore {
     }
     pub async fn set_session_sort(&self, host: String, sort: SessionSort) -> Result<(), AppError> {
         self.runtime(&host)?.set_session_sort(sort).await
+    }
+    pub async fn set_workspace_sort(&self, sort: SessionSort) -> Result<(), AppError> {
+        let _guard = self.operations.lock().await;
+        if let Some(store) = lock(&self.base.store).as_ref() {
+            store.write_document("workspace-sort", &sort)?;
+        }
+        self.base.update(|s| s.session_sort = sort);
+        for host in self.base.snapshot().hosts {
+            self.runtime(&host.id)?.set_session_sort(sort).await?;
+        }
+        Ok(())
     }
 }
 
@@ -623,6 +664,123 @@ mod tests {
         })
         .await
         .expect("multi-host condition timed out");
+    }
+
+    #[tokio::test]
+    async fn grouped_workspaces_keep_offline_sessions_and_open_the_exact_machine_session() {
+        let fixture = Fixture::new(false).await;
+        let directory = tempfile::tempdir().unwrap();
+        let client = ClientCore::new(fixture.core.secrets.clone(), fixture.core.observer.clone());
+        let host = fixture.core.host("host").unwrap();
+        client
+            .initialize(
+                directory.path().into(),
+                "grouped-workspaces".into(),
+                LegacyImport {
+                    source: "grouped".into(),
+                    host: Some(host.clone()),
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        client
+            .save_host(Host {
+                id: "mini".into(),
+                ..host.clone()
+            })
+            .await
+            .unwrap();
+        for machine in ["host", "mini"] {
+            let records = vec![kite_agent::sessions::Record::draft(
+                "same-session".into(),
+                "codex".into(),
+                format!("{machine} build"),
+                None,
+                1,
+            )];
+            let core = client.runtime(machine).unwrap();
+            core.install_catalog(
+                machine,
+                &kite_agent::sessions::Catalog {
+                    revision: 1,
+                    now_ms: 1,
+                    sessions: records,
+                },
+            )
+            .unwrap();
+            core.restore_session_cache();
+        }
+        assert_eq!(client.snapshot().host_connections.len(), 2);
+        assert!(
+            client
+                .snapshot()
+                .host_connections
+                .iter()
+                .all(|workspace| workspace.sessions.len() == 1
+                    && workspace.connection == ConnectionPhase::Disconnected)
+        );
+        client
+            .open_workspace_session("mini".into(), "same-session".into())
+            .await
+            .unwrap();
+        assert_eq!(client.snapshot().selected_host.as_deref(), Some("mini"));
+        assert_eq!(client.snapshot().sessions[0].title, "mini build");
+        assert!(
+            client
+                .open_workspace_session("host".into(), "missing-session".into())
+                .await
+                .is_err()
+        );
+        assert_eq!(client.snapshot().selected_host.as_deref(), Some("mini"));
+        client
+            .set_workspace_sort(SessionSort::Oldest)
+            .await
+            .unwrap();
+        client
+            .save_host(Host {
+                id: "new-machine".into(),
+                ..host
+            })
+            .await
+            .unwrap();
+        assert!(
+            client
+                .snapshot()
+                .host_connections
+                .iter()
+                .all(|workspace| workspace.session_sort == SessionSort::Oldest)
+        );
+        drop(client);
+        let reopened = ClientCore::new(fixture.core.secrets.clone(), fixture.core.observer.clone());
+        reopened
+            .initialize(
+                directory.path().into(),
+                "grouped-workspaces".into(),
+                LegacyImport {
+                    source: "grouped".into(),
+                    host: None,
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(reopened.snapshot().host_connections.len(), 3);
+        assert_eq!(reopened.snapshot().selected_host.as_deref(), Some("mini"));
+        assert_eq!(
+            reopened.snapshot().selected_session.as_deref(),
+            Some("same-session")
+        );
+        assert_eq!(
+            reopened
+                .snapshot()
+                .host_connections
+                .iter()
+                .filter(|workspace| !workspace.sessions.is_empty())
+                .count(),
+            2
+        );
+        fixture.stop().await;
     }
 
     #[tokio::test]

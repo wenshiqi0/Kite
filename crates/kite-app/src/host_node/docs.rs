@@ -39,6 +39,11 @@ const TOPICS: &[Topic] = &[
         body: include_str!("../../../../docs/agent/harnesses.md"),
     },
     Topic {
+        id: "collaboration",
+        summary: "Authenticated network ACP peers and explicit remote tasks",
+        body: include_str!("../../../../docs/agent/collaboration.md"),
+    },
+    Topic {
         id: "upgrades",
         summary: "Live handover and first maintenance migration",
         body: include_str!("../../../../docs/agent/upgrades.md"),

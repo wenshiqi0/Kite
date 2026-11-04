@@ -21,6 +21,7 @@ use tokio::{
     task::JoinSet,
 };
 
+mod acp;
 mod bridge;
 mod configuration;
 mod desktop;
@@ -225,6 +226,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
     }
     let socket_option = leading_option(&mut args, "--socket")?.map(PathBuf::from);
     match args.first().map(String::as_str) {
+        Some("acp") => return acp::cli(&args[1..]),
         Some("docs") => return docs::cli(&args[1..]),
         Some("--skill") => return docs::cli(&["skill".into()]),
         Some("desktop") if args.get(1).is_some_and(|s| s == "--help" || s == "-h") => {

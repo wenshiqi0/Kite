@@ -136,3 +136,9 @@
 "sort_oldest" = "创建时间：从旧到新";
 "sort_activity" = "最近活动";
 "sort_title" = "按标题";
+
+"search_sessions" = "搜索全部会话";
+"machine_settings" = "机器配置";
+"no_sessions" = "尚无会话";
+"session_machine" = "目标机器";
+"active_sessions" = "活动";
