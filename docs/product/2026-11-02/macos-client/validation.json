@@ -1,0 +1,36 @@
+{
+  "source_baseline": "3f0abce02550acf08419fec80d5848205336f9c9",
+  "platform": "Apple Silicon / macOS 26.6.2 / Xcode 16.4",
+  "client_rust_tests_passed": 134,
+  "native_tests_passed": 5,
+  "native": {
+    "audio": "muted; offline decode verified separately",
+    "codex_turn": true,
+    "display_fps": 33.666666666666664,
+    "history_reconnect": true,
+    "input": "sent to owned display; verify remote input.json separately",
+    "rendered_frames": 222,
+    "source_height": 1080,
+    "source_width": 1920,
+    "ssh": true,
+    "rendering_surface": "production SwiftUI DesktopPane"
+  },
+  "remote_input_cumulative": {
+    "left": 1,
+    "right": 1,
+    "left_up": 1,
+    "right_up": 1,
+    "held_motion": 2,
+    "scroll": 1,
+    "keys": 84,
+    "f8": true,
+    "text_matched": true
+  },
+  "production_sunshine_retained": true,
+  "temporary_ssh_authorization_removed": 1,
+  "owned_processes_stopped": [
+    "xvfb",
+    "fixture",
+    "sunshine"
+  ]
+}

@@ -21,7 +21,14 @@ import {
   object,
   string,
 } from "@kite/protocol";
-import { atomicBytes, home, privateDir, requireOwnedFile, sha256 } from "@kite/runtime";
+import {
+  atomicBytes,
+  home,
+  privateDir,
+  readOwnedAt,
+  requireOwnedFile,
+  sha256,
+} from "@kite/runtime";
 import { stateDir } from "./catalog";
 export function filename(name: string): void {
   check(
@@ -92,7 +99,7 @@ export function uploadedFile(id: string, name: string): Buffer {
   check(!lstatSync(directory).isSymbolicLink(), "invalid upload directory");
   const fd = openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
-    return requireOwnedFile(`/proc/self/fd/${fd}/${name}`, MAX_FILE);
+    return readOwnedAt(fd, name, MAX_FILE);
   } finally {
     closeSync(fd);
   }

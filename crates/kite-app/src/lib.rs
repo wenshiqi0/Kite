@@ -36,7 +36,7 @@ pub use kite_agent::{
 pub use kite_store::Host as SavedHost;
 pub use kite_stream::{
     AudioFormat, FRAME_CONFIG, FRAME_KEY, FrameInfo, Input, InputSender, MediaSink, StreamConfig,
-    VideoFormat,
+    StreamError, VideoFormat,
 };
 
 pub use kite_herdr::{BridgeCheck, CheckError};

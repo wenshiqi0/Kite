@@ -1,0 +1,13 @@
+{
+  "different_app_hashes": true,
+  "persistent_signing_identity": true,
+  "app_variants_verified": 2,
+  "authorization_ui_disabled": true,
+  "original_ssh_identity_retained": true,
+  "existing_sunshine_identity_readable_in_both_builds": true,
+  "idempotent_setup_updated_items": 0,
+  "unrelated_caller_exit_code": 77,
+  "unrelated_caller_received_bytes": 0,
+  "component_replaced_during_app_updates": false,
+  "same_certificate_wrong_application_id_rejected": true
+}

@@ -1,5 +1,13 @@
 # Testing
 
+## Structured report presentation
+
+`Message::presentation` exposes the Markdown body of a complete `status` / `summary_markdown` / `deliverables` / `risks` / `followups` report while retaining the original JSON and message identity in history and caches. Domain regressions cover escaped newlines, headings/links, saved history, cache restoration and strict non-report fallbacks. The FFI regression checks the exact text delivered to native Markdown. This is a client-side fix: install Alpha 77+ for existing saved messages to gain the presentation without rerunning the job. An opt-in `existing_transcript_report_reaches_presentation_without_editing_source` test accepts `KITE_REPORT_HISTORY_FIXTURE` and verifies an authorized real transcript without copying conversation content into the repository.
+
+## Nested Codex session identity
+
+Managed Codex discovery checks the pane's live owner and loaded threads before publishing a chat reference. A separate `codex exec` may inherit Herdr hook variables, but its report cannot redirect the parent's history or input. Provider regressions cover valid thread changes, independent child panes, ambiguous/unavailable owners and external terminals. The host test uses a real private WebSocket owner and registry with a stale child report, keeps client stdin open, and verifies the parent identity, unchanged terminal, exactly-once forwarding and read-only owner requests. No model turn is sent.
+
 ## Codex terminal failures
 
 Provider projection tests preserve `task_complete.error` in paged conversation history, carry only an outcome flag in notification controls, and rebuild the old cache that discarded failures. Rust regressions cover failed versus successful completion, stable per-turn error identity and source ordering, serialization/backfill, and failure notification deduplication after restart. Historical errors use a separate message kind across the native boundary. Android timeline tests keep them outside collapsed tool groups; `WorkspaceRefinementPresentationTest.historicalTurnErrorsShowTheCauseAndRecoveryHint` renders the actual capacity error, recovery hint and missing-details fallback using synthetic data. No model turn is required.
@@ -191,3 +199,7 @@ The optional long-transcript test accepts qa_live, a strictly owned qa_session a
 ## Bun adapters and native Linux UI
 
 See [Bun server development](development/bun-server.md) for the strict typecheck, lint, fixture tests and owned X11 native panel probe. The old Python GUI probes are replaced by `scripts/native-desktop-probe.ts`; all client UI code is native.
+
+## Streaming chat stability
+
+`NativePresentationTest.responsePhaseChangesKeepTheSameSelectableMarkdown` retains the native text object across phase changes and completion of an already displayed strong span, while unfinished final markers still follow CommonMark. `WorkspaceRefinementPresentationTest.streamingRepliesRetainTheirViewAndFollowOnlyWhileReadingTheTail` uses the production tail follower with synthetic long replies. It awaits each of 24 actual Android draws and measured text heights, checks native-view retention and absence of hidden/zero-height draws, preserves a reader's history position, resumes explicit tail following and handles completion with a shorter reply and removed feedback. These are local native presentation checks; physical-handset flicker remains separate acceptance.

@@ -52,7 +52,7 @@ class DesktopRecoveryTest {
                 val video=vm.engine.state.value!!.desktop
                 assertEquals(1920,video.sourceWidth.toInt());assertEquals(1080,video.sourceHeight.toInt())
                 samples.put(JSONObject().put("renderedFrames",video.renderedFrames.toLong()).put("width",video.width.toLong()).put("height",video.height.toLong()))
-                runBlocking{vm.engine.core.stopDesktop()}
+                runBlocking{vm.engine.core.stopDesktop(vm.engine.state.value!!.selectedHost!!)}
                 waitFor("Idle remains usable") {vm.engine.state.value?.desktop?.status==DesktopStatus.IDLE&&visibleText(activity.getString(R.string.desktop_disconnected))}
                 assertTrue(vm.showDesktop);assertFalse(visibleText(activity.getString(R.string.desktop_connecting)))
                 assertEquals(ConnectionStatus.CONNECTED,vm.engine.state.value?.connection)

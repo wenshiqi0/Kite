@@ -43,7 +43,7 @@ class LiveAgentNotificationTest {
         val state=vm.engine.state.value!!;val agent=state.selectedAgent!!
         val model=state.composer.models.firstOrNull{it.model.contains("luna")||it.model.contains("mini")}?:state.composer.models.first()
         val effort=listOf("none","minimal","low","medium").firstOrNull{it in model.efforts}?:model.defaultEffort
-        runBlocking{vm.engine.core.setChatModel(agent,model.model,effort)}
+        runBlocking{vm.engine.core.setChatModel(vm.engine.state.value!!.selectedHost!!,agent,model.model,effort)}
         // Let the independent host scanner establish its initial source checkpoint.
         SystemClock.sleep(2600)
         main{vm.engine.visible(false);vm.draft="Reply exactly KITE_NOTIFICATION_OK. Do not use tools or inspect files.";vm.sendPrompt(agent)}

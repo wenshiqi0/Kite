@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,17 +38,17 @@ fun HostSetupScreen(vm: HostCheckViewModel, onBack: () -> Unit) {
             IconButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = backLabel }) { ProductIcon(Mark.Back) }
         }, actions = {
             IconButton(onClick = { settings = true }, modifier = Modifier.semantics { contentDescription = settingsLabel }) { ProductIcon(Mark.Settings) }
-            TextButton(onClick = vm::newHost, enabled = !vm.savingHost && state?.connection != ConnectionStatus.CONNECTING) {
+            TextButton(onClick = vm::newHost, enabled = !vm.savingHost) {
                 ProductIcon(Mark.Plus, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.add_host))
             }
         })
     }) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state?.hosts.orEmpty(), key = { it.id }, contentType = { "host" }) { host ->
-                val status = if (state?.selectedHost == host.id) state?.connection ?: ConnectionStatus.DISCONNECTED else ConnectionStatus.DISCONNECTED
-                HostConnectionCard(host, status, !vm.savingHost,
-                    activate = { if (status == ConnectionStatus.CONNECTED) onBack() else vm.connectSaved(host) },
-                    edit = { vm.chooseHost(host) })
+                val status = state?.hostConnections?.find { it.hostId == host.id }?.connection ?: ConnectionStatus.DISCONNECTED
+                HostConnectionCard(host, status, !vm.savingHost, selected = state?.selectedHost == host.id,
+                    activate = { vm.connectSaved(host); if(status == ConnectionStatus.CONNECTED)onBack() },
+                    disconnect = { vm.disconnectHost(host.id) }, edit = { vm.chooseHost(host) })
             }
             if (state?.hosts.isNullOrEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -88,7 +89,7 @@ fun HostSetupScreen(vm: HostCheckViewModel, onBack: () -> Unit) {
 
 /** Connection facts come from Core. An unconnected profile is never labelled unreachable. */
 @Composable
-internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enabled: Boolean, activate: () -> Unit, edit: () -> Unit) {
+internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enabled: Boolean, activate: () -> Unit, edit: () -> Unit, selected: Boolean = false, disconnect: (() -> Unit)? = null) {
     val connected = status == ConnectionStatus.CONNECTED
     val busy = status == ConnectionStatus.CONNECTING || status == ConnectionStatus.RECONNECTING || status == ConnectionStatus.AWAITING_TRUST
     val statusLabel = stringResource(when (status) {
@@ -107,8 +108,8 @@ internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enab
     }
     val editLabel = stringResource(R.string.host_edit_named, host.host)
     val openLabel = stringResource(R.string.host_open_named, host.host)
-    Card(onClick = activate, enabled = enabled && !busy, modifier = Modifier.fillMaxWidth().semantics { contentDescription = openLabel },
-        colors = CardDefaults.cardColors(containerColor = if (connected) KiteColors.AccentSurface else KiteColors.Surface,
+    Card(onClick = activate, enabled = enabled, modifier = Modifier.fillMaxWidth().semantics { contentDescription = openLabel; this.selected = selected },
+        colors = CardDefaults.cardColors(containerColor = if (selected) KiteColors.AccentSurface else KiteColors.Surface,
             contentColor = KiteColors.Text, disabledContainerColor = KiteColors.Surface, disabledContentColor = KiteColors.Text)) {
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(36.dp).background(KiteColors.Raised, CircleShape), contentAlignment = Alignment.Center) { ProductIcon(Mark.Monitor, modifier = Modifier.size(19.dp)) }
@@ -120,7 +121,8 @@ internal fun HostConnectionCard(host: HostRecord, status: ConnectionStatus, enab
                     Text(statusLabel, fontSize = 12.sp, color = color)
                 }
             }
-            TextButton(onClick = activate, enabled = enabled && !busy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            if (disconnect != null && (connected || busy)) IconButton(onClick = disconnect, enabled = enabled, modifier = Modifier.size(40.dp)) { ProductIcon(Mark.Close) }
+            TextButton(onClick = activate, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp)) {
                 Text(stringResource(if (connected) R.string.host_enter else if (status == ConnectionStatus.FAILED) R.string.retry else R.string.host_connect), fontSize = 13.sp)
             }
             IconButton(onClick = edit, enabled = enabled && !busy, modifier = Modifier.size(48.dp).semantics { contentDescription = editLabel }) { ProductIcon(Mark.More, modifier = Modifier.size(18.dp)) }

@@ -143,8 +143,8 @@ impl server::Handler for Peer {
         )
     }
 }
-struct Fixture {
-    core: Arc<AppCore>,
+pub(super) struct Fixture {
+    pub(super) core: Arc<AppCore>,
     directory: tempfile::TempDir,
     secrets: Arc<Secrets>,
     listener: JoinHandle<()>,
@@ -152,7 +152,7 @@ struct Fixture {
     connections: Arc<AtomicU64>,
 }
 impl Fixture {
-    async fn new(reject_auth: bool) -> Self {
+    pub(super) async fn new(reject_auth: bool) -> Self {
         let key = kite_ssh::generate_ed25519("owned-recovery").unwrap();
         let secrets = Arc::new(Secrets {
             key: key.private_key_openssh.clone(),
@@ -232,7 +232,7 @@ impl Fixture {
             connections,
         }
     }
-    async fn stop(&self) {
+    pub(super) async fn stop(&self) {
         self.core.disconnect().await.unwrap();
         self.listener.abort();
     }

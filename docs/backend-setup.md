@@ -173,7 +173,7 @@ Kite does not require an interactive PTY, but a forced command limited to one he
 
 ## 5. Pair and open the desktop
 
-After herdr connects, choose an agent in the menu. Use the workspace header's **More** menu to open the remote desktop (打开远程桌面) or switch to split view. The desktop's own controls switch between floating, split and fullscreen layouts. The composer **Add attachment** button only offers images, files and audio. Sunshine's address defaults to the SSH host; advanced settings allow a separate reachable address and base port.
+After herdr connects, choose an agent in the menu. Use the workspace header's **More** menu to open the remote desktop (打开远程桌面) or switch to split view. The desktop's own controls switch between floating, split and fullscreen layouts. The composer **Add attachment** button only offers images, files and audio. With the unified host configuration, Kite Node publishes the Herdr path and Sunshine endpoint from `~/.config/kite/node.json`. The phone uses its SSH host for streaming by default. A separate stream address belongs in the host file's `sunshine.address`; the base port belongs in `sunshine.settings.port`. Inspect these values and desktop health with `kite status --refresh`.
 
 On first use, Kite shows a PIN and a unique client name. In Sunshine's management UI, choose the matching pending request and submit that PIN. Kite saves the client identity and server certificate, so reopening the desktop normally does not require pairing again.
 

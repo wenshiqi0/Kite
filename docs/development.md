@@ -2,6 +2,8 @@
 
 Kite shares a Rust core between native Android and iOS clients. Rust owns SSH, herdr and Sunshine protocols, domain state and persistence; Kotlin and Swift own UI, lifecycle, secure storage and media presentation. The full rules are in [SPEC](../SPEC.md) and the [RFC index](rfcs/README.md).
 
+The native [macOS client](macos.md) also uses this Core. Build with `macos/scripts/build.sh` after `bun install --frozen-lockfile` and submodule initialization; run its offline native checks with `macos/scripts/test.sh`. XcodeGen maintains `macos/project.yml`; generated bindings, projects and all `macos/build/` output are ignored.
+
 ## On-demand internals
 
 Read the [agent harness integration contract](development/harness-integration.md) only when adding, changing or diagnosing a managed chat provider. It covers existing server boundaries, capability declarations and acceptance; ordinary Kite CLI/MCP use follows `kite docs`. DSH host configuration and checks are in the [on-demand DSH guide](development/dsh.md).

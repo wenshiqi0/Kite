@@ -6,12 +6,19 @@ use std::path::Path;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 fn tools() -> Value {
-    json!({"tools":[
+    let mut value = json!({"tools":[
         {"name":"kite_host_status","description":"Read this Kite host node and its configured runtime services.","inputSchema":{"type":"object","additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
         {"name":"kite_sessions_list","description":"Read saved provider session references on this host; no model turn is started.","inputSchema":{"type":"object","additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
         {"name":"kite_docs","description":"Read concise Kite guides once, then reuse retained bodies. Desktop covers common actions; known topic revisions omit unchanged bodies.","inputSchema":{"type":"object","properties":{"topics":{"type":"array","items":{"type":"string"},"maxItems":4},"known":{"type":"object","additionalProperties":{"type":"string"}}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
         {"name":"kite_desktop","description":"Operate the configured X11 desktop. Read kite_docs desktop once for parameters. Screenshot returns a native image; input changes the real desktop.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["status","windows","screenshot","move","click","scroll","key","type","launch"]},"params":{"type":"object"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false,"destructiveHint":true,"openWorldHint":true}}
-    ]})
+    ]});
+    if cfg!(target_os = "macos") {
+        value["tools"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|tool| tool["name"] != "kite_desktop");
+    }
+    value
 }
 pub async fn response(socket: &Path, request: &Value) -> Result<Option<Value>> {
     let Some(id) = request.get("id") else {
@@ -25,7 +32,7 @@ pub async fn response(socket: &Path, request: &Value) -> Result<Option<Value>> {
     let method = request["method"].as_str().unwrap_or("");
     let result: std::result::Result<Value, (i32, String)> = match method {
         "initialize" => Ok(
-            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"kite-linux-host","version":version()},"instructions":format!("Kite API {API}. Read kite_docs desktop once for desktop actions; reuse retained bodies. Desktop actions change this configured host; screenshots are image blocks.")}),
+            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":if cfg!(target_os = "macos") {"kite-macos-host"} else {"kite-linux-host"},"version":version()},"instructions":format!("Kite API {API}. Read kite_docs for available host and session operations; reuse retained bodies. Desktop actions are available only on Linux X11 hosts.")}),
         ),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(tools()),
@@ -165,7 +172,10 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            listed["result"]["tools"].as_array().unwrap().len(),
+            if cfg!(target_os = "macos") { 3 } else { 4 }
+        );
         assert!(
             response(
                 socket,

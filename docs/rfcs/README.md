@@ -24,7 +24,7 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0012](0012-history-pagination.md) | 长会话历史分页与浏览位置保护 | 已被 0013 取代 |
 | [0013](0013-complete-transcript-and-dark-workspace.md) | 完整数据、虚拟渲染与深色工作区 | 已实现（Alpha 13） |
 | [0014](0014-linux-host-node.md) | Linux 桌面主机节点、私有桥接与 MCP | 已实现（Alpha 17） |
-| [0015](0015-desktop-client-and-host.md) | Linux/macOS 桌面客户端与主机双角色 | 已采纳；客户端待实现 |
+| [0015](0015-desktop-client-and-host.md) | Linux/macOS 桌面客户端与主机双角色 | 已采纳；Mac 客户端技术验收，其他阶段待实现 |
 | [0016](0016-desktop-audio.md) | Android 远程桌面声音与播放生命周期 | 已实现（Android Alpha 26） |
 | [0017](0017-agent-notifications.md) | agent 通知、系统提醒与会话回访 | 已采纳，实施中 |
 | [0018](0018-live-node-upgrade.md) | 保留连接的 Linux Node 升级 | 已实现，尚未发布 |
@@ -37,6 +37,8 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 | [0025](0025-ply-acp.md) | Ply ACP 插件接入 | 已实现，待发布 |
 
 ## 什么时候写 RFC
+
+- [0030 — 网络 ACP 与跨机器会话工作区](0030-network-acp-and-shared-workspaces.md)（已采纳，实施中）
 
 下面这些改动，先写 RFC：
 
@@ -75,3 +77,6 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 - [0024 — Bun server packages and native Linux UI](0024-bun-server-monorepo.md)
 - [0026 — 会话权限设置与可读审批](0026-session-permissions.md)
+- [0027 — macOS 原生远程客户端](0027-macos-client.md)
+- [0028 — Mac 开发版的持久密钥访问身份](0028-macos-keychain-access.md)
+- [0029 — Mac 客户端内的本机主机角色](0029-macos-host.md)

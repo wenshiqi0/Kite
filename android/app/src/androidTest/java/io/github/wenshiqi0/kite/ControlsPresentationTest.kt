@@ -160,7 +160,7 @@ class ControlsPresentationTest {
             tap(Rect(card.left + 20, card.top + 10, card.left + 60, card.bottom - 10))
             onMain { assertEquals(listOf("new-host"), activated) }
             tap(bounds("打开主机 build-box"))
-            onMain { assertEquals("Connecting cards cannot start another operation", listOf("new-host"), activated) }
+            onMain { assertEquals("Connecting cards can select their workspace without restarting its connection", listOf("new-host", "build-box"), activated) }
         }
     }
 }

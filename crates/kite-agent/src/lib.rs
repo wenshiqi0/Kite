@@ -7,6 +7,7 @@ pub mod composer;
 pub mod history;
 pub mod interaction;
 pub mod notifications;
+mod presentation;
 pub mod process;
 pub mod providers;
 pub mod sessions;
@@ -90,6 +91,46 @@ pub struct Message {
     pub tool: Option<Tool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub question_replies: Vec<QuestionReply>,
+}
+
+impl Message {
+    /// Keep original records for paging/cache merges, but expose user-facing
+    /// messages and report bodies to native clients instead of machine receipts.
+    pub fn presentation(&self) -> std::borrow::Cow<'_, Self> {
+        if self.role == Role::Assistant
+            && !self.intermediate
+            && self.tool.is_none()
+            && let Some(text) = presentation::report_markdown(&self.text)
+        {
+            return std::borrow::Cow::Owned(Self {
+                text,
+                ..self.clone()
+            });
+        }
+        let Some(tool) = &self.tool else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        if tool.name != "send_message_to_user_async" || tool.failed {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let Ok(arguments) = serde_json::from_str::<Value>(&tool.arguments) else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        let Some(text) = arguments["message"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+        else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        std::borrow::Cow::Owned(Self {
+            id: self.id.clone(),
+            role: Role::Assistant,
+            text: text.into(),
+            intermediate: false,
+            tool: None,
+            question_replies: Vec::new(),
+        })
+    }
 }
 
 pub fn fingerprint(text: &str) -> String {
@@ -570,6 +611,104 @@ pub fn terminal_choices(blocked: bool, provider: &str, text: &str) -> Option<App
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn async_messages_are_readable_before_and_after_delivery_without_changing_history() {
+        let text = "可以。**共享配置**保存在 `node.json`。\n\n接下来继续验证。";
+        let call = serde_json::json!({"type":"response_item","payload":{"type":"function_call","call_id":"async-message","name":"send_message_to_user_async","arguments":serde_json::json!({"message":text}).to_string()}});
+        let output = serde_json::json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"async-message","output":"{\"accepted\":true}"}});
+        for records in [
+            call.to_string(),
+            format!("{call}\n{output}\n{call}\n{output}"),
+        ] {
+            let messages = parse_history("codex", records.as_bytes());
+            assert_eq!(messages.len(), 1);
+            let original = &messages[0];
+            let displayed = original.presentation();
+            assert_eq!(displayed.id, "async-message");
+            assert_eq!(displayed.role, Role::Assistant);
+            assert_eq!(displayed.text, text);
+            assert!(!displayed.intermediate);
+            assert!(displayed.tool.is_none());
+            assert_eq!(original.role, Role::Tool);
+            assert_eq!(
+                original.tool.as_ref().unwrap().name,
+                "send_message_to_user_async"
+            );
+
+            // Previously cached tool records gain the same presentation offline.
+            let restored: Message =
+                serde_json::from_slice(&serde_json::to_vec(original).unwrap()).unwrap();
+            assert_eq!(restored.presentation(), displayed);
+        }
+    }
+
+    #[test]
+    fn malformed_async_messages_failed_delivery_and_other_tools_keep_their_details() {
+        for (name, arguments, failed) in [
+            ("send_message_to_user_async", "not json", false),
+            ("send_message_to_user_async", "{}", false),
+            ("send_message_to_user_async", r#"{"message":null}"#, false),
+            ("send_message_to_user_async", r#"{"message":42}"#, false),
+            ("send_message_to_user_async", r#"{"message":"  "}"#, false),
+            ("send_message_to_user_async", r#"{"message":"hello"}"#, true),
+            (
+                "mcp__other__send_message_to_user_async",
+                r#"{"message":"hello"}"#,
+                false,
+            ),
+            ("exec_command", r#"{"message":"hello"}"#, false),
+            (
+                "request_user_input_async",
+                r#"{"questions":[{"title":"Choose"}]}"#,
+                false,
+            ),
+        ] {
+            let mut messages = Vec::new();
+            add_tool(&mut messages, "call".into(), name, arguments.into());
+            finish_tool(&mut messages, "call", "receipt".into(), failed);
+            assert!(matches!(
+                messages[0].presentation(),
+                std::borrow::Cow::Borrowed(_)
+            ));
+            assert_eq!(messages[0].presentation().as_ref(), &messages[0]);
+        }
+    }
+
+    #[test]
+    fn failed_turns_remain_distinct_history_records_after_continuation() {
+        let failure = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"failed-turn","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"}}});
+        let next = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"continued"}]}});
+        let bytes = format!("{failure}\n{failure}\n{next}\n");
+        let messages = parse_history("codex", bytes.as_bytes());
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].id, "turn-error-failed-turn");
+        assert_eq!(messages[0].role, Role::Error);
+        assert!(messages[0].text.starts_with("server_overloaded:"));
+        assert!(messages[0].tool.is_none());
+        assert!(!messages[0].intermediate);
+        assert_eq!(messages[1].text, "continued");
+        let restored: Vec<Message> =
+            serde_json::from_slice(&serde_json::to_vec(&messages).unwrap()).unwrap();
+        assert_eq!(restored, messages);
+    }
+
+    #[test]
+    fn successful_turns_and_user_cancellations_do_not_invent_history_errors() {
+        for payload in [
+            serde_json::json!({"type":"task_complete","turn_id":"success","error":null}),
+            serde_json::json!({"type":"task_complete","turn_id":"success"}),
+            serde_json::json!({"type":"task_aborted","turn_id":"cancelled"}),
+        ] {
+            let record = serde_json::json!({"type":"event_msg","payload":payload});
+            assert!(parse_history("codex", record.to_string().as_bytes()).is_empty());
+        }
+        let record = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"no-details","error":{}}});
+        let messages = parse_history("codex", record.to_string().as_bytes());
+        assert_eq!(messages[0].role, Role::Error);
+        assert!(messages[0].text.is_empty());
+    }
+
     #[test]
     fn failed_turns_remain_distinct_history_records_after_continuation() {
         let failure = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"failed-turn","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"}}});

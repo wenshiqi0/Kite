@@ -28,6 +28,10 @@ DerivedData/
 
 # macOS
 .DS_Store
+/macos/build/
+/macos/Generated/
+/macos/Kite.xcodeproj/
+/macos/Kite/Info.plist
 __pycache__/
 
 # Bun workspace dependencies and generated host bundles

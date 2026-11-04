@@ -33,7 +33,7 @@ Android 输入区不提供语音识别入口。空草稿时，正在工作的 ag
 
 显式删除会话按 RFC 0020：活动和归档列表都可直接删除，命令绑定目标主机及会话。删除授权立即终止该会话的任务；主机在会话、owner 和目录租约内验证身份、排除共享 owner，释放受管进程及其本地工具子进程，确认退出后才移除 Kite 记录。本机清除聊天缓存和选中状态，选择下一条活动会话或空列表；释放失败保留记录以供重试。私有删除标记阻止过期目录写入或发现结果复活记录，不保存对话内容；provider 原始历史文件保持原位。
 
-模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。
+模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。Codex 全局 `AGENTS.md` 注入消息在 Android 仅显示一行“已加载全局指令”；首次加载及重新加载使用相同展示。识别仅限完整的全局指令信封及其可选环境上下文，普通消息、仓库级指令和信封后的用户请求保持正文展示；原始对话数据不变。
 
 聊天中的异步问题按 [RFC 0009](docs/rfcs/0009-async-questions-in-chat.md) 处理：Rust 关联真实 call ID、恢复待答表单，并通过同一线程的 TUI 回答信封提交；阻塞问题继续使用其 RPC 响应。提问控制记录通过同步升级的 Codex 历史体 v2 独立传输，主机只索引原始事实，Rust 决定待答状态，避免最近聊天窗口截断旧问题。Android 在聊天和输入区提供回答入口，异步问题不暂停 agent 或禁用普通消息。
 
@@ -49,7 +49,9 @@ Android 混合输入和双向文本剪贴板按 [RFC 0010](docs/rfcs/0010-hybrid
 
 远程桌面声音按 [RFC 0016](docs/rfcs/0016-desktop-audio.md) 走专用媒体通道：Rust 管传输与格式，Android 原生解码 Opus 并用 AudioTrack 播放。音频有独立工作线程和有界缓冲，不阻塞视频，不记录声音内容；静音、音频焦点和设备生命周期属于原生播放设置。声音与观看/操作模式独立，关闭串流释放音频资源。
 
-客户端连接恢复仍由 Rust Core 管理：显式连接持久化目标，临时网络/SSH 故障进入可取消的自动重连，以 1/2/4/8/16/30 秒退避；无网络时等待，网络切换或前台恢复唤醒有界只读探测。手动断开、主机切换和配置修改取消旧代任务；认证拒绝、未知或变化的主机指纹不自动通过。恢复仅重新连接并观察原会话，不自动创建、恢复 owner 或重放消息、审批和桌面输入。Android 提供默认网络事实、持久前台服务与原生恢复状态；服务重建按 Rust 保存的连接意图恢复，显式断开后保持断开。断线立即退出接管，恢复视频只能重新进入只看模式。
+客户端允许同时连接多台主机。Rust `ClientCore` 持有按主机 ID 隔离的工作区，连接、重试、聊天同步、资源和通知轮询独立运行，存储与设备密钥共享且串行写入。主机切换改变选中工作区并关闭原桌面媒体，保留原主机连接及会话选中状态；显式断开和配置修改仅取消目标主机，系统“断开全部”清除全部连接意图。会话列表命令携带主机 ID 与会话 ID，异步执行不得随当前选中项改变目标。排序按主机持久化，默认按创建时间从新到旧，另有从旧到新、最近活动和标题；以会话 ID 稳定处理时间相同的情况，排序不改变选中会话。归档或删除选中项后按操作前顺序选下一条可用会话，末尾选前一条；操作其他项不改变选中。
+
+客户端连接恢复仍由 Rust Core 管理：显式连接持久化全部目标，临时网络/SSH 故障进入可取消的自动重连，以 1/2/4/8/16/30 秒退避；无网络时等待，网络切换或前台恢复唤醒有界只读探测。手动断开和配置修改取消目标主机旧代任务；认证拒绝、未知或变化的主机指纹不自动通过。恢复仅重新连接并观察原会话，不自动创建、恢复 owner 或重放消息、审批和桌面输入。Android 提供默认网络事实、持久前台服务与原生恢复状态；服务重建按 Rust 保存的连接意图恢复，显式断开后保持断开。断线立即退出接管，恢复视频只能重新进入只看模式。
 
 新建会话尚未生成 provider 历史文件是等待状态，不得误报同步失败或用空记录覆盖已有缓存。Chat 不自动退回终端原文；终端诊断由用户显式打开。连接、聊天初始化和历史读取分别呈现状态，临时只读失败可以限频重试，不自动重放用户消息、回答、审批或桌面输入。桌面断开和失败必须可恢复，空闲状态不得持续显示连接动画。
 
@@ -75,6 +77,7 @@ desktop/linux/           Linux 原生主机控制面板与用户级安装入口
 target/                  构建输出，不提交
 android/                 Android 应用（Gradle 工程）
 ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
+macos/                   macOS 原生客户端（XcodeGen 工程，描述文件是 macos/project.yml）
 docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
 
@@ -248,6 +251,14 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 - 设备型号只能用来判断能力，例如是否支持多窗口。硬件键盘和指针在 iPhone 上也可能连接，所以按"是否连接"判断，不按设备型号判断。
 - 同一功能在紧凑宽度和常规宽度下的差异，写在对应功能的 RFC 里。总体原则见 [RFC 0002](docs/rfcs/0002-ios.md)。
 
+### 5.5 macOS
+
+按 [RFC 0027](docs/rfcs/0027-macos-client.md) 实现 macOS 14+ 原生客户端，按 [RFC 0029](docs/rfcs/0029-macos-host.md) 集成本机主机角色。SwiftUI/AppKit 面板通过随应用交付的结构化 Node CLI 管理 launchd 用户服务；关闭客户端不停止后台节点或 agent。Mac 沿用 SSH、私有 IPC 和既有会话协议；进程机制使用 Darwin API。Mac 不声明 Linux 内存硬限额、进程暂停或 X11 桌面 MCP 能力。客户端有独立本机 Keychain 身份和应用支持目录，不迁移其他设备私钥。XcodeGen 维护 `macos/project.yml`，生成的工程、绑定和构建目录不提交。界面更新使用 MainActor，文案使用平台字符串资源。
+
+Apple 媒体在 FFI 的 `apple` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
+
+Mac 本机开发版按 [RFC 0028](docs/rfcs/0028-macos-keychain-access.md) 固定应用签名，使用只安装一次、按需启动的原生钥匙串组件保持读取身份。组件只接受指定证书和 Kite bundle ID 的父进程，只处理两个既有条目，秘密仅通过私有管道传递。普通读写不弹授权 UI，禁止悄悄回退或重新生成身份；显式设置更新访问控制并保留原数据，正常构建不覆盖组件。
+
 ## 6. 当前实现与 M1 升级
 
 RFC 0003 已落实持久 Core、主机存储和 Android 远程桌面。原生 C 适配层隐藏 Moonlight ABI，单进程仅一路串流。FFI 库和绑定同次生成，不保留旧 FFI 入口；herdr 0.9.5 协议必须兼容。RFC 0003 阶段不含结构化聊天；RFC 0004 已落实 Android 聊天，iOS 视频仍待实现。
@@ -272,6 +283,8 @@ Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct Byte
 - 代码评审以本规范为准。和规范冲突的代码，要么改代码，要么走 RFC 流程修改规范。
 
 ## 8. Bun 服务端 packages
+
+跨机器工作区与网络 ACP 按 [RFC 0030](docs/rfcs/0030-network-acp-and-shared-workspaces.md) 实施：Core 发布全部主机的会话目录，原生侧栏以机器分组，搜索与新建为全局入口；打开会话同时绑定目标机器和会话。网络 ACP 使用现有 owner、工作目录和资源预算，首阶段为已鉴权的 WebSocket `/acp`，不等同于完整 HTTP/2 Streamable HTTP。网络连接断开不能终止或重放用户工作，跨机器通过已信任 SSH 建立通道，provider 密钥保留在执行主机。
 
 按 [RFC 0024](docs/rfcs/0024-bun-server-monorepo.md)，仓库同时使用 Cargo workspace (`crates/*`) 与 Bun workspace (`packages/*`)。服务端平台及 provider 适配器使用 TypeScript strict 校验与 Bun 运行时，取代原 `backend/` Python 运行路径；原生 GTK 面板、安装与发布工具不属于服务端 TS 运行边界。Rust 继续持有客户端领域状态、SSH/IPC 与主机策略。packages 依赖从 host 到 providers/platform、runtime、protocol 单向流动。所有外部 JSON 必须从 unknown 验证；不得通过 any、关闭 strict 或忽略类型错误绕过检查。构建 bundle 进入 Cargo OUT_DIR，按摘要释放；生成物不提交。
 

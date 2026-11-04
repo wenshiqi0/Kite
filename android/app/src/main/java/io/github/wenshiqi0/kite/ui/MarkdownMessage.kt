@@ -60,7 +60,11 @@ import org.commonmark.node.Paragraph
 fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 16f, streaming: Boolean = false) {
     AndroidView(
         factory = { MarkdownTextView(it) },
-        update = { it.setTextColor(color.toArgb()); it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size); it.bind(text,streaming) },
+        update = {
+            if (it.currentTextColor != color.toArgb()) it.setTextColor(color.toArgb())
+            it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            it.bind(text, streaming)
+        },
         modifier = modifier,
     )
 }
@@ -94,6 +98,7 @@ fun markdownLabel(context: Context, source: String): AnnotatedString {
 class MarkdownTextView(context: Context) : TextView(context) {
     private val markdown = MarkdownRenderer.get(context)
     private var source: String? = null
+    private var renderedSource: String? = null
     private var streaming = false
     init {
         setPadding(0, 0, 0, 0)
@@ -112,7 +117,12 @@ class MarkdownTextView(context: Context) : TextView(context) {
         // Stabilize a leading strong span during delivery. Code blocks and
         // escaped/literal markers keep their original CommonMark behavior.
         val partialStrong=inProgress && tail.startsWith("**") && tail.length>2 && !tail[2].isWhitespace() && tail.indexOf("**",2)<0 && markdown.parse(display).lastChild is Paragraph
-        markdown.setMarkdown(this,if(partialStrong)display+"**" else display)
+        val rendered = if (partialStrong) display + "**" else display
+        // The response phase can change while the visible Markdown stays identical.
+        // Retain the selectable text and its layout across those updates.
+        if (renderedSource == rendered) return
+        markdown.setMarkdown(this, rendered)
+        renderedSource = rendered
         (text as? Spanned)?.let { body ->
             body.getSpans(0, body.length, CompactCodeSpan::class.java).forEach { it.drawCompactBackground = true }
         }

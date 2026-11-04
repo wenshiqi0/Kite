@@ -1,0 +1,21 @@
+Test Suite 'All tests' started at 2026-11-02 18:07:50.255.
+Test Suite 'KiteTests.xctest' started at 2026-11-02 18:07:50.255.
+Test Suite 'ClientTests' started at 2026-11-02 18:07:50.255.
+Test Case '-[KiteTests.ClientTests testAnnexBHandlesMixedPrefixesAndEmptyUnits]' started.
+Test Case '-[KiteTests.ClientTests testAnnexBHandlesMixedPrefixesAndEmptyUnits]' passed (0.001 seconds).
+Test Case '-[KiteTests.ClientTests testLetterboxZoomAndSourceMapping]' started.
+Test Case '-[KiteTests.ClientTests testLetterboxZoomAndSourceMapping]' passed (0.000 seconds).
+Test Case '-[KiteTests.ClientTests testNativeH264DecodeAndRestart]' started.
+Test Case '-[KiteTests.ClientTests testNativeH264DecodeAndRestart]' passed (0.057 seconds).
+Test Case '-[KiteTests.ClientTests testNativeOpusPacketDecode]' started.
+Test Case '-[KiteTests.ClientTests testNativeOpusPacketDecode]' passed (0.007 seconds).
+Test Suite 'ClientTests' passed at 2026-11-02 18:07:50.321.
+Test Suite 'LiveClientTests' started at 2026-11-02 18:07:50.321.
+Test Case '-[KiteTests.LiveClientTests testLiveRemoteClient]' started.
+Test Case '-[KiteTests.LiveClientTests testLiveRemoteClient]' passed (27.062 seconds).
+Test Suite 'LiveClientTests' passed at 2026-11-02 18:08:17.383.
+Test Suite 'KiteTests.xctest' passed at 2026-11-02 18:08:17.383.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 27.127 (27.129) seconds
+Test Suite 'All tests' passed at 2026-11-02 18:08:17.384.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 27.127 (27.129) seconds
+** TEST SUCCEEDED **

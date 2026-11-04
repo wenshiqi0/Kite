@@ -1,9 +1,10 @@
+import { ptr } from "bun:ffi";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readJson } from "@kite/runtime";
-import { sessionEnvironment } from "../src/desktop";
+import { sessionEnvironment, x11Bytes } from "../src/desktop";
 import { payload } from "../src/push";
 import {
   descendants,
@@ -38,6 +39,11 @@ const proc = (pid: number, ppid: number, started = String(pid)): ProcessFact => 
   rss: 1,
   reserved: 2,
   cgroup: "/user.slice/kite-agents.slice/owned.scope",
+});
+test("empty X11 properties do not enter Bun's zero-length FFI conversion", () => {
+  const storage = Buffer.from([1, 2, 3]);
+  expect(x11Bytes(ptr(storage), 0)).toEqual(Buffer.alloc(0));
+  expect(x11Bytes(ptr(storage), 3)).toEqual(storage);
 });
 test("resource adoption follows every descendant and PID start identity", () => {
   const table = new Map([
@@ -99,25 +105,28 @@ test("push contains only bounded event identity and validates event kinds", () =
   ).toThrow();
   expect(() => payload({ host_id: "owned" }, { id: "a".repeat(64), kind: "invented" })).toThrow();
 });
-test("desktop environment removes supervisor and agent identity variables", () => {
-  const previous = { ...process.env };
-  try {
-    process.env.DISPLAY = ":98765";
-    delete process.env.XDG_SESSION_TYPE;
-    process.env.HERDR_PANE_ID = "owned-pane";
-    process.env.NOTIFY_SOCKET = "owned-notify";
-    process.env.CODEX_THREAD_ID = "owned-thread";
-    process.env.CHROME_USER_DATA_DIR = "/owned/profile";
-    const env = sessionEnvironment();
-    expect(env.HERDR_PANE_ID).toBeUndefined();
-    expect(env.NOTIFY_SOCKET).toBeUndefined();
-    expect(env.CODEX_THREAD_ID).toBeUndefined();
-    expect(env.CHROME_USER_DATA_DIR).toBeUndefined();
-  } finally {
-    for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
-    Object.assign(process.env, previous);
-  }
-});
+test.skipIf(process.platform !== "linux")(
+  "desktop environment removes supervisor and agent identity variables",
+  () => {
+    const previous = { ...process.env };
+    try {
+      process.env.DISPLAY = ":98765";
+      delete process.env.XDG_SESSION_TYPE;
+      process.env.HERDR_PANE_ID = "owned-pane";
+      process.env.NOTIFY_SOCKET = "owned-notify";
+      process.env.CODEX_THREAD_ID = "owned-thread";
+      process.env.CHROME_USER_DATA_DIR = "/owned/profile";
+      const env = sessionEnvironment();
+      expect(env.HERDR_PANE_ID).toBeUndefined();
+      expect(env.NOTIFY_SOCKET).toBeUndefined();
+      expect(env.CODEX_THREAD_ID).toBeUndefined();
+      expect(env.CHROME_USER_DATA_DIR).toBeUndefined();
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
+      Object.assign(process.env, previous);
+    }
+  },
+);
 
 test("sampling uses the user manager outside the app slice", async () => {
   const manager = "/user.slice/user-1000.slice/user@1000.service";

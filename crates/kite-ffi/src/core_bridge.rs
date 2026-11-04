@@ -38,6 +38,58 @@ pub struct HostRecord {
     pub sunshine_port: u16,
 }
 
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HostConnectionInfo {
+    pub host_id: String,
+    pub connection: ConnectionStatus,
+    pub resources: Option<HostResourcesInfo>,
+    pub sessions: Vec<SessionInfo>,
+    pub selected_session: Option<String>,
+    pub providers: Vec<ProviderInfo>,
+    pub session_sort: SessionSortOrder,
+}
+
+impl From<kite_app::ConnectionPhase> for ConnectionStatus {
+    fn from(value: kite_app::ConnectionPhase) -> Self {
+        match value {
+            kite_app::ConnectionPhase::Disconnected => Self::Disconnected,
+            kite_app::ConnectionPhase::Connecting => Self::Connecting,
+            kite_app::ConnectionPhase::Reconnecting => Self::Reconnecting,
+            kite_app::ConnectionPhase::AwaitingTrust => Self::AwaitingTrust,
+            kite_app::ConnectionPhase::Connected => Self::Connected,
+            kite_app::ConnectionPhase::Failed => Self::Failed,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum SessionSortOrder {
+    Newest,
+    Oldest,
+    RecentActivity,
+    Title,
+}
+impl From<SessionSortOrder> for kite_app::SessionSort {
+    fn from(value: SessionSortOrder) -> Self {
+        match value {
+            SessionSortOrder::Newest => Self::Newest,
+            SessionSortOrder::Oldest => Self::Oldest,
+            SessionSortOrder::RecentActivity => Self::RecentActivity,
+            SessionSortOrder::Title => Self::Title,
+        }
+    }
+}
+impl From<kite_app::SessionSort> for SessionSortOrder {
+    fn from(value: kite_app::SessionSort) -> Self {
+        match value {
+            kite_app::SessionSort::Newest => Self::Newest,
+            kite_app::SessionSort::Oldest => Self::Oldest,
+            kite_app::SessionSort::RecentActivity => Self::RecentActivity,
+            kite_app::SessionSort::Title => Self::Title,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum HostMemoryPressure {
     Unknown,
@@ -812,6 +864,7 @@ pub struct ConversationDeltaInfo {
     pub edits: Vec<ConversationEditInfo>,
 }
 fn message_info(m: &kite_app::ChatMessage) -> MessageInfo {
+    let m = m.presentation();
     let (text, attachments) = kite_app::split_chat_attachments(&m.text);
     MessageInfo {
         question_replies: m
@@ -853,6 +906,8 @@ pub struct CoreSnapshot {
     pub initialized: bool,
     pub device_key: Option<DeviceKeyInfo>,
     pub hosts: Vec<HostRecord>,
+    pub host_connections: Vec<HostConnectionInfo>,
+    pub session_sort: SessionSortOrder,
     pub selected_host: Option<String>,
     pub connection: ConnectionStatus,
     pub connection_step: ConnectionStep,
@@ -896,6 +951,20 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                 fingerprint: k.fingerprint,
             }),
             hosts: s.hosts.into_iter().map(Into::into).collect(),
+            host_connections: s
+                .host_connections
+                .into_iter()
+                .map(|h| HostConnectionInfo {
+                    host_id: h.host_id,
+                    connection: h.connection.into(),
+                    resources: h.resources.map(Into::into),
+                    sessions: h.sessions.into_iter().map(Into::into).collect(),
+                    selected_session: h.selected_session,
+                    providers: h.providers.into_iter().map(Into::into).collect(),
+                    session_sort: h.session_sort.into(),
+                })
+                .collect(),
+            session_sort: s.session_sort.into(),
             selected_host: s.selected_host,
             connection: match s.connection {
                 C::Disconnected => ConnectionStatus::Disconnected,
@@ -1060,7 +1129,7 @@ impl kite_app::Observer for Observer {
 
 #[derive(uniffi::Object)]
 pub struct KiteCore {
-    inner: Arc<kite_app::AppCore>,
+    inner: Arc<kite_app::ClientCore>,
 }
 #[uniffi::export]
 impl KiteCore {
@@ -1070,7 +1139,7 @@ impl KiteCore {
         observer: Box<dyn CoreObserver>,
     ) -> Result<Arc<Self>, KiteError> {
         Ok(Arc::new(Self {
-            inner: kite_app::AppCore::new(
+            inner: kite_app::ClientCore::new(
                 Arc::new(Secrets(secret_store)),
                 Arc::new(Observer(observer)),
             ),
@@ -1166,6 +1235,28 @@ impl KiteCore {
     pub async fn connect(&self, host_id: String) -> Result<(), KiteError> {
         self.inner.connect(host_id).await.map_err(Into::into)
     }
+    pub async fn select_host(&self, host_id: String) -> Result<(), KiteError> {
+        self.inner.select_host(host_id).await.map_err(Into::into)
+    }
+    pub async fn disconnect_host(&self, host_id: String) -> Result<(), KiteError> {
+        self.inner
+            .disconnect_host(host_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn disconnect_all(&self) -> Result<(), KiteError> {
+        self.inner.disconnect_all().await.map_err(Into::into)
+    }
+    pub async fn set_session_sort(
+        &self,
+        host_id: String,
+        order: SessionSortOrder,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .set_session_sort(host_id, order.into())
+            .await
+            .map_err(Into::into)
+    }
     pub async fn restore_connection(&self) -> Result<(), KiteError> {
         self.inner.restore_connection().await.map_err(Into::into)
     }
@@ -1173,9 +1264,9 @@ impl KiteCore {
         self.inner.network_changed(available);
         Ok(())
     }
-    pub async fn refresh_host_resources(&self) -> Result<(), KiteError> {
+    pub async fn refresh_host_resources(&self, host_id: String) -> Result<(), KiteError> {
         self.inner
-            .refresh_host_resources()
+            .refresh_host_resources(host_id)
             .await
             .map_err(Into::into)
     }
@@ -1201,39 +1292,61 @@ impl KiteCore {
     pub async fn disconnect(&self) -> Result<(), KiteError> {
         self.inner.disconnect().await.map_err(Into::into)
     }
-    pub async fn ensure_agent(&self) -> Result<(), KiteError> {
-        self.inner.ensure_agent().await.map_err(Into::into)
+    pub async fn ensure_agent(&self, host_id: String) -> Result<(), KiteError> {
+        self.inner.ensure_agent(host_id).await.map_err(Into::into)
     }
     pub async fn create_session(
         &self,
+        host_id: String,
         provider: String,
         cwd: String,
         title: String,
     ) -> Result<(), KiteError> {
         self.inner
-            .create_session(provider, cwd, title)
+            .create_session(host_id, provider, cwd, title)
             .await
             .map_err(Into::into)
     }
-    pub async fn open_session(&self, session_id: String) -> Result<(), KiteError> {
+    pub async fn open_session(&self, host_id: String, session_id: String) -> Result<(), KiteError> {
         self.inner
-            .open_session(session_id)
+            .open_session(host_id, session_id)
             .await
             .map_err(Into::into)
     }
-    pub async fn resume_session(&self, session_id: String) -> Result<(), KiteError> {
+    pub async fn open_workspace_session(
+        &self,
+        host_id: String,
+        session_id: String,
+    ) -> Result<(), KiteError> {
         self.inner
-            .resume_session(session_id)
+            .open_workspace_session(host_id, session_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn set_workspace_sort(&self, order: SessionSortOrder) -> Result<(), KiteError> {
+        self.inner
+            .set_workspace_sort(order.into())
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn resume_session(
+        &self,
+        host_id: String,
+        session_id: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .resume_session(host_id, session_id)
             .await
             .map_err(Into::into)
     }
     pub async fn archive_session(
         &self,
+        host_id: String,
         session_id: String,
         archived: bool,
     ) -> Result<(), KiteError> {
         self.inner
-            .archive_session(session_id, archived)
+            .archive_session(host_id, session_id, archived)
             .await
             .map_err(Into::into)
     }
@@ -1258,12 +1371,20 @@ impl KiteCore {
             failed: result.failed,
         })
     }
-    pub async fn select_agent(&self, agent_id: String) -> Result<(), KiteError> {
-        self.inner.select_agent(agent_id).await.map_err(Into::into)
-    }
-    pub async fn prompt_agent(&self, agent_id: String, text: String) -> Result<(), KiteError> {
+    pub async fn select_agent(&self, host_id: String, agent_id: String) -> Result<(), KiteError> {
         self.inner
-            .prompt_agent(agent_id, text)
+            .select_agent(host_id, agent_id)
+            .await
+            .map_err(Into::into)
+    }
+    pub async fn prompt_agent(
+        &self,
+        host_id: String,
+        agent_id: String,
+        text: String,
+    ) -> Result<(), KiteError> {
+        self.inner
+            .prompt_agent(host_id, agent_id, text)
             .await
             .map_err(Into::into)
     }
@@ -1281,23 +1402,25 @@ impl KiteCore {
     }
     pub async fn select_skill(
         &self,
+        host_id: String,
         agent_id: String,
         path: String,
         selected: bool,
     ) -> Result<(), KiteError> {
         self.inner
-            .select_skill(agent_id, path, selected)
+            .select_skill(host_id, agent_id, path, selected)
             .await
             .map_err(Into::into)
     }
     pub async fn set_chat_model(
         &self,
+        host_id: String,
         agent_id: String,
         model: String,
         effort: String,
     ) -> Result<(), KiteError> {
         self.inner
-            .set_chat_model(agent_id, model, effort)
+            .set_chat_model(host_id, agent_id, model, effort)
             .await
             .map_err(Into::into)
     }
@@ -1309,12 +1432,13 @@ impl KiteCore {
     }
     pub async fn set_chat_setting(
         &self,
+        host_id: String,
         agent_id: String,
         setting: String,
         value: String,
     ) -> Result<(), KiteError> {
         self.inner
-            .set_chat_setting(agent_id, setting, value)
+            .set_chat_setting(host_id, agent_id, setting, value)
             .await
             .map_err(Into::into)
     }
@@ -1323,6 +1447,7 @@ impl KiteCore {
     }
     pub async fn upload_attachment(
         &self,
+        host_id: String,
         agent_id: String,
         local_path: String,
         name: String,
@@ -1330,28 +1455,31 @@ impl KiteCore {
         retry_id: Option<String>,
     ) -> Result<(), KiteError> {
         self.inner
-            .upload_attachment(agent_id, local_path, name, mime, retry_id)
+            .upload_attachment(host_id, agent_id, local_path, name, mime, retry_id)
             .await
             .map_err(Into::into)
     }
     pub async fn remove_attachment(
         &self,
+        host_id: String,
         agent_id: String,
         upload_id: String,
     ) -> Result<(), KiteError> {
         self.inner
-            .remove_attachment(agent_id, upload_id)
+            .remove_attachment(host_id, agent_id, upload_id)
             .await
             .map_err(Into::into)
     }
     pub async fn answer_question(
         &self,
+        host_id: String,
         agent_id: String,
         request_id: String,
         answers: Vec<QuestionAnswerInfo>,
     ) -> Result<(), KiteError> {
         self.inner
             .answer_question(
+                host_id,
                 agent_id,
                 request_id,
                 answers
@@ -1365,50 +1493,74 @@ impl KiteCore {
             .await
             .map_err(Into::into)
     }
-    pub async fn interrupt_agent(&self, agent_id: String) -> Result<(), KiteError> {
+    pub async fn interrupt_agent(
+        &self,
+        host_id: String,
+        agent_id: String,
+    ) -> Result<(), KiteError> {
         self.inner
-            .interrupt_agent(agent_id)
+            .interrupt_agent(host_id, agent_id)
             .await
             .map_err(Into::into)
     }
-    pub async fn send_agent_key(&self, agent_id: String, key: String) -> Result<(), KiteError> {
+    pub async fn send_agent_key(
+        &self,
+        host_id: String,
+        agent_id: String,
+        key: String,
+    ) -> Result<(), KiteError> {
         self.inner
-            .send_agent_key(agent_id, key)
+            .send_agent_key(host_id, agent_id, key)
             .await
             .map_err(Into::into)
     }
     pub async fn respond_approval(
         &self,
+        host_id: String,
         agent_id: String,
         request_id: String,
         choice: u32,
     ) -> Result<(), KiteError> {
         self.inner
-            .respond_approval(agent_id, request_id, choice)
+            .respond_approval(host_id, agent_id, request_id, choice)
             .await
             .map_err(Into::into)
     }
-    pub async fn set_agent_paused(&self, agent_id: String, paused: bool) -> Result<(), KiteError> {
+    pub async fn set_agent_paused(
+        &self,
+        host_id: String,
+        agent_id: String,
+        paused: bool,
+    ) -> Result<(), KiteError> {
         self.inner
-            .set_agent_paused(agent_id, paused)
+            .set_agent_paused(host_id, agent_id, paused)
             .await
             .map_err(Into::into)
     }
     pub async fn clear_failure(&self) -> Result<(), KiteError> {
         self.inner.clear_failure().await.map_err(Into::into)
     }
-    pub async fn start_desktop(&self, media_target: u64) -> Result<(), KiteError> {
+    pub async fn start_desktop(&self, host_id: String, media_target: u64) -> Result<(), KiteError> {
         let sink = media_sink(media_target)?;
-        self.inner.start_desktop(sink).await.map_err(Into::into)
+        self.inner
+            .start_desktop(host_id, sink)
+            .await
+            .map_err(Into::into)
     }
-    pub async fn approve_pairing(&self, pin: String) -> Result<(), KiteError> {
-        self.inner.approve_pairing(pin).await.map_err(Into::into)
+    pub async fn approve_pairing(&self, host_id: String, pin: String) -> Result<(), KiteError> {
+        self.inner
+            .approve_pairing(host_id, pin)
+            .await
+            .map_err(Into::into)
     }
-    pub async fn set_takeover(&self, enabled: bool) -> Result<(), KiteError> {
-        self.inner.set_takeover(enabled).await.map_err(Into::into)
+    pub async fn set_takeover(&self, host_id: String, enabled: bool) -> Result<(), KiteError> {
+        self.inner
+            .set_takeover(host_id, enabled)
+            .await
+            .map_err(Into::into)
     }
-    pub async fn stop_desktop(&self) -> Result<(), KiteError> {
-        self.inner.stop_desktop().await.map_err(Into::into)
+    pub async fn stop_desktop(&self, host_id: String) -> Result<(), KiteError> {
+        self.inner.stop_desktop(host_id).await.map_err(Into::into)
     }
     pub fn conversation_since(&self, context: String, revision: u64) -> ConversationDeltaInfo {
         let delta = self.inner.conversation_since(&context, revision);
@@ -1461,9 +1613,68 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
     {
         crate::android::media_sink(id).ok_or(KiteError::MediaUnavailable)
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        crate::apple::media_sink(id).ok_or(KiteError::MediaUnavailable)
+    }
+    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "ios")))]
     {
         let _ = id;
         Err(KiteError::MediaUnavailable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_worker_reports_reach_native_markdown_as_readable_text() {
+        let message = kite_app::ChatMessage {
+            id: "worker-final".into(),
+            role: kite_app::ChatRole::Assistant,
+            text: r###"{"status":"completed","summary_markdown":"## 晨间查询\n\n**首要风险**\n\n- [查看 CI](https://example.test/ci)","deliverables":[],"risks":[],"followups":[]}"###.into(),
+            intermediate: false,
+            question_replies: vec![],
+            tool: None,
+        };
+        let displayed = message_info(&message);
+        assert_eq!(displayed.id, message.id);
+        assert!(matches!(displayed.kind, MessageKind::Assistant));
+        assert_eq!(
+            displayed.text,
+            "## 晨间查询\n\n**首要风险**\n\n- [查看 CI](https://example.test/ci)"
+        );
+        assert!(!displayed.text.contains("summary_markdown"));
+        assert!(!displayed.text.contains("\\n"));
+        assert!(displayed.tool.is_none());
+        assert!(message.text.contains("summary_markdown"));
+    }
+
+    #[test]
+    fn cached_async_message_calls_reach_native_clients_as_assistant_text() {
+        let message = kite_app::ChatMessage {
+            id: "async-message".into(),
+            role: kite_app::ChatRole::Tool,
+            text: String::new(),
+            intermediate: false,
+            question_replies: Vec::new(),
+            tool: Some(kite_app::ChatTool {
+                name: "send_message_to_user_async".into(),
+                arguments: r#"{"message":"**Ready**. Continue working."}"#.into(),
+                output: r#"{"accepted":true}"#.into(),
+                complete: true,
+                failed: false,
+                computer: false,
+            }),
+        };
+        let displayed = message_info(&message);
+        assert_eq!(displayed.id, message.id);
+        assert!(matches!(displayed.kind, MessageKind::Assistant));
+        assert_eq!(displayed.text, "**Ready**. Continue working.");
+        assert!(!displayed.intermediate);
+        assert!(displayed.tool.is_none());
+        assert!(displayed.question_replies.is_empty());
+        assert!(message.tool.is_some());
     }
 }

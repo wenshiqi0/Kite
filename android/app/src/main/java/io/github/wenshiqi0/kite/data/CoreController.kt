@@ -232,13 +232,13 @@ class CoreController(private val context: Context) {
 
     fun foregroundTimedOut() {
         foregroundWanted = false
-        command { core.disconnect() }
+        command { core.disconnectAll() }
     }
 
     private fun refreshForeground(snapshot: CoreSnapshot) {
-        service?.setReconnecting(snapshot.connection == ConnectionStatus.RECONNECTING)
+        service?.setReconnecting(snapshot.hostConnections.any { it.connection == ConnectionStatus.RECONNECTING })
         service?.setVideoActive(snapshot.desktop.status == DesktopStatus.STREAMING || snapshot.desktop.status == DesktopStatus.STARTING)
-        if (snapshot.connection == ConnectionStatus.CONNECTING || snapshot.connection == ConnectionStatus.RECONNECTING || snapshot.connection == ConnectionStatus.CONNECTED) {
+        if (snapshot.hostConnections.any { it.connection in listOf(ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING, ConnectionStatus.CONNECTED) }) {
             ensureForeground()
         } else if (!initializing) {
             foregroundWanted = false

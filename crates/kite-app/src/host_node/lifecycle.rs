@@ -1,4 +1,4 @@
-//! Release archived provider owners independently of connected phone clients.
+//! Release archived owners and sync Codex archives independently of connected clients.
 use super::*;
 use tokio::task::JoinHandle;
 
@@ -35,17 +35,24 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
+fn backend_command(node: &Node, action: &str) -> Result<Command> {
+    let config = node.config.current()?;
+    let mut command = Command::new(&node.config.bun);
+    command
+        .arg(&node.config.backend)
+        .args([action, "--herdr"])
+        .arg(&config.herdr)
+        .envs(&config.environment)
+        .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
+    Ok(command)
+}
+
 async fn reap(node: &Node, fact: &Fact) -> Result<bool> {
     let mut request = serde_json::to_value(fact)?;
     request["reason"] = "archived".into();
     let input = serde_json::to_vec(&request)?;
-    let mut command = Command::new(&node.config.bun);
+    let mut command = backend_command(node, "lifecycle-reap")?;
     command
-        .arg(&node.config.backend)
-        .args(["lifecycle-reap", "--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
-        .env("KITE_HOST_BACKEND_PATH", &node.config.backend)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -81,14 +88,7 @@ pub(super) async fn scan(node: &Node) -> Result<crate::SessionCleanup> {
         .await
         .map_err(|_| Error::Protocol("session cleanup already in progress"))?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    let mut command = Command::new(&node.config.bun);
-    command
-        .arg(&node.config.backend)
-        .args(["lifecycle-facts", "--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
-        .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
-    let bytes = bounded_output(command).await?;
+    let bytes = bounded_output(backend_command(node, "lifecycle-facts")?).await?;
     let facts: Facts = serde_json::from_slice(&bytes)?;
     if facts.facts.len() > 1024 {
         return Err(Error::Protocol("lifecycle fact capacity exceeded"));
@@ -117,6 +117,24 @@ pub(super) async fn scan(node: &Node) -> Result<crate::SessionCleanup> {
                 result.failed += 1;
                 log::debug!("session lifecycle revalidation unavailable");
             }
+        }
+    }
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    if !remaining.is_zero() && !node.draining() {
+        let sync =
+            bounded_output_with_timeout(backend_command(node, "lifecycle-archive")?, remaining)
+                .await
+                .and_then(|bytes| Ok(serde_json::from_slice::<Value>(&bytes)?));
+        match sync {
+            Ok(value) => {
+                if let Some(count) = value["archived"].as_u64().filter(|&n| n > 0) {
+                    log::info!("synced {count} Codex archives");
+                }
+                if let Some(count) = value["failed"].as_u64().filter(|&n| n > 0) {
+                    log::warn!("failed to sync {count} Codex archives; will retry");
+                }
+            }
+            Err(error) => log::debug!("Codex archive sync unavailable: {error}"),
         }
     }
     node.lifecycle_last_scan.store(now_ms(), Ordering::Relaxed);
@@ -202,7 +220,7 @@ mod tests {
         let interpreter = root.path().join("interpreter");
         fs::write(
             &interpreter,
-            "#!/usr/bin/python3\nimport json,sys,os\nfrom pathlib import Path\nr=Path(__file__).parent\nassert os.environ['KITE_HOST_BACKEND_PATH']==sys.argv[1]\nif sys.argv[2]=='lifecycle-facts':print((r/'facts.json').read_text())\nelif sys.argv[2]=='lifecycle-reap':\n p=json.load(sys.stdin)\n with (r/'attempts').open('a') as f:f.write(json.dumps(p)+'\\n')\n print(json.dumps({'reclaimed':p['session_id']!='changed'}))\nelse:raise AssertionError(sys.argv)\n",
+            "#!/usr/bin/python3\nimport json,sys,os\nfrom pathlib import Path\nr=Path(__file__).parent\nassert os.environ['KITE_HOST_BACKEND_PATH']==sys.argv[1]\nif sys.argv[2]=='lifecycle-facts':print((r/'facts.json').read_text())\nelif sys.argv[2]=='lifecycle-reap':\n p=json.load(sys.stdin)\n with (r/'attempts').open('a') as f:f.write(json.dumps(p)+'\\n')\n print(json.dumps({'reclaimed':p['session_id']!='changed'}))\nelif sys.argv[2]=='lifecycle-archive':\n assert len((r/'attempts').read_text().splitlines())==2\n (r/'archive-synced').touch()\n print(json.dumps({'archived':1,'failed':0}))\nelse:raise AssertionError(sys.argv)\n",
         )
         .unwrap();
         fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o700)).unwrap();
@@ -249,6 +267,7 @@ mod tests {
             notification_problem: None,
             push_problem: None,
             services: Mutex::new(None),
+            integration_health: Mutex::new(None),
             upgrade: None,
             observation_gate: RwLock::new(()),
         };
@@ -269,6 +288,7 @@ mod tests {
                 .all(|attempt| attempt["reason"] == "archived")
         );
         assert_eq!(attempts[0]["session_id"], "archived");
+        assert!(root.path().join("archive-synced").exists());
         assert_eq!(node.lifecycle_reclaimed.load(Ordering::Relaxed), 1);
         assert!(node.lifecycle_last_scan.load(Ordering::Relaxed) > 0);
     }

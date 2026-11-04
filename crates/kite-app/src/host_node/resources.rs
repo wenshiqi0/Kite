@@ -67,15 +67,16 @@ fn atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 async fn platform(node: &Node, action: &str, input: Option<Value>) -> Result<Vec<u8>> {
-    let helper = &node.config.backend;
-    let mut command = Command::new(&node.config.bun);
+    let config = node.config.current()?;
+    let helper = &config.backend;
+    let mut command = Command::new(&config.bun);
     command
         .arg(helper)
         .arg("resources")
         .arg(action)
         .args(["--herdr"])
-        .arg(&node.config.herdr)
-        .envs(&node.config.environment)
+        .arg(&config.herdr)
+        .envs(&config.environment)
         .env("KITE_HOST_BACKEND_PATH", &node.config.backend);
     if let Some(input) = input {
         command
@@ -200,6 +201,12 @@ impl Resources {
     }
 
     pub async fn profile(&self, node: &Node) -> HostResources {
+        if cfg!(target_os = "macos") {
+            return HostResources {
+                problem: Some("Agent memory budgets are not supported on macOS".into()),
+                ..HostResources::default()
+            };
+        }
         let mut state = self.state.lock().await;
         if now_ms().saturating_sub(state.profile.sampled_at_ms) > 5000
             && let Err(error) = self.refresh(node, &mut state).await
@@ -212,6 +219,11 @@ impl Resources {
     }
 
     pub async fn admit(&self, node: &Node, pane: &str, pid: u32) -> Result<Value> {
+        if cfg!(target_os = "macos") {
+            return Err(Error::Config(
+                "agent memory budgets are not supported on macOS",
+            ));
+        }
         let herdr = pane.split_once(":p").is_some_and(|(prefix, suffix)| {
             !prefix.is_empty()
                 && !suffix.is_empty()
@@ -270,6 +282,11 @@ impl Resources {
     }
 
     pub async fn set_limit(&self, node: &Node, limit: u64) -> Result<HostResources> {
+        if cfg!(target_os = "macos") {
+            return Err(Error::Config(
+                "agent memory budgets are not supported on macOS",
+            ));
+        }
         let source = node
             .config
             .source_path
@@ -325,6 +342,9 @@ impl Drop for Watch {
 pub(super) fn start(node: &Arc<Node>) -> Watch {
     let weak = Arc::downgrade(node);
     Watch(tokio::spawn(async move {
+        if cfg!(target_os = "macos") {
+            return;
+        }
         loop {
             let Some(node) = weak.upgrade() else { return };
             let gate = node.observation_gate.read().await;
@@ -346,7 +366,7 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
@@ -385,6 +405,7 @@ mod tests {
             notification_problem: None,
             push_problem: None,
             services: Mutex::new(None),
+            integration_health: Mutex::new(None),
             upgrade: None,
             observation_gate: RwLock::new(()),
         }

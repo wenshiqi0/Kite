@@ -1,7 +1,25 @@
+import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
+import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { check, type Json, object, parse } from "@kite/protocol";
 import { bounded } from "./index";
+/** Check an owned Unix endpoint, including Codex's single socket alias on macOS. */
+export function requirePrivateSocket(path: string): void {
+  const link = lstatSync(path),
+    target = link.isSymbolicLink() ? resolve(dirname(path), readlinkSync(path)) : path,
+    info = lstatSync(target),
+    parent = statSync(realpathSync(dirname(target)));
+  check(
+    link.uid === process.getuid?.() &&
+      info.isSocket() &&
+      info.uid === process.getuid?.() &&
+      !(info.mode & 0o077) &&
+      parent.uid === process.getuid?.() &&
+      !(parent.mode & 0o077),
+    "backend socket is not private",
+  );
+}
 export async function listening(path: string): Promise<boolean> {
   return new Promise((resolve) => {
     const s = createConnection(path);

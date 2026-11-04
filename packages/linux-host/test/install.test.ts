@@ -99,11 +99,14 @@ test("an interrupted installation retries against the running binary and keeps u
   expect(JSON.parse(readFileSync(f.config, "utf8")).socket).toBe("/private/custom.sock");
   expect(readFileSync(f.autostart, "utf8")).toContain("Hidden=true");
 });
-test("reads the running executable through proc rather than trusting an installed symlink", async () => {
-  const run: Command = async () => ({ code: 0, stdout: String(process.pid), stderr: "" });
-  expect(await runningNodeMatches(digest("/proc/self/exe"), run)).toBe(true);
-  expect(await runningNodeMatches("0".repeat(64), run)).toBe(false);
-});
+test.skipIf(process.platform !== "linux")(
+  "reads the running executable through proc rather than trusting an installed symlink",
+  async () => {
+    const run: Command = async () => ({ code: 0, stdout: String(process.pid), stderr: "" });
+    expect(await runningNodeMatches(digest("/proc/self/exe"), run)).toBe(true);
+    expect(await runningNodeMatches("0".repeat(64), run)).toBe(false);
+  },
+);
 test("a GUI update only sends the upgrade action", async () => {
   const calls: string[][] = [],
     run: Command = async (argv) => {

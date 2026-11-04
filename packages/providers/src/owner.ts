@@ -206,15 +206,29 @@ export class Owner {
             ? data.arguments
             : JSON.stringify(data.arguments ?? {}),
       });
-      this.notify("item/started", { turnId: this.turn, item: { id, type: "commandExecution" } });
+      this.notify("item/started", {
+        turnId: this.turn,
+        item: { id, type: "commandExecution", name: data.name ?? "Remote tool" },
+      });
     } else if (value.type === "tool/result") {
       const m = optionalObject(data.message),
         id = `${this.turn}:${m.toolCallId ?? m.callId ?? ""}`;
+      const output = textContent(m.content);
       this.record(`${id}:result`, {
         type: "function_call_output",
         call_id: id,
-        output: textContent(m.content),
+        output,
         failed: Boolean(m.isError),
+      });
+      this.notify("item/completed", {
+        turnId: this.turn,
+        item: {
+          id,
+          type: "commandExecution",
+          status: m.isError ? "failed" : "completed",
+          aggregatedOutput: output.slice(0, 128 * 1024),
+          _meta: { outputTruncated: output.length > 128 * 1024 },
+        },
       });
     }
   }

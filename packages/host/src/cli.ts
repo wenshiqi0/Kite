@@ -3,15 +3,27 @@ import { join } from "node:path";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
 import { configure, execBudgeted, reapOrphans, sample } from "@kite/platform";
+import { capturedDisplay } from "@kite/platform/captured-display";
 import { CLIPBOARD_LIMIT, clipboard } from "@kite/platform/clipboard";
 import { desktop } from "@kite/platform/desktop";
 import { deliver } from "@kite/platform/push";
-import { check, integer, type Json, json, object, parse, string, UUID } from "@kite/protocol";
+import {
+  check,
+  integer,
+  type Json,
+  json,
+  object,
+  parse,
+  RPC_LIMIT,
+  string,
+  UUID,
+} from "@kite/protocol";
 import { catalogRead, catalogWrite } from "@kite/providers/catalog";
 import {
   api,
   bind,
   ensure,
+  herdrRequest,
   installResourceHooks,
   noteSessionOpen,
   proxy,
@@ -22,18 +34,33 @@ import {
 import { sessionDelete } from "@kite/providers/deletion";
 import { harnessAgents, harnessDirectory, providers } from "@kite/providers/harness";
 import { historyProjection, historyStamp } from "@kite/providers/history";
-import { lifecycleFacts, lifecycleReap, notificationFacts } from "@kite/providers/lifecycle";
+import {
+  archiveReleasedCodex,
+  lifecycleFacts,
+  lifecycleReap,
+  notificationFacts,
+} from "@kite/providers/lifecycle";
 import { serveOwner } from "@kite/providers/owner";
 import { attachmentRead, readGeneratedImage, upload } from "@kite/providers/uploads";
-import { exec, input } from "@kite/runtime";
+import { exec, input, lines } from "@kite/runtime";
+import { acpMain } from "./acp";
 export async function main(argv: string[]): Promise<void> {
   process.umask(0o077);
   installResourceHooks();
   const action = argv[0];
   check(action, "host action required");
+  if (action === "acp") {
+    await acpMain(argv.slice(1));
+    return;
+  }
   const output = (v: Json) => {
     process.stdout.write(`${JSON.stringify(v)}\n`);
   };
+  if (action === "captured-display") {
+    check(argv.length === 2, "captured-display requires a port");
+    output(await capturedDisplay(Number(argv[1])));
+    return;
+  }
   if (action === "harness-owner") {
     await serveOwner(string(argv[1]));
     return;
@@ -130,6 +157,12 @@ export async function main(argv: string[]): Promise<void> {
   }
   check(!positionals.length, "unexpected arguments");
   switch (action) {
+    case "herdr-api":
+      for await (const line of lines(Bun.stdin.stream(), RPC_LIMIT)) {
+        output(await herdrRequest(arg("herdr"), object(parse(line))));
+        break; // Herdr's bridge handles one request per connection.
+      }
+      break;
     case "catalog-read":
       output(json(await catalogRead()));
       break;
@@ -209,6 +242,9 @@ export async function main(argv: string[]): Promise<void> {
       break;
     case "lifecycle-facts":
       output(await lifecycleFacts(arg("herdr")));
+      break;
+    case "lifecycle-archive":
+      output(await archiveReleasedCodex(arg("herdr")));
       break;
     case "lifecycle-reap":
       output(await lifecycleReap(object(parse((await input(65536)).toString())), arg("herdr")));

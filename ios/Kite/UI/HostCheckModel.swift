@@ -23,8 +23,10 @@ final class HostCheckModel {
     private var localFailure: String?
     var deviceKey: DeviceKeyInfo? { engine.snapshot?.deviceKey }
     var deviceKeyError: String? { deviceKey == nil ? engine.nativeError ?? engine.snapshot?.failure?.details : nil }
-    var isRunning: Bool { engine.snapshot?.connection == .connecting }
-    var isConnected: Bool { engine.snapshot?.connection == .connected }
+    var hosts: [HostRecord] { engine.snapshot?.hosts ?? [] }
+    func connection(_ host: String) -> ConnectionStatus { engine.snapshot?.hostConnections.first { $0.hostId == host }?.connection ?? .disconnected }
+    var isRunning: Bool { connection(form.id) == .connecting || connection(form.id) == .reconnecting }
+    var isConnected: Bool { connection(form.id) == .connected }
     var pendingHostKey: HostKeyConfirmation? { engine.snapshot?.pendingHostKey }
     var failureDetails: String? { engine.snapshot?.failure?.details ?? engine.nativeError }
     var state: CheckState {
@@ -60,7 +62,7 @@ final class HostCheckModel {
         }
     }
     func check() {
-        if isConnected { engine.command { try await $0.disconnect() }; return }
+        if isConnected { let host = form.id; engine.command { try await $0.disconnectHost(hostId: host) }; return }
         guard !isRunning else { return }
         let f = form
         guard !f.host.trimmingCharacters(in: .whitespaces).isEmpty else { localFailure = localized("error_host_required"); return }
@@ -74,6 +76,11 @@ final class HostCheckModel {
             try await core.connect(hostId: id)
         }
     }
+    func choose(_ host: HostRecord) {
+        form = HostForm(id: host.id, host: host.host, port: String(host.port), username: host.username, herdrPath: host.herdrPath ?? "")
+        engine.command { try await $0.selectHost(hostId: host.id) }
+    }
+    func newHost() { form = HostForm() }
     func trustHostKey(_ c: HostKeyConfirmation) { engine.command { try await $0.trustHost(hostId: c.hostId, fingerprint: c.fingerprint) } }
     func dismissHostKey() { engine.command { try await $0.disconnect() } }
     func forgetHostKey() { guard let id = engine.snapshot?.selectedHost else { return }; engine.command { try await $0.forgetHost(hostId: id) } }

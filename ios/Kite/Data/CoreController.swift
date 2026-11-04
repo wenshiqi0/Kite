@@ -36,6 +36,7 @@ final class CoreController {
         defer { initialization = nil }
         try await task.value
         accept(try core.snapshot())
+        try await core.restoreConnection()
     }
     func command(_ action: @escaping @MainActor (KiteCore) async throws -> Void) {
         guard let core else { return }

@@ -61,20 +61,20 @@ pub fn helper_command(args: &str) -> String {
 }
 
 /// Require the matching live host node; the desktop installation owns the adapter.
-pub async fn require_node(ssh: &Session) -> Result<(), Error> {
+pub async fn require_node(ssh: &Session) -> Result<Value, Error> {
     let output = ssh
         .exec("\"$HOME/.local/bin/kite-node\" api-version", &[])
         .await?;
     if output.exit_status != Some(0) {
         return Err(Error::NodeUnavailable(
-            "enable the Linux Kite desktop host service",
+            "enable the Kite desktop host service on the target machine",
         ));
     }
     let info: Value = serde_json::from_slice(&output.stdout)?;
     if info["api"] != 1 || info["backendProtocol"] != 5 || info["harnessApi"] != 2 {
         return Err(Error::NodeUnavailable("host node protocol mismatch"));
     }
-    Ok(())
+    Ok(info)
 }
 
 pub async fn launch_args(ssh: &Session, pane: &str, herdr: &str) -> Result<Vec<String>, Error> {

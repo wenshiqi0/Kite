@@ -21,10 +21,15 @@ use tokio::{
     task::JoinSet,
 };
 
+mod acp;
 mod bridge;
+mod configuration;
 mod desktop;
 mod docs;
+mod launchd;
 mod lifecycle;
+#[cfg(target_os = "macos")]
+mod macos;
 mod mcp;
 mod notifications;
 mod push;
@@ -69,13 +74,18 @@ pub struct Service {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    #[serde(default)]
+    pub configuration_version: u32,
     pub node_id: String,
+    #[serde(default)]
     pub machine: String,
     pub socket: PathBuf,
     pub backend: PathBuf,
     pub herdr: PathBuf,
     pub bun: PathBuf,
     pub systemctl: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launchctl: Option<PathBuf>,
     #[serde(default = "crate::resources::default_agent_memory_limit")]
     pub agent_memory_limit_bytes: u64,
     #[serde(skip)]
@@ -83,6 +93,8 @@ pub struct Config {
     #[serde(default)]
     pub push_service_account: Option<PathBuf>,
     pub services: Vec<Service>,
+    #[serde(default)]
+    pub sunshine: Option<configuration::Sunshine>,
     #[serde(default)]
     pub environment: BTreeMap<String, String>,
 }
@@ -94,12 +106,17 @@ impl Config {
             return Err(Error::Config("invalid agent memory limit"));
         }
         if self.node_id.is_empty()
-            || self.machine.is_empty()
+            || self.configuration_version > 1
+            || self.machine.chars().any(char::is_control)
             || !self.socket.is_absolute()
             || !self.backend.is_absolute()
             || !self.herdr.is_absolute()
             || !self.bun.is_absolute()
             || !self.systemctl.is_absolute()
+            || self
+                .launchctl
+                .as_ref()
+                .is_some_and(|path| !path.is_absolute())
             || self
                 .push_service_account
                 .as_ref()
@@ -111,7 +128,7 @@ impl Config {
             || self.services.iter().any(|s| {
                 s.name.is_empty()
                     || s.unit.starts_with('-')
-                    || !s.unit.ends_with(".service")
+                    || (self.launchctl.is_none() && !s.unit.ends_with(".service"))
                     || !s
                         .unit
                         .bytes()
@@ -126,6 +143,8 @@ impl Config {
                 "XAUTHORITY",
                 "XDG_RUNTIME_DIR",
                 "DBUS_SESSION_BUS_ADDRESS",
+                "XDG_SESSION_TYPE",
+                "XDG_CURRENT_DESKTOP",
                 "PATH",
                 "KITE_ENABLE_DSH",
                 "KITE_DSH_COMMAND",
@@ -144,6 +163,9 @@ impl Config {
             .contains(&k.as_str())
         }) {
             return Err(Error::Config("unsupported environment key"));
+        }
+        if let Some(sunshine) = &self.sunshine {
+            sunshine.validate()?;
         }
         Ok(())
     }
@@ -180,7 +202,8 @@ struct Node {
     push: Option<push::Push>,
     notification_problem: Option<String>,
     push_problem: Option<String>,
-    services: Mutex<Option<(Instant, Vec<Value>)>>,
+    services: Mutex<Option<(Instant, String, Vec<Value>)>>,
+    integration_health: Mutex<Option<(Instant, String, Value)>>,
     upgrade: Option<upgrade::Handover>,
     observation_gate: RwLock<()>,
 }
@@ -194,8 +217,16 @@ impl Drop for NodeLock {
 }
 
 pub fn run(mut args: Vec<String>) -> Result<i32> {
+    if args.first().map(String::as_str) == Some("service-exec") {
+        return configuration::service_exec(&args[1..]);
+    }
+    #[cfg(target_os = "macos")]
+    if args.first().map(String::as_str) == Some("host") {
+        return macos::run(&args[1..]);
+    }
     let socket_option = leading_option(&mut args, "--socket")?.map(PathBuf::from);
     match args.first().map(String::as_str) {
+        Some("acp") => return acp::cli(&args[1..]),
         Some("docs") => return docs::cli(&args[1..]),
         Some("--skill") => return docs::cli(&["skill".into()]),
         Some("desktop") if args.get(1).is_some_and(|s| s == "--help" || s == "-h") => {
@@ -203,7 +234,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
         }
         Some("--help" | "-h") => {
             println!(
-                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured Linux X11 desktop\n  kite status | sessions [release-archived] | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
+                "Kite host CLI\n  kite docs [TOPIC ...]    Concise agent guides (offline)\n  kite desktop ACTION     Configured host desktop\n  kite status | sessions [release-archived] | notifications | ensure all\n  kite mcp                Standard stdio MCP\n  --socket PATH           Select the private Node listener"
             );
             return Ok(0);
         }
@@ -222,12 +253,13 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"liveUpgrade":1,"generationLaunch":1,"docsApi":1,"desktopApi":1,"resourceApi":1})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
                 );
                 Ok(0)
             }
             "serve" => {
                 let activated = args.iter().any(|s| s == "--activated");
+                if activated && cfg!(target_os = "macos") {return Err(Error::Config("systemd socket activation is not supported on macOS"));}
                 let replacement = args.iter().any(|s| s == "--handover");
                 let bootstrap = args.iter().any(|s| s == "--generation-bootstrap");
                 args.retain(|s| s != "--activated" && s != "--handover" && s != "--generation-bootstrap");
@@ -355,6 +387,11 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                     value["path"]=json!(output);
                 }
                 println!("{value}");Ok(0)
+            }
+            "captured-display" => {
+                if args.len() != 2 || args[1].parse::<u16>().is_err() { return Err(Error::Config("captured-display requires a port")); }
+                let mut request = NodeRequest::new("captured-display"); request.args = args[1..].to_vec();
+                println!("{}", rpc(&socket,request).await?); Ok(0)
             }
             "status" | "api-version" | "sessions" | "ensure" | "notifications"
             | "notification-get" => {
@@ -572,6 +609,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
         notification_problem,
         push_problem,
         services: Mutex::new(None),
+        integration_health: Mutex::new(None),
         upgrade: handover,
         observation_gate: RwLock::new(()),
     });
@@ -674,19 +712,20 @@ impl Node {
         }
     }
     fn command(&self, request: &NodeRequest) -> Result<Command> {
-        validate_args(&self.config, request)?;
-        let mut command = if request.method == "herdr-api" {
-            let mut c = Command::new(&self.config.herdr);
-            c.arg("remote-api-bridge");
-            c
-        } else {
-            let mut c = Command::new(&self.config.bun);
-            c.arg(&self.config.backend).args(&request.args);
-            c
-        };
-        command.envs(&self.config.environment);
+        let config = self.config.current()?;
+        validate_args(&config, request)?;
+        let mut command = Command::new(&self.config.bun);
+        command.arg(&self.config.backend);
+        if request.method == "herdr-api" {
+            command.arg("herdr-api");
+        }
+        command.args(&request.args);
+        command.envs(&config.environment);
         command
-            .env("KITE_AGENT_RESOURCE_CONTROL", "1")
+            .env(
+                "KITE_AGENT_RESOURCE_CONTROL",
+                if cfg!(target_os = "linux") { "1" } else { "0" },
+            )
             .env("KITE_HOST_BACKEND_PATH", &self.config.backend);
         Ok(command)
     }
@@ -708,6 +747,19 @@ impl Node {
             None
         };
         match request.method.as_str() {
+            "captured-display" => {
+                if request.args.len() != 1 || request.args[0].parse::<u16>().is_err() {
+                    return Err(Error::Protocol("invalid capture port"));
+                }
+                let mut command = Command::new(&self.config.bun);
+                command
+                    .arg(&self.config.backend)
+                    .arg("captured-display")
+                    .args(&request.args)
+                    .envs(&self.config.environment)
+                    .env("KITE_HOST_BACKEND_PATH", &self.config.backend);
+                Ok(serde_json::from_slice(&bounded_output(command).await?)?)
+            }
             "sessions-release-archived" => Ok(serde_json::to_value(lifecycle::scan(self).await?)?),
             "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
             "resource-limit" => Ok(serde_json::to_value(
@@ -739,7 +791,11 @@ impl Node {
                     .await
             }
             "desktop" => {
-                desktop::execute(&self.config, desktop::parse(request.params.clone())?).await
+                desktop::execute(
+                    &self.config.current()?,
+                    desktop::parse(request.params.clone())?,
+                )
+                .await
             }
             "upgrade" => upgrade::handover(self, request).await,
             "push-register" => self.push_registry()?.register(
@@ -756,15 +812,32 @@ impl Node {
                     .page(request.params["after"].as_str())?,
             )?),
             "status" => {
-                let services = self.services(request.params["refresh"] == true).await;
-                let health = if services.iter().all(|service| service["active"] == true) {
+                let config = self.config.current()?;
+                let refresh = request.params["refresh"] == true;
+                let (services, integration) = tokio::join!(
+                    self.services(refresh, &config),
+                    self.integration_health(refresh, &config)
+                );
+                let machine = config.machine_name()?;
+                let healthy_integration = config.sunshine.is_none()
+                    || ((!cfg!(target_os = "linux")
+                        || integration["desktop"]["available"] == true)
+                        && integration["sunshine"]["available"] == true
+                        && integration["sunshine"]["name"].as_str() == Some(machine.as_str()));
+                let health = if services.iter().all(|service| service["active"] == true)
+                    && healthy_integration
+                {
                     "ready"
                 } else {
                     "degraded"
                 };
-                Ok(
-                    json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":1,"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services}),
-                )
+                let mut status = json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services});
+                status["machine"] = machine.into();
+                status["configurationApi"] = 1.into();
+                status["configuration"] = config.public_configuration()?;
+                status["desktop"] = integration["desktop"].clone();
+                status["sunshine"] = integration["sunshine"].clone();
+                Ok(status)
             }
             "sessions" => {
                 let mut c = Command::new(&self.config.bun);
@@ -775,14 +848,14 @@ impl Node {
                 Ok(serde_json::from_slice(&out)?)
             }
             "ensure" => {
+                let config = self.config.current()?;
                 let name = request.params["service"].as_str().unwrap_or("all");
-                if name != "all" && !self.config.services.iter().any(|s| s.name == name) {
+                if name != "all" && !config.services.iter().any(|s| s.name == name) {
                     return Err(Error::Config("unknown service"));
                 }
-                let services = self.services(true).await;
+                let services = self.services(true, &config).await;
                 let result = tokio::time::timeout(Duration::from_secs(20), async {
-                    for (service, state) in self
-                        .config
+                    for (service, state) in config
                         .services
                         .iter()
                         .zip(&services)
@@ -791,7 +864,11 @@ impl Node {
                         if state["active"] == true {
                             continue;
                         }
-                        let mut c = Command::new(&self.config.systemctl);
+                        if let Some(control) = &config.launchctl {
+                            launchd::start(control, &service.unit).await?;
+                            continue;
+                        }
+                        let mut c = Command::new(&config.systemctl);
                         c.args(["--user", "start", &service.unit]);
                         bounded_output(c).await?;
                     }
@@ -806,28 +883,65 @@ impl Node {
             _ => Err(Error::Protocol("unknown node method")),
         }
     }
-    async fn services(&self, refresh: bool) -> Vec<Value> {
+    async fn integration_health(&self, refresh: bool, config: &Config) -> Value {
+        let requested_at = Instant::now();
+        let identity = config
+            .public_configuration()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let mut cache = self.integration_health.lock().await;
+        if let Some((at, previous, value)) = &*cache
+            && previous == &identity
+            && (*at >= requested_at || (!refresh && at.elapsed() < SERVICE_CACHE_TTL))
+        {
+            return value.clone();
+        }
+        let value = configuration::probe(config).await;
+        *cache = Some((Instant::now(), identity, value.clone()));
+        value
+    }
+
+    async fn services(&self, refresh: bool, config: &Config) -> Vec<Value> {
         // Hold this lock across the bounded probe so concurrent panels/MCP clients
         // share one inspection instead of spawning duplicate systemctl processes.
         let requested_at = Instant::now();
+        let identity = json!([config.systemctl, config.launchctl, config.services]).to_string();
         let mut cache = self.services.lock().await;
-        if let Some((at, services)) = &*cache
+        if let Some((at, previous, services)) = &*cache
+            && previous == &identity
             && (*at >= requested_at || (!refresh && at.elapsed() < SERVICE_CACHE_TTL))
         {
             return services.clone();
         }
-        let services = self.inspect_services().await;
-        *cache = Some((Instant::now(), services.clone()));
+        let services = self.inspect_services(config).await;
+        *cache = Some((Instant::now(), identity, services.clone()));
         services
     }
 
-    async fn inspect_services(&self) -> Vec<Value> {
-        if self.config.services.is_empty() {
+    async fn inspect_services(&self, config: &Config) -> Vec<Value> {
+        if let Some(control) = &config.launchctl {
+            let values = launchd::inspect(control, &config.services).await;
+            #[cfg(target_os = "macos")]
+            {
+                let mut result = Vec::with_capacity(values.len());
+                for (service, value) in config.services.iter().zip(values) {
+                    result.push(if service.name == "Herdr" && service.external {
+                        macos::herdr_state(&config.herdr, service).await
+                    } else {
+                        value
+                    });
+                }
+                return result;
+            }
+            #[cfg(not(target_os = "macos"))]
+            return values;
+        }
+        if config.services.is_empty() {
             return vec![];
         }
-        let mut c = Command::new(&self.config.systemctl);
+        let mut c = Command::new(&config.systemctl);
         c.args(["--user", "show"]);
-        c.args(self.config.services.iter().map(|service| &service.unit));
+        c.args(config.services.iter().map(|service| &service.unit));
         c.args([
             "--property=Id",
             "--property=Names",
@@ -838,7 +952,7 @@ impl Node {
         match result {
             Ok(bytes) => {
                 let text = String::from_utf8_lossy(&bytes);
-                self.config
+                config
                     .services
                     .iter()
                     .map(|service| {
@@ -875,8 +989,7 @@ impl Node {
                     })
                     .collect()
             }
-            Err(error) => self
-                .config
+            Err(error) => config
                 .services
                 .iter()
                 .map(|service| {
@@ -1049,6 +1162,7 @@ mod tests {
 
     pub(super) fn config(root: &Path) -> Config {
         Config {
+            configuration_version: 0,
             node_id: "controlled-node".into(),
             machine: "fixture".into(),
             socket: root.join("node/host.sock"),
@@ -1056,10 +1170,12 @@ mod tests {
             herdr: PathBuf::from("/bin/sh"),
             bun: PathBuf::from("/usr/bin/python3"),
             systemctl: PathBuf::from("/usr/bin/false"),
+            launchctl: None,
             agent_memory_limit_bytes: crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
             source_path: None,
             push_service_account: None,
             services: vec![],
+            sunshine: None,
             environment: BTreeMap::new(),
         }
     }

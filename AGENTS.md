@@ -1,6 +1,7 @@
 # Kite 项目协作约定
 
 - 用户询问问题时，提供可核查的具体证据来源。
+- 本项目桌面 UI 测试默认使用 Codex 自带 Computer Use（`cua_repl`）观察和操作；仅在用户明确要求时使用 Tactero。使用运行中的安装版完整路径选择 Kite，避免同 bundle ID 的构建/验证副本造成混淆。测试结论区分隔离夹具与当前真实主机连接。
 - 仅在新增、修改或排查聊天 harness/provider 接入时，按需读取 [内部接入规范](docs/development/harness-integration.md)；普通功能开发和 Kite CLI/MCP 使用不加载该文档。
 - 重构前确认兼容面，不自动增加旧接口兼容代码。本次已经确认：迁移 M1 主机与全部 SSH 信任记录，复用设备 SSH 私钥；FFI 库与绑定同次生成，不保留旧 FFI 入口。
 - 每次 APK 打包完成后，必须将对应源码提交并推送到 GitHub，并发布包含 APK 的 GitHub Release；仅交付本地 APK 链接不算完成。

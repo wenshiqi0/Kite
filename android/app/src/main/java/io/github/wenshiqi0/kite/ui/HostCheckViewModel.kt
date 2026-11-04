@@ -60,8 +60,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     var draft by mutableStateOf("")
     var copyingAttachments by mutableStateOf(false)
         private set
-    val sending: Boolean get() = engine.state.value?.selectedAgent?.let { it in sendingAgents } ?: false
-    val interrupting: Boolean get() = engine.state.value?.selectedAgent?.let { it in interruptingAgents } ?: false
+    val sending: Boolean get() = engine.state.value?.selectedAgent?.let { "${engine.state.value?.selectedHost}/$it" in sendingAgents } ?: false
+    val interrupting: Boolean get() = engine.state.value?.selectedAgent?.let { "${engine.state.value?.selectedHost}/$it" in interruptingAgents } ?: false
     val sessionStartup: SessionStartupPhase get() {
         val state = engine.state.value
         val agent = state?.agents?.find { it.id == state.selectedAgent }
@@ -103,8 +103,9 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     private val questionDrafts = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateMap<String, String>>()
     var creatingAgent by mutableStateOf(false)
         private set
-    private var wasConnecting = false
+    private var pendingConnectHost: String? = null
     private var lastConnection: ConnectionStatus? = null
+    private var lastHost: String? = null
     var ctrlHeld by mutableStateOf(false)
         private set
     var metaHeld by mutableStateOf(false)
@@ -113,6 +114,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     private var restoreLayout = DesktopLayout.Floating
     private var beforeFullscreen = DesktopLayout.Floating
     private var videoSuspended = false
+    private var videoHost: String? = null
     private var autoDocked = false
     private var lastStatus: String? = null
     private var autoDesktop = true
@@ -136,30 +138,35 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                 if (state?.initialized == true && !loaded) {
                     loaded = true
                     val saved = state.hosts.find { it.id == state.selectedHost } ?: state.hosts.firstOrNull()
-                    if (saved == null) settingsVisible = true else {
+                    if (saved != null) {
                         form = saved.toForm()
                         if (state.connection == ConnectionStatus.DISCONNECTED && !engine.notificationNavigationActive) engine.command { engine.core.restoreConnection() }
                     }
                 }
                 if (state != null) {
+                    if (lastHost != null && state.selectedHost != lastHost) {
+                        layout = DesktopLayout.Closed;orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        videoSuspended = false;fitVideo();hideTouchpad()
+                    }
+                    lastHost = state.selectedHost
                     if (lastConnection == ConnectionStatus.CONNECTED && state.connection == ConnectionStatus.RECONNECTING) {
                         releaseMouseButtons()
                         videoSuspended = showDesktop
                     }
                     if (lastConnection == ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.CONNECTED && state.connection != ConnectionStatus.RECONNECTING) {
                         if (showDesktop) closeDesktop()
-                        settingsVisible = true
                     }
                     if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.CONNECTED && videoSuspended && foreground && target != 0L && showDesktop) {
                         videoSuspended = false
                         retryDesktop()
                     }
-                    if (lastConnection == ConnectionStatus.RECONNECTING && state.connection == ConnectionStatus.FAILED) settingsVisible = true
+
                     lastConnection = state.connection
-                    if (state.connection == ConnectionStatus.CONNECTING) wasConnecting = true
-                    if (wasConnecting && state.connection == ConnectionStatus.CONNECTED) { if(form.id==state.selectedHost){settingsVisible = false;hostEditorVisible=false}; wasConnecting = false }
-                    if (wasConnecting && state.connection == ConnectionStatus.FAILED) { settingsVisible = true; wasConnecting = false }
-                    val draftContext = state.selectedSession?.let { "${state.selectedHost}/$it" } ?: state.selectedAgent
+                    if (pendingConnectHost == state.selectedHost && state.connection == ConnectionStatus.CONNECTED) {
+                        settingsVisible=false;hostEditorVisible=false;pendingConnectHost=null
+                    }
+                    if (pendingConnectHost == state.selectedHost && state.connection == ConnectionStatus.FAILED) pendingConnectHost=null
+                    val draftContext = state.selectedSession?.let { "${state.selectedHost}/$it" } ?: state.selectedAgent?.let { "${state.selectedHost}/$it" }
                     if (draftContext != draftAgent) {
                         draftAgent?.let { agentDrafts[it] = draft }
                         val old = draftAgent
@@ -176,7 +183,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     lastStatus = status
                     val latest = engine.timeline.messages.lastOrNull()
-                    if (autoDesktop && latest?.tool?.computer == true && !latest.tool!!.complete && status == "working" && seenComputerCalls.add(latest.id) && layout == DesktopLayout.Closed) {
+                    if (autoDesktop && latest?.tool?.computer == true && !latest.tool!!.complete && status == "working" && seenComputerCalls.add("$draftContext/${latest.id}") && layout == DesktopLayout.Closed) {
                         layout = DesktopLayout.Floating
                     }
                 }
@@ -207,7 +214,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     check(connected.connection==ConnectionStatus.CONNECTED){getApplication<Application>().getString(R.string.notice_connect_failed)}
                     val notice=engine.core.loadNotification(id)
-                    engine.core.openSession(notice.sessionId)
+                    engine.core.openSession(host, notice.sessionId)
                     engine.core.acknowledgeNotification(id,true,true)
                     engine.agentNotifications.cancel(id)
                     settingsVisible=false;hostEditorVisible=false
@@ -219,6 +226,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
                 if(noticeRouteSerial==serial){engine.stagedNoticeId=null;engine.notificationNavigationActive=false;engine.refreshAgentNotifications()}
             }
         }
+    }
+    fun openMachineSettings(hostId: String? = engine.state.value?.selectedHost) {
+        engine.state.value?.hosts?.find { it.id == hostId }?.let { form=it.toForm() }
+        clearLocalError();hostEditorVisible=true;settingsVisible=true
     }
     fun chooseHost(host: HostRecord) { form = host.toForm();clearLocalError();hostEditorVisible=true }
     fun openResourceDetails(hostId: String) {
@@ -252,50 +263,70 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         engine.command {try{val id=engine.core.saveHost(host);if(form.id==host.id){form=host.toForm().copy(id=id);hostEditorVisible=false}}finally{savingHost=false}}
     }
     fun connectSaved(host:HostRecord){
-        form=host.toForm();connect()
+        flushRemoteText?.invoke();hideTouchpad();fitVideo()
+        form=host.toForm();pendingConnectHost=host.id
+        engine.command {
+            engine.ensureForeground()
+            engine.core.connect(host.id)
+            if(engine.state.value?.selectedHost==host.id&&engine.state.value?.connection==ConnectionStatus.CONNECTED){settingsVisible=false;hostEditorVisible=false;pendingConnectHost=null}
+        }
+    }
+    fun openHostDesktop(host: String) = engine.command {
+        engine.core.selectHost(host)
+        withTimeout(5_000) { engine.state.filterNotNull().first { it.selectedHost == host } }
+        settingsVisible=false;hostEditorVisible=false
+        openDesktop()
     }
     fun connect() {
         val host=validatedHost()?:return
-        wasConnecting = true
         settingsVisible = true
         fitVideo()
         engine.command {
             val id = engine.core.saveHost(host)
             form = host.toForm().copy(id = id)
+            pendingConnectHost=id
             engine.ensureForeground()
             engine.core.connect(id)
         }
     }
-    fun disconnect() {flushRemoteText?.invoke();hideTouchpad();engine.command { engine.core.disconnect() }}
+    fun disconnect() {val host=engine.state.value?.selectedHost?:return;disconnectHost(host)}
+    fun disconnectHost(host: String) {flushRemoteText?.invoke();hideTouchpad();engine.command { engine.core.disconnectHost(host) }}
+    fun setSessionSort(order: io.github.wenshiqi0.kite.core.SessionSortOrder) {
+        engine.command { engine.core.setWorkspaceSort(order) }
+    }
     fun trust(hostId: String, fingerprint: String) = engine.command { engine.core.trustHost(hostId, fingerprint) }
     fun forget(hostId: String) = engine.command { engine.core.forgetHost(hostId) }
-    fun prepareAgent() = engine.command { engine.core.ensureAgent() }
-    fun createSession(provider: String, cwd: String, title: String) {
+    fun prepareAgent() { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.ensureAgent(host) } }
+    fun createSession(provider: String, cwd: String, title: String, hostId: String? = engine.state.value?.selectedHost) {
+        val host=hostId?:return
         if (creatingAgent || sessionBusy) return
-        if (!canStartResourceAgent(engine.state.value?.hostResources)) {
+        if (!canStartResourceAgent(engine.state.value?.hostConnections?.find { it.hostId == host }?.resources)) {
             localError = getApplication<Application>().getString(R.string.resource_new_sessions_paused)
             return
         }
         creatingAgent = true; sessionBusy = true
-        engine.command { try { engine.core.createSession(provider, cwd, title) } finally { creatingAgent = false; sessionBusy = false } }
+        engine.command { try { engine.core.createSession(host, provider, cwd, title) } finally { creatingAgent = false; sessionBusy = false } }
     }
-    fun openSession(id: String) {
+    fun openSession(id: String, hostId: String? = engine.state.value?.selectedHost) {
+        val host=hostId?:return
         if (sessionBusy) return
         sessionBusy = true
-        engine.command { try { engine.core.openSession(id) } finally { sessionBusy = false } }
+        engine.command { try { engine.core.openWorkspaceSession(host, id) } finally { sessionBusy = false } }
     }
     fun resumeSession(id: String) {
+        val host=engine.state.value?.selectedHost?:return
         if (sessionBusy) return
         sessionBusy = true
-        engine.command { try { engine.core.resumeSession(id) } finally { sessionBusy = false } }
+        engine.command { try { engine.core.resumeSession(host, id) } finally { sessionBusy = false } }
     }
-    fun archiveSession(id: String, archived: Boolean) {
+    fun archiveSession(id: String, archived: Boolean, hostId: String? = engine.state.value?.selectedHost) {
+        val host=hostId?:return
         if (sessionBusy) return
         sessionBusy = true
-        engine.command { try { engine.core.archiveSession(id, archived) } finally { sessionBusy = false } }
+        engine.command { try { engine.core.archiveSession(host, id, archived) } finally { sessionBusy = false } }
     }
-    fun requestSessionDeletion(session: SessionInfo) {
-        val host = engine.state.value?.selectedHost ?: return
+    fun requestSessionDeletion(session: SessionInfo, hostId: String? = engine.state.value?.selectedHost) {
+        val host = hostId ?: return
         if (!sessionBusy) sessionToDelete = host to session
     }
     fun dismissSessionDeletion() { sessionToDelete = null }
@@ -306,10 +337,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         sessionBusy = true
         engine.command { try { engine.core.deleteSession(host, session.id) } finally { sessionBusy = false } }
     }
-    fun releaseArchivedSessions() {
+    fun releaseArchivedSessions(hostId: String? = engine.state.value?.selectedHost) {
         if (sessionBusy) return
         if (releasingArchived) return
-        val host = engine.state.value?.selectedHost ?: return
+        val host = hostId ?: return
         releasingArchived = true
         archiveReleaseStatus = null
         archiveReleaseHost = host
@@ -332,59 +363,67 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             finally { updatingMemoryLimit = false }
         }
     }
-    fun questionValues(request: String): Map<String,String> = questionDrafts[request] ?: emptyMap()
+    private fun questionDraftKey(request: String) = "${engine.state.value?.selectedHost}/${engine.state.value?.selectedSession}/$request"
+    fun questionValues(request: String): Map<String,String> = questionDrafts[questionDraftKey(request)] ?: emptyMap()
     fun setQuestionValue(request: String, field: String, value: String) {
-        val values = questionDrafts.getOrPut(request) { androidx.compose.runtime.mutableStateMapOf() }
+        val key = questionDraftKey(request)
+        val values = questionDrafts.getOrPut(key) { androidx.compose.runtime.mutableStateMapOf() }
         values[field] = value
-        if (questionDrafts.size > 16) questionDrafts.keys.firstOrNull { it != request }?.let(questionDrafts::remove)
+        if (questionDrafts.size > 16) questionDrafts.keys.firstOrNull { it != key }?.let(questionDrafts::remove)
     }
     fun answerQuestion(question: QuestionInfo) {
+        val host=engine.state.value?.selectedHost?:return
         val id = engine.state.value?.selectedAgent ?: return
         if (answeringQuestion || engine.state.value?.question?.id != question.id) return
-        val answers = question.fields.map { QuestionAnswerInfo(it.id, questionDrafts[question.id]?.get(it.id).orEmpty()) }
+        val key = questionDraftKey(question.id)
+        val answers = question.fields.map { QuestionAnswerInfo(it.id, questionDrafts[key]?.get(it.id).orEmpty()) }
         answeringQuestion = true
-        engine.command { try { engine.core.answerQuestion(id, question.id, answers); questionDrafts.remove(question.id) } finally { answeringQuestion = false } }
+        engine.command { try { engine.core.answerQuestion(host,id, question.id, answers); questionDrafts.remove(key) } finally { answeringQuestion = false } }
     }
-    fun selectAgent(id: String) = engine.command { engine.core.selectAgent(id) }
+    fun selectAgent(id: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.selectAgent(host,id) } }
     fun sendPrompt(id: String) {
+        val host=engine.state.value?.selectedHost?:return
         if (submissionLocked || interrupting || engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
         val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty() && engine.state.value?.composer?.skills?.selected.isNullOrEmpty()) || sending || copyingAttachments || skillBusy) return
         val sentFiles = engine.state.value?.composer?.uploads.orEmpty().map { it.localPath }.filter { it.isNotBlank() }.distinct()
-        sendingAgents.add(id)
+        sendingAgents.add("$host/$id")
         engine.command {
             try {
                 if (submissionLocked || engine.state.value?.selectedAgent != id) return@command
-                engine.core.promptAgent(id, value)
+                engine.core.promptAgent(host,id, value)
                 sentFiles.forEach { java.io.File(it).delete() }
                 if (draftAgent == context && draft.trim() == value) draft = "" else if (context != null && agentDrafts[context]?.trim() == value) agentDrafts.remove(context)
             }
-            finally { sendingAgents.remove(id) }
+            finally { sendingAgents.remove("$host/$id") }
         }
     }
     fun interruptAgent(id: String) {
+        val host=engine.state.value?.selectedHost?:return
         val state = engine.state.value ?: return
         if (submissionLocked || interrupting || state.selectedAgent != id || state.agentPause != AgentPauseStatus.RUNNING) return
-        interruptingAgents.add(id)
+        interruptingAgents.add("$host/$id")
         engine.command {
-            try { engine.core.interruptAgent(id) }
-            finally { interruptingAgents.remove(id) }
+            try { engine.core.interruptAgent(host,id) }
+            finally { interruptingAgents.remove("$host/$id") }
         }
     }
-    fun selectModel(id: String, model: String, effort: String) = engine.command { engine.core.setChatModel(id, model, effort) }
-    fun selectPermission(id: String, setting: String, value: String) = engine.command { engine.core.setChatSetting(id, setting, value) }
+    fun selectModel(id: String, model: String, effort: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.setChatModel(host,id, model, effort) } }
+    fun selectPermission(id: String, setting: String, value: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.setChatSetting(host,id, setting, value) } }
     fun reloadComposer() = engine.command { engine.core.reloadComposer() }
     fun refreshUsage() { if (engine.state.value?.composer?.ready == true) engine.command { engine.core.refreshAccountUsage() } }
     var skillBusy by mutableStateOf(false)
         private set
     fun refreshSkills(id: String) = engine.command { engine.core.refreshSkills(id) }
     fun selectSkill(id: String, path: String, selected: Boolean) {
+        val host=engine.state.value?.selectedHost?:return
         if (sending || skillBusy || engine.state.value?.selectedAgent != id) return
         skillBusy = true
-        engine.command { try { engine.core.selectSkill(id, path, selected) } finally { skillBusy = false } }
+        engine.command { try { engine.core.selectSkill(host,id, path, selected) } finally { skillBusy = false } }
     }
     fun attachFiles(uris: List<Uri>) {
+        val host=engine.state.value?.selectedHost?:return
         val id = engine.state.value?.selectedAgent ?: return
         if (copyingAttachments || sending || uris.isEmpty()) return
         copyingAttachments = true
@@ -392,39 +431,46 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 for (uri in uris.take(5)) {
                     val file = cacheAttachment(getApplication(), uri)
-                    engine.core.uploadAttachment(id, file.path, file.name, file.mime, null)
+                    engine.core.uploadAttachment(host,id, file.path, file.name, file.mime, null)
                 }
             } finally { copyingAttachments = false }
         }
     }
     fun retryAttachment(file: UploadInfo) {
+        val host=engine.state.value?.selectedHost?:return
         val id = engine.state.value?.selectedAgent ?: return
-        engine.command { engine.core.uploadAttachment(id, file.localPath, file.file.name, file.file.mime, file.file.id) }
+        engine.command { engine.core.uploadAttachment(host,id, file.localPath, file.file.name, file.file.mime, file.file.id) }
     }
     fun removeAttachment(file: UploadInfo) {
+        val host=engine.state.value?.selectedHost?:return
         val id = engine.state.value?.selectedAgent ?: return
-        engine.command { engine.core.removeAttachment(id, file.file.id); java.io.File(file.localPath).delete() }
+        engine.command { engine.core.removeAttachment(host,id, file.file.id); java.io.File(file.localPath).delete() }
     }
     fun terminalKey(id: String, key: String) {
-        if (engine.state.value?.selectedAgent == id) engine.command { engine.core.sendAgentKey(id, key) }
+        val host=engine.state.value?.selectedHost?:return
+        if (engine.state.value?.selectedAgent == id) engine.command { engine.core.sendAgentKey(host,id, key) }
     }
     fun respond(id: String, request: String, choice: Int) {
+        val host=engine.state.value?.selectedHost?:return
         if (engine.state.value?.selectedAgent != id) return
-        engine.command { engine.core.respondApproval(id, request, choice.toUInt()) }
+        engine.command { engine.core.respondApproval(host,id, request, choice.toUInt()) }
     }
     fun pauseAgent(id: String) {
+        val host=engine.state.value?.selectedHost?:return
         val state = engine.state.value ?: return
         if (state.selectedAgent != id) return
-        engine.command { engine.core.setAgentPaused(id, state.agentPause == AgentPauseStatus.RUNNING) }
+        engine.command { engine.core.setAgentPaused(host,id, state.agentPause == AgentPauseStatus.RUNNING) }
     }
     fun promptAgent(id: String, text: String) {
+        val host=engine.state.value?.selectedHost?:return
         if (submissionLocked || interrupting || engine.state.value?.selectedAgent != id) return
-        engine.command { if (!submissionLocked && !interrupting && engine.state.value?.selectedAgent == id) engine.core.promptAgent(id, text) }
+        engine.command { if (!submissionLocked && !interrupting && engine.state.value?.selectedAgent == id) engine.core.promptAgent(host,id, text) }
     }
-    fun approve(pin: String) = engine.command { engine.core.approvePairing(pin) }
+    fun approve(pin: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.approvePairing(host,pin) } }
     fun takeOver(enabled: Boolean) {
+        val host=engine.state.value?.selectedHost?:return
         if(!enabled){flushRemoteText?.invoke();hideTouchpad();releaseMouseButtons();releaseModifiers()}
-        engine.command { engine.core.setTakeover(enabled) }
+        engine.command { engine.core.setTakeover(host,enabled) }
     }
     fun openDesktop() {
         autoDesktop = true
@@ -450,7 +496,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         changeLayout(if (landscape && beforeFullscreen == DesktopLayout.Split) DesktopLayout.Floating else beforeFullscreen)
     }
     fun rotateDesktop(landscape: Boolean) { orientationRequest = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE }
-    fun closeDesktop() { orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop() } }
+    fun closeDesktop() { val host=engine.state.value?.selectedHost?:return; orientationRequest = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; autoDesktop = false; exitTakeover(); layout = DesktopLayout.Closed; fitVideo(); engine.command { engine.core.stopDesktop(host) } }
     fun fitVideo() { zoom = 1f; panMode = false }
     fun exitTakeover() {
         flushRemoteText?.invoke()
@@ -468,13 +514,14 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     }
     fun preparePip() { pipTransition = true; exitTakeover() }
     fun cancelPip() { pipTransition = false }
-    fun videoReady(id: Long) { target = id; if ((foreground || inPip) && showDesktop) retryDesktop() }
-    fun videoGone(id: Long) { if (target == id) { releaseMouseButtons(); target = 0; engine.command { engine.core.stopDesktop() } } }
+    fun videoReady(id: Long) { videoHost=engine.state.value?.selectedHost; target = id; if ((foreground || inPip) && showDesktop) retryDesktop() }
+    fun videoGone(id: Long) { val host=videoHost?:return; if (target == id) { releaseMouseButtons(); target = 0; engine.command { engine.core.stopDesktop(host) } } }
     fun retryDesktop() {
+        val host=engine.state.value?.selectedHost?:return
         val id = target
-        if (id != 0L && engine.state.value?.connection == ConnectionStatus.CONNECTED) engine.command { engine.core.startDesktop(id.toULong()) }
+        if (id != 0L && engine.state.value?.connection == ConnectionStatus.CONNECTED) engine.command { engine.core.startDesktop(host,id.toULong()) }
     }
-    fun onBackground(keepVideo: Boolean = false) { releaseMouseButtons(); foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop() } } }
+    fun onBackground(keepVideo: Boolean = false) { val host=engine.state.value?.selectedHost?:return; releaseMouseButtons(); foreground = false; if (showDesktop && !keepVideo) { videoSuspended = true; exitTakeover(); engine.command { engine.core.stopDesktop(host) } } }
     fun onForeground() { foreground = true; if (engine.state.value?.connection == ConnectionStatus.CONNECTED && showDesktop && target != 0L && (videoSuspended || engine.state.value?.desktop?.status == DesktopStatus.IDLE)) { videoSuspended = false; retryDesktop() } }
     fun modifier(ctrl: Boolean) {
         flushRemoteText?.invoke()

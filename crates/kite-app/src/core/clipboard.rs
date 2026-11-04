@@ -135,7 +135,9 @@ impl AppCore {
                     "clipboard requires the selected operating desktop".into(),
                 ));
             }
-            if c.host
+            let node = composer::require_node(&c.ssh).await?;
+            let configured = configured_host(&c.host, &node)?;
+            if configured
                 .stream_host
                 .as_ref()
                 .is_some_and(|s| s != &c.host.host)
@@ -151,7 +153,7 @@ impl AppCore {
             let command = format!(
                 "PATH=\"$HOME/.bun/bin:$PATH\" bun -e {} -- {mode} {}",
                 composer::quote(HELPER),
-                c.host.sunshine_port
+                configured.sunshine_port
             );
             let output = tokio::time::timeout(
                 Duration::from_secs(6),

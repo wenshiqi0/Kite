@@ -5,6 +5,8 @@ mod core_bridge;
 pub use core_bridge::*;
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+mod apple;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum KiteError {

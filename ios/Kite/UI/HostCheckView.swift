@@ -34,6 +34,7 @@ struct HostCheckView: View {
     /// iPhone, and iPad in a narrow window: one column.
     private var compactLayout: some View {
         Form {
+            machines
             DeviceKeySection(model: model)
             HostFormSection(model: model)
             ResultSection(model: model)
@@ -44,6 +45,7 @@ struct HostCheckView: View {
     private var regularLayout: some View {
         HStack(spacing: 0) {
             Form {
+                machines
                 DeviceKeySection(model: model)
                 HostFormSection(model: model)
             }
@@ -69,6 +71,21 @@ struct HostCheckView: View {
             get: { model.pendingHostKey != nil },
             set: { _ in }
         )
+    }
+    private var machines: some View {
+        Section("主机") {
+            ForEach(model.hosts, id: \.id) { host in
+                Button { model.choose(host) } label: {
+                    HStack {
+                        Image(systemName: model.connection(host.id) == .connected ? "network" : "desktopcomputer")
+                        Text(host.host)
+                        Spacer()
+                        if model.form.id == host.id { Image(systemName: "checkmark") }
+                    }
+                }
+            }
+            Button("添加主机", action: model.newHost)
+        }
     }
 }
 

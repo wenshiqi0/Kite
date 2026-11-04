@@ -104,12 +104,24 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     var autoFullscreen by remember { mutableStateOf(false) }
     var tools by remember { mutableStateOf(false) }
     var newSession by remember { mutableStateOf(false) }
+    var newSessionHost by remember { mutableStateOf("") }
+    val newSessionWorkspace=state?.hostConnections?.find { it.hostId==newSessionHost }
+    val newSessionProviders=if(newSessionWorkspace?.connection==ConnectionStatus.CONNECTED)newSessionWorkspace.providers else emptyList()
     var gestureHelp by remember { mutableStateOf(false) }
     var provider by remember { mutableStateOf("codex") }
     val availableProviders = if (state?.connection == ConnectionStatus.CONNECTED) state.providers else emptyList()
     val providerInfo = availableProviders.find { it.id == agent?.agent }
     var project by remember { mutableStateOf("") }
     var sessionName by remember { mutableStateOf("") }
+    LaunchedEffect(newSession) {
+        if(newSession) {
+            newSessionHost=state?.selectedHost?.takeIf { id -> state.hostConnections.any { it.hostId==id&&it.connection==ConnectionStatus.CONNECTED } }
+                ?:state?.hostConnections?.firstOrNull { it.connection==ConnectionStatus.CONNECTED }?.hostId.orEmpty()
+        }
+    }
+    LaunchedEffect(newSessionHost,newSessionProviders) {
+        if(newSessionProviders.none { it.id==provider })provider=newSessionProviders.firstOrNull { it.id=="codex" }?.id?:newSessionProviders.firstOrNull()?.id.orEmpty()
+    }
     var remoteKeyboard by remember { mutableStateOf(false) }
     var modelSettings by remember { mutableStateOf(false) }
     var usageDialog by remember { mutableStateOf(false) }
@@ -137,7 +149,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         dismiss = { skillPicker = false },
     )
     var answerRequest by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(state?.question?.id) { if (answerRequest != state?.question?.id) answerRequest = null }
+    LaunchedEffect(state?.selectedHost, state?.selectedSession, state?.question?.id) { if (answerRequest != state?.question?.id) answerRequest = null }
     var arrows by remember { mutableStateOf(false) }
     var warning by remember { mutableStateOf<String?>(null) }
     val timeline=vm.engine.timeline
@@ -183,11 +195,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
-    LaunchedEffect(conversationContext,entries.lastOrNull(),state?.approval?.id,state?.question?.id,state?.responsePhase,state?.composer?.details,chatHeight,vm.inPip,vm.pipTransition,followTail){
-        if(vm.inPip||vm.pipTransition||chatHeight<16||!followTail||chatScroll.isScrollInProgress||entries.isEmpty())return@LaunchedEffect
-        withFrameNanos{};withFrameNanos{}
-        if(followTail&&!chatScroll.isScrollInProgress)chatScroll.scrollToItem((chatScroll.layoutInfo.totalItemsCount-1).coerceAtLeast(0))
-    }
+    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && chatHeight >= 16 && entries.isNotEmpty() }
     val attachments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.externalActivity = false
         updatePip()
@@ -229,7 +237,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             remoteKeyboard -> {videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false}
             terminal -> terminal = false
             diagnostics -> diagnostics = false
-            vm.settingsVisible -> if(vm.hostEditorVisible)vm.hostEditorVisible=false else vm.settingsVisible=false
+            vm.settingsVisible -> { vm.hostEditorVisible=false;vm.settingsVisible=false }
             vm.layout == DesktopLayout.Fullscreen -> vm.returnToChat(landscape)
             vm.showDesktop -> enterPip()
         }
@@ -237,7 +245,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
-            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { id -> vm.openSession(id); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.settingsVisible = true; scope.launch { drawer.close() } })
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } })
         }
     }) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else KiteColors.Surface).pointerInput(vm.target,bridgeActive){
@@ -294,7 +302,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             if (providerInfo?.terminal == true) DropdownMenuItem(text = { Text(stringResource(R.string.terminal_output)) }, onClick = { tools = false; terminal = true }, enabled = providerInfo?.terminal == true)
                             DropdownMenuItem(text={Text(stringResource(R.string.notice_center))},onClick={tools=false;noticeCenter=true;vm.engine.refreshAgentNotifications()})
                             DropdownMenuItem(text = { Text(stringResource(R.string.connection_diagnostics)) }, onClick = { tools = false; diagnostics = true })
-                            DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.settingsVisible = true })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.openMachineSettings() })
                         }
                     }
                 }
@@ -306,7 +314,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 }
                 if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                     ResourceWarning(state?.hostResources) {
-                        state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.settingsVisible = true }
+                        state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.openMachineSettings() }
                     }
                 }
                 if (split) {
@@ -329,7 +337,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     Column(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Text(connectionStepLabel(state), color = Muted)
                         state.failure?.let { Text(it.details, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-                        TextButton(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
+                        TextButton(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                     }
                 }
                 Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
@@ -367,7 +375,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                                 val preparing = state.connectionStep == ConnectionStep.AGENT && state.failure == null
                                 Button(onClick = { newSession = true }, enabled = !preparing && !vm.creatingAgent && !vm.sessionBusy) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.new_session)) }
                                 TextButton(onClick = vm::openDesktop) { Text(stringResource(R.string.open_desktop)) }
-                            } else Button(onClick = { vm.settingsVisible = true }) { Text(stringResource(R.string.open_host_settings)) }
+                            } else Button(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
                     items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.kind}) { entry -> when (entry) {
@@ -516,7 +524,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(stringResource(desktopStatusLabel(state.desktop.status)),color=Muted,fontSize=13.sp)
                             if (state.desktop.status in listOf(DesktopStatus.FAILED,DesktopStatus.IDLE)) {
-                                TextButton(onClick = { if(state.connection==ConnectionStatus.CONNECTED)vm.retryDesktop()else vm.settingsVisible=true }) { Text(stringResource(if(state.connection==ConnectionStatus.CONNECTED)R.string.retry else R.string.open_host_settings)) }
+                                TextButton(onClick = { if(state.connection==ConnectionStatus.CONNECTED)vm.retryDesktop()else vm.openMachineSettings() }) { Text(stringResource(if(state.connection==ConnectionStatus.CONNECTED)R.string.retry else R.string.open_host_settings)) }
                             } else CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Blue)
                         }
                     }
@@ -561,7 +569,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 if(vm.layout==DesktopLayout.Fullscreen&&takeover&&!hideChrome&&!docked&&!drawerActive)VirtualMouse(vm,videoReference.value,desktopWidth,availableHeight,safeTop,safeBottom,bridgeActive){mouseBounds=it}
 
             }
-            if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = KiteColors.OnAccent) { HostSetupScreen(vm) { vm.settingsVisible = false } }
+            if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = KiteColors.Surface) { HostEditorScreen(vm) { vm.hostEditorVisible=false;vm.settingsVisible=false } }
         }
     }
     if (!hideChrome && !vm.settingsVisible) state?.pendingHostKey?.let { p -> AlertDialog(onDismissRequest = vm::disconnect,
@@ -570,15 +578,27 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     state?.desktop?.takeIf { it.status == DesktopStatus.PAIRING && !hideChrome }?.let { d -> AlertDialog(onDismissRequest = vm::closeDesktop,
         title = { Text(stringResource(R.string.pairing_title)) }, text = { Column { Text(d.pairingName.orEmpty()); Text(d.pin.orEmpty(), fontSize = 36.sp, fontFamily = FontFamily.Monospace); Text(stringResource(R.string.pairing_hint)) } },
         confirmButton = { TextButton(onClick = { d.pin?.let(vm::approve) }) { Text(stringResource(R.string.auto_confirm_pairing)) } }, dismissButton = { TextButton(onClick = vm::closeDesktop) { Text(stringResource(R.string.cancel)) } }) }
-    if (newSession && !hideChrome) AlertDialog(onDismissRequest = { if (!vm.creatingAgent) newSession = false }, title = { Text(stringResource(R.string.new_session)) }, text = {
+    if (newSession && !hideChrome && !vm.settingsVisible) AlertDialog(onDismissRequest = { if (!vm.creatingAgent) newSession = false }, title = { Text(stringResource(R.string.new_session)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.new_session_hint), fontSize = 14.sp)
-            HarnessChoices(availableProviders, provider) { provider = it }
-            if (availableProviders.isNotEmpty()) Text(stringResource(if (availableProviders.none { it.id == provider }) R.string.harness_unavailable else if (provider == "claude") R.string.claude_draft_hint else if (provider == "codex") R.string.codex_session_hint else R.string.harness_session_hint), fontSize = 12.sp, color = Muted)
+            var machinesMenu by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick={machinesMenu=true},modifier=Modifier.fillMaxWidth()) {
+                    ProductIcon(Mark.Monitor,modifier=Modifier.size(18.dp));Spacer(Modifier.width(8.dp))
+                    Text(state?.hosts?.find { it.id==newSessionHost }?.host?:stringResource(R.string.session_machine))
+                }
+                DropdownMenu(machinesMenu,{machinesMenu=false}) {
+                    state?.hosts.orEmpty().filter { machine -> state?.hostConnections?.any { it.hostId==machine.id&&it.connection==ConnectionStatus.CONNECTED }==true }.forEach { machine ->
+                        DropdownMenuItem(text={Text(machine.host)},onClick={newSessionHost=machine.id;project="";machinesMenu=false})
+                    }
+                }
+            }
+            if(newSessionProviders.isEmpty())Text(stringResource(R.string.session_machine_offline),fontSize=12.sp,color=Muted)
+            HarnessChoices(newSessionProviders, provider) { provider = it }
+            if (newSessionProviders.isNotEmpty()) Text(stringResource(if (newSessionProviders.none { it.id == provider }) R.string.harness_unavailable else if (provider == "claude") R.string.claude_draft_hint else if (provider == "codex") R.string.codex_session_hint else R.string.harness_session_hint), fontSize = 12.sp, color = Muted)
             OutlinedTextField(sessionName, { sessionName = it }, label = { Text(stringResource(R.string.session_name)) }, singleLine = true)
             OutlinedTextField(project, { project = it }, label = { Text(stringResource(R.string.project_directory)) }, singleLine = true)
         }
-    }, confirmButton = { TextButton(onClick = { vm.createSession(provider, project, sessionName); newSession = false; sessionName = "" }, enabled = !vm.creatingAgent && !vm.sessionBusy && availableProviders.any { it.id == provider }) { Text(stringResource(if (provider == "claude") R.string.save_session else R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
+    }, confirmButton = { TextButton(onClick = { vm.createSession(provider, project, sessionName, newSessionHost); newSession = false; sessionName = "" }, enabled = !vm.creatingAgent && !vm.sessionBusy && newSessionProviders.any { it.id == provider }) { Text(stringResource(if (provider == "claude") R.string.save_session else R.string.start_session)) } }, dismissButton = { TextButton(onClick = { newSession = false }) { Text(stringResource(R.string.cancel)) } })
     if (gestureHelp && !hideChrome) AlertDialog(onDismissRequest = { gestureHelp = false }, title = { Text(stringResource(R.string.gesture_help)) }, text = { Text(stringResource(R.string.gesture_help_text)) }, confirmButton = { TextButton(onClick = { gestureHelp = false }) { Text(stringResource(R.string.dismiss)) } })
     state?.question?.takeIf { it.id == answerRequest && !hideChrome }?.let { question ->
         ModalBottomSheet(onDismissRequest = { answerRequest = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -616,7 +636,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val platformError by vm.engine.platformError.collectAsState()
     val error = warning ?: platformError
     vm.sessionToDelete?.takeIf { !hideChrome }?.let { (host, session) ->
-        DeleteSessionDialog(sessionTitle(session), state?.selectedHost == host && state.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy, vm::deleteSession, vm::dismissSessionDeletion)
+        DeleteSessionDialog(sessionTitle(session), state?.hostConnections?.any { it.hostId == host && it.connection == ConnectionStatus.CONNECTED } == true && !vm.sessionBusy, vm::deleteSession, vm::dismissSessionDeletion)
     }
     if (error != null && !hideChrome) AlertDialog(onDismissRequest = { warning = null; vm.clearLocalError() }, title = { Text(stringResource(R.string.error_action)) }, text = { Text(error) }, confirmButton = { TextButton(onClick = { warning = null; vm.clearLocalError() }) { Text(stringResource(R.string.dismiss)) } })
 }
@@ -649,6 +669,10 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     }
 }
 @Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: MessageInfo, streaming: Boolean = false) {
+    if (remember(message) { isGlobalInstructionsMessage(message) }) {
+        GlobalInstructionsNotice()
+        return
+    }
     if (message.kind == MessageKind.ERROR) {
         TurnFailureMessage(message.text)
         return

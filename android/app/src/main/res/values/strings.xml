@@ -408,6 +408,7 @@
     <string name="attachment_save_failed">附件保存失败</string>
     <string name="answered_question">模型提问</string>
     <string name="answered_reply">你的回答</string>
+    <string name="global_instructions_loaded">已加载全局指令</string>
     <string name="session_initializing">正在初始化会话…</string>
     <string name="session_initialization_failed">会话初始化未完成</string>
     <string name="host_details">主机详情</string>
@@ -455,4 +456,18 @@
     <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
     <string name="harness_selector">智能体</string>
     <string name="provider_ply">Ply</string>
+    <string name="search_sessions">搜索会话</string>
+    <string name="sort_newest">创建时间：从新到旧</string>
+    <string name="sort_oldest">创建时间：从旧到新</string>
+    <string name="sort_activity">最近活动</string>
+    <string name="sort_title">按标题</string>
+    <string name="sessions_title">会话</string>
+    <string name="active_session_label">活动</string>
+    <string name="active_archive_label">归档</string>
+    <string name="session_sort">会话排序</string>
+    <string name="machine_more_named">机器 %1$s 的更多操作</string>
+    <string name="machine_settings">机器配置</string>
+    <string name="no_session_matches">没有匹配的会话</string>
+    <string name="session_machine">目标机器</string>
+    <string name="session_machine_offline">请先连接这台机器，再新建会话。</string>
 </resources>
