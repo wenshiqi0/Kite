@@ -1,5 +1,9 @@
 # Testing
 
+## Nested Codex session identity
+
+Managed Codex discovery checks the pane's live owner and loaded threads before publishing a chat reference. A separate `codex exec` may inherit Herdr hook variables, but its report cannot redirect the parent's history or input. Provider regressions cover valid thread changes, independent child panes, ambiguous/unavailable owners and external terminals. The host test uses a real private WebSocket owner and registry with a stale child report, keeps client stdin open, and verifies the parent identity, unchanged terminal, exactly-once forwarding and read-only owner requests. No model turn is sent.
+
 ## Codex terminal failures
 
 Provider projection tests preserve `task_complete.error` in paged conversation history, carry only an outcome flag in notification controls, and rebuild the old cache that discarded failures. Rust regressions cover failed versus successful completion, stable per-turn error identity and source ordering, serialization/backfill, and failure notification deduplication after restart. Historical errors use a separate message kind across the native boundary. Android timeline tests keep them outside collapsed tool groups; `WorkspaceRefinementPresentationTest.historicalTurnErrorsShowTheCauseAndRecoveryHint` renders the actual capacity error, recovery hint and missing-details fallback using synthetic data. No model turn is required.

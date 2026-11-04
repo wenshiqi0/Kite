@@ -712,15 +712,12 @@ impl Node {
     fn command(&self, request: &NodeRequest) -> Result<Command> {
         let config = self.config.current()?;
         validate_args(&config, request)?;
-        let mut command = if request.method == "herdr-api" {
-            let mut c = Command::new(&config.herdr);
-            c.arg("remote-api-bridge");
-            c
-        } else {
-            let mut c = Command::new(&self.config.bun);
-            c.arg(&self.config.backend).args(&request.args);
-            c
-        };
+        let mut command = Command::new(&self.config.bun);
+        command.arg(&self.config.backend);
+        if request.method == "herdr-api" {
+            command.arg("herdr-api");
+        }
+        command.args(&request.args);
         command.envs(&config.environment);
         command
             .env(

@@ -7,12 +7,23 @@ import { capturedDisplay } from "@kite/platform/captured-display";
 import { CLIPBOARD_LIMIT, clipboard } from "@kite/platform/clipboard";
 import { desktop } from "@kite/platform/desktop";
 import { deliver } from "@kite/platform/push";
-import { check, integer, type Json, json, object, parse, string, UUID } from "@kite/protocol";
+import {
+  check,
+  integer,
+  type Json,
+  json,
+  object,
+  parse,
+  RPC_LIMIT,
+  string,
+  UUID,
+} from "@kite/protocol";
 import { catalogRead, catalogWrite } from "@kite/providers/catalog";
 import {
   api,
   bind,
   ensure,
+  herdrRequest,
   installResourceHooks,
   noteSessionOpen,
   proxy,
@@ -26,7 +37,7 @@ import { historyProjection, historyStamp } from "@kite/providers/history";
 import { lifecycleFacts, lifecycleReap, notificationFacts } from "@kite/providers/lifecycle";
 import { serveOwner } from "@kite/providers/owner";
 import { attachmentRead, readGeneratedImage, upload } from "@kite/providers/uploads";
-import { exec, input } from "@kite/runtime";
+import { exec, input, lines } from "@kite/runtime";
 export async function main(argv: string[]): Promise<void> {
   process.umask(0o077);
   installResourceHooks();
@@ -136,6 +147,12 @@ export async function main(argv: string[]): Promise<void> {
   }
   check(!positionals.length, "unexpected arguments");
   switch (action) {
+    case "herdr-api":
+      for await (const line of lines(Bun.stdin.stream(), RPC_LIMIT)) {
+        output(await herdrRequest(arg("herdr"), object(parse(line))));
+        break; // Herdr's bridge handles one request per connection.
+      }
+      break;
     case "catalog-read":
       output(json(await catalogRead()));
       break;

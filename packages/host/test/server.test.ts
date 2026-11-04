@@ -234,6 +234,120 @@ describe("catalog and owned upload CLI", () => {
   });
 });
 
+test("discovery keeps the parent owner when a separate Codex child reports its inherited pane", async () => {
+  const home = fresh(),
+    pane = "owned:p1",
+    parent = crypto.randomUUID(),
+    childThread = crypto.randomUUID();
+  const socket = join(home, "discovery.sock"),
+    requests = join(home, "owner-requests");
+  const owner = Bun.spawn(
+    [
+      process.execPath,
+      resolve("packages/host/test/fixtures/discovery-owner.ts"),
+      socket,
+      parent,
+      requests,
+      "app-server",
+      `unix://${socket}`,
+    ],
+    {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  let bridge: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const reader = owner.stdout.getReader();
+    expect((await reader.read()).done).toBe(false);
+    reader.releaseLock();
+    const registry = privateDir(join(home, ".local/state/kite/codex"));
+    writeFileSync(
+      join(registry, `${sha256(pane).slice(0, 20)}.json`),
+      JSON.stringify({
+        protocol: 1,
+        pane,
+        pid: owner.pid,
+        start_ticks: startTicks(owner.pid),
+        socket,
+      }),
+    );
+    const herdr = join(home, "herdr.ts"),
+      nativeRequests = join(home, "native-requests");
+    writeFileSync(
+      herdr,
+      `#!${process.execPath}
+import {appendFileSync} from "node:fs";
+const request = JSON.parse(await Bun.stdin.text());
+appendFileSync(${JSON.stringify(nativeRequests)}, JSON.stringify(request)+"\\n");
+let result;
+if(request.method === "agent.list") result={type:"agent_list",agents:[{
+  agent:"codex",terminal_id:"parent-terminal",pane_id:${JSON.stringify(pane)},agent_status:"working",interactive_ready:true,
+  agent_session:{source:"herdr:codex",agent:"codex",kind:"id",value:${JSON.stringify(childThread)}}}]};
+else if(request.method === "agent.prompt") result={type:"agent_prompted",marker:request.params.prompt};
+else throw new Error("unexpected mutation");
+console.log(JSON.stringify({id:request.id,result}));
+`,
+    );
+    chmodSync(herdr, 0o700);
+    // SSH clients wait for a response before closing stdin.
+    const bridgeProcess = Bun.spawn([process.execPath, cli, "herdr-api", "--herdr", herdr], {
+      env: env(home),
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    bridge = bridgeProcess;
+    const timer = setTimeout(() => bridgeProcess.kill(), 3000);
+    try {
+      bridgeProcess.stdin.write(
+        `${JSON.stringify({ id: 23, method: "agent.list", params: {} })}\n`,
+      );
+      await bridgeProcess.stdin.flush();
+      const response = object(parse(await new Response(bridgeProcess.stdout).text()));
+      const agent = object(array(object(response.result).agents)[0]);
+      expect(response.id).toBe(23);
+      expect(object(agent.agent_session).value).toBe(parent);
+      expect(agent.terminal_id).toBe("parent-terminal");
+      expect(agent.interactive_ready).toBe(true);
+      expect(await bridgeProcess.exited).toBe(0);
+      bridgeProcess.stdin.end();
+    } finally {
+      clearTimeout(timer);
+    }
+    const prompt = {
+      id: "owned-followup",
+      method: "agent.prompt",
+      params: { prompt: "owned marker" },
+    };
+    const forwarded = await command(
+      home,
+      ["herdr-api", "--herdr", herdr],
+      `${JSON.stringify(prompt)}\n`,
+    );
+    expect(object(parse(forwarded.stdout.toString()))).toEqual({
+      id: prompt.id,
+      result: { type: "agent_prompted", marker: "owned marker" },
+    });
+    expect(
+      readFileSync(nativeRequests, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).method),
+    ).toEqual(["agent.list", "agent.prompt"]);
+    expect(readFileSync(requests, "utf8").trim().split("\n")).toEqual([
+      "initialize",
+      "thread/loaded/list",
+    ]);
+    expect(owner.exitCode).toBeNull();
+  } finally {
+    if (bridge && bridge.exitCode === null) bridge.kill();
+    owner.kill();
+    await owner.exited;
+  }
+});
+
 describe("explicit owner termination", () => {
   for (const mode of ["bound", "unbound", "shared", "foreign-terminal"])
     test(mode === "foreign-terminal"

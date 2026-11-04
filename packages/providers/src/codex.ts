@@ -80,17 +80,75 @@ export function readRegistry(pane: string): Registry {
     ...(row.budget_unit === undefined ? {} : { budget_unit: string(row.budget_unit) }),
   };
 }
-export async function api(binary: string, method: string, params: Json): Promise<ObjectValue> {
+async function rawHerdrRequest(binary: string, request: ObjectValue): Promise<ObjectValue> {
   const result = object(
     JSON.parse(
       (
         await run([binary, "remote-api-bridge"], {
-          input: `${JSON.stringify({ id: "kite-backend", method, params })}\n`,
+          input: `${JSON.stringify(request)}\n`,
           timeout: 15000,
         })
       ).stdout.toString(),
     ) as unknown,
   );
+  return result;
+}
+
+/** A descendant's SessionStart hook can inherit its parent's Herdr pane identity. */
+export async function reconcileAgentSessions(
+  agents: ObjectValue[],
+  loadedThreads: (pane: string) => Promise<string[] | undefined> = async (pane) => {
+    if (!existsSync(registryPath(pane))) return undefined;
+    readRegistry(pane);
+    return array(object(await backendRpc(pane, "thread/loaded/list", {}, 2000)).data).map(string);
+  },
+): Promise<ObjectValue[]> {
+  return Promise.all(
+    agents.map(async (agent) => {
+      if (agent.agent !== "codex" || typeof agent.pane_id !== "string") return agent;
+      let loaded: string[] | undefined;
+      try {
+        loaded = await loadedThreads(agent.pane_id);
+      } catch {
+        // Keep the terminal, but do not attach an unverified child's history or input.
+        return { ...agent, agent_session: null, interactive_ready: false };
+      }
+      if (loaded === undefined) return agent; // External, non-managed Codex terminal.
+      const reference = agent.agent_session ? object(agent.agent_session) : undefined,
+        reported = reference?.agent === "codex" && reference.kind === "id" ? reference.value : null,
+        thread =
+          typeof reported === "string" && loaded.includes(reported)
+            ? reported
+            : loaded.length === 1
+              ? loaded[0]
+              : undefined;
+      if (!thread) return { ...agent, agent_session: null, interactive_ready: false };
+      return {
+        ...agent,
+        agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: thread },
+      };
+    }),
+  );
+}
+
+/** Preserve native RPC identities/errors and reconcile only successful agent discovery. */
+export async function herdrRequest(binary: string, request: ObjectValue): Promise<ObjectValue> {
+  const response = await rawHerdrRequest(binary, request);
+  if (request.method === "agent.list" && !response.error && response.result) {
+    const result = object(response.result);
+    return {
+      ...response,
+      result: {
+        ...result,
+        agents: await reconcileAgentSessions(array(result.agents).map(object)),
+      },
+    };
+  }
+  return response;
+}
+
+export async function api(binary: string, method: string, params: Json): Promise<ObjectValue> {
+  const result = await herdrRequest(binary, { id: "kite-backend", method, params });
   if (result.error) throw new Error(`herdr ${JSON.stringify(result.error)}`);
   return object(result.result);
 }
@@ -294,7 +352,14 @@ export async function reportSessionBinding(
       thread,
     ],
   });
-  const agents = array((await api(binary, "agent.list", {})).agents).map(object);
+  // Verify what Herdr actually applied, without reconciliation masking a rejected report.
+  const response = await rawHerdrRequest(binary, {
+    id: "kite-binding",
+    method: "agent.list",
+    params: {},
+  });
+  check(!response.error, "Herdr session binding verification failed");
+  const agents = array(object(response.result).agents).map(object);
   check(
     agents.some(
       (agent) =>
