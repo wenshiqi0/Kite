@@ -38,6 +38,7 @@ The [desktop product](docs/desktop.md) targets both client and host roles on Lin
 Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite docs` for the short index. CLI, standard MCP and a shared lightweight Skill bundle use the same versioned guides; see [agent integration](docs/agent/harnesses.md). These source features do not imply every published Alpha already contains them.
 
 - [Host setup and troubleshooting](docs/backend-setup.md)
+- [Docker server deployment](docs/docker-host.md)
 - [Agent notifications and system push setup](docs/notifications.md)
 - [Desktop client and host](docs/desktop.md)
 - [Implementation status and next stages](docs/implementation-plan.md)

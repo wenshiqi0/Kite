@@ -1,0 +1,13 @@
+[Unit]
+Description=Persistent Herdr agent runtime
+Requires=kite-container-setup.service
+After=kite-container-setup.service
+
+[Service]
+ExecStart=/usr/local/bin/herdr server
+Restart=on-failure
+RestartSec=2
+KillMode=process
+
+[Install]
+WantedBy=default.target

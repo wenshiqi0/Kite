@@ -1,0 +1,39 @@
+services:
+  host:
+    image: ${KITE_IMAGE:-kite-host:local}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        SOURCE_COMMIT: ${KITE_SOURCE_COMMIT:-unknown}
+        EXTRA_APT_PACKAGES: ${KITE_EXTRA_APT_PACKAGES:-}
+        INSTALL_CODEX: ${KITE_INSTALL_CODEX:-0}
+    hostname: ${KITE_HOSTNAME:-kite-docker}
+    # Full systemd/cgroup v2 and Sunshine virtual input require a rootful Linux host.
+    privileged: true
+    cgroup: private
+    network_mode: host
+    shm_size: 1gb
+    restart: unless-stopped
+    stop_grace_period: 45s
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      KITE_SSH_PORT: ${KITE_SSH_PORT:-2222}
+      KITE_SUNSHINE_PORT: ${KITE_SUNSHINE_PORT:-48089}
+      KITE_DESKTOP_MODE: ${KITE_DESKTOP_MODE:-1920x1080}
+      KITE_ENCODER: ${KITE_ENCODER:-software}
+      KITE_RENDER_DEVICE: ${KITE_RENDER_DEVICE:-/dev/dri/renderD128}
+    volumes:
+      - home:/home/kite
+      - identity:/var/lib/kite-container
+      # Xorg consumes udev hotplug events from Sunshine's virtual input devices.
+      - /dev/input:/dev/input:ro
+      - /run/udev:/run/udev:ro
+
+volumes:
+  home:
+  identity:

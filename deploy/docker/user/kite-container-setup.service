@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare persistent Kite server configuration
+Before=herdr.service app-dev.lizardbyte.app.Sunshine.service kite-node.service kite-desktop-session.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kite-container-session setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

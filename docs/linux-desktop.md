@@ -4,6 +4,8 @@ Kite's Linux desktop host includes a persistent Rust **Kite Node** and a native 
 
 ## Install and enable
 
+For a server without an existing desktop, the [Docker deployment](docker-host.md) supplies a complete X11 desktop and the required host software as an additional installation method.
+
 Download the Linux x86_64 archive from the same [Alpha release](https://github.com/wenshiqi0/Kite/releases) as Android and check it against `SHA256SUMS`. The package targets GNU/Linux x86_64, built on Ubuntu 24.04. Bun 1.3.14+, GTK 3, a systemd user manager, Herdr and Sunshine must already be installed. Linux X11 is the current supported capture path.
 
 ```sh

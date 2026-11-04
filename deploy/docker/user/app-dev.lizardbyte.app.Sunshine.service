@@ -1,0 +1,12 @@
+[Unit]
+Description=Sunshine for the Kite container desktop
+Requires=kite-container-setup.service kite-audio.service
+After=kite-container-setup.service kite-audio.service
+
+[Service]
+ExecStart=/usr/bin/sunshine %h/.config/sunshine/sunshine.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
