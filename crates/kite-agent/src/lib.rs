@@ -7,6 +7,7 @@ pub mod composer;
 pub mod history;
 pub mod interaction;
 pub mod notifications;
+mod presentation;
 pub mod process;
 pub mod providers;
 pub mod sessions;
@@ -93,9 +94,19 @@ pub struct Message {
 }
 
 impl Message {
-    /// Keep the original call for paging/cache merges, but expose its user-facing
-    /// message to native clients instead of the internal delivery receipt.
+    /// Keep original records for paging/cache merges, but expose user-facing
+    /// messages and report bodies to native clients instead of machine receipts.
     pub fn presentation(&self) -> std::borrow::Cow<'_, Self> {
+        if self.role == Role::Assistant
+            && !self.intermediate
+            && self.tool.is_none()
+            && let Some(text) = presentation::report_markdown(&self.text)
+        {
+            return std::borrow::Cow::Owned(Self {
+                text,
+                ..self.clone()
+            });
+        }
         let Some(tool) = &self.tool else {
             return std::borrow::Cow::Borrowed(self);
         };

@@ -1,5 +1,9 @@
 # Testing
 
+## Structured report presentation
+
+`Message::presentation` exposes the Markdown body of a complete `status` / `summary_markdown` / `deliverables` / `risks` / `followups` report while retaining the original JSON and message identity in history and caches. Domain regressions cover escaped newlines, headings/links, saved history, cache restoration and strict non-report fallbacks. The FFI regression checks the exact text delivered to native Markdown. This is a client-side fix: install Alpha 77+ for existing saved messages to gain the presentation without rerunning the job. An opt-in `existing_transcript_report_reaches_presentation_without_editing_source` test accepts `KITE_REPORT_HISTORY_FIXTURE` and verifies an authorized real transcript without copying conversation content into the repository.
+
 ## Nested Codex session identity
 
 Managed Codex discovery checks the pane's live owner and loaded threads before publishing a chat reference. A separate `codex exec` may inherit Herdr hook variables, but its report cannot redirect the parent's history or input. Provider regressions cover valid thread changes, independent child panes, ambiguous/unavailable owners and external terminals. The host test uses a real private WebSocket owner and registry with a stale child report, keeps client stdin open, and verifies the parent identity, unchanged terminal, exactly-once forwarding and read-only owner requests. No model turn is sent.

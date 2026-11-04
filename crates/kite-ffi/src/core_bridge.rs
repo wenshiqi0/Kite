@@ -1478,6 +1478,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cached_worker_reports_reach_native_markdown_as_readable_text() {
+        let message = kite_app::ChatMessage {
+            id: "worker-final".into(),
+            role: kite_app::ChatRole::Assistant,
+            text: r###"{"status":"completed","summary_markdown":"## 晨间查询\n\n**首要风险**\n\n- [查看 CI](https://example.test/ci)","deliverables":[],"risks":[],"followups":[]}"###.into(),
+            intermediate: false,
+            question_replies: vec![],
+            tool: None,
+        };
+        let displayed = message_info(&message);
+        assert_eq!(displayed.id, message.id);
+        assert!(matches!(displayed.kind, MessageKind::Assistant));
+        assert_eq!(
+            displayed.text,
+            "## 晨间查询\n\n**首要风险**\n\n- [查看 CI](https://example.test/ci)"
+        );
+        assert!(!displayed.text.contains("summary_markdown"));
+        assert!(!displayed.text.contains("\\n"));
+        assert!(displayed.tool.is_none());
+        assert!(message.text.contains("summary_markdown"));
+    }
+
+    #[test]
     fn cached_async_message_calls_reach_native_clients_as_assistant_text() {
         let message = kite_app::ChatMessage {
             id: "async-message".into(),
