@@ -41,9 +41,9 @@ import {
 } from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
 import { bridgeSocket, listening, requirePrivateSocket } from "@kite/runtime/socket";
-import { catalogRead, patchSession, sessionLock, stateDir } from "./catalog";
+import { catalogRead, catalogRoot, patchSession, sessionLock, stateDir } from "./catalog";
+import { codexHistoryFiles, codexThread, setCodexArchived } from "./codex-storage";
 import { harnessDirectory, harnessInfo, openHarness } from "./harness";
-import { historyFiles } from "./history";
 import { websocketProxy } from "./websocket";
 export interface Registry extends OwnerIdentity {
   protocol: 1;
@@ -416,6 +416,13 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
     check(found, "session not found");
     let record: SessionRecord = found;
     const provider = record.provider;
+    const thread = codexThread(record);
+    if (thread)
+      await locked(join(catalogRoot(), "sessions.lock"), () => setCodexArchived(thread, false));
+    const opened = async (agent: ObjectValue) => {
+      if (provider === "codex" && found.archived) await patchSession(id, { archived: false });
+      return { agent };
+    };
     if (provider === "dsh" || provider === "ply") {
       const managed = await openHarness(record);
       await patchSession(id, {
@@ -432,7 +439,7 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
     const existing = agents.find((a) => sameReference(a, record));
     if (existing) {
       if (provider === "codex") await noteSessionOpen(string(existing.pane_id));
-      return { agent: existing };
+      return opened(existing);
     }
     const pending = agents.find(
       (a) =>
@@ -453,7 +460,7 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
         !record.reference || sameReference(current, record),
         "session identity changed; retry when the original owner is ready",
       );
-      return { agent: current };
+      return opened(current);
     }
     const oldPane = record.pane_id;
     let owner: Registry | undefined;
@@ -481,12 +488,7 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
         reference.kind === "id" && UUID.test(reference.value),
         "invalid Codex session reference",
       );
-      if (
-        !historyFiles(
-          join(process.env.CODEX_HOME || join(home(), ".codex"), "sessions"),
-          reference.value,
-        ).length
-      ) {
+      if (!codexHistoryFiles(reference.value).length) {
         if (owner && oldPane)
           check(
             !array(object(await backendRpc(oldPane, "thread/loaded/list", {})).data).includes(
@@ -598,12 +600,12 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
             reference: parseReference(current.agent_session),
           });
           if (prepared) await ready(prepared);
-          return { agent: current };
+          return opened(current);
         }
       }
       await sleep(200);
     }
-    return { agent: started };
+    return opened(started);
   });
 }
 export async function upgrade(pane: string, binary: string): Promise<Json> {
