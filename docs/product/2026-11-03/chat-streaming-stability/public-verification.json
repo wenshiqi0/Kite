@@ -1,0 +1,25 @@
+{
+  "release": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.71",
+  "prerelease": true,
+  "sourceCommit": "7eb274ecd890668dd78ac684663d4aa6610b22ee",
+  "versionName": "0.2.0-alpha.71",
+  "versionCode": 73,
+  "ci": "https://github.com/wenshiqi0/Kite/actions/runs/41590444506",
+  "pullRequest": "https://github.com/wenshiqi0/Kite/pull/16",
+  "sha256": {
+    "kite-0.2.0-alpha.71-arm64-v8a.apk": "5d37cd6c8055abc8fc05f1668a2addb4eb05fd8fc970c622efab72842524eaa6",
+    "kite-0.2.0-alpha.71-arm64-v8a-compat-v2.apk": "ce26cf8b949c53180b948a61a264688e8d02dbe93b1e59467b42e8e148d38731",
+    "kite-host-0.2.0-alpha.71-linux-x86_64.tar.gz": "29d046e9ccd8239337ef6847a114924d149f2b73bfb6cd0593e25079dfc4d027",
+    "release-manifest.json": "087c7b71fac1c24fea3052f35c43a7b9c000bf54d1ade0f36f7ecce3b8bd0ee7"
+  },
+  "signingCertificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "certificateMatchesAlpha70": true,
+  "api23V1Verified": true,
+  "api36PrimaryV3AndCompatibilityV2Verified": true,
+  "applicationPayloadsMatch": true,
+  "nativeZipAlignmentKiB": 16,
+  "androidJvmTests": 78,
+  "android16NativeTests": 13,
+  "individuallyDrawnStreamingUpdates": 24,
+  "physicalHandsetVerified": false
+}

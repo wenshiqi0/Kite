@@ -16,3 +16,7 @@ The native regression `responsePhaseChangesKeepTheSameSelectableMarkdown` fails 
 These local UI checks reuse the unchanged Core's existing paired JNI libraries and generated Kotlin bindings from source matching `origin/main` in the Rust and Android controller paths. No provider turn or remote desktop is used. The official tagged Release build independently regenerates its native library and bindings. Native-view/draw checks and the screenshot do not establish physical-handset flicker or GPU frame timing; handset confirmation remains pending.
 
 The Alpha delivery is based on the already published Alpha 70 source, preserving its host/client features. Only the Android client needs updating for this fix.
+
+## Published Alpha 71
+
+[Alpha 71](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.71), versionCode **73**, was published from `7eb274ecd890668dd78ac684663d4aa6610b22ee`. Both the [fix PR CI](https://github.com/wenshiqi0/Kite/actions/runs/41590441331) and [tagged build/publication](https://github.com/wenshiqi0/Kite/actions/runs/41590444506) pass. All five public assets were downloaded independently; sizes, GitHub asset digests and `SHA256SUMS` match. The primary and compatibility APKs retain Alpha 70's signing certificate, verify on API 23 and API 36, have matching application payloads and pass 16 KiB native ZIP alignment. [Exact public verification](public-verification.json). Physical-handset installation and flicker confirmation remain pending.
