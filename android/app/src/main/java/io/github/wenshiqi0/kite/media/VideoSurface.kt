@@ -19,6 +19,7 @@ import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import androidx.core.view.SoftwareKeyboardControllerCompat
 import io.github.wenshiqi0.kite.R
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -62,6 +63,17 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
     private var bridgedX=0f;private var bridgedY=0f
     private var remoteEditor=false
     private var keyboardTarget=0L
+    private var keyboardShowPending=false
+    val remoteKeyboardActive: Boolean get() = remoteEditor
+    private val showRemoteKeyboard = Runnable {
+        if (keyboardShowPending && remoteEditor && keyboardTarget == target &&
+            isAttachedToWindow && hasWindowFocus() && isFocused) {
+            keyboardShowPending = false
+            val input = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            input.restartInput(this)
+            SoftwareKeyboardControllerCompat(this).show()
+        }
+    }
     private var connection:RemoteInputConnection?=null
     var onTextFailure:()->Unit={}
     var editorModifiers=0
@@ -376,19 +388,37 @@ class VideoSurface(context: Context, private val ready: (Long) -> Unit, private 
         val modifiers = (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
         return DesktopInput.key(target, key, down, modifiers)
     }
-    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) { super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); if (!gainFocus && target != 0L) {flushRemoteText();DesktopInput.releaseInput(target)} }
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        if (gainFocus) {
+            if (keyboardShowPending) post(showRemoteKeyboard)
+        } else {
+            closeRemoteKeyboard(false)
+            if (target != 0L) { flushRemoteText(); DesktopInput.releaseInput(target) }
+        }
+    }
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus && keyboardShowPending) post(showRemoteKeyboard)
+    }
     override fun performClick(): Boolean = super.performClick()
 
     fun flushRemoteText(){textBuffer.flush()}
     fun openRemoteKeyboard():Boolean {
-        if(!takeover||!gesturesEnabled||target==0L)return false
-        remoteEditor=true;keyboardTarget=target;requestFocus()
-        val input=context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        input.restartInput(this)
-        post{if(remoteEditor&&keyboardTarget==target)input.showSoftInput(this,InputMethodManager.SHOW_IMPLICIT)}
+        if(!takeover||!gesturesEnabled||pip||target==0L||!isAttachedToWindow)return false
+        remoteEditor=true;keyboardTarget=target;keyboardShowPending=true
+        if (!requestFocus()) {
+            closeRemoteKeyboard(false)
+            return false
+        }
+        // Compose must finish releasing the previous editor before rebinding the IME.
+        // If the window is not focused yet, onWindowFocusChanged resumes this request.
+        removeCallbacks(showRemoteKeyboard)
+        post(showRemoteKeyboard)
         return true
     }
     fun closeRemoteKeyboard(hide:Boolean=true) {
+        keyboardShowPending=false;removeCallbacks(showRemoteKeyboard)
         if(remoteEditor){connection?.cancelComposition();textBuffer.flush()}
         remoteEditor=false;keyboardTarget=0;connection=null;textBuffer.cancel()
         if(hide&&windowToken!=null)(context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(windowToken,0)

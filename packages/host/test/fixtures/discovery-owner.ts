@@ -4,7 +4,8 @@ import { check, object, parse, string } from "@kite/protocol";
 
 const socket = string(process.argv[2]),
   thread = string(process.argv[3]),
-  requests = string(process.argv[4]);
+  requests = string(process.argv[4]),
+  child = crypto.randomUUID();
 Bun.serve({
   unix: socket,
   fetch(request, server) {
@@ -16,14 +17,32 @@ Bun.serve({
       const request = object(parse(String(body)));
       if (request.id === undefined) return;
       check(
-        ["initialize", "thread/loaded/list"].includes(String(request.method)),
+        ["initialize", "thread/loaded/list", "thread/list"].includes(String(request.method)),
         "unexpected mutation",
       );
       appendFileSync(requests, `${request.method}\n`);
       ws.send(
         JSON.stringify({
           id: request.id,
-          result: request.method === "initialize" ? {} : { data: [thread] },
+          result:
+            request.method === "initialize"
+              ? {}
+              : request.method === "thread/loaded/list"
+                ? { data: [thread] }
+                : {
+                    data: object(request.params).archived
+                      ? []
+                      : [
+                          {
+                            id: child,
+                            parentThreadId: thread,
+                            agentNickname: "Worker",
+                            status: { type: "active", activeFlags: [] },
+                            updatedAt: 1793800000,
+                          },
+                        ],
+                    nextCursor: null,
+                  },
         }),
       );
     },

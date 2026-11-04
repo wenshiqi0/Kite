@@ -776,6 +776,29 @@ pub struct SessionInfo {
     pub agent_id: Option<String>,
     pub status: String,
     pub recorded: bool,
+    pub subagents: Vec<SubagentInfo>,
+    pub subagents_error: bool,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SubagentInfo {
+    pub id: String,
+    pub parent_id: String,
+    pub name: String,
+    pub task: String,
+    pub status: String,
+    pub updated_ms: i64,
+}
+impl From<kite_app::Subagent> for SubagentInfo {
+    fn from(value: kite_app::Subagent) -> Self {
+        Self {
+            id: value.id,
+            parent_id: value.parent_id,
+            name: value.name,
+            task: value.task,
+            status: value.status,
+            updated_ms: value.updated_ms,
+        }
+    }
 }
 impl From<kite_app::ConversationSession> for SessionInfo {
     fn from(s: kite_app::ConversationSession) -> Self {
@@ -790,6 +813,8 @@ impl From<kite_app::ConversationSession> for SessionInfo {
             agent_id: s.agent_id,
             status: s.status,
             recorded: s.recorded,
+            subagents: s.subagents.into_iter().map(Into::into).collect(),
+            subagents_error: s.subagents_error,
         }
     }
 }

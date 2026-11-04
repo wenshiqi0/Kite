@@ -1,5 +1,9 @@
 # Testing
 
+## Codex subagent trees
+
+Provider tests verify metadata-only descendant discovery across active/archived pages, parent-first ordering, ancestry isolation, bounded rollout outcomes, runtime flags and read failures. The private host-owner regression also carries a child through the actual discovery bridge while preserving the parent target and exactly-once prompt forwarding. Rust checks runtime precedence, unloaded workers, saved parent/child/grandchild edges and stale-state removal. Android unit tests cover tree ordering, connectors, branch collapse and disconnected states; `WorkspaceRefinementPresentationTest.subagentTreeShowsParentsAndStatusesAndCollapsesOnlyTheSelectedBranch` renders the native tree and checks completion/failure labels and branch-local collapse using synthetic data. Real provider metadata checks start no model turn. Android device rendering and macOS validation are recorded separately from compilation.
+
 ## Structured report presentation
 
 `Message::presentation` exposes the Markdown body of a complete `status` / `summary_markdown` / `deliverables` / `risks` / `followups` report while retaining the original JSON and message identity in history and caches. Domain regressions cover escaped newlines, headings/links, saved history, cache restoration and strict non-report fallbacks. The FFI regression checks the exact text delivered to native Markdown. This is a client-side fix: install Alpha 77+ for existing saved messages to gain the presentation without rerunning the job. An opt-in `existing_transcript_report_reaches_presentation_without_editing_source` test accepts `KITE_REPORT_HISTORY_FIXTURE` and verifies an authorized real transcript without copying conversation content into the repository.

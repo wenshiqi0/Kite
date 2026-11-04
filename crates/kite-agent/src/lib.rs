@@ -11,6 +11,7 @@ mod presentation;
 pub mod process;
 pub mod providers;
 pub mod sessions;
+pub mod subagents;
 pub mod usage;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

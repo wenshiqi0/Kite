@@ -45,7 +45,7 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
     val allSessions = state?.hostConnections.orEmpty().flatMap { it.sessions }
     val groups = state?.hosts.orEmpty().mapNotNull { host ->
         val sessions = workspaces[host.id]?.sessions.orEmpty().filter {
-            it.archived == archived && (query.isBlank() || host.host.contains(query, true) || it.title.contains(query, true) || it.preview.contains(query, true) || it.provider.contains(query, true))
+            it.archived == archived && (query.isBlank() || host.host.contains(query, true) || it.title.contains(query, true) || it.preview.contains(query, true) || it.provider.contains(query, true) || it.subagents.any { child -> child.name.contains(query, true) || child.task.contains(query, true) })
         }
         if (query.isNotBlank() && sessions.isEmpty()) null else host to sessions
     }
@@ -113,6 +113,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                                 }
                             }
                         }
+                        SubagentTree("${host.id}/${session.id}/${query.isNotBlank()}", session.subagents, session.subagentsError, connected,
+                            Modifier.padding(start = 16.dp, bottom = 4.dp), initiallyExpanded = selected || query.isNotBlank())
                     }
                     if (sessions.isEmpty()) item(key = "empty/${host.id}") { Text(stringResource(if (archived) R.string.no_archived_sessions else R.string.no_active_sessions), fontSize = 12.sp, color = KiteColors.Muted, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) }
                 }

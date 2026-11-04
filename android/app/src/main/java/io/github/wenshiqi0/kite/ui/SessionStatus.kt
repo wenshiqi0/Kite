@@ -15,7 +15,8 @@ enum class SessionStatus(@param:StringRes val label: Int) {
     Failed(R.string.session_failed),
     Saved(R.string.session_saved),
     Disconnected(R.string.session_disconnected),
-    Unknown(R.string.agent_unknown)
+    Unknown(R.string.agent_unknown),
+    Stopped(R.string.subagent_stopped)
 }
 
 fun sessionStatus(status: String, connected: Boolean): SessionStatus = if (!connected) SessionStatus.Disconnected else when (status) {
@@ -28,5 +29,6 @@ fun sessionStatus(status: String, connected: Boolean): SessionStatus = if (!conn
     "idle" -> SessionStatus.Idle
     "failed", "error" -> SessionStatus.Failed
     "saved" -> SessionStatus.Saved
+    "stopped" -> SessionStatus.Stopped
     else -> SessionStatus.Unknown
 }

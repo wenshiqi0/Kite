@@ -311,6 +311,13 @@ console.log(JSON.stringify({id:request.id,result}));
       expect(object(agent.agent_session).value).toBe(parent);
       expect(agent.terminal_id).toBe("parent-terminal");
       expect(agent.interactive_ready).toBe(true);
+      expect(agent.subagents_error).toBe(false);
+      expect(array(agent.subagents)).toHaveLength(1);
+      expect(object(array(agent.subagents)[0])).toMatchObject({
+        parent_id: parent,
+        name: "Worker",
+        runtime_status: "active",
+      });
       expect(await bridgeProcess.exited).toBe(0);
       bridgeProcess.stdin.end();
     } finally {
@@ -339,6 +346,10 @@ console.log(JSON.stringify({id:request.id,result}));
     expect(readFileSync(requests, "utf8").trim().split("\n")).toEqual([
       "initialize",
       "thread/loaded/list",
+      "initialize",
+      "thread/list",
+      "initialize",
+      "thread/list",
     ]);
     expect(owner.exitCode).toBeNull();
   } finally {

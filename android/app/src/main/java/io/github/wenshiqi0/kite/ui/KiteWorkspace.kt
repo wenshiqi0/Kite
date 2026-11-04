@@ -122,7 +122,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     LaunchedEffect(newSessionHost,newSessionProviders) {
         if(newSessionProviders.none { it.id==provider })provider=newSessionProviders.firstOrNull { it.id=="codex" }?.id?:newSessionProviders.firstOrNull()?.id.orEmpty()
     }
-    var remoteKeyboard by remember { mutableStateOf(false) }
     var modelSettings by remember { mutableStateOf(false) }
     var usageDialog by remember { mutableStateOf(false) }
     var noticeCenter by remember { mutableStateOf(false) }
@@ -210,21 +209,24 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val bridgeActive=state?.desktop?.takeover==true&&!hideChrome&&!vm.settingsVisible&&!drawerActive
     fun toggleRemoteKeyboard(){
         vm.hideTouchpad()
-        if(remoteKeyboard&&imeVisible){videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false}
+        val surface = videoReference.value
+        if(surface?.remoteKeyboardActive==true&&imeVisible){surface.closeRemoteKeyboard()}
         else if(bridgeActive){
-            focusManager.clearFocus()
-            remoteKeyboard=videoReference.value?.openRemoteKeyboard()==true
+            focusManager.clearFocus(force = true)
+            surface?.openRemoteKeyboard()
         }
     }
     fun toggleTouchpad(){
         videoReference.value?.closeRemoteKeyboard()
-        remoteKeyboard=false;softwareKeyboard?.hide();focusManager.clearFocus()
+        softwareKeyboard?.hide();focusManager.clearFocus()
         vm.toggleTouchpad()
     }
-    LaunchedEffect(imeVisible){if(imeVisible)vm.hideTouchpad()else if(remoteKeyboard){videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false}}
-    LaunchedEffect(bridgeActive){if(!bridgeActive){videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false;vm.releaseMouseButtons()}}
+    // A hidden IME can be an intermediate frame while switching local/remote editors.
+    // Keep the editor active, like an EditText after Back; focus/control changes close it.
+    LaunchedEffect(imeVisible){if(imeVisible)vm.hideTouchpad()}
+    LaunchedEffect(bridgeActive){if(!bridgeActive){videoReference.value?.closeRemoteKeyboard();vm.releaseMouseButtons()}}
     ClipboardBridge(vm,blocked=hideChrome || vm.settingsVisible || drawerActive)
-    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; remoteKeyboard = false; arrows = false; newSession = false; gestureHelp = false; usageDialog = false } }
+    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; arrows = false; newSession = false; gestureHelp = false; usageDialog = false } }
     LaunchedEffect(landscape, vm.inPip) {
         if (vm.inPip) return@LaunchedEffect
         if (landscape && vm.layout == DesktopLayout.Split) { autoFullscreen = true; vm.changeLayout(DesktopLayout.Fullscreen, rotate = false) }
@@ -234,7 +236,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     LaunchedEffect(vm.settingsVisible) { if (vm.settingsVisible) vm.exitTakeover() }
     BackHandler(enabled = vm.settingsVisible || terminal || diagnostics || vm.showDesktop) {
         when {
-            remoteKeyboard -> {videoReference.value?.closeRemoteKeyboard();remoteKeyboard=false}
+            videoReference.value?.remoteKeyboardActive==true&&imeVisible -> videoReference.value?.closeRemoteKeyboard()
             terminal -> terminal = false
             diagnostics -> diagnostics = false
             vm.settingsVisible -> { vm.hostEditorVisible=false;vm.settingsVisible=false }
@@ -304,6 +306,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             DropdownMenuItem(text = { Text(stringResource(R.string.connection_diagnostics)) }, onClick = { tools = false; diagnostics = true })
                             DropdownMenuItem(text = { Text(stringResource(R.string.host_settings)) }, onClick = { tools = false; vm.openMachineSettings() })
                         }
+                    }
+                }
+                currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
+                    Box(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                        SubagentTree("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
+                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp))
                     }
                 }
                 if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -455,7 +463,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                     if (providerInfo?.models == true) IconButton(onClick={modelSettings=true;vm.refreshUsage()},enabled=!initializingSession&&providerInfo?.models==true,modifier=Modifier.size(48.dp).semantics{contentDescription="模型与思考强度"}){ProductIcon(Mark.Settings,modifier=Modifier.size(19.dp))}
-                    ChatDraftField(if(vm.creatingAgent)"" else vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);remoteKeyboard=false;vm.releaseModifiers()},enabled=!initializingSession)
+                    ChatDraftField(if(vm.creatingAgent)"" else vm.draft,{vm.draft=it},Modifier.weight(1f),onFocus={vm.hideTouchpad();videoReference.value?.closeRemoteKeyboard(false);vm.releaseModifiers()},enabled=!initializingSession)
                     ComposerActionButton(
                         working = vm.sessionStartup == SessionStartupPhase.READY && if (providerInfo?.managedChat == true) state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.WAITING) else agent?.status in listOf("working", "blocked"),
                         hasInput = !vm.creatingAgent && (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()),
