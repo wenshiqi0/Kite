@@ -1,0 +1,57 @@
+{
+  "release": "0.2.0-alpha.84",
+  "versionCode": 86,
+  "baseline": "v0.2.0-alpha.82",
+  "integratedBase": "v0.2.0-alpha.83",
+  "environment": "isolated Android 16 API 36 x86_64 KVM emulator; real system IME; no remote host connection",
+  "baselineCases": [
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "failedFocusDoesNotLeaveARemoteEditor",
+      "passed": false
+    },
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "pendingOpenWaitsForWindowFocusAndCanBeCancelled",
+      "passed": false
+    },
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "questionRemoteAndBackCanSwitchRepeatedly",
+      "passed": true
+    }
+  ],
+  "fixedCases": [
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "failedFocusDoesNotLeaveARemoteEditor",
+      "passed": true
+    },
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "pendingOpenWaitsForWindowFocusAndCanBeCancelled",
+      "passed": true
+    },
+    {
+      "class": "io.github.wenshiqi0.kite.RemoteKeyboardTest",
+      "test": "questionRemoteAndBackCanSwitchRepeatedly",
+      "passed": true
+    },
+    {
+      "class": "io.github.wenshiqi0.kite.NativePresentationTest",
+      "test": "remote_ime_holds_composition_and_flushes_committed_text_before_enter",
+      "passed": true
+    }
+  ],
+  "releaseJvmTests": {
+    "tests": 84,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lintErrors": 0,
+  "productionSourceSha256": {
+    "android/app/src/main/java/io/github/wenshiqi0/kite/media/VideoSurface.kt": "4f54df7459fa1549ecfb8e108206ad4647fbe682b6e610d18072277de855261f",
+    "android/app/src/main/java/io/github/wenshiqi0/kite/ui/KiteWorkspace.kt": "6d16205f7bc5373455208692b4f1b028d73fc609b94d0541d67827d17b4bd93e"
+  }
+}

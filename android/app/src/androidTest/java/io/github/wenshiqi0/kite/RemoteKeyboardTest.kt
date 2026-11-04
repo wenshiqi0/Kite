@@ -122,6 +122,9 @@ class RemoteKeyboardTest {
         }
         main { f.open() }
         waitFor("Remote keyboard for capture") { f.imeVisible() && f.remoteServed() }
+        test.waitForIdleSync()
+        SystemClock.sleep(350) // Insets become visible before the keyboard's first rendered frame.
+        assertTrue(f.imeVisible() && f.remoteServed())
         File(test.targetContext.getExternalFilesDir(null), "remote-keyboard.png").outputStream().use {
             test.uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
         }
