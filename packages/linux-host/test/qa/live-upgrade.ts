@@ -84,7 +84,9 @@ const fact = {
 atomic(facts, { facts: [fact] });
 executable(
   interpreter,
-  `import {readFileSync,existsSync,writeFileSync,appendFileSync} from 'node:fs';import {join} from 'node:path';const root=import.meta.dir;if(process.argv[3]!=='notification-facts')process.exit(2);const facts=JSON.parse(readFileSync(join(root,'facts.json'),'utf8'));const log=phase=>appendFileSync(join(root,'scans'),JSON.stringify({pid:process.ppid,phase})+'\\n');log('start');if(existsSync(join(root,'hold-scan'))){writeFileSync(join(root,'scan-inflight'),'');await Bun.sleep(2000);}log('end');console.log(JSON.stringify(facts));`,
+  // This fixture tests framed transport, not provider parsing. Keep its synthetic
+  // duplex stream behind the same adapter entry point as the real Herdr bridge.
+  `import {readFileSync,existsSync,writeFileSync,appendFileSync} from 'node:fs';import {join} from 'node:path';const root=import.meta.dir;if(process.argv[3]==='herdr-api'){const child=Bun.spawn([join(root,'herdr'),'remote-api-bridge'],{stdin:'inherit',stdout:'inherit',stderr:'inherit'});process.exit(await child.exited);}if(process.argv[3]!=='notification-facts')process.exit(2);const facts=JSON.parse(readFileSync(join(root,'facts.json'),'utf8'));const log=phase=>appendFileSync(join(root,'scans'),JSON.stringify({pid:process.ppid,phase})+'\\n');log('start');if(existsSync(join(root,'hold-scan'))){writeFileSync(join(root,'scan-inflight'),'');await Bun.sleep(2000);}log('end');console.log(JSON.stringify(facts));`,
 );
 const config = join(root, "node.json");
 atomic(config, {
