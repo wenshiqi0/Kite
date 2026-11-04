@@ -277,7 +277,12 @@ export class KiteAcp implements AcpConnection {
         content: output
           ? [{ type: "content", content: { type: "text", text: output.slice(0, 128 * 1024) } }]
           : [],
-        _meta: { kite: { outputTruncated: output.length > 128 * 1024 } },
+        _meta: {
+          kite: {
+            outputTruncated:
+              output.length > 128 * 1024 || optionalObject(item._meta).outputTruncated === true,
+          },
+        },
       });
     }
   }
