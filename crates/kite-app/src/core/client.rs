@@ -455,13 +455,13 @@ impl Drop for ClientCore {
                 &core.recovery_job,
                 &core.poll_job,
                 &core.resource_job,
-                &core.history_sync_job,
                 &core.notification_job,
             ] {
                 if let Some(job) = lock(job).take() {
                     job.abort();
                 }
             }
+            drop(lock(&core.state).live.drain());
             if let Ok(job) = core.desktop_job.try_lock()
                 && let Some(job) = job.as_ref()
             {

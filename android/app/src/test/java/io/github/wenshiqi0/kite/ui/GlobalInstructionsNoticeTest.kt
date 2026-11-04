@@ -1,14 +1,14 @@
 package io.github.wenshiqi0.kite.ui
 
-import io.github.wenshiqi0.kite.core.MessageInfo
-import io.github.wenshiqi0.kite.core.MessageKind
+import io.github.wenshiqi0.kite.core.ItemInfo
+import io.github.wenshiqi0.kite.core.ItemRole
 import org.junit.Assert.*
 import org.junit.Test
 
 class GlobalInstructionsNoticeTest {
-    private fun message(text: String, kind: MessageKind = MessageKind.USER) = MessageInfo(
-        id = "global", text = text, kind = kind, tool = null, attachments = emptyList(),
-        intermediate = false, questionReplies = emptyList()
+    private fun message(text: String, kind: ItemRole = ItemRole.USER) = ItemInfo(
+        id = "global", role = kind, blocks = listOf(io.github.wenshiqi0.kite.core.BlockInfo.Text(text)),
+        intermediate = false, origin = null
     )
     private fun envelope(body: String) = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\n$body\n</INSTRUCTIONS>"
 
@@ -35,7 +35,7 @@ class GlobalInstructionsNoticeTest {
             "# AGENTS.md instructions\n<INSTRUCTIONS>unfinished", envelope("Rules") + "\nAlso fix the UI.")) {
             assertFalse(text, isGlobalInstructionsMessage(message(text)))
         }
-        assertFalse(isGlobalInstructionsMessage(message(envelope("Rules"), MessageKind.ASSISTANT)))
-        assertFalse(isGlobalInstructionsMessage(message(envelope("Rules"), MessageKind.ERROR)))
+        assertFalse(isGlobalInstructionsMessage(message(envelope("Rules"), ItemRole.ASSISTANT)))
+        assertFalse(isGlobalInstructionsMessage(message(envelope("Rules"), ItemRole.ERROR)))
     }
 }

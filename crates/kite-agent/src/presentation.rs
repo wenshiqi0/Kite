@@ -29,7 +29,7 @@ pub(super) fn report_markdown(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Message, Role, parse_history};
+    use crate::{Block, Item, Role, parse_history};
     use serde_json::{Value, json};
 
     fn report() -> Value {
@@ -42,15 +42,12 @@ mod tests {
         })
     }
 
-    fn message(text: String) -> Message {
-        Message {
-            id: "saved-worker-answer".into(),
-            role: Role::Assistant,
-            text,
-            intermediate: false,
-            tool: None,
-            question_replies: vec![],
-        }
+    fn message(text: String) -> Item {
+        Item::new(
+            "saved-worker-answer".into(),
+            Role::Assistant,
+            vec![Block::Text(text)],
+        )
     }
 
     #[test]
@@ -61,16 +58,19 @@ mod tests {
             report["status"] = status.into();
             let original = message(serde_json::to_string_pretty(&report).unwrap());
             let displayed = original.presentation();
-            assert_eq!(displayed.text, report["summary_markdown"].as_str().unwrap());
+            assert_eq!(
+                displayed.text(),
+                report["summary_markdown"].as_str().unwrap()
+            );
             assert_eq!(displayed.id, original.id);
             assert_eq!(displayed.role, Role::Assistant);
-            assert!(!displayed.text.contains("\\n"));
-            assert!(!displayed.text.contains("summary_markdown"));
+            assert!(!displayed.text().contains("\\n"));
+            assert!(!displayed.text().contains("summary_markdown"));
             assert_eq!(
-                serde_json::from_str::<Value>(&original.text).unwrap(),
+                serde_json::from_str::<Value>(&original.text()).unwrap(),
                 report
             );
-            let cached: Message =
+            let cached: Item =
                 serde_json::from_slice(&serde_json::to_vec(&original).unwrap()).unwrap();
             assert_eq!(cached.presentation(), displayed);
         }
@@ -118,6 +118,30 @@ mod tests {
     }
 
     #[test]
+    fn mixed_blocks_keep_their_exact_order_during_report_and_async_projection() {
+        let tool = crate::Tool {
+            name: "send_message_to_user_async".into(),
+            arguments: r#"{"message":"visible message"}"#.into(),
+            output: "receipt".into(),
+            complete: true,
+            failed: false,
+            computer: false,
+        };
+        for blocks in [
+            vec![
+                Block::Text(report().to_string()),
+                Block::Text("following text".into()),
+            ],
+            vec![Block::Tool(tool), Block::Text("following text".into())],
+        ] {
+            let item = Item::new("mixed".into(), Role::Assistant, blocks);
+            assert_eq!(item.presentation().as_ref(), &item);
+            let cached: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+            assert_eq!(cached.presentation().as_ref(), &item);
+        }
+    }
+
+    #[test]
     fn final_report_history_keeps_its_identity_before_and_after_cache_restore() {
         let row = json!({"type":"response_item","payload":{
             "type":"message", "id":"worker-final", "role":"assistant", "phase":"final_answer",
@@ -127,10 +151,10 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].presentation().id, "worker-final");
         assert_eq!(
-            parsed[0].presentation().text,
+            parsed[0].presentation().text(),
             report()["summary_markdown"].as_str().unwrap()
         );
-        assert!(parsed[0].text.contains("summary_markdown"));
+        assert!(parsed[0].text().contains("summary_markdown"));
     }
 
     #[test]
@@ -141,18 +165,18 @@ mod tests {
         let parsed = parse_history("codex", &bytes);
         let original = parsed
             .iter()
-            .find(|m| m.role == Role::Assistant && super::report_markdown(&m.text).is_some())
+            .find(|m| m.role == Role::Assistant && super::report_markdown(&m.text()).is_some())
             .expect("a completed report in the authorized transcript");
-        let report: Value = serde_json::from_str(&original.text).unwrap();
+        let report: Value = serde_json::from_str(&original.text()).unwrap();
         assert_eq!(
-            original.presentation().text,
+            original.presentation().text(),
             report["summary_markdown"].as_str().unwrap()
         );
-        assert!(!original.presentation().text.contains("\\n"));
+        assert!(!original.presentation().text().contains("\\n"));
         assert_eq!(std::fs::read(path).unwrap(), bytes);
         eprintln!(
             "Existing report: rendered {} Markdown characters; original transcript unchanged",
-            original.presentation().text.chars().count()
+            original.presentation().text().chars().count()
         );
     }
 }

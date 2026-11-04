@@ -1,5 +1,5 @@
 //! Bounded reads of the selected provider session, through the existing SSH connection.
-use crate::{Message, parse_history};
+use crate::{Block, Item, parse_history};
 use kite_herdr::api::AgentSession;
 use kite_ssh::Session;
 use std::{sync::Arc, time::Duration};
@@ -19,7 +19,7 @@ pub struct History {
     pub available: bool,
     pub source_pending: bool,
     pub problem: String,
-    pub messages: Vec<Message>,
+    pub items: Vec<Item>,
     pub async_input: crate::async_input::History,
     pub page: Option<Page>,
     pub positions: std::collections::BTreeMap<String, (u64, u32)>,
@@ -256,7 +256,7 @@ fn response(
         available: true,
         source_pending: false,
         problem: String::new(),
-        messages: parse_history(&reference.agent, bytes),
+        items: parse_history(&reference.agent, bytes),
         async_input: if reference.agent == "codex" {
             crate::async_input::history(&reference.value, controls)
         } else {
@@ -308,12 +308,13 @@ fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 /// Merge chronological pages, retaining tool details split across a page boundary.
-pub fn merge_message(older: &Message, newer: &Message) -> Message {
+pub fn merge_item(older: &Item, newer: &Item) -> Item {
     let mut next = newer.clone();
-    if next.question_replies.is_empty() {
-        next.question_replies = older.question_replies.clone();
+    if next.question_replies().next().is_none() {
+        next.blocks
+            .extend(older.question_replies().cloned().map(Block::QuestionReply));
     }
-    if let (Some(old), Some(new)) = (&older.tool, &mut next.tool) {
+    if let (Some(old), Some(new)) = (older.tool(), next.tool_mut()) {
         if new.name == "tool" {
             new.name = old.name.clone();
         }
@@ -330,7 +331,7 @@ pub fn merge_message(older: &Message, newer: &Message) -> Message {
     next
 }
 
-pub fn merge(older: &[Message], newer: &[Message]) -> Vec<Message> {
+pub fn merge(older: &[Item], newer: &[Item]) -> Vec<Item> {
     let mut result = older.to_vec();
     let mut positions: std::collections::BTreeMap<_, _> = result
         .iter()
@@ -339,7 +340,7 @@ pub fn merge(older: &[Message], newer: &[Message]) -> Vec<Message> {
         .collect();
     for incoming in newer {
         if let Some(&i) = positions.get(&incoming.id) {
-            result[i] = merge_message(&result[i], incoming);
+            result[i] = merge_item(&result[i], incoming);
         } else {
             positions.insert(incoming.id.clone(), result.len());
             result.push(incoming.clone());
@@ -458,9 +459,9 @@ records
 "#);
         let output = parse_history("codex", br#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call","output":"hello"}}
 "#);
-        let messages = merge(&call, &output);
-        assert_eq!(messages.len(), 1);
-        let tool = messages[0].tool.as_ref().unwrap();
+        let items = merge(&call, &output);
+        assert_eq!(items.len(), 1);
+        let tool = items[0].tool().unwrap();
         assert_eq!(tool.name, "Bash");
         assert_eq!(tool.arguments, "echo hello");
         assert_eq!(tool.output, "hello");
@@ -476,12 +477,12 @@ records
         for messages in [merge(&call, &output), merge(&output, &call)] {
             let messages = merge(&messages, &merge(&call, &output));
             assert_eq!(messages.len(), 1);
-            assert!(messages[0].tool.as_ref().unwrap().complete);
+            assert!(messages[0].tool().as_ref().unwrap().complete);
             let displayed = messages[0].presentation();
             assert_eq!(displayed.id, "async-message");
             assert_eq!(displayed.role, crate::Role::Assistant);
-            assert_eq!(displayed.text, "Shared config is ready.");
-            assert!(displayed.tool.is_none());
+            assert_eq!(displayed.text(), "Shared config is ready.");
+            assert!(displayed.tool().is_none());
         }
     }
 }

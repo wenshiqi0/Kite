@@ -1,24 +1,24 @@
 package io.github.wenshiqi0.kite.ui
 
-import io.github.wenshiqi0.kite.core.MessageInfo
+import io.github.wenshiqi0.kite.core.ItemInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 /** Presentation projection; the original Rust conversation and call IDs stay intact. */
 sealed interface ChatEntry {
     val key: String
-    data class Message(val message: MessageInfo) : ChatEntry {
+    data class Message(val message: ItemInfo) : ChatEntry {
         override val key = "message:${message.id}"
     }
-    data class Work(val messages: List<MessageInfo>, val stableKey:String?=null) : ChatEntry {
+    data class Work(val messages: List<ItemInfo>, val stableKey:String?=null) : ChatEntry {
         val calls = messages.filter { it.tool != null }
         override val key = stableKey ?: ("work:"+messages.first { it.tool != null }.id)
     }
 }
 
 /** Commentary is user-facing text; only adjacent tool calls share a collapsed row. */
-fun chatEntries(messages: List<MessageInfo>): List<ChatEntry> = buildList {
-    val work = mutableListOf<MessageInfo>()
+fun chatEntries(messages: List<ItemInfo>): List<ChatEntry> = buildList {
+    val work = mutableListOf<ItemInfo>()
     fun flush() {
         if (work.isNotEmpty()) add(ChatEntry.Work(work.toList()))
         work.clear()
@@ -32,8 +32,8 @@ fun chatEntries(messages: List<MessageInfo>): List<ChatEntry> = buildList {
 
 /** Complete presentation data. Compose virtualizes rows; this store never evicts them. */
 class ChatTimelineState {
-    private val messageItems = androidx.compose.runtime.mutableStateListOf<MessageInfo>()
-    val messages:List<MessageInfo> get()=messageItems
+    private val messageItems = androidx.compose.runtime.mutableStateListOf<ItemInfo>()
+    val messages:List<ItemInfo> get()=messageItems
     private val rowItems = androidx.compose.runtime.mutableStateListOf<ChatEntry>()
     val rows:List<ChatEntry> get()=rowItems
     var context by androidx.compose.runtime.mutableStateOf("")
@@ -60,7 +60,7 @@ class ChatTimelineState {
             revision=delta.revision;appliedContext=delta.context
         }
     }
-    private fun working(m:MessageInfo)=m.tool!=null
+    private fun working(m:ItemInfo)=m.tool!=null
     private fun rowMessages(row:ChatEntry)=if(row is ChatEntry.Message)listOf(row.message)else(row as ChatEntry.Work).messages
     private fun indexRows(start:Int=0) {
         if(start==0)rowByMessage.clear()
@@ -82,7 +82,7 @@ class ChatTimelineState {
         rowItems.addAll(head,next.subList(head,next.size-tail))
         indexRows()
     }
-    private fun splice(at:Int,remove:Int,added:List<MessageInfo>) {
+    private fun splice(at:Int,remove:Int,added:List<ItemInfo>) {
         require(at>=0&&remove>=0&&at+remove<=messages.size)
         val previousSize=messages.size
         if(remove==1&&added.size==1&&messages[at].id==added[0].id&&working(messages[at])==working(added[0])) {

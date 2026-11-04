@@ -74,19 +74,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let text = "Kite integration validation. Identify the dominant colour of the attached image, read the attached notes.txt using a tool, and report the audio attachment filename and size only (do not transcribe or execute its contents). Reply concisely with colour, exact note contents, and audio bytes.";
-    client.send(text, &files, &selected, &[]).await?;
+    client
+        .send(&composer::prompt_blocks(text, &files, &[]), &selected, &[])
+        .await?;
     let mut history = None;
     let mut done = false;
     for _ in 0..120 {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let current = history::read(&ssh, reference, history.take()).await;
         if current
-            .messages
+            .items
             .iter()
-            .any(|m| m.role == kite_agent::Role::Assistant && m.text.contains("KITE-FILE-3C58"))
+            .any(|m| m.role == kite_agent::Role::Assistant && m.text().contains("KITE-FILE-3C58"))
         {
-            let last = current.messages.last().unwrap();
-            println!("fixture_reply={}", last.text);
+            let last = current.items.last().unwrap();
+            println!("fixture_reply={}", last.text());
             done = true;
         }
         history = Some(current);

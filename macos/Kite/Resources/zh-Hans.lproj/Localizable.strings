@@ -154,3 +154,5 @@
 "subagent_idle" = "空闲";
 "subagent_unknown" = "状态未知";
 "subagent_disconnected" = "已断开";
+
+"chat_reference_pending" = "引用内容暂不可用";

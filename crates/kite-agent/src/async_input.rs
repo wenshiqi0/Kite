@@ -252,10 +252,14 @@ mod tests {
         let recovered = history("thread", &bytes(&rows));
         assert!(recovered.pending.is_empty());
         let messages = crate::parse_history("codex", &bytes(&rows));
-        assert!(messages.iter().any(|m| m.role == crate::Role::User
-            && m.text.contains("Green")
-            && m.text.contains("来自手机的说明")
-            && !m.text.contains("send_user_message_question_reply")));
+        assert!(messages.iter().any(|m| {
+            m.role == crate::Role::User
+                && m.display_text().contains("Green")
+                && m.display_text().contains("来自手机的说明")
+                && !m
+                    .display_text()
+                    .contains("send_user_message_question_reply")
+        }));
     }
 
     #[test]

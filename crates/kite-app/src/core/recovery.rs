@@ -136,7 +136,7 @@ impl AppCore {
                 job.abort();
             }
         }
-        self.reset_history_view();
+        self.update_state(|state| state.live.suspend_sync());
         let core = self.clone();
         let host = host.to_owned();
         let job = tokio::spawn(async move {

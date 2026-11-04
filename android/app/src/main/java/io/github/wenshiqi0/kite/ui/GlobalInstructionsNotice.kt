@@ -11,14 +11,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.wenshiqi0.kite.R
-import io.github.wenshiqi0.kite.core.MessageInfo
-import io.github.wenshiqi0.kite.core.MessageKind
+import io.github.wenshiqi0.kite.core.ItemInfo
+import io.github.wenshiqi0.kite.core.ItemRole
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
 /** Display-only recognition of Codex's global guidance envelope, independent of its language. */
-fun isGlobalInstructionsMessage(message: MessageInfo): Boolean {
-    if (message.kind != MessageKind.USER || message.tool != null ||
-        message.attachments.isNotEmpty() || message.questionReplies.isNotEmpty()) return false
+fun isGlobalInstructionsMessage(message: ItemInfo): Boolean {
+    if (message.role != ItemRole.USER || message.blocks.any { it !is io.github.wenshiqi0.kite.core.BlockInfo.Text }) return false
     val text = message.text.trim()
     if (text.substringBefore('\n').trimEnd() != "# AGENTS.md instructions") return false
     val body = text.substringAfter('\n', "").trimStart()

@@ -2,8 +2,8 @@ use super::*;
 use kite_herdr::api::AgentSession;
 use std::collections::HashMap;
 
-pub type MessageRef = Arc<Message>;
-pub type SharedMessages = Arc<Vec<MessageRef>>;
+pub type ItemRef = Arc<Item>;
+pub type SharedItems = Arc<Vec<ItemRef>>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HistoryStatus {
@@ -19,7 +19,7 @@ pub struct ConversationEdit {
     pub revision: u64,
     pub at: usize,
     pub remove: usize,
-    pub items: Vec<MessageRef>,
+    pub items: Vec<ItemRef>,
 }
 #[derive(Clone, Debug)]
 pub struct ConversationDelta {
@@ -31,23 +31,14 @@ pub struct ConversationDelta {
 
 impl Snapshot {
     pub fn conversation_context(&self) -> String {
-        format!(
-            "{}/{}",
-            self.selected_host.as_deref().unwrap_or_default(),
-            self.selected_session
-                .as_ref()
-                .or(self.selected_agent.as_ref())
-                .map(String::as_str)
-                .unwrap_or_default()
-        )
+        self.context.clone()
     }
-    pub(super) fn replace_shared_conversation(
-        &mut self,
-        messages: Vec<MessageRef>,
-        available: bool,
-    ) {
+}
+
+impl LiveSession {
+    pub(super) fn replace_conversation(&mut self, messages: Vec<ItemRef>, available: bool) {
         let old = self.conversation.as_ref();
-        let equal = |a: &MessageRef, b: &MessageRef| Arc::ptr_eq(a, b) || a == b;
+        let equal = |a: &ItemRef, b: &ItemRef| Arc::ptr_eq(a, b) || a == b;
         let mut head = 0;
         while head < old.len().min(messages.len()) && equal(&old[head], &messages[head]) {
             head += 1;
@@ -62,31 +53,20 @@ impl Snapshot {
             {
                 tail += 1;
             }
-            self.conversation_revision = self.conversation_revision.wrapping_add(1);
+            self.revision = self.revision.wrapping_add(1);
             let edit = ConversationEdit {
-                revision: self.conversation_revision,
+                revision: self.revision,
                 at: head,
                 remove: old.len() - head - tail,
                 items: messages[head..messages.len() - tail].to_vec(),
             };
-            let journal = Arc::make_mut(&mut self.conversation_journal);
+            let journal = Arc::make_mut(&mut self.journal);
             journal.push_back(edit);
             while journal.len() > 1
                 && (journal.len() > 128
                     || journal
                         .iter()
-                        .map(|e| {
-                            e.items
-                                .iter()
-                                .map(|m| {
-                                    m.text.len()
-                                        + m.tool
-                                            .as_ref()
-                                            .map(|t| t.arguments.len() + t.output.len())
-                                            .unwrap_or(0)
-                                })
-                                .sum::<usize>()
-                        })
+                        .map(|e| e.items.iter().map(|m| m.payload_len()).sum::<usize>())
                         .sum::<usize>()
                         > 8 * 1024 * 1024)
             {
@@ -94,7 +74,66 @@ impl Snapshot {
             }
             self.conversation = Arc::new(messages);
         }
-        self.conversation_available = available;
+        self.available = available;
+    }
+    fn sync_ready(&self, scope: &str) -> bool {
+        self.sync_job.as_ref().is_none_or(JoinHandle::is_finished)
+            && self.transcript.scope == scope
+            && self.transcript.next().is_some()
+            && (!self.transcript.failed || self.transcript.retry.ready(Instant::now()))
+    }
+    /// Apply one backfill page. `None` once this task no longer owns the transcript.
+    fn ingest_page(
+        &mut self,
+        scope: &str,
+        token: u64,
+        request: &Request,
+        page: &history::History,
+    ) -> Option<(bool, bool)> {
+        if self.transcript.scope != scope || self.transcript.generation != token {
+            return None;
+        }
+        let pending: Vec<Item> = self
+            .conversation
+            .iter()
+            .filter(|m| m.id.starts_with("local-"))
+            .map(|m| m.as_ref().clone())
+            .collect();
+        let transcript = &mut self.transcript;
+        let before = transcript
+            .ranges
+            .iter()
+            .map(|r| (r.start, r.end))
+            .collect::<Vec<_>>();
+        if page.available {
+            transcript.ingest(page, Some(request));
+        }
+        let progressed = before
+            != transcript
+                .ranges
+                .iter()
+                .map(|r| (r.start, r.end))
+                .collect::<Vec<_>>();
+        transcript.failed = !page.available || !progressed;
+        if transcript.failed {
+            transcript.problem = if page.problem.is_empty() {
+                "history page made no progress".into()
+            } else {
+                page.problem.clone()
+            };
+            transcript.retry.failed(Instant::now());
+        } else {
+            transcript.retry.reset();
+        }
+        let failed = transcript.failed;
+        let done = failed || transcript.next().is_none();
+        transcript.syncing = !done;
+        let messages = (done && !failed).then(|| transcript.presentation(Some(&pending)));
+        self.history_status = self.transcript.status();
+        if let Some(messages) = messages {
+            self.publish_conversation(messages, true);
+        }
+        Some((done, failed))
     }
 }
 
@@ -139,9 +178,9 @@ pub(super) struct Transcript {
     scope: String,
     file: String,
     size: u64,
-    records: HashMap<String, ((u64, u32), MessageRef)>,
+    records: HashMap<String, ((u64, u32), ItemRef)>,
     ranges: Vec<Range>,
-    visible: Vec<MessageRef>,
+    visible: Vec<ItemRef>,
     failed: bool,
     syncing: bool,
     generation: u64,
@@ -168,7 +207,11 @@ impl ReadRetry {
 }
 
 impl Transcript {
-    fn select(&mut self, scope: &str, cached: &[MessageRef]) {
+    pub(super) fn cancel_sync(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.syncing = false;
+    }
+    fn select(&mut self, scope: &str, cached: &[ItemRef]) {
         if self.scope != scope {
             *self = Self {
                 scope: scope.into(),
@@ -189,7 +232,7 @@ impl Transcript {
             .filter(|r| r.start > 0)
             .map(|r| Request::Before(r.start_cursor.clone()))
     }
-    fn status(&self) -> HistoryStatus {
+    pub(super) fn status(&self) -> HistoryStatus {
         HistoryStatus {
             loading: self.syncing,
             complete: !self.ranges.is_empty() && self.next().is_none(),
@@ -262,32 +305,32 @@ impl Transcript {
             }
             self.cover(range);
         }
-        for (ordinal, message) in history.messages.iter().enumerate() {
+        for (ordinal, item) in history.items.iter().enumerate() {
             let order = history
                 .positions
-                .get(&message.id)
+                .get(&item.id)
                 .copied()
                 .unwrap_or((ordinal as u64, 0));
-            if let Some((old_order, old)) = self.records.get_mut(&message.id) {
+            if let Some((old_order, old)) = self.records.get_mut(&item.id) {
                 *old_order = (*old_order).min(order);
-                if old.as_ref() == message {
+                if old.as_ref() == item {
                     continue;
                 }
                 let merged = if matches!(request, Some(Request::Before(_))) {
-                    history::merge_message(message, old)
+                    history::merge_item(item, old)
                 } else {
-                    history::merge_message(old, message)
+                    history::merge_item(old, item)
                 };
                 if **old != merged {
                     *old = Arc::new(merged);
                 }
             } else {
                 self.records
-                    .insert(message.id.clone(), (order, Arc::new(message.clone())));
+                    .insert(item.id.clone(), (order, Arc::new(item.clone())));
             }
         }
     }
-    fn presentation(&mut self, latest: Option<&[Message]>) -> Vec<MessageRef> {
+    fn presentation(&mut self, latest: Option<&[Item]>) -> Vec<ItemRef> {
         if self.status().complete {
             let mut ordered: Vec<_> = self.records.values().collect();
             ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
@@ -337,7 +380,7 @@ impl Transcript {
                 .collect();
             for incoming in latest {
                 if let Some(&i) = index.get(&incoming.id) {
-                    let merged = history::merge_message(&self.visible[i], incoming);
+                    let merged = history::merge_item(&self.visible[i], incoming);
                     if *self.visible[i] != merged {
                         self.visible[i] = Arc::new(merged);
                     }
@@ -384,238 +427,181 @@ impl AppCore {
             edits,
         }
     }
-    pub(super) fn reset_history_view(&self) {
-        if let Some(job) = lock(&self.history_sync_job).take() {
-            job.abort();
-        }
-        let mut transcript = lock(&self.history_window);
-        *transcript = Transcript {
-            generation: transcript.generation.wrapping_add(1),
-            ..Transcript::default()
+    /// A conversation's provider source: its live agent's, else its saved record's.
+    fn conversation_reference(&self, key: &ConversationKey) -> Option<AgentSession> {
+        let live = {
+            let state = lock(&self.state);
+            state
+                .live
+                .get(key)
+                .and_then(|live| live.agent.as_ref())
+                .and_then(|bound| {
+                    state
+                        .snapshot
+                        .agents
+                        .iter()
+                        .find(|a| a.terminal_id == bound.terminal)
+                })
+                .and_then(|agent| agent.agent_session.clone())
         };
+        live.or_else(|| {
+            self.session_record(&key.host, &key.conversation)
+                .and_then(|record| record.reference)
+        })
     }
-    fn history_context(&self, snapshot: &Snapshot) -> (String, Option<AgentSession>) {
-        let host = snapshot.selected_host.as_deref().unwrap_or_default();
-        let reference = snapshot
-            .selected_agent
-            .as_ref()
-            .and_then(|id| snapshot.agents.iter().find(|a| &a.terminal_id == id))
-            .and_then(|a| a.agent_session.clone())
-            .or_else(|| {
-                snapshot
-                    .selected_session
-                    .as_ref()
-                    .and_then(|id| self.session_record(host, id))
-                    .and_then(|r| r.reference)
-            });
-        let key = reference
-            .as_ref()
-            .map(history::key)
-            .or_else(|| snapshot.selected_session.clone())
-            .or_else(|| snapshot.selected_agent.clone())
-            .unwrap_or_default();
-        (format!("{host}/{key}"), reference)
-    }
-    pub(super) fn present_history(&self, value: &Arc<history::History>, messages: Vec<Message>) {
-        let snapshot = self.snapshot();
-        let (scope, reference) = self.history_context(&snapshot);
+    pub(super) fn present_history(&self, key: &ConversationKey, value: &Arc<history::History>) {
+        let reference = self.conversation_reference(key);
         if !value.available {
             if reference.is_some() {
-                self.update(|s| {
-                    if s.selected_host == snapshot.selected_host
-                        && s.selected_session == snapshot.selected_session
-                    {
-                        s.history_status = HistoryStatus {
-                            failed: !value.source_pending,
-                            waiting: value.source_pending,
-                            details: value.problem.clone(),
-                            ..HistoryStatus::default()
-                        };
-                    }
+                self.update_live(key, |live| {
+                    live.history_status = HistoryStatus {
+                        failed: !value.source_pending,
+                        waiting: value.source_pending,
+                        details: value.problem.clone(),
+                        ..HistoryStatus::default()
+                    };
                 });
             }
             return;
         }
         if reference
             .as_ref()
-            .is_some_and(|r| history::key(r) != value.key)
+            .is_some_and(|r| ConversationKey::history_key(r) != value.key)
         {
             return;
         }
-        let unchanged = {
-            lock(&self.history)
+        let scope = key.history_scope(reference.as_ref());
+        let current = self.read_live(key, |live| {
+            let unchanged = live
+                .history
                 .as_ref()
                 .is_some_and(|old| Arc::ptr_eq(old, value))
-        };
-        let selected = { lock(&self.history_window).scope == scope };
-        if unchanged && selected {
-            let status = lock(&self.history_window).status();
-            if snapshot.history_status != status {
-                self.update(|s| s.history_status = status);
-            }
-            self.ensure_history_sync();
-            return;
-        }
-        let mut transcript = lock(&self.history_window);
-        transcript.select(&scope, &snapshot.conversation);
-        // An empty transient read never erases the established conversation.
-        if !value.messages.is_empty() || snapshot.conversation.is_empty() {
-            transcript.ingest(value, None);
-        }
-        let present = transcript.presentation(Some(&messages));
-        let status = transcript.status();
-        drop(transcript);
-        *lock(&self.history) = Some(value.clone());
-        self.update(|s| {
-            if s.selected_host == snapshot.selected_host
-                && s.selected_session == snapshot.selected_session
-                && s.selected_agent == snapshot.selected_agent
-            {
-                self.publish_conversation(s, present, true);
-                s.history_status = status;
-            }
+                && live.transcript.scope == scope;
+            let status = live.transcript.status();
+            (unchanged, status != live.history_status, status)
         });
-        self.ensure_history_sync();
+        match current {
+            None => return,
+            Some((true, false, _)) => {}
+            Some((true, true, status)) => {
+                self.update_live(key, |live| live.history_status = status);
+            }
+            Some((false, ..)) => {
+                self.update_live(key, |live| {
+                    let shown = live.conversation.clone();
+                    live.transcript.select(&scope, &shown);
+                    // An empty transient read never erases the established conversation.
+                    if !value.items.is_empty() || shown.is_empty() {
+                        live.transcript.ingest(value, None);
+                    }
+                    let present = live.transcript.presentation(Some(&value.items));
+                    live.history_status = live.transcript.status();
+                    live.history = Some(value.clone());
+                    live.publish_conversation(present, true);
+                });
+            }
+        }
+        self.ensure_history_sync(key);
     }
-    fn ensure_history_sync(&self) {
-        let (scope, reference) = self.history_context(&self.snapshot());
-        let Some(reference) = reference else { return };
+    fn ensure_history_sync(&self, key: &ConversationKey) {
+        let Some(reference) = self.conversation_reference(key) else {
+            return;
+        };
         if !providers::managed(&reference.agent) {
             return;
         }
-        let mut job = lock(&self.history_sync_job);
-        if job.as_ref().is_some_and(|j| !j.is_finished()) {
+        let scope = key.history_scope(Some(&reference));
+        if self.read_live(key, |live| live.sync_ready(&scope)) != Some(true) {
             return;
         }
-        let mut transcript = lock(&self.history_window);
-        if transcript.scope != scope
-            || transcript.next().is_none()
-            || (transcript.failed && !transcript.retry.ready(Instant::now()))
-        {
-            return;
-        }
-        transcript.failed = false;
-        transcript.syncing = true;
-        let token = transcript.generation;
-        let status = transcript.status();
-        drop(transcript);
         let weak = self.self_weak.clone();
-        self.update(|s| s.history_status = status);
-        *job = Some(tokio::spawn(async move {
-            loop {
-                let Some(core) = weak.upgrade() else { return };
-                let snapshot = core.snapshot();
-                if core.history_context(&snapshot).0 != scope {
-                    return;
-                }
-                let connection = match core.connection() {
-                    Ok(c) => c,
-                    Err(_) => return,
-                };
-                let generation = core.generation.load(Ordering::SeqCst);
-                let request = {
-                    let transcript = lock(&core.history_window);
-                    if transcript.scope != scope || transcript.generation != token {
-                        return;
-                    }
-                    transcript.next()
-                };
-                let Some(request) = request else { return };
-                let page = history::page(
-                    &connection.ssh,
-                    &reference,
-                    request.cursor(),
-                    request.newer(),
-                )
-                .await;
-                if core.generation.load(Ordering::SeqCst) != generation
-                    || core.history_context(&core.snapshot()).0 != scope
-                {
-                    return;
-                }
-                let pending: Vec<Message> = core
-                    .snapshot()
-                    .conversation
-                    .iter()
-                    .filter(|m| m.id.starts_with("local-"))
-                    .map(|m| m.as_ref().clone())
-                    .collect();
-                let (done, messages, status) = {
-                    let mut transcript = lock(&core.history_window);
-                    if transcript.scope != scope || transcript.generation != token {
-                        return;
-                    }
-                    let before = transcript
-                        .ranges
-                        .iter()
-                        .map(|r| (r.start, r.end))
-                        .collect::<Vec<_>>();
-                    if page.available {
-                        transcript.ingest(&page, Some(&request));
-                    }
-                    let progressed = before
-                        != transcript
-                            .ranges
-                            .iter()
-                            .map(|r| (r.start, r.end))
-                            .collect::<Vec<_>>();
-                    transcript.failed = !page.available || !progressed;
-                    if transcript.failed {
-                        transcript.problem = if page.problem.is_empty() {
-                            "history page made no progress".into()
-                        } else {
-                            page.problem.clone()
-                        };
-                        transcript.retry.failed(Instant::now());
-                    } else {
-                        transcript.retry.reset();
-                    }
-                    let done = transcript.failed || transcript.next().is_none();
-                    transcript.syncing = !done;
-                    let messages = if done && !transcript.failed {
-                        Some(transcript.presentation(Some(&pending)))
-                    } else {
-                        None
-                    };
-                    let status = transcript.status();
-                    (done, messages, status)
-                };
-                core.update(|s| {
-                    if s.conversation_context() != snapshot.conversation_context()
-                        || core.generation.load(Ordering::SeqCst) != generation
-                    {
-                        return;
-                    }
-                    if let Some(messages) = messages {
-                        core.publish_conversation(s, messages, true);
-                    }
-                    s.history_status = status;
-                });
-                if done {
-                    if !core.snapshot().history_status.failed {
-                        let _ = core.record_selected_history(&connection).await;
-                        let _ = core.flush_history_caches(true);
-                    }
-                    return;
-                }
-                tokio::task::yield_now().await;
+        self.update_live(key, |live| {
+            if !live.sync_ready(&scope) {
+                return;
             }
-        }));
+            live.transcript.failed = false;
+            live.transcript.syncing = true;
+            live.history_status = live.transcript.status();
+            let token = live.transcript.generation;
+            live.sync_job = Some(tokio::spawn(sync_history(
+                weak,
+                key.clone(),
+                scope.clone(),
+                token,
+                reference,
+            )));
+        });
     }
     pub async fn retry_history(self: &Arc<Self>) -> Result<(), AppError> {
         let core = self.clone();
         dispatch(async move {
-            {
-                let mut transcript = lock(&core.history_window);
-                transcript.failed = false;
-                transcript.retry.reset();
-            }
-            *lock(&core.history) = None;
-            core.update(|s| s.history_status.failed = false);
-            core.ensure_history_sync();
+            let Some(key) = core.selected() else {
+                return Ok(());
+            };
+            core.update_live(&key, |live| {
+                live.transcript.failed = false;
+                live.transcript.retry.reset();
+                live.history = None;
+                live.history_status.failed = false;
+            });
+            core.ensure_history_sync(&key);
             Ok(())
         })
         .await
+    }
+}
+
+/// One conversation's backfill; it runs on while another is on screen and is
+/// aborted when its `LiveSession` is dropped.
+async fn sync_history(
+    weak: std::sync::Weak<AppCore>,
+    key: ConversationKey,
+    scope: String,
+    token: u64,
+    reference: AgentSession,
+) {
+    loop {
+        let Some(core) = weak.upgrade() else { return };
+        let Ok(connection) = core.connection() else {
+            return;
+        };
+        let generation = core.generation.load(Ordering::SeqCst);
+        let request = core
+            .read_live(&key, |live| {
+                let transcript = &live.transcript;
+                if transcript.scope != scope || transcript.generation != token {
+                    return None;
+                }
+                transcript.next()
+            })
+            .flatten();
+        let Some(request) = request else { return };
+        let page = history::page(
+            &connection.ssh,
+            &reference,
+            request.cursor(),
+            request.newer(),
+        )
+        .await;
+        if core.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let progress = core
+            .update_live(&key, |live| {
+                live.ingest_page(&scope, token, &request, &page)
+            })
+            .flatten();
+        let Some((done, failed)) = progress else {
+            return;
+        };
+        if done {
+            if !failed {
+                let _ = core.record_history(&connection, &key).await;
+                let _ = core.flush_history_caches(true);
+            }
+            return;
+        }
+        tokio::task::yield_now().await;
     }
 }
 
@@ -660,29 +646,27 @@ mod tests {
             },
         )
         .unwrap();
-        core.update(|s| {
-            s.selected_host = Some("host".into());
-            s.selected_session = Some("session".into());
-            s.replace_conversation(vec![message(0)], true)
-        });
+        let key = ConversationKey::new("host", "session");
+        select(&core, &key);
+        fill(&core, &key, vec![message(0)]);
         let before = core.snapshot().conversation;
         core.present_history(
+            &key,
             &Arc::new(history::History {
                 source_pending: true,
                 ..Default::default()
             }),
-            Vec::new(),
         );
         let pending = core.snapshot();
         assert!(pending.history_status.waiting);
         assert!(!pending.history_status.failed);
         assert!(Arc::ptr_eq(&before, &pending.conversation));
         core.present_history(
+            &key,
             &Arc::new(history::History {
                 problem: "history request timed out".into(),
                 ..Default::default()
             }),
-            Vec::new(),
         );
         let failed = core.snapshot();
         assert!(failed.history_status.failed);
@@ -690,15 +674,22 @@ mod tests {
         assert_eq!(failed.history_status.details, "history request timed out");
         assert!(Arc::ptr_eq(&before, &failed.conversation));
     }
-    fn message(i: usize) -> Message {
-        Message {
-            id: format!("message-{i}"),
-            role: Role::Assistant,
-            text: format!("record {i}"),
-            intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
-        }
+    fn select(core: &AppCore, key: &ConversationKey) {
+        core.select(Some(key.clone()), |s| {
+            s.selected_host = Some(key.host.clone());
+        });
+    }
+    fn fill(core: &AppCore, key: &ConversationKey, messages: Vec<Item>) {
+        core.update_live(key, |live| {
+            live.replace_conversation(messages.into_iter().map(Arc::new).collect(), true);
+        });
+    }
+    fn message(i: usize) -> Item {
+        Item::new(
+            format!("message-{i}"),
+            Role::Assistant,
+            vec![Block::Text(format!("record {i}"))],
+        )
     }
     fn page(start: usize, end: usize, total: usize) -> history::History {
         let cursor = |p: usize| format!("1:2:{p}:{total}");
@@ -706,7 +697,7 @@ mod tests {
             key: "source".into(),
             stamp: total.to_string(),
             available: true,
-            messages: (start..end).map(message).collect(),
+            items: (start..end).map(message).collect(),
             positions: (start..end)
                 .map(|i| (format!("message-{i}"), (i as u64, 0)))
                 .collect(),
@@ -725,7 +716,7 @@ mod tests {
         transcript.select("host/thread", &[]);
         let latest = page(9000, 10000, 10000);
         transcript.ingest(&latest, None);
-        assert!(transcript.presentation(Some(&latest.messages)).is_empty());
+        assert!(transcript.presentation(Some(&latest.items)).is_empty());
         for start in (0..9000).step_by(1000).rev() {
             let request = transcript.next().unwrap();
             assert!(matches!(request, Request::Before(_)));
@@ -738,7 +729,7 @@ mod tests {
         let original = all[5000].clone();
         let new = page(9500, 10010, 10010);
         transcript.ingest(&new, None);
-        let all = transcript.presentation(Some(&new.messages));
+        let all = transcript.presentation(Some(&new.items));
         assert_eq!(all.len(), 10010);
         assert!(Arc::ptr_eq(&original, &all[5000]));
         assert_eq!(all[10009].id, "message-10009");
@@ -749,7 +740,7 @@ mod tests {
         transcript.select("host/thread", &[]);
         let first = page(0, 10, 10);
         transcript.ingest(&first, None);
-        transcript.presentation(Some(&first.messages));
+        transcript.presentation(Some(&first.items));
         let latest = page(90, 100, 100);
         transcript.ingest(&latest, None);
         assert!(!transcript.status().complete);
@@ -808,11 +799,9 @@ mod tests {
     #[test]
     fn telemetry_sends_no_messages_and_a_tail_edit_sends_one_record() {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
-        core.update(|s| {
-            s.selected_host = Some("host".into());
-            s.selected_session = Some("thread".into());
-            s.replace_conversation((0..10000).map(message).collect(), true);
-        });
+        let key = ConversationKey::new("host", "thread");
+        select(&core, &key);
+        fill(&core, &key, (0..10000).map(message).collect());
         let before = core.snapshot();
         for _ in 0..100 {
             core.update(|s| s.desktop.received += 1);
@@ -823,12 +812,12 @@ mod tests {
         let no_change =
             core.conversation_since(&before.conversation_context(), before.conversation_revision);
         assert!(!no_change.reset && no_change.edits.is_empty());
-        core.update(|s| {
-            let mut records = s.conversation.as_ref().clone();
+        core.update_live(&key, |live| {
+            let mut records = live.conversation.as_ref().clone();
             let mut tail = message(9999);
-            tail.text = "streamed tail changed".into();
+            tail.blocks = vec![Block::Text("streamed tail changed".into())];
             records[9999] = Arc::new(tail);
-            s.replace_shared_conversation(records, true);
+            live.replace_conversation(records, true);
         });
         let changed =
             core.conversation_since(&before.conversation_context(), before.conversation_revision);
@@ -841,15 +830,15 @@ mod tests {
     #[test]
     fn context_changes_force_a_complete_reset_instead_of_replaying_another_session() {
         let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
-        core.update(|s| {
-            s.selected_session = Some("one".into());
-            s.replace_conversation(vec![message(1)], true);
-        });
+        let (one, two) = (
+            ConversationKey::new("host", "one"),
+            ConversationKey::new("host", "two"),
+        );
+        select(&core, &one);
+        fill(&core, &one, vec![message(1)]);
         let before = core.snapshot();
-        core.update(|s| {
-            s.selected_session = Some("two".into());
-            s.replace_conversation(vec![message(2)], true);
-        });
+        select(&core, &two);
+        fill(&core, &two, vec![message(2)]);
         let delta =
             core.conversation_since(&before.conversation_context(), before.conversation_revision);
         assert!(delta.reset);

@@ -89,7 +89,7 @@ class SkillPickerPresentationTest {
             waitFor("Two selected skills") { find(text = "已选择 2 个 Skill") != null }
             val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "报告") }
             assertTrue(requireNotNull(find(editable = true)).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))
-            test.waitForIdleSync()
+            waitFor("Search filters the other skill") { find(text = "检查代码中的问题") == null }
             assertNotNull(find(text = "汇总本周进展"))
             assertNull(find(text = "检查代码中的问题"))
             click(requireNotNull(find(text = "完成")))

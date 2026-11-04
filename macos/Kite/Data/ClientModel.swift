@@ -16,7 +16,7 @@ struct Destination: Equatable {
 @MainActor @Observable
 final class ClientModel {
     private(set) var snapshot: CoreSnapshot?
-    private(set) var messages: [MessageInfo] = []
+    private(set) var messages: [ItemInfo] = []
     private(set) var messageRevision: UInt64 = 0
     private(set) var nativeError: String?
     private(set) var busy = false

@@ -171,35 +171,43 @@ struct ChatPane: View {
 
 struct MessageRow: View {
     let model: ClientModel
-    let message: MessageInfo
+    let message: ItemInfo
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if message.kind == .error {
+            if message.role == .error {
                 Label(tr("phase_failed"), systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.orange)
-                if !message.text.isEmpty {
-                    Text(message.text).font(.callout).textSelection(.enabled)
+            } else if message.role != .tool {
+                Text(tr(message.role == .user ? "you" : "agent"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(message.role == .user ? Color.secondary : Color.cyan)
+            }
+            ForEach(Array(message.blocks.enumerated()), id: \.offset) { entry in
+                switch entry.element {
+                case .text(let text):
+                    if message.role == .error {
+                        Text(text).font(.callout).textSelection(.enabled)
+                    } else {
+                        Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .full))) ?? AttributedString(text))
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).lineSpacing(4)
+                    }
+                case .tool(let tool):
+                    DisclosureGroup {
+                        if !tool.arguments.isEmpty { Text(tool.arguments).font(.caption.monospaced()).textSelection(.enabled) }
+                        if !tool.output.isEmpty { Text(tool.output).font(.caption.monospaced()).textSelection(.enabled) }
+                    } label: {
+                        Label(tool.summary.isEmpty ? tool.label : tool.summary, systemImage: tool.failed ? "exclamationmark.circle" : "terminal")
+                            .font(.callout).foregroundStyle(tool.failed ? .orange : .secondary).lineLimit(2)
+                    }.padding(12).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                case .questionReply(let reply):
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reply.question).foregroundStyle(.secondary); Text(reply.answer)
+                    }.font(.callout).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                case .attachment(let file):
+                    AttachmentRow(model: model, file: file, context: model.snapshot?.conversationContext ?? "")
+                case .embed:
+                    Text(tr("chat_reference_pending")).font(.callout).foregroundStyle(.secondary)
                 }
-            } else if let tool = message.tool {
-                DisclosureGroup {
-                    if !tool.arguments.isEmpty { Text(tool.arguments).font(.caption.monospaced()).textSelection(.enabled) }
-                    if !tool.output.isEmpty { Text(tool.output).font(.caption.monospaced()).textSelection(.enabled) }
-                } label: {
-                    Label(tool.summary.isEmpty ? tool.label : tool.summary, systemImage: tool.failed ? "exclamationmark.circle" : "terminal")
-                        .font(.callout).foregroundStyle(tool.failed ? .orange : .secondary).lineLimit(2)
-                }.padding(12).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-            } else {
-                Text(tr(message.kind == .user ? "you" : "agent")).font(.caption.weight(.semibold)).foregroundStyle(message.kind == .user ? Color.secondary : Color.cyan)
-                Text((try? AttributedString(markdown: message.text, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.text))
-                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).lineSpacing(4)
-            }
-            ForEach(message.questionReplies, id: \.id) { reply in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(reply.question).foregroundStyle(.secondary); Text(reply.answer)
-                }.font(.callout).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            }
-            ForEach(message.attachments, id: \.id) { file in
-                AttachmentRow(model: model, file: file, context: model.snapshot?.conversationContext ?? "")
             }
         }
     }

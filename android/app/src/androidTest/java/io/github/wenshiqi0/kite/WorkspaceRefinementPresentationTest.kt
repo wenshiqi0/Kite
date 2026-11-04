@@ -413,8 +413,8 @@ class WorkspaceRefinementPresentationTest {
     }
 
     @Test fun commentaryIsVisibleWhileToolDetailsStayCollapsed() {
-        fun text(id:String,body:String,progress:Boolean)=MessageInfo(emptyList(),emptyList(),id,MessageKind.ASSISTANT,body,progress,null)
-        val tool=MessageInfo(emptyList(),emptyList(),"owned-call",MessageKind.TOOL,"",false,ToolInfo("Bash","读取配置","exec_command","owned-argument","owned-output",true,false,false))
+        fun text(id:String,body:String,progress:Boolean)=ItemInfo(id,ItemRole.ASSISTANT,listOf(BlockInfo.Text(body)),progress,null)
+        val tool=ItemInfo("owned-call",ItemRole.TOOL,listOf(BlockInfo.Tool(ToolInfo("Bash","读取配置","exec_command","owned-argument","owned-output",true,false,false))),false,null)
         val rows=chatEntries(listOf(text("before","已经定位问题，接下来读取配置",true),tool,text("after","配置中发现一个需要你注意的结论",true),text("final","检查完成",false)))
         overlay({Column { rows.forEach { row -> when(row) {
             is ChatEntry.Message -> MarkdownMessage(row.message.text)
@@ -443,6 +443,26 @@ class WorkspaceRefinementPresentationTest {
         }
         overlay({TurnFailureMessage("")}) {
             waitFor("Missing provider details still produce a visible failure"){find(text=test.targetContext.getString(R.string.response_failure_no_details))!=null}
+        }
+    }
+
+    @Test fun mixedItemBlocksRenderInOrderWithoutHidingTextOrTools() {
+        val file = AttachmentInfo("owned-file", "owned-attachment.txt", "text/plain", 5uL, false)
+        fun tool(summary: String) = BlockInfo.Tool(ToolInfo("Bash", summary, "exec_command", "owned-argument", "owned-output", true, false, false))
+        val item = ItemInfo("owned-mixed", ItemRole.USER, listOf(
+            BlockInfo.Text("owned-before"), BlockInfo.Attachment(file),
+            BlockInfo.Text("owned-between"),
+            BlockInfo.QuestionReply(QuestionReplyInfo("q", "owned-question", "owned-answer")),
+            BlockInfo.Text("owned-after"), tool("owned-tool-one"),
+            BlockInfo.Text("owned-end"), tool("owned-tool-two"),
+        ), false, null)
+        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
+            val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
+            waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
+            val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
+            assertTrue("Block order is retained: $positions", positions.zipWithNext().all { (a,b) -> a < b })
+            assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
+            screenshot("mixed-item-block-order.png")
         }
     }
 
@@ -532,7 +552,7 @@ class WorkspaceRefinementPresentationTest {
         test.waitForIdleSync();SystemClock.sleep(500)
         val delta=runBlocking{vm.engine.core.conversationSince("owned-native-refinement",0uL)}
         val context=requireNotNull(vm.engine.state.value).conversationContext
-        val messages=(0 until 501).map{i->MessageInfo(emptyList(),emptyList(),"owned-native-$i",MessageKind.ASSISTANT,if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else if(i==500)"Owned tail status" else"Owned history row $i\nSecond line",false,null)}
+        val messages=(0 until 501).map{i->ItemInfo("owned-native-$i",ItemRole.ASSISTANT,listOf(BlockInfo.Text(if(i==499)(1..28).joinToString("\n\n"){"Owned final paragraph $it for scroll-margin acceptance."}else if(i==500)"Owned tail status" else"Owned history row $i\nSecond line")),false,null)}
         try{
             main{vm.engine.timeline.prepareContext(context);vm.engine.timeline.apply(ConversationDeltaInfo(context,100000uL,true,listOf(ConversationEditInfo(0uL,0uL,messages))))}
             waitFor("History visible"){find(description="聊天记录")!=null&&find(description="消息输入框")!=null}
@@ -546,7 +566,7 @@ class WorkspaceRefinementPresentationTest {
             val chat=bounds("聊天记录")
             gesture(chat,0f);assertNull(find(description="回到最新消息"))
             gesture(chat,36*density);assertNull(find(description="回到最新消息"))
-            val grown=messages[499].copy(text=messages[499].text+"\n\n"+(1..12).joinToString("\n\n"){"Owned streamed paragraph $it grows while reading."})
+            val grown=messages[499].copy(blocks=listOf(BlockInfo.Text(messages[499].text+"\n\n"+(1..12).joinToString("\n\n"){"Owned streamed paragraph $it grows while reading."})))
             main{vm.engine.timeline.apply(ConversationDeltaInfo(context,100001uL,false,listOf(ConversationEditInfo(499uL,1uL,listOf(grown)))))}
             waitFor("Latest after a paused reply grows beyond the viewport"){find(description="回到最新消息")!=null}
             assertTrue(actionNode(requireNotNull(find(description="回到最新消息")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))

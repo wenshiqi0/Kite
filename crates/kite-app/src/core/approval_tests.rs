@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 const THREAD: &str = "12345678-1234-1234-1234-123456789abc";
+type OnTurn = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 struct Secrets;
 impl SecretStorage for Secrets {
     fn read(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
@@ -22,7 +23,10 @@ impl Observer for ObserverSink {
 }
 struct Peer {
     agent: Value,
+    catalog: Arc<Mutex<Value>>,
+    opened: Arc<Mutex<Value>>,
     seen: Arc<Mutex<Vec<Value>>>,
+    on_turn: OnTurn,
     channels: BTreeMap<ChannelId, (String, Vec<u8>)>,
     active: bool,
 }
@@ -72,6 +76,23 @@ impl server::Handler for Peer {
                 json!({"api":1,"backendProtocol":5,"harnessApi":2}),
             );
         }
+        if command.ends_with("session-facts --herdr 'fixture-herdr'") {
+            return finish(session, channel, json!({"facts":[]}));
+        }
+        if command.contains("session-open") {
+            let agent = lock(&self.opened).clone();
+            return finish(session, channel, json!({"agent":agent}));
+        }
+        if command.ends_with("catalog-read") {
+            let catalog = lock(&self.catalog).clone();
+            return finish(session, channel, catalog);
+        }
+        if command.contains("harness-history") {
+            session.data(channel, b"kite-history-pending-v1\n".to_vec())?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            return session.close(channel);
+        }
         if command.ends_with("harness-scan") {
             let managed = matches!(self.agent["agent"].as_str(), Some("ply" | "dsh"));
             return finish(
@@ -81,7 +102,9 @@ impl server::Handler for Peer {
             );
         }
         assert!(
-            command.contains("herdr-api") || command.contains("proxy --pane"),
+            command.contains("herdr-api")
+                || command.contains("proxy --pane")
+                || command.ends_with("catalog-write"),
             "unexpected command {command}"
         );
         self.channels.insert(channel, (command, vec![]));
@@ -95,6 +118,14 @@ impl server::Handler for Peer {
     ) -> Result<(), Self::Error> {
         let (command, buffer) = self.channels.get_mut(&channel).unwrap();
         buffer.extend_from_slice(data);
+        if command.ends_with("catalog-write") {
+            if let Ok(mut catalog) = serde_json::from_slice::<Value>(buffer) {
+                catalog["revision"] = json!(catalog["revision"].as_u64().unwrap() + 1);
+                *lock(&self.catalog) = catalog.clone();
+                return finish(session, channel, catalog);
+            }
+            return Ok(());
+        }
         while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
             let line: Vec<_> = buffer.drain(..=end).collect();
             let request: Value = serde_json::from_slice(&line).unwrap();
@@ -134,7 +165,13 @@ impl server::Handler for Peer {
                     )?;
                     json!({"thread":{"id":THREAD,"status":{"type":"active"}}})
                 }
-                "turn/start" => json!({"turn":{"id":"turn-2","status":"inProgress"}}),
+                "turn/start" => {
+                    let callback = lock(&self.on_turn).take();
+                    if let Some(callback) = callback {
+                        callback();
+                    }
+                    json!({"turn":{"id":"turn-2","status":"inProgress"}})
+                }
                 "thread/turns/list" => {
                     json!({"data":if self.active { vec![json!({"id":"turn-1","status":"inProgress"})] } else { vec![] },"nextCursor":null})
                 }
@@ -168,7 +205,11 @@ struct Fixture {
     core: Arc<AppCore>,
     client: Arc<ChatClient>,
     agent: Agent,
+    catalog: Arc<Mutex<Value>>,
+    opened: Arc<Mutex<Value>>,
+    connection: Arc<Connected>,
     seen: Arc<Mutex<Vec<Value>>>,
+    on_turn: OnTurn,
     ssh: Arc<Session>,
     listener: JoinHandle<()>,
     _directory: tempfile::TempDir,
@@ -184,6 +225,12 @@ impl Fixture {
         });
         let agent = json!({"terminal_id":format!("kite-harness-{THREAD}"),"pane_id":format!("kite-harness-{THREAD}"),"workspace_id":"owned","tab_id":"owned","agent":provider,"agent_status":"blocked","revision":1,"interactive_ready":true,"agent_session":{"source":"kite:harness","agent":provider,"kind":"id","value":THREAD}});
         let seen = Arc::new(Mutex::new(vec![]));
+        let on_turn: OnTurn = Arc::new(Mutex::new(None));
+        let on_turn_request = on_turn.clone();
+        let catalog = Arc::new(Mutex::new(json!({"revision":1,"now_ms":1,"sessions":[]})));
+        let shared_catalog = catalog.clone();
+        let opened = Arc::new(Mutex::new(Value::Null));
+        let shared_opened = opened.clone();
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let records = seen.clone();
@@ -192,7 +239,10 @@ impl Fixture {
             while let Ok((socket, _)) = listener.accept().await {
                 let handler = Peer {
                     agent: native_agent.clone(),
+                    catalog: shared_catalog.clone(),
+                    opened: shared_opened.clone(),
                     seen: records.clone(),
+                    on_turn: on_turn_request.clone(),
                     channels: BTreeMap::new(),
                     active: true,
                 };
@@ -246,19 +296,31 @@ impl Fixture {
         core.chat_clients
             .lock()
             .await
-            .insert(chat_key(&connection, &agent), client.clone());
-        *lock(&core.connected) = Some(connection);
-        core.update(|state| {
-            state.selected_agent = Some(agent.terminal_id.clone());
-            state.agents = vec![agent.clone()];
-            state.approval = client.runtime().approval();
-            state.composer.selection = client.initial.clone();
-        });
+            .insert(AgentKey::new(&connection.host.id, &agent), client.clone());
+        *lock(&core.connected) = Some(connection.clone());
+        core.select(
+            Some(ConversationKey::new("owned-host", &agent.terminal_id)),
+            |state| {
+                state.selected_host = Some("owned-host".into());
+                state.agents = vec![agent.clone()];
+            },
+        );
+        core.update_live(
+            &ConversationKey::new("owned-host", &agent.terminal_id),
+            |live| {
+                live.approval = client.runtime().approval();
+                live.composer.selection = client.initial.clone();
+            },
+        );
         Self {
             core,
             client,
             agent,
+            catalog,
+            opened,
+            connection,
             seen,
+            on_turn,
             ssh,
             listener,
             _directory: directory,
@@ -271,12 +333,85 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn a_send_receipt_follows_catalog_registration_during_the_native_request() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    core.update(|snapshot| {
+        snapshot.providers = vec![providers::Provider {
+            id: "ply".into(),
+            managed_chat: true,
+            models: true,
+            attachments: true,
+            skills: false,
+            usage: false,
+            pause: false,
+            terminal: false,
+            release: false,
+        }]
+    });
+    let mut record = kite_agent::sessions::Record::draft(
+        "registered".into(),
+        "ply".into(),
+        "owned".into(),
+        None,
+        1,
+    );
+    record.reference = fixture.agent.agent_session.clone();
+    record.terminal_id = fixture.agent.terminal_id.clone();
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 2,
+        now_ms: 1,
+        sessions: vec![record],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    let during_send = Arc::downgrade(core);
+    *lock(&fixture.on_turn) = Some(Box::new(move || {
+        let core = during_send.upgrade().unwrap();
+        core.install_catalog("owned-host", &catalog).unwrap();
+        core.update(|_| {});
+        assert_eq!(
+            core.snapshot().selected_session.as_deref(),
+            Some("registered")
+        );
+    }));
+    core.prompt_agent(
+        fixture.agent.terminal_id.clone(),
+        "owned in-flight prompt".into(),
+    )
+    .await
+    .unwrap();
+    let snapshot = core.snapshot();
+    assert_eq!(snapshot.conversation_context(), "owned-host/registered");
+    assert_eq!(snapshot.conversation.len(), 1);
+    assert_eq!(snapshot.conversation[0].text(), "owned in-flight prompt");
+    assert!(snapshot.failure.is_none(), "{:?}", snapshot.failure);
+    assert!(
+        core.read_live(
+            &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+            |_| ()
+        )
+        .is_none()
+    );
+    assert_eq!(
+        lock(&fixture.seen)
+            .iter()
+            .filter(|request| request["method"] == "turn/start")
+            .count(),
+        1
+    );
+    fixture.stop().await;
+}
+
+#[tokio::test]
 async fn interruption_reaches_each_managed_owner_and_rejects_stale_or_paused_controls() {
     for provider in ["codex", "dsh", "ply"] {
         let fixture = Fixture::start(provider).await;
         let id = fixture.agent.terminal_id.clone();
+        let key = ConversationKey::new("owned-host", &id);
+        fixture.core.update_live(&key, |live| {
+            live.composer.ready = true;
+        });
         fixture.core.update(|s| {
-            s.composer.ready = true;
             s.providers = vec![providers::Provider {
                 id: provider.into(),
                 managed_chat: true,
@@ -296,9 +431,13 @@ async fn interruption_reaches_each_managed_owner_and_rejects_stale_or_paused_con
                 .await
                 .is_err()
         );
-        fixture.core.update(|s| s.agent_pause = AgentPause::Paused);
+        fixture.core.update_live(&key, |live| {
+            live.agent_pause = AgentPause::Paused;
+        });
         assert!(fixture.core.interrupt_agent(id.clone()).await.is_err());
-        fixture.core.update(|s| s.agent_pause = AgentPause::Running);
+        fixture.core.update_live(&key, |live| {
+            live.agent_pause = AgentPause::Running;
+        });
         fixture.core.interrupt_agent(id.clone()).await.unwrap();
         assert_eq!(fixture.client.runtime().phase(), ResponseActivity::Idle);
         assert!(fixture.client.runtime().approval().is_none());
@@ -396,7 +535,7 @@ async fn permission_choice_survives_model_changes_and_reaches_next_native_turn()
     assert_eq!(selection.settings["approval_mode"], "risk");
     fixture
         .client
-        .send("owned test", &[], &selection, &[])
+        .send(&[Block::Text("owned test".into())], &selection, &[])
         .await
         .unwrap();
     let requests = lock(&fixture.seen).clone();
@@ -415,5 +554,179 @@ async fn permission_choice_survives_model_changes_and_reaches_next_native_turn()
         stored.values().next().unwrap().settings["approval_mode"],
         "risk"
     );
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn approval_of_an_unselected_conversation_waits_and_shows_after_switching_back() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    let request = fixture.client.runtime().approval().unwrap().id;
+    core.update_live(
+        &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+        |live| live.approval = None,
+    );
+    let waiting = ConversationKey::new("owned-host", "waiting");
+    let other = ConversationKey::new("owned-host", "other");
+    let mut bound =
+        kite_agent::sessions::Record::draft("waiting".into(), "ply".into(), String::new(), None, 1);
+    bound.reference = fixture.agent.agent_session.clone();
+    let idle =
+        kite_agent::sessions::Record::draft("other".into(), "ply".into(), String::new(), None, 1);
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 1,
+        now_ms: 1,
+        sessions: vec![bound.clone(), idle.clone()],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    core.install_catalog("owned-host", &catalog).unwrap();
+    core.select(Some(other.clone()), |s| {
+        s.sessions = sessions::views(&catalog.sessions, &s.agents, s.session_sort);
+    });
+    // Registration already adopted the pane runtime; the background RPC is still unread.
+    assert_eq!(
+        core.read_live(&waiting, |live| live.approval.is_none()),
+        Some(true)
+    );
+    assert!(core.snapshot().approval.is_none());
+
+    // The request arrives while another conversation is on screen.
+    core.refresh_session_activity(&fixture.connection, 0).await;
+    let on_screen = core.snapshot();
+    assert_eq!(on_screen.conversation_context(), "owned-host/other");
+    assert!(on_screen.approval.is_none());
+    assert_eq!(
+        core.read_live(&waiting, |live| live
+            .approval
+            .as_ref()
+            .map(|a| a.id.clone())),
+        Some(Some(request.clone()))
+    );
+
+    // Switching back shows it at once, before any refresh reads it again.
+    core.select(Some(waiting.clone()), |_| {});
+    let back = core.snapshot();
+    assert_eq!(back.conversation_context(), "owned-host/waiting");
+    assert_eq!(
+        back.selected_agent.as_ref(),
+        Some(&fixture.agent.terminal_id)
+    );
+    assert_eq!(back.approval.as_ref().unwrap().id, request);
+
+    // A real open keeps it, and it is answered through the owning conversation.
+    core.select(Some(other.clone()), |_| {});
+    assert!(core.snapshot().approval.is_none());
+    core.open_session("waiting".into()).await.unwrap();
+    assert_eq!(core.snapshot().approval.as_ref().unwrap().id, request);
+    core.respond_approval(fixture.agent.terminal_id.clone(), request, 0)
+        .await
+        .unwrap();
+    assert!(core.snapshot().approval.is_none());
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn a_notice_routes_a_waiting_request_to_its_own_conversation() {
+    let fixture = Fixture::start("dsh").await;
+    let core = &fixture.core;
+    let request = fixture.client.runtime().approval().unwrap().id;
+    core.update_live(
+        &ConversationKey::new("owned-host", &fixture.agent.terminal_id),
+        |live| live.approval = None,
+    );
+    let waiting = ConversationKey::new("owned-host", "waiting");
+    let mut bound =
+        kite_agent::sessions::Record::draft("waiting".into(), "dsh".into(), String::new(), None, 1);
+    bound.reference = fixture.agent.agent_session.clone();
+    core.install_catalog(
+        "owned-host",
+        &kite_agent::sessions::Catalog {
+            revision: 1,
+            now_ms: 1,
+            sessions: vec![bound],
+        },
+    )
+    .unwrap();
+    core.select(
+        Some(ConversationKey::new("owned-host", "elsewhere")),
+        |_| {},
+    );
+    core.route_notice(&fixture.connection, &waiting).await;
+    assert!(core.snapshot().approval.is_none());
+    assert_eq!(
+        core.read_live(&waiting, |live| live
+            .approval
+            .as_ref()
+            .map(|a| a.id.clone())),
+        Some(Some(request))
+    );
+    // A notice about an unknown conversation changes nothing.
+    core.route_notice(
+        &fixture.connection,
+        &ConversationKey::new("owned-host", "gone"),
+    )
+    .await;
+    assert!(
+        core.read_live(&ConversationKey::new("owned-host", "gone"), |_| ())
+            .is_none()
+    );
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn a_slow_resume_binds_the_returned_pane_until_it_reports_the_same_thread() {
+    let fixture = Fixture::start("ply").await;
+    let core = &fixture.core;
+    let key = ConversationKey::new("owned-host", "resumed");
+    // Another thread than the fixture's own running pane.
+    let reference = kite_herdr::api::AgentSession {
+        source: "kite:harness".into(),
+        agent: "ply".into(),
+        kind: "id".into(),
+        value: "87654321-4321-4321-4321-cba987654321".into(),
+    };
+    let mut record =
+        kite_agent::sessions::Record::draft("resumed".into(), "ply".into(), String::new(), None, 1);
+    record.reference = Some(reference.clone());
+    let catalog = kite_agent::sessions::Catalog {
+        revision: 1,
+        now_ms: 1,
+        sessions: vec![record],
+    };
+    *lock(&fixture.catalog) = serde_json::to_value(&catalog).unwrap();
+    // The bounded wait in session-open ended before the pane reported its thread.
+    let launching = json!({"terminal_id":"slow","pane_id":"slow-pane","workspace_id":"owned","tab_id":"owned","agent":"ply","agent_status":"working","revision":1,"launch_pending":true});
+    *lock(&fixture.opened) = launching.clone();
+    core.activate_session(&fixture.connection, "resumed")
+        .await
+        .unwrap();
+    let opened = core.snapshot();
+    assert_eq!(opened.selected_session.as_deref(), Some("resumed"));
+    assert_eq!(opened.selected_agent.as_deref(), Some("slow"));
+
+    // The catalog sync that follows does not undo it, and its history is not a failure.
+    let mut pane: Agent = serde_json::from_value(launching).unwrap();
+    core.sync_sessions(&fixture.connection, std::slice::from_ref(&pane), 0)
+        .await
+        .unwrap();
+    assert_eq!(core.snapshot().selected_agent.as_deref(), Some("slow"));
+    core.refresh_selected(&fixture.connection, 0, false)
+        .await
+        .unwrap();
+    let starting = core.snapshot();
+    assert_eq!(starting.selected_agent.as_deref(), Some("slow"));
+    assert!(starting.history_status.waiting && !starting.history_status.failed);
+
+    core.update_live(&key, |live| {
+        live.response_activity = ResponseActivity::Sending;
+        live.agent_output = "starting up".into();
+    });
+    pane.launch_pending = false;
+    pane.agent_session = Some(reference);
+    core.update(|s| s.agents = vec![pane]);
+    let bound = core.snapshot();
+    assert_eq!(bound.selected_agent.as_deref(), Some("slow"));
+    assert_eq!(bound.response_activity, ResponseActivity::Sending);
+    assert_eq!(bound.agent_output, "starting up");
     fixture.stop().await;
 }

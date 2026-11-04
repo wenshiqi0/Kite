@@ -83,32 +83,182 @@ pub struct QuestionReply {
     pub answer: String,
 }
 
+/// Where an item or a snapshot of it was taken from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Message {
-    pub id: String,
-    pub role: Role,
-    pub text: String,
-    pub intermediate: bool,
-    pub tool: Option<Tool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub question_replies: Vec<QuestionReply>,
+pub struct ItemOrigin {
+    pub conversation: String,
+    pub item: String,
 }
 
-impl Message {
+/// Another conversation's content inside this one (RFC 0027). A live reference
+/// exists only in Kite's own records; only a snapshot may enter provider input.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Reference {
+    Live {
+        conversation: String,
+        item: String,
+    },
+    Snapshot {
+        origin: ItemOrigin,
+        captured_ms: i64,
+        blocks: Vec<Block>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Block {
+    Text(String),
+    Attachment(composer::Attachment),
+    Tool(Tool),
+    QuestionReply(QuestionReply),
+    Embed(Reference),
+}
+impl Block {
+    fn payload_len(&self) -> usize {
+        match self {
+            Self::Text(text) => text.len(),
+            Self::Attachment(file) => file.name.len() + file.path.len(),
+            Self::Tool(tool) => tool.arguments.len() + tool.output.len(),
+            Self::QuestionReply(reply) => reply.question.len() + reply.answer.len(),
+            Self::Embed(Reference::Live { .. }) => 0,
+            Self::Embed(Reference::Snapshot { blocks, .. }) => {
+                blocks.iter().map(Self::payload_len).sum()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "StoredItem")]
+pub struct Item {
+    pub id: String,
+    pub role: Role,
+    pub blocks: Vec<Block>,
+    pub intermediate: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ItemOrigin>,
+}
+impl Item {
+    pub fn new(id: String, role: Role, blocks: Vec<Block>) -> Self {
+        Self {
+            id,
+            role,
+            blocks,
+            intermediate: false,
+            origin: None,
+        }
+    }
+    pub fn text(&self) -> String {
+        let parts: Vec<&str> = self
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        parts.join("\n")
+    }
+    pub fn tool(&self) -> Option<&Tool> {
+        self.blocks.iter().find_map(|block| match block {
+            Block::Tool(tool) => Some(tool),
+            _ => None,
+        })
+    }
+    pub fn tool_mut(&mut self) -> Option<&mut Tool> {
+        self.blocks.iter_mut().find_map(|block| match block {
+            Block::Tool(tool) => Some(tool),
+            _ => None,
+        })
+    }
+    pub fn attachments(&self) -> impl Iterator<Item = &composer::Attachment> {
+        self.blocks.iter().filter_map(|block| match block {
+            Block::Attachment(file) => Some(file),
+            _ => None,
+        })
+    }
+    pub fn question_replies(&self) -> impl Iterator<Item = &QuestionReply> {
+        self.blocks.iter().filter_map(|block| match block {
+            Block::QuestionReply(reply) => Some(reply),
+            _ => None,
+        })
+    }
+    /// The readable body: answered questions read as question and answer pairs.
+    pub fn display_text(&self) -> String {
+        let replies: Vec<QuestionReply> = self.question_replies().cloned().collect();
+        if replies.is_empty() {
+            self.text()
+        } else {
+            question_reply_text(&replies)
+        }
+    }
+    /// Whether a provider echo carries what this optimistic row sent. IDs differ.
+    pub fn same_content(&self, other: &Item) -> bool {
+        self.display_text() == other.display_text() && self.attachments().eq(other.attachments())
+    }
+    pub fn payload_len(&self) -> usize {
+        self.blocks.iter().map(Block::payload_len).sum()
+    }
+}
+
+/// Saved conversation caches hold items in either shape: reading one written before
+/// blocks is reading the user's data, and it is rewritten as blocks on the next save.
+#[derive(Deserialize)]
+struct StoredItem {
+    id: String,
+    role: Role,
+    #[serde(default)]
+    blocks: Option<Vec<Block>>,
+    intermediate: bool,
+    #[serde(default)]
+    origin: Option<ItemOrigin>,
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    tool: Option<Tool>,
+    #[serde(default)]
+    question_replies: Vec<QuestionReply>,
+}
+impl From<StoredItem> for Item {
+    fn from(stored: StoredItem) -> Self {
+        let blocks = stored.blocks.unwrap_or_else(|| {
+            let mut blocks = if stored.question_replies.is_empty() {
+                composer::envelope::decode(&stored.text)
+            } else {
+                stored
+                    .question_replies
+                    .into_iter()
+                    .map(Block::QuestionReply)
+                    .collect()
+            };
+            blocks.extend(stored.tool.map(Block::Tool));
+            blocks
+        });
+        Self {
+            id: stored.id,
+            role: stored.role,
+            blocks,
+            intermediate: stored.intermediate,
+            origin: stored.origin,
+        }
+    }
+}
+
+impl Item {
     /// Keep original records for paging/cache merges, but expose user-facing
     /// messages and report bodies to native clients instead of machine receipts.
     pub fn presentation(&self) -> std::borrow::Cow<'_, Self> {
         if self.role == Role::Assistant
             && !self.intermediate
-            && self.tool.is_none()
-            && let Some(text) = presentation::report_markdown(&self.text)
+            && let [Block::Text(source)] = self.blocks.as_slice()
+            && let Some(text) = presentation::report_markdown(source)
         {
             return std::borrow::Cow::Owned(Self {
-                text,
+                blocks: vec![Block::Text(text)],
                 ..self.clone()
             });
         }
-        let Some(tool) = &self.tool else {
+        let [Block::Tool(tool)] = self.blocks.as_slice() else {
             return std::borrow::Cow::Borrowed(self);
         };
         if tool.name != "send_message_to_user_async" || tool.failed {
@@ -124,12 +274,10 @@ impl Message {
             return std::borrow::Cow::Borrowed(self);
         };
         std::borrow::Cow::Owned(Self {
-            id: self.id.clone(),
             role: Role::Assistant,
-            text: text.into(),
+            blocks: vec![Block::Text(text.into())],
             intermediate: false,
-            tool: None,
-            question_replies: Vec::new(),
+            ..self.clone()
         })
     }
 }
@@ -191,53 +339,47 @@ fn codex_message_text(v: &Value) -> String {
     text.join("\n")
 }
 
-fn add_text(messages: &mut Vec<Message>, id: String, role: Role, text: String) {
+fn add_blocks(items: &mut Vec<Item>, id: String, role: Role, blocks: Vec<Block>) {
+    if blocks.is_empty() && role != Role::Error {
+        return;
+    }
+    if let Some(item) = items.iter_mut().find(|m| m.id == id) {
+        item.blocks = blocks;
+        return;
+    }
+    items.push(Item::new(id, role, blocks));
+}
+
+fn add_text(items: &mut Vec<Item>, id: String, role: Role, text: String) {
     if text.trim().is_empty() && role != Role::Error {
         return;
     }
-    if let Some(m) = messages.iter_mut().find(|m| m.id == id) {
-        m.text = text;
-        return;
-    }
-    messages.push(Message {
-        id,
-        role,
-        text,
-        intermediate: false,
-        question_replies: Vec::new(),
-        tool: None,
-    });
+    add_blocks(items, id, role, composer::envelope::decode(&text));
 }
 
-fn add_tool(messages: &mut Vec<Message>, id: String, name: &str, arguments: String) {
-    if messages.iter().any(|m| m.id == id) {
+fn add_tool(items: &mut Vec<Item>, id: String, name: &str, arguments: String) {
+    if items.iter().any(|m| m.id == id) {
         return;
     }
-    messages.push(Message {
-        id,
-        role: Role::Tool,
-        text: String::new(),
-        intermediate: false,
-        question_replies: Vec::new(),
-        tool: Some(Tool {
-            name: name.into(),
-            arguments,
-            output: String::new(),
-            complete: false,
-            failed: false,
-            computer: computer(name),
-        }),
-    });
+    let tool = Tool {
+        name: name.into(),
+        arguments,
+        output: String::new(),
+        complete: false,
+        failed: false,
+        computer: computer(name),
+    };
+    items.push(Item::new(id, Role::Tool, vec![Block::Tool(tool)]));
 }
 
-fn finish_tool(messages: &mut Vec<Message>, id: &str, output: String, failed: bool) {
-    if !messages.iter().any(|m| m.id == id) {
-        add_tool(messages, id.into(), "tool", String::new());
+fn finish_tool(items: &mut Vec<Item>, id: &str, output: String, failed: bool) {
+    if !items.iter().any(|m| m.id == id) {
+        add_tool(items, id.into(), "tool", String::new());
     }
-    if let Some(tool) = messages
+    if let Some(tool) = items
         .iter_mut()
         .find(|m| m.id == id)
-        .and_then(|m| m.tool.as_mut())
+        .and_then(Item::tool_mut)
     {
         tool.output = output;
         tool.complete = true;
@@ -253,12 +395,8 @@ pub fn question_reply_text(replies: &[QuestionReply]) -> String {
         .join("\n\n")
 }
 
-fn model_question_answer(
-    messages: &[Message],
-    call: &str,
-    output: &str,
-) -> Option<Vec<QuestionReply>> {
-    let tool = messages.iter().find(|m| m.id == call)?.tool.as_ref()?;
+fn model_question_answer(items: &[Item], call: &str, output: &str) -> Option<Vec<QuestionReply>> {
+    let tool = items.iter().find(|m| m.id == call)?.tool()?;
     if !matches!(
         tool.name.as_str(),
         "request_user_input" | "request_user_input_async"
@@ -318,8 +456,8 @@ fn turn_error_id(record: &Value) -> Option<String> {
 }
 
 /// Parse bounded JSONL records. Partial writes and non-conversation metadata are ignored.
-pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
-    let mut messages = Vec::new();
+pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Item> {
+    let mut items = Vec::new();
     for line in bytes.split(|b| *b == b'\n') {
         let Ok(mut v) = serde_json::from_slice::<Value>(line) else {
             continue;
@@ -344,14 +482,14 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                 } else {
                     Role::Assistant
                 };
-                add_text(&mut messages, id.clone(), role, text_content(body));
+                add_text(&mut items, id.clone(), role, text_content(body));
                 if kind == "assistant"
                     && body
                         .as_array()
                         .is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_use"))
-                    && let Some(message) = messages.iter_mut().find(|m| m.id == id)
+                    && let Some(item) = items.iter_mut().find(|m| m.id == id)
                 {
-                    message.intermediate = true;
+                    item.intermediate = true;
                 }
                 if let Some(blocks) = body.as_array() {
                     for block in blocks {
@@ -361,7 +499,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                                     (block["id"].as_str(), block["name"].as_str())
                                 {
                                     add_tool(
-                                        &mut messages,
+                                        &mut items,
                                         call.into(),
                                         name,
                                         serde_json::to_string_pretty(&block["input"])
@@ -372,7 +510,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                             Some("tool_result") => {
                                 if let Some(call) = block["tool_use_id"].as_str() {
                                     finish_tool(
-                                        &mut messages,
+                                        &mut items,
                                         call,
                                         text_content(&block["content"]),
                                         block["is_error"].as_bool().unwrap_or(false),
@@ -387,7 +525,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
             "codex" | "dsh" | "ply" => {
                 if let Some(id) = turn_error_id(&v) {
                     add_text(
-                        &mut messages,
+                        &mut items,
                         id,
                         Role::Error,
                         interaction::error_details(&v["payload"]["error"]).unwrap_or_default(),
@@ -438,14 +576,18 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         {
                             continue;
                         }
-                        let message_id = p["id"].as_str().unwrap_or(&id).to_owned();
-                        add_text(&mut messages, message_id.clone(), role, text);
-                        if let Some(message) = messages.iter_mut().find(|m| m.id == message_id) {
-                            message.question_replies = replies;
-                            if message.role == Role::Assistant {
-                                message.intermediate =
-                                    p["phase"] == "commentary" || p["channel"] == "commentary";
-                            }
+                        let item_id = p["id"].as_str().unwrap_or(&id).to_owned();
+                        if replies.is_empty() {
+                            add_text(&mut items, item_id.clone(), role, text);
+                        } else {
+                            let blocks = replies.into_iter().map(Block::QuestionReply).collect();
+                            add_blocks(&mut items, item_id.clone(), role, blocks);
+                        }
+                        if let Some(item) = items.iter_mut().find(|m| m.id == item_id)
+                            && item.role == Role::Assistant
+                        {
+                            item.intermediate =
+                                p["phase"] == "commentary" || p["channel"] == "commentary";
                         }
                     }
                     Some("image_generation_call") => {
@@ -470,9 +612,12 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                         } else {
                             "正在生成图片…"
                         };
-                        let text =
-                            composer::compose_text(label, &files).unwrap_or_else(|_| label.into());
-                        add_text(&mut messages, image_id, Role::Assistant, text);
+                        let mut blocks = Vec::with_capacity(files.len() + 1);
+                        if !label.is_empty() {
+                            blocks.push(Block::Text(label.into()));
+                        }
+                        blocks.extend(files.into_iter().map(Block::Attachment));
+                        add_blocks(&mut items, image_id, Role::Assistant, blocks);
                     }
                     Some("function_call" | "custom_tool_call" | "computer_call") => {
                         if let Some(call) = p["call_id"].as_str() {
@@ -482,7 +627,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                                 .or_else(|| p["input"].as_str())
                                 .map(str::to_owned)
                                 .unwrap_or_else(|| p["action"].to_string());
-                            add_tool(&mut messages, call.into(), name, args);
+                            add_tool(&mut items, call.into(), name, args);
                         }
                     }
                     Some(
@@ -490,26 +635,21 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
                     ) => {
                         if let Some(call) = p["call_id"].as_str() {
                             let output = text_content(&p["output"]);
-                            let answer = model_question_answer(&messages, call, &output);
+                            let answer = model_question_answer(&items, call, &output);
                             finish_tool(
-                                &mut messages,
+                                &mut items,
                                 call,
                                 output,
                                 p["failed"].as_bool().unwrap_or(false),
                             );
                             if let Some(answer) = answer {
-                                add_text(
-                                    &mut messages,
+                                let blocks = answer.into_iter().map(Block::QuestionReply).collect();
+                                add_blocks(
+                                    &mut items,
                                     format!("{call}-answer"),
                                     Role::User,
-                                    question_reply_text(&answer),
+                                    blocks,
                                 );
-                                if let Some(message) = messages
-                                    .iter_mut()
-                                    .find(|m| m.id == format!("{call}-answer"))
-                                {
-                                    message.question_replies = answer;
-                                }
                             }
                         }
                     }
@@ -520,7 +660,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Message> {
         }
     }
 
-    messages
+    items
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -628,17 +768,17 @@ mod tests {
             let displayed = original.presentation();
             assert_eq!(displayed.id, "async-message");
             assert_eq!(displayed.role, Role::Assistant);
-            assert_eq!(displayed.text, text);
+            assert_eq!(displayed.text(), text);
             assert!(!displayed.intermediate);
-            assert!(displayed.tool.is_none());
+            assert!(displayed.tool().is_none());
             assert_eq!(original.role, Role::Tool);
             assert_eq!(
-                original.tool.as_ref().unwrap().name,
+                original.tool().as_ref().unwrap().name,
                 "send_message_to_user_async"
             );
 
             // Previously cached tool records gain the same presentation offline.
-            let restored: Message =
+            let restored: Item =
                 serde_json::from_slice(&serde_json::to_vec(original).unwrap()).unwrap();
             assert_eq!(restored.presentation(), displayed);
         }
@@ -685,11 +825,11 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].id, "turn-error-failed-turn");
         assert_eq!(messages[0].role, Role::Error);
-        assert!(messages[0].text.starts_with("server_overloaded:"));
-        assert!(messages[0].tool.is_none());
+        assert!(messages[0].text().starts_with("server_overloaded:"));
+        assert!(messages[0].tool().is_none());
         assert!(!messages[0].intermediate);
-        assert_eq!(messages[1].text, "continued");
-        let restored: Vec<Message> =
+        assert_eq!(messages[1].text(), "continued");
+        let restored: Vec<Item> =
             serde_json::from_slice(&serde_json::to_vec(&messages).unwrap()).unwrap();
         assert_eq!(restored, messages);
     }
@@ -707,7 +847,7 @@ mod tests {
         let record = serde_json::json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"no-details","error":{}}});
         let messages = parse_history("codex", record.to_string().as_bytes());
         assert_eq!(messages[0].role, Role::Error);
-        assert!(messages[0].text.is_empty());
+        assert!(messages[0].text().is_empty());
     }
 
     #[test]
@@ -723,42 +863,45 @@ mod tests {
             wire("user", "Explain <skill> tags"),
         ]
         .join("\n");
-        let messages = parse_history("codex", lines.as_bytes());
-        assert_eq!(messages.len(), 3);
-        assert_eq!(messages[0].text, "$report\n\nSummarize changes");
-        assert_eq!(messages[1].role, Role::Assistant);
-        assert_eq!(messages[1].text, context);
-        assert_eq!(messages[2].text, "Explain <skill> tags");
+        let items = parse_history("codex", lines.as_bytes());
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].text(), "$report\n\nSummarize changes");
+        assert_eq!(items[1].role, Role::Assistant);
+        assert_eq!(items[1].text(), context);
+        assert_eq!(items[2].text(), "Explain <skill> tags");
     }
     #[test]
     fn generated_images_render_as_assistant_attachments_with_stable_identity() {
         let bytes = br#"{"type":"response_item","_kite_offset":100,"payload":{"type":"image_generation_call","id":"ig-test","status":"completed","_kite_images":[{"id":"abc","name":"generated.png","mime":"image/png","size":1024,"path":"kite-image:abc"}]}}
 {"type":"response_item","payload":{"type":"message","id":"final","role":"assistant","content":[{"text":"Here is your image"}]}}
 "#;
-        let messages = parse_history("codex", bytes);
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].id, "ig-test");
-        assert_eq!(messages[0].role, Role::Assistant);
-        assert!(!messages[0].intermediate);
-        let (body, files) = composer::split_attachments(&messages[0].text);
-        assert!(body.is_empty());
-        assert_eq!(files[0].path, "kite-image:abc");
-        assert_eq!(messages[1].id, "final");
+        let items = parse_history("codex", bytes);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, "ig-test");
+        assert_eq!(items[0].role, Role::Assistant);
+        assert!(!items[0].intermediate);
+        assert!(items[0].text().is_empty());
+        assert_eq!(
+            items[0].attachments().next().unwrap().path,
+            "kite-image:abc"
+        );
+        assert_eq!(items[1].id, "final");
         let failed = parse_history("codex", br#"{"type":"response_item","payload":{"type":"image_generation_call","id":"bad","status":"failed"}}"#);
         assert_eq!(failed.len(), 1);
-        assert!(!failed[0].text.is_empty());
+        assert!(!failed[0].text().is_empty());
     }
     #[test]
     fn actual_model_question_answers_are_retained_as_user_replies() {
         let input = serde_json::json!({"type":"response_item","payload":{"type":"function_call","call_id":"question","name":"request_user_input","arguments":serde_json::json!({"questions":[{"id":"colour","header":"Colour"}]}).to_string()}});
         let output = serde_json::json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"question","output":serde_json::json!({"answers":{"colour":{"answers":["Blue"]}}}).to_string()}});
-        let messages = parse_history("codex", format!("{input}\n{output}\n").as_bytes());
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[1].role, Role::User);
-        assert_eq!(messages[1].text, "Colour\nBlue");
-        assert_eq!(messages[1].question_replies[0].question, "Colour");
-        assert_eq!(messages[1].question_replies[0].answer, "Blue");
-        assert!(messages[0].tool.as_ref().unwrap().complete);
+        let items = parse_history("codex", format!("{input}\n{output}\n").as_bytes());
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[1].role, Role::User);
+        assert_eq!(items[1].display_text(), "Colour\nBlue");
+        let reply = items[1].question_replies().next().unwrap();
+        assert_eq!(reply.question, "Colour");
+        assert_eq!(reply.answer, "Blue");
+        assert!(items[0].tool().unwrap().complete);
     }
     #[test]
     fn async_question_replies_keep_each_question_paired_with_its_answer() {
@@ -770,45 +913,48 @@ mod tests {
             "<send_user_message_question_reply>\n{replies}\n</send_user_message_question_reply>"
         );
         let event = serde_json::json!({"type":"response_item","payload":{"type":"message","id":"reply-1","role":"user","content":[{"text":body}]}});
-        let messages = parse_history("codex", event.to_string().as_bytes());
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].question_replies.len(), 2);
-        assert_eq!(messages[0].question_replies[0].question, "Which colour?");
-        assert_eq!(messages[0].question_replies[0].answer, "Blue");
-        assert_eq!(messages[0].question_replies[1].question, "Which size?");
-        assert_eq!(messages[0].question_replies[1].answer, "Large");
-        assert!(!messages[0].text.contains("questionItemId"));
-        let restored: Message =
-            serde_json::from_str(&serde_json::to_string(&messages[0]).unwrap()).unwrap();
-        assert_eq!(restored, messages[0]);
+        let items = parse_history("codex", event.to_string().as_bytes());
+        assert_eq!(items.len(), 1);
+        let replies: Vec<_> = items[0].question_replies().collect();
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].question, "Which colour?");
+        assert_eq!(replies[0].answer, "Blue");
+        assert_eq!(replies[1].question, "Which size?");
+        assert_eq!(replies[1].answer, "Large");
+        assert!(!items[0].display_text().contains("questionItemId"));
+        let restored: Item =
+            serde_json::from_str(&serde_json::to_string(&items[0]).unwrap()).unwrap();
+        assert_eq!(restored, items[0]);
         let ordinary = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"text":"Which colour?\nBlue"}]}});
         assert!(
             parse_history("codex", ordinary.to_string().as_bytes())[0]
-                .question_replies
-                .is_empty()
+                .question_replies()
+                .next()
+                .is_none()
         );
     }
     #[test]
     fn blocking_question_history_retains_the_full_prompt_and_masks_secret_answers() {
         let input = serde_json::json!({"type":"response_item","payload":{"type":"function_call","call_id":"q","name":"request_user_input","arguments":serde_json::json!({"questions":[{"id":"key","header":"Key","question":"Enter your key","isSecret":true}]}).to_string()}});
         let output = serde_json::json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"q","output":serde_json::json!({"answers":{"key":{"answers":["private-key"]}}}).to_string()}});
-        let messages = parse_history("codex", format!("{input}\n{output}\n").as_bytes());
-        assert_eq!(messages[1].question_replies[0].question, "Enter your key");
-        assert_eq!(messages[1].question_replies[0].answer, "••••");
-        assert!(!messages[1].text.contains("private-key"));
+        let items = parse_history("codex", format!("{input}\n{output}\n").as_bytes());
+        let reply = items[1].question_replies().next().unwrap();
+        assert_eq!(reply.question, "Enter your key");
+        assert_eq!(reply.answer, "••••");
+        assert!(!items[1].display_text().contains("private-key"));
         // Old saved records still deserialize; no history is discarded during upgrade.
-        let old: Message = serde_json::from_value(serde_json::json!({"id":"old","role":"User","text":"hello","intermediate":false,"tool":null})).unwrap();
-        assert!(old.question_replies.is_empty());
+        let old: Item = serde_json::from_value(serde_json::json!({"id":"old","role":"User","text":"hello","intermediate":false,"tool":null})).unwrap();
+        assert_eq!(old.blocks, vec![Block::Text("hello".into())]);
     }
     #[test]
     fn empty_progress_does_not_hide_a_final_reply_and_commentary_is_classified() {
         let data=br#"{"id":"a","type":"response_item","payload":{"id":"answer","type":"message","role":"assistant","channel":"final","content":[{"text":"answer"}]}}
 {"id":"empty","type":"response_item","payload":{"type":"message","role":"assistant","channel":"commentary","content":[]}}
 {"id":"p","type":"response_item","payload":{"id":"progress","type":"message","role":"assistant","phase":"commentary","content":[{"text":"checking"}]}}"#;
-        let messages = parse_history("codex", data);
-        assert_eq!(messages.len(), 2);
-        assert!(!messages[0].intermediate);
-        assert!(messages[1].intermediate);
+        let items = parse_history("codex", data);
+        assert_eq!(items.len(), 2);
+        assert!(!items[0].intermediate);
+        assert!(items[1].intermediate);
     }
     #[test]
     fn claude_links_real_tool_results_without_user_bubbles_for_tool_output() {
@@ -818,7 +964,7 @@ mod tests {
 {"type":"assistant","uuid":"partial""#;
         let m = parse_history("claude", data);
         assert_eq!(m.len(), 3);
-        let t = m[2].tool.as_ref().unwrap();
+        let t = m[2].tool().unwrap();
         assert!(t.complete && t.computer);
         assert_eq!(t.output, "done");
     }
@@ -831,8 +977,8 @@ mod tests {
 {"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}"#;
         let m = parse_history("codex", data);
         assert_eq!(m.len(), 3);
-        assert!(m[1].tool.as_ref().unwrap().complete);
-        assert_eq!(m[2].text, "done");
+        assert!(m[1].tool().unwrap().complete);
+        assert_eq!(m[2].text(), "done");
     }
     #[test]
     fn codex_native_image_wrappers_do_not_break_attachment_reconciliation() {
@@ -843,11 +989,85 @@ mod tests {
             size: 12,
             path: "/home/user/photo.png".into(),
         }];
-        let text = composer::compose_text("Describe", &files).unwrap();
+        let text = composer::envelope::encode(&[
+            Block::Text("Describe".into()),
+            Block::Attachment(files[0].clone()),
+        ])
+        .unwrap();
         let input = serde_json::json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text},{"type":"input_text","text":"<image name=[Image #1] path=\"/home/user/photo.png\">"},{"type":"input_image","image_url":"data:image/png;base64,AA=="},{"type":"input_text","text":"</image>"}]}});
-        let messages = parse_history("codex", input.to_string().as_bytes());
-        assert_eq!(messages[0].text, text);
-        assert_eq!(composer::split_attachments(&messages[0].text).1, files);
+        let items = parse_history("codex", input.to_string().as_bytes());
+        assert_eq!(items[0].text(), "Describe");
+        assert_eq!(items[0].attachments().cloned().collect::<Vec<_>>(), files);
+    }
+    #[test]
+    fn saved_items_of_either_shape_restore_the_same_blocks() {
+        let file = composer::Attachment {
+            id: "f".into(),
+            name: "notes.txt".into(),
+            mime: "text/plain".into(),
+            size: 5,
+            path: "/uploads/notes.txt".into(),
+        };
+        let sent = Item::new(
+            "sent".into(),
+            Role::User,
+            vec![Block::Text("Read".into()), Block::Attachment(file.clone())],
+        );
+        let old: Item = serde_json::from_value(serde_json::json!({
+            "id":"sent","role":"User","intermediate":false,"tool":null,
+            "text":composer::envelope::encode(&sent.blocks).unwrap()
+        }))
+        .unwrap();
+        assert_eq!(old, sent);
+        let tool = Tool {
+            name: "Bash".into(),
+            arguments: "ls".into(),
+            output: "done".into(),
+            complete: true,
+            failed: false,
+            computer: false,
+        };
+        let old: Item = serde_json::from_value(serde_json::json!({
+            "id":"call","role":"Tool","text":"","intermediate":false,"tool":tool
+        }))
+        .unwrap();
+        assert_eq!(old.tool(), Some(&tool));
+        assert_eq!(old.blocks.len(), 1);
+        let reply = QuestionReply {
+            id: "q".into(),
+            question: "Which?".into(),
+            answer: "This".into(),
+        };
+        let old: Item = serde_json::from_value(serde_json::json!({
+            "id":"answer","role":"User","text":"Which?\nThis","intermediate":false,"tool":null,
+            "question_replies":[reply]
+        }))
+        .unwrap();
+        assert_eq!(old.blocks, vec![Block::QuestionReply(reply)]);
+        for item in [sent, old] {
+            let saved = serde_json::to_string(&item).unwrap();
+            assert_eq!(serde_json::from_str::<Item>(&saved).unwrap(), item);
+        }
+    }
+    #[test]
+    fn an_embedded_snapshot_keeps_its_nested_blocks_and_origin() {
+        let origin = ItemOrigin {
+            conversation: "source".into(),
+            item: "first".into(),
+        };
+        let mut item = Item::new(
+            "embed".into(),
+            Role::User,
+            vec![Block::Embed(Reference::Snapshot {
+                origin: origin.clone(),
+                captured_ms: 5,
+                blocks: vec![Block::Text("copied".into())],
+            })],
+        );
+        item.origin = Some(origin);
+        assert_eq!(item.payload_len(), 6);
+        let saved = serde_json::to_string(&item).unwrap();
+        assert_eq!(serde_json::from_str::<Item>(&saved).unwrap(), item);
     }
     #[test]
     fn approval_requires_blocked_state_and_explicit_actual_choices() {
@@ -874,7 +1094,7 @@ mod complete_history_tests {
         }
         let parsed = parse_history("codex", rows.join("\n").as_bytes());
         assert_eq!(parsed.len(), 1000);
-        assert_eq!(parsed[0].text, long);
+        assert_eq!(parsed[0].text(), long);
         assert_eq!(parsed[999].id, "m-999");
     }
 }

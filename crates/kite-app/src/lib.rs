@@ -14,7 +14,6 @@ pub mod resources;
 pub use core::clipboard::{ClipboardPlatform, RemoteClipboard};
 pub use core::*;
 pub use kite_agent::composer::skills::{Skill as ChatSkill, SkillDraft};
-pub use kite_agent::composer::split_attachments as split_chat_attachments;
 pub use kite_agent::composer::{
     Attachment as ChatAttachment, Composer, Effort as ChatEffort, Model as ChatModel,
     Selection as ChatSelection, SessionSetting, Upload as ChatUpload,
@@ -31,7 +30,8 @@ pub use kite_agent::usage::{
     Window as UsageWindow,
 };
 pub use kite_agent::{
-    Approval, Choice, Message as ChatMessage, Role as ChatRole, Tool as ChatTool,
+    Approval, Block as ChatBlock, Choice, Item as ChatItem, ItemOrigin as ChatItemOrigin,
+    Reference as ChatReference, Role as ChatRole, Tool as ChatTool,
 };
 pub use kite_store::Host as SavedHost;
 pub use kite_stream::{

@@ -106,7 +106,7 @@ class NativePresentationTest {
 
     @Test fun cjkSentenceStrongClosesBeforeAnAdjacentLatinWord() = onMain {
         val view=MarkdownTextView(instrumentation.targetContext)
-        FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(-1, -2))
+        FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         view.bind("**已经完成。**Kite 接下来继续。")
         measureText(view,900)
         val body=view.text as Spanned
@@ -114,7 +114,9 @@ class NativePresentationTest {
         assertTrue(body.getSpans(0,body.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isNotEmpty())
         view.bind("`**已经完成。**Kite`")
         val literal=view.text as Spanned
-        assertEquals("**已经完成。**Kite",literal.toString().replace("\u00a0", ""))
+        // Markwon pads inline code with NBSP; the actual code stays literal.
+        assertEquals("**已经完成。**Kite",literal.toString().trim('\u00a0'))
+        assertEquals(1,literal.getSpans(0,literal.length,io.noties.markwon.core.spans.CodeSpan::class.java).size)
         assertTrue(literal.getSpans(0,literal.length,io.noties.markwon.core.spans.StrongEmphasisSpan::class.java).isEmpty())
     }
 

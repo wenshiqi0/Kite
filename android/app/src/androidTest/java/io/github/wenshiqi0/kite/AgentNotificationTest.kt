@@ -27,6 +27,9 @@ class AgentNotificationTest {
             notifier.enable(true)
             manager.notify("owned-connection",991,NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_launcher_foreground).setContentTitle("Owned connection check").build())
             assertTrue(notifier.deliver(notice));assertFalse(notifier.deliver(notice))
+            val deliveryDeadline=android.os.SystemClock.uptimeMillis()+2_000
+            while(manager.activeNotifications.none{it.tag==id}&&android.os.SystemClock.uptimeMillis()<deliveryDeadline)android.os.SystemClock.sleep(20)
+            assertTrue("System notification delivery completes",manager.activeNotifications.any{it.tag==id})
             val posted=manager.activeNotifications.single{it.tag==id}
             assertEquals(AgentNotifications.ATTENTION,posted.notification.channelId)
             assertEquals(Notification.VISIBILITY_PRIVATE,posted.notification.visibility)

@@ -14,7 +14,8 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
+            let conversation = core.agent_conversation(&c.host.id, &agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -28,7 +29,7 @@ impl AppCore {
                 draft.loading = true;
                 draft.details.clear();
             }
-            core.publish_skills(&id, &key);
+            core.publish_skills(&conversation, &key);
             let result = match agent.cwd.as_deref() {
                 Some(cwd) => client.list_skills(cwd).await,
                 None => Err(composer::Error::Invalid(
@@ -40,7 +41,7 @@ impl AppCore {
                 .or_default()
                 .finish(result);
             if core.generation.load(Ordering::SeqCst) == generation {
-                core.publish_skills(&id, &key);
+                core.publish_skills(&conversation, &key);
             }
             Ok(())
         })
@@ -63,29 +64,25 @@ impl AppCore {
                 .into_iter()
                 .find(|a| a.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&c, &agent);
+            let key = AgentKey::new(&c.host.id, &agent);
             lock(&core.skill_drafts)
                 .entry(key.clone())
                 .or_default()
                 .select(&path, selected)?;
-            core.publish_skills(&id, &key);
+            core.publish_skills(&core.agent_conversation(&c.host.id, &agent), &key);
             Ok(())
         })
         .await
     }
 
-    pub(super) fn publish_skills(&self, id: &str, key: &str) {
-        self.update(|s| {
-            if s.selected_agent.as_deref() == Some(id)
-                && s.selected_host
-                    .as_ref()
-                    .zip(s.agents.iter().find(|a| a.terminal_id == id))
-                    .is_some_and(|(host, a)| format!("{host}/{}", source_key(a)) == key)
-            {
-                s.composer.skills = lock(&self.skill_drafts)
-                    .get(key)
-                    .cloned()
-                    .unwrap_or_default();
+    pub(super) fn publish_skills(&self, conversation: &ConversationKey, key: &AgentKey) {
+        let draft = lock(&self.skill_drafts)
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        self.update_live(conversation, |live| {
+            if live.agent.as_ref().is_some_and(|a| a.key == *key) {
+                live.composer.skills = draft;
             }
         });
     }
@@ -117,7 +114,7 @@ mod tests {
             "terminal_id":"same-pane", "agent":"codex", "agent_status":"idle", "workspace_id":"w", "tab_id":"t", "pane_id":"p", "cwd":"/project", "revision":1,
             "agent_session":{"source":"herdr:codex","agent":"codex","kind":"id","value":"thread-a"}
         })).unwrap();
-        let key = format!("host-a/{}", source_key(&agent));
+        let key = AgentKey::new("host-a", &agent);
         let skill = ChatSkill {
             name: "report".into(),
             description: "Write a report".into(),
@@ -134,32 +131,33 @@ mod tests {
                 ..SkillDraft::default()
             },
         );
-        core.update(|s| {
+        let conversation = ConversationKey::new("host-a", &agent.terminal_id);
+        core.select(Some(conversation.clone()), |s| {
             s.selected_host = Some("host-a".into());
-            s.selected_agent = Some(agent.terminal_id.clone());
             s.agents = vec![agent];
         });
-        core.publish_skills("same-pane", &key);
+        core.publish_skills(&conversation, &key);
         assert_eq!(
             core.snapshot().composer.skills.selected.as_slice(),
             std::slice::from_ref(&skill)
         );
-        core.update(|s| {
+        // A late update for the first host stays with that host's session.
+        core.select(Some(ConversationKey::new("host-b", "same-pane")), |s| {
             s.selected_host = Some("host-b".into());
-            s.composer = Composer::default();
         });
-        core.publish_skills("same-pane", &key);
+        core.publish_skills(&conversation, &key);
         assert!(core.snapshot().composer.skills.selected.is_empty());
-        core.update(|s| {
+        // The pane moved to another thread, so its old draft no longer applies.
+        core.select(Some(conversation.clone()), |s| {
             s.selected_host = Some("host-a".into());
             s.agents[0].agent_session.as_mut().unwrap().value = "thread-b".into();
         });
-        core.publish_skills("same-pane", &key);
+        core.publish_skills(&conversation, &key);
         assert!(core.snapshot().composer.skills.available.is_empty());
         core.update(|s| {
             s.agents[0].agent_session.as_mut().unwrap().value = "thread-a".into();
         });
-        core.publish_skills("same-pane", &key);
+        core.publish_skills(&conversation, &key);
         assert_eq!(core.snapshot().composer.skills.selected, [skill]);
     }
 }

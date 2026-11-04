@@ -219,8 +219,8 @@ impl Fixture {
         .unwrap();
         core.install_catalog("host", &serde_json::from_value(catalog).unwrap())
             .unwrap();
-        let cache = kite_agent::sessions::cache_key("host", &"a".repeat(32));
-        lock(&core.store).as_ref().unwrap().write_document(&sessions::history_document(&cache), &json!({"messages":[{"id":"retained","role":"Assistant","text":"Cached original conversation","intermediate":false,"tool":null,"question_replies":[]}],"available":true,"viewed_ms":1})).unwrap();
+        let cache = ConversationKey::new("host", "a".repeat(32)).cache_key();
+        lock(&core.store).as_ref().unwrap().write_document(&ConversationKey::cache_document_of(&cache), &json!({"messages":[{"id":"retained","role":"Assistant","text":"Cached original conversation","intermediate":false,"tool":null,"question_replies":[]}],"available":true,"viewed_ms":1})).unwrap();
         core.open_session("a".repeat(32)).await.unwrap();
         core.set_connection_intent(Some("host".into())).unwrap();
         Self {
@@ -256,7 +256,7 @@ async fn a_lost_transport_recovers_the_same_conversation_without_replaying_work(
     assert_eq!(snapshot.selected_session, Some("a".repeat(32)));
     assert_eq!(snapshot.sessions.len(), 1);
     assert_eq!(
-        snapshot.conversation[0].text,
+        snapshot.conversation[0].text(),
         "Cached original conversation"
     );
     assert!(f.connections.load(Ordering::SeqCst) >= 2);
@@ -283,7 +283,7 @@ async fn a_lost_transport_recovers_the_same_conversation_without_replaying_work(
     until(|| next.snapshot().connection == ConnectionPhase::Connected).await;
     assert_eq!(next.snapshot().selected_session, Some("a".repeat(32)));
     assert_eq!(
-        next.snapshot().conversation[0].text,
+        next.snapshot().conversation[0].text(),
         "Cached original conversation"
     );
     next.disconnect().await.unwrap();

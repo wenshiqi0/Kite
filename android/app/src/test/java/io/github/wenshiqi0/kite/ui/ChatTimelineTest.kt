@@ -5,11 +5,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatTimelineTest {
-    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = MessageInfo(questionReplies = emptyList(), id = id, text = id, kind = if (user) MessageKind.USER else MessageKind.ASSISTANT, tool = null, attachments = emptyList(), intermediate = intermediate)
-    private fun tool(id: String, complete: Boolean = true) = MessageInfo(questionReplies = emptyList(), id = id, text = "", kind = MessageKind.TOOL, attachments = emptyList(), intermediate = false, tool = ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))
+    private fun text(id: String, user: Boolean = false, intermediate: Boolean = false) = ItemInfo(id = id, role = if (user) ItemRole.USER else ItemRole.ASSISTANT, blocks = listOf(BlockInfo.Text(id)), intermediate = intermediate, origin = null)
+    private fun tool(id: String, complete: Boolean = true) = ItemInfo(id = id, role = ItemRole.TOOL, blocks = listOf(BlockInfo.Tool(ToolInfo(label = "Bash", summary = id, name = "exec_command", arguments = id, output = if (complete) "ok" else "", complete = complete, failed = false, computer = false))), intermediate = false, origin = null)
 
     @Test fun terminalFailureRemainsVisibleBetweenToolWorkAndTheNextUserTurn() {
-        val failure = text("turn-error-owned").copy(kind = MessageKind.ERROR, text = "server_overloaded: model unavailable")
+        val failure = text("turn-error-owned").copy(role = ItemRole.ERROR, blocks = listOf(BlockInfo.Text("server_overloaded: model unavailable")))
         val entries = chatEntries(listOf(tool("before"), failure, tool("finished-after-error"), text("continue", user = true)))
         assertEquals(listOf("work:before", "message:turn-error-owned", "work:finished-after-error", "message:continue"), entries.map { it.key })
         assertEquals(failure, (entries[1] as ChatEntry.Message).message)
@@ -43,5 +43,38 @@ class ChatTimelineTest {
         val messages = listOf(text("progress", intermediate = true), text("reply"))
         assertEquals(messages, chatEntries(messages).map { (it as ChatEntry.Message).message })
         assertTrue(chatEntries(emptyList()).isEmpty())
+    }
+
+    @Test fun anAttachmentOrReplyItemReadsItsOwnBlocksAndStaysOutsideWorkGroups() {
+        val file = AttachmentInfo(id = "f", name = "notes.txt", mime = "text/plain", size = 5uL, generatedImage = false)
+        val reply = QuestionReplyInfo(id = "q", question = "Which?", answer = "This")
+        val sent = ItemInfo(id = "sent", role = ItemRole.USER, blocks = listOf(BlockInfo.Text("Read"), BlockInfo.Attachment(file)), intermediate = false, origin = null)
+        val answered = ItemInfo(id = "answered", role = ItemRole.USER, blocks = listOf(BlockInfo.QuestionReply(reply)), intermediate = false, origin = null)
+        assertEquals("Read", sent.text)
+        assertEquals(listOf(file), sent.attachments)
+        assertEquals(listOf(reply), answered.questionReplies)
+        assertEquals("", answered.text)
+        assertEquals(listOf("message:sent", "work:a", "message:answered"), chatEntries(listOf(sent, tool("a"), answered)).map { it.key })
+    }
+
+    @Test fun mixedAndMultipleToolBlocksKeepTheirSurroundingContentVisible() {
+        val first = tool("first")
+        val second = tool("second")
+        val mixed = text("mixed").copy(blocks = listOf(
+            BlockInfo.Text("before"), first.blocks.single(),
+            BlockInfo.QuestionReply(QuestionReplyInfo("q", "Question", "Answer")),
+            BlockInfo.Text("between"), second.blocks.single(), BlockInfo.Text("after"),
+        ))
+        val multiple = mixed.copy(id = "multiple", blocks = first.blocks + second.blocks)
+        assertNull(mixed.tool)
+        assertNull(multiple.tool)
+        val timeline = ChatTimelineState()
+        timeline.prepareContext("host/mixed")
+        timeline.apply(ConversationDeltaInfo("host/mixed", 1uL, true, listOf(ConversationEditInfo(0uL, 0uL, listOf(first, mixed, multiple, second)))))
+        assertEquals(listOf("work:first", "message:mixed", "message:multiple", "work:second"), timeline.rows.map { it.key })
+        assertEquals(mixed.blocks, (timeline.rows[1] as ChatEntry.Message).message.blocks)
+        // An existing pure-tool row must leave the collapsed group when it gains text.
+        timeline.apply(ConversationDeltaInfo("host/mixed", 2uL, false, listOf(ConversationEditInfo(0uL, 1uL, listOf(mixed.copy(id = "first"))))))
+        assertTrue(timeline.rows.first() is ChatEntry.Message)
     }
 }

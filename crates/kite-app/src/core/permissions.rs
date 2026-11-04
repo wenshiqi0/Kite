@@ -17,7 +17,7 @@ impl AppCore {
                 .into_iter()
                 .find(|agent| agent.terminal_id == id)
                 .ok_or_else(|| AppError::State("agent unavailable".into()))?;
-            let key = chat_key(&connection, &agent);
+            let key = AgentKey::new(&connection.host.id, &agent);
             let client = core
                 .chat_clients
                 .lock()
@@ -34,7 +34,7 @@ impl AppCore {
                 let store = store
                     .as_ref()
                     .ok_or_else(|| AppError::State("store unavailable".into()))?;
-                let mut settings: BTreeMap<String, Selection> =
+                let mut settings: BTreeMap<AgentKey, Selection> =
                     store.read_document("chat-settings")?.unwrap_or_default();
                 let selected = settings
                     .entry(key)
@@ -45,13 +45,14 @@ impl AppCore {
                 selected
             };
             if core.generation.load(Ordering::SeqCst) == connection.generation {
-                core.update(|snapshot| {
-                    if snapshot.selected_agent.as_ref() == Some(&id) {
-                        snapshot.composer.settings =
+                core.update_live(
+                    &core.agent_conversation(&connection.host.id, &agent),
+                    |live| {
+                        live.composer.settings =
                             composer::settings::display(&client.settings, &selected.settings);
-                        snapshot.composer.selection = selected;
-                    }
-                });
+                        live.composer.selection = selected;
+                    },
+                );
             }
             Ok(())
         })
