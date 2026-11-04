@@ -24,6 +24,7 @@ export interface AcpBackend {
   thread: string;
   model: string;
   effort: string;
+  status?: string;
   call(method: string, params: Json): Promise<Json>;
   write(message: RpcMessage): void;
   close(): void;
@@ -128,6 +129,7 @@ async function connectBackend(
       object(await backend.call("thread/resume", { threadId: thread, excludeTurns: true })).thread,
     );
     check(resumed.id === thread, "resumed owner identity mismatch");
+    backend.status = optionalString(optionalObject(resumed.status).type) || "unknown";
     return backend;
   } catch (error) {
     rpc.close();
@@ -229,6 +231,14 @@ export class KiteAcp implements AcpConnection {
       return;
     }
     if (message.method === "turn/completed") {
+      const turn = object(params.turn);
+      binding.backend.status =
+        turn.status === "completed" || turn.status === "interrupted" ? "idle" : "systemError";
+      this.publish(binding.record.id, {
+        sessionUpdate: "session_info_update",
+        updatedAt: new Date().toISOString(),
+        _meta: { kite: { turnId: turn.id ?? null, status: turn.status ?? "unknown" } },
+      });
       this.finish(binding, object(params.turn));
       return;
     }
@@ -448,6 +458,7 @@ export class KiteAcp implements AcpConnection {
               machine: this.options.machine,
               provider: binding.record.provider,
               threadId: binding.backend.thread,
+              status: binding.backend.status || "unknown",
             },
           },
         };

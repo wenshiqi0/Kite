@@ -3,6 +3,7 @@ import { createConnection, createServer } from "node:net";
 import { hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { parseArgs } from "node:util";
+import { proc, userManagerCgroup } from "@kite/platform/resources";
 import {
   array,
   check,
@@ -246,9 +247,10 @@ export async function acpTask(options: AcpTaskOptions): Promise<Json> {
     rpc = new AcpRpc((message, reply) => {
       options.event?.(message);
       if (message.method === "session/update") {
-        const update = optionalObject(optionalObject(message.params).update),
-          content = optionalObject(update.content);
-        if (update.sessionUpdate === "agent_message_chunk" && content.type === "text") {
+        const update = optionalObject(optionalObject(message.params).update);
+        if (update.sessionUpdate === "agent_message_chunk") {
+          const content = optionalObject(update.content);
+          if (content.type !== "text") return;
           const text = string(content.text);
           replyBytes += Buffer.byteLength(text);
           check(replyBytes <= ACP_MESSAGE_LIMIT, "remote reply exceeds task result limit");
@@ -317,6 +319,7 @@ export async function acpTask(options: AcpTaskOptions): Promise<Json> {
       "ACP task cancelled before submission",
     );
     activeSession = sessionId;
+    options.event?.({ method: "_kite/session-attached", params: { sessionId } });
     submitted = true;
     const result = await rpc.call(
       "session/prompt",
@@ -330,6 +333,12 @@ export async function acpTask(options: AcpTaskOptions): Promise<Json> {
       10 * 60_000 + 5000,
     );
     return { sessionId, result, text: replies.join("") };
+  } catch (error) {
+    if (activeSession)
+      throw new Error(
+        `${error instanceof Error ? error.message : "ACP task failed"}; remote session: ${activeSession}`,
+      );
+    throw error;
   } finally {
     if (cancelTimer) clearTimeout(cancelTimer);
     options.signal?.removeEventListener("abort", cancel);
@@ -494,6 +503,20 @@ export async function acpMain(argv: string[]): Promise<void> {
   const root = join(home(), ".config/kite/acp"),
     file = values.peers || join(root, "peers.json");
   if (action === "serve") {
+    if (process.platform === "linux" && process.env.KITE_AGENT_RESOURCE_CONTROL === "1") {
+      try {
+        const current = proc(process.pid).cgroup,
+          manager = (await userManagerCgroup(current)).trim();
+        check(
+          manager && (current === manager || current.startsWith(`${manager}/`)),
+          "ACP resource hierarchy unavailable",
+        );
+      } catch {
+        throw new Error(
+          "Run the ACP gateway as a systemd user service so workers retain the configured resource budget (systemd-run --user --collect kite acp serve ...)",
+        );
+      }
+    }
     const port = Number(values.port);
     check(Number.isInteger(port) && port >= 0 && port <= 65535, "invalid ACP port");
     check(

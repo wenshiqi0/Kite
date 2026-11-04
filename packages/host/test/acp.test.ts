@@ -36,6 +36,18 @@ function fixture(hold = false) {
             const p = object(message.params ?? {});
             if (message.method === "session/prompt") {
               send({
+                method: "session/update",
+                params: {
+                  sessionId: "remote-session",
+                  update: {
+                    sessionUpdate: "tool_call",
+                    toolCallId: "compile",
+                    status: "in_progress",
+                    content: [],
+                  },
+                },
+              });
+              send({
                 id: "permission",
                 method: "session/request_permission",
                 params: {

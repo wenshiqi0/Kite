@@ -2,13 +2,16 @@
 
 `kite acp` exposes existing Kite session owners through authenticated ACP v1 JSON-RPC at WebSocket `/acp`. This is the WebSocket profile of the active remote-transport RFD; HTTP/2/SSE and full history replay are not implemented. New network sessions use verified Codex/Ply/DSH providers. Existing Codex/Ply/DSH sessions can be attached with `session/resume`; check negotiated capabilities. Normal Kite history remains available through its host connection.
 
-On the executing machine:
+On a Linux executing machine, run in its existing systemd user hierarchy so agent resource admission remains enforced:
 
 ```sh
-kite acp serve --workspace /absolute/workspace --port 49940
+systemd-run --user --unit kite-acp --collect \
+  kite acp serve --workspace /absolute/workspace --port 49940
 ```
 
 The endpoint binds loopback. It creates a private token at `~/.config/kite/acp/token`; keep tokens and provider credentials out of source, messages and logs. The server uses this host's existing provider configuration and resource budget.
+
+On macOS, run `kite acp serve` directly. Stop only the owned gateway service; disconnecting a client does not stop its model owner.
 
 On the calling machine, create a private `~/.config/kite/acp/peers.json`:
 
