@@ -45,7 +45,10 @@ export class Ply implements NativeAdapter {
       this.config = array(reply.configOptions).map(object);
     }
   }
-  constructor(private options: NativeOptions) {
+  constructor(
+    private options: NativeOptions,
+    private promptTimeout = 3600000,
+  ) {
     this.rpc = new RpcProcess(
       options.command,
       options.cwd,
@@ -126,7 +129,7 @@ export class Ply implements NativeAdapter {
     }
   }
   alive(): boolean {
-    return this.rpc.child.exitCode === null;
+    return this.rpc.child.exitCode === null && this.rpc.child.signalCode === null;
   }
   prepare(): void {
     this.cancelled = false;
@@ -159,10 +162,11 @@ export class Ply implements NativeAdapter {
       await this.rpc.call(
         "session/prompt",
         json({ sessionId: this.session, prompt: blocks }),
-        3600000,
+        this.promptTimeout,
         () => {
           if (this.cancelled) this.cancel();
         },
+        () => this.cancel(),
       ),
     );
     if (reply.stopReason === "cancelled") throw new TurnCancelled();
