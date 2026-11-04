@@ -1153,7 +1153,7 @@ mod tests {
         ];
         let restored: Record =
             serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
-        let saved = views(&[restored.clone()], &[], SessionSort::default()).remove(0);
+        let saved = views(std::slice::from_ref(&restored), &[], SessionSort::default()).remove(0);
         assert_eq!(saved.subagents[0].status, "unknown");
         assert_eq!(saved.subagents[1].status, "done");
         assert_eq!(saved.subagents[1].parent_id, saved.subagents[0].id);
@@ -1164,7 +1164,12 @@ mod tests {
                 "runtime_status":if child.status == "working" {"active"} else {"notLoaded"},"active_flags":[],"last_outcome":if child.status == "done" {Some("completed")}else{None},
             })).collect::<Vec<_>>(),
         })).unwrap();
-        let current = views(&[restored.clone()], &[live.clone()], SessionSort::default()).remove(0);
+        let current = views(
+            std::slice::from_ref(&restored),
+            std::slice::from_ref(&live),
+            SessionSort::default(),
+        )
+        .remove(0);
         assert_eq!(current.subagents[0].status, "working");
         assert_eq!(current.agent_id.as_deref(), Some("terminal"));
         live.subagents = None;
