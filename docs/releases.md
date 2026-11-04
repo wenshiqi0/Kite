@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-11-04
+
+[0.2.0-alpha.83](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.83) / versionCode **85** adds expandable Codex subagent trees and individual activity states. Source and tagged CI checks pass; public checksums, stable signatures, API-23/36 verification, identical APK payloads and alignment are independently verified. The matching public Linux host is installed with all 78 saved references and three active Codex owners preserved, and installed discovery returns the actual worker. Android handset and macOS native rendering remain unverified; the x86_64 Android component run is blocked by the existing Moonlight linker issue. [Evidence](product/2026-11-04/codex-subagents/acceptance.md).
+
 ## Verified delivery — 2026-11-03
 
 [0.2.0-alpha.70](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.70) / versionCode **72** fixes silent Codex terminal failures: errors remain in conversation history after reconnect/continuation, old outcome caches rebuild, and failed turns produce failure notifications. It is based on published Alpha 69 and retains its existing features. Fix PR #15 is merged; server/Rust/Android checks and the owned Android 16 error presentation pass. Tagged CI and independent public signing/checksum/payload/alignment verification pass. The matching official Linux host is installed with seven captured Codex owners and all 54 session references preserved. Update both host and client. [Evidence](product/2026-11-03/codex-turn-failures/acceptance.md).

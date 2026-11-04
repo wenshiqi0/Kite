@@ -11,4 +11,12 @@ Verified before publication:
 - 84 Android JVM tests pass; Release lint and native test-source compilation pass.
 - A read-only scan through the real installed Herdr and existing Codex owner returns the current worker under its original parent with no subagent scan error. Independent metadata reads also recover a real parent/child/grandchild tree with completed and interrupted outcomes. Conversation bodies are not copied into this repository.
 
-Android native rendering is checked separately with a synthetic three-node tree and a temporary application ID. The normal x86_64 NDK link encounters a pre-existing Moonlight CPU-dispatch relocation issue; any fixture-only linker workaround must be recorded and must not be counted as validation of the published ARM64 binary. macOS device rendering is not verified on this Linux host. Public package verification and installation evidence are recorded after the tagged build completes.
+Android native component execution was not completed: the x86_64 NDK link encountered the existing Moonlight CPU-dispatch relocation issue. No fixture linker change was shipped. Android handset rendering and macOS device rendering remain unverified; source compilation and JVM tests are separate evidence.
+
+## Published package and installed host
+
+- [Alpha 83](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.83), Android versionCode 85, is published as a prerelease from source `cd80001448a271d8100db6e1d3ff525d92dd9f95`.
+- [Tagged CI](https://github.com/wenshiqi0/Kite/actions/runs/41849542263) passes on attempt 2. The first attempt stopped at the unchanged native Linux panel screenshot probe; retry passed without source changes.
+- All four public asset checksums match the downloaded files. Primary and compatibility APKs retain the Alpha 82 certificate, pass independent API-23 and API-36 signature checks and 16 KiB alignment, and contain identical application payloads. Package ID and version match the release.
+- The public Linux host is installed by the matching installer's compatible handover. Its running binary matches the published package; the node identity, effective configuration, external services, all 78 saved references and all three verified active Codex owners remain intact.
+- A read-only `agent.list` through the installed Alpha 83 CLI returns the actual worker under its existing parent, with one child tree and no scan errors. No model turn is sent. The Android handset installation remains a user-side update.
