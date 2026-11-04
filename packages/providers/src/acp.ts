@@ -1,5 +1,5 @@
 /** ACP is another client of the existing Kite owners, never another model loop. */
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import {
   array,
@@ -125,6 +125,17 @@ async function connectBackend(
     void rpc.child.exited.then(() =>
       event({ method: "_kite/backend_closed", params: { threadId: thread } }),
     );
+    if (record.provider === "codex") {
+      const loaded = object(
+        object(await backend.call("thread/read", { threadId: thread, includeTurns: false })).thread,
+      );
+      check(loaded.id === thread, "loaded owner identity mismatch");
+      const path = loaded.path;
+      if (path === null || (typeof path === "string" && isAbsolute(path) && !existsSync(path))) {
+        // Naming persists the empty rollout so resume can subscribe before the first turn.
+        await backend.call("thread/name/set", { threadId: thread, name: record.title || "Kite" });
+      }
+    }
     const resumed = object(
       object(await backend.call("thread/resume", { threadId: thread, excludeTurns: true })).thread,
     );
