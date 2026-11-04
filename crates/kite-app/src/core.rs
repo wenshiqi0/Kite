@@ -32,10 +32,12 @@ use tokio::{
     sync::{Mutex as AsyncMutex, Notify, watch},
     task::JoinHandle,
 };
+mod client;
 pub mod clipboard;
 mod conversation;
 mod images;
 mod recovery;
+pub use client::ClientCore;
 pub use conversation::{
     ConversationDelta, ConversationEdit, HistoryStatus, MessageRef, SharedMessages,
 };
@@ -63,6 +65,7 @@ pub struct ConversationSession {
     pub cwd: Option<String>,
     pub archived: bool,
     pub updated_ms: i64,
+    pub created_ms: i64,
     pub agent_id: Option<String>,
     pub status: String,
     pub recorded: bool,
@@ -183,6 +186,8 @@ pub struct Snapshot {
     pub initialized: bool,
     pub key: Option<DeviceKey>,
     pub hosts: Vec<Host>,
+    pub host_connections: Vec<HostConnection>,
+    pub session_sort: SessionSort,
     pub selected_host: Option<String>,
     pub connection: ConnectionPhase,
     pub connection_step: ConnectionStep,
@@ -220,6 +225,8 @@ impl Default for Snapshot {
             initialized: false,
             key: None,
             hosts: Vec::new(),
+            host_connections: Vec::new(),
+            session_sort: SessionSort::default(),
             selected_host: None,
             connection: ConnectionPhase::Disconnected,
             connection_step: ConnectionStep::Idle,
@@ -251,6 +258,24 @@ impl Default for Snapshot {
             notification_problem: None,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct HostConnection {
+    pub host_id: String,
+    pub connection: ConnectionPhase,
+    pub connection_step: ConnectionStep,
+    pub failure: Option<Failure>,
+    pub resources: Option<crate::resources::HostResources>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SessionSort {
+    #[default]
+    Newest,
+    Oldest,
+    RecentActivity,
+    Title,
 }
 
 impl Snapshot {
@@ -298,12 +323,14 @@ pub struct AppCore {
     secrets: Arc<dyn SecretStorage>,
     observer: Arc<dyn Observer>,
     state: Mutex<Snapshot>,
-    store: Mutex<Option<Store>>,
+    store: Arc<Mutex<Option<Store>>>,
+    workspace_host: Option<String>,
     operations: AsyncMutex<()>,
     connected: Mutex<Option<Arc<Connected>>>,
     connect_job: Mutex<Option<JoinHandle<()>>>,
     recovery_job: Mutex<Option<JoinHandle<()>>>,
     desired_connection: Mutex<Option<String>>,
+    connection_intents: Arc<Mutex<BTreeSet<String>>>,
     recovery_attempt: AtomicU64,
     network_available: AtomicBool,
     network_revision: AtomicU64,
@@ -320,19 +347,19 @@ pub struct AppCore {
     history_sync_job: Mutex<Option<JoinHandle<()>>>,
     self_weak: std::sync::Weak<AppCore>,
     pending_messages: Mutex<Vec<PendingMessage>>,
-    paused_processes: Mutex<BTreeMap<String, process::Token>>,
+    paused_processes: Arc<Mutex<BTreeMap<String, process::Token>>>,
     consumed_approvals: Mutex<BTreeSet<String>>,
     agent_starts: Mutex<BTreeMap<String, PendingAgentStart>>,
     chat_clients: AsyncMutex<BTreeMap<String, Arc<ChatClient>>>,
     chat_failures: Mutex<BTreeMap<String, Instant>>,
     uploads: Mutex<BTreeMap<String, Vec<Upload>>>,
     skill_drafts: Mutex<BTreeMap<String, SkillDraft>>,
-    session_book: Mutex<SessionBook>,
-    dirty_histories: Mutex<BTreeSet<String>>,
-    history_cache_written: Mutex<BTreeMap<String, Instant>>,
-    notifications: Mutex<notifications::NotificationInbox>,
+    session_book: Arc<Mutex<SessionBook>>,
+    dirty_histories: Arc<Mutex<BTreeSet<String>>>,
+    history_cache_written: Arc<Mutex<BTreeMap<String, Instant>>>,
+    notifications: Arc<Mutex<notifications::NotificationInbox>>,
     notification_job: Mutex<Option<JoinHandle<()>>>,
-    notification_ready: std::sync::atomic::AtomicBool,
+    notification_ready: Arc<AtomicBool>,
     clipboard_mirrors: Mutex<BTreeMap<String, clipboard::Mirror>>,
     clipboard_operations: AsyncMutex<()>,
 }
@@ -376,17 +403,49 @@ impl AppCore {
     }
 
     pub fn new(secrets: Arc<dyn SecretStorage>, observer: Arc<dyn Observer>) -> Arc<Self> {
+        Self::build(secrets, observer, None, None)
+    }
+
+    fn workspace(base: &Self, host: String, observer: Arc<dyn Observer>) -> Arc<Self> {
+        let core = Self::build(base.secrets.clone(), observer, Some(base), Some(host));
+        core.restore_session_cache();
+        core
+    }
+
+    fn build(
+        secrets: Arc<dyn SecretStorage>,
+        observer: Arc<dyn Observer>,
+        base: Option<&Self>,
+        host: Option<String>,
+    ) -> Arc<Self> {
+        let state = if let Some(base) = base {
+            let base = base.snapshot();
+            Snapshot {
+                initialized: base.initialized,
+                key: base.key,
+                hosts: base.hosts,
+                selected_host: host.clone(),
+                notification_problem: base.notification_problem,
+                ..Snapshot::default()
+            }
+        } else {
+            Snapshot::default()
+        };
         Arc::new_cyclic(|weak| Self {
             self_weak: weak.clone(),
             secrets,
             observer,
-            state: Mutex::new(Snapshot::default()),
-            store: Mutex::new(None),
+            state: Mutex::new(state),
+            store: base.map(|b| b.store.clone()).unwrap_or_default(),
+            workspace_host: host,
             operations: AsyncMutex::new(()),
             connected: Mutex::new(None),
             connect_job: Mutex::new(None),
             recovery_job: Mutex::new(None),
             desired_connection: Mutex::new(None),
+            connection_intents: base
+                .map(|b| b.connection_intents.clone())
+                .unwrap_or_default(),
             recovery_attempt: AtomicU64::new(0),
             network_available: AtomicBool::new(true),
             network_revision: AtomicU64::new(0),
@@ -402,19 +461,23 @@ impl AppCore {
             history_window: Mutex::new(conversation::Transcript::default()),
             history_sync_job: Mutex::new(None),
             pending_messages: Mutex::new(Vec::new()),
-            paused_processes: Mutex::new(BTreeMap::new()),
+            paused_processes: base.map(|b| b.paused_processes.clone()).unwrap_or_default(),
             consumed_approvals: Mutex::new(BTreeSet::new()),
             agent_starts: Mutex::new(BTreeMap::new()),
             chat_clients: AsyncMutex::new(BTreeMap::new()),
             chat_failures: Mutex::new(BTreeMap::new()),
             uploads: Mutex::new(BTreeMap::new()),
             skill_drafts: Mutex::new(BTreeMap::new()),
-            session_book: Mutex::new(SessionBook::default()),
-            dirty_histories: Mutex::new(BTreeSet::new()),
-            history_cache_written: Mutex::new(BTreeMap::new()),
-            notifications: Mutex::new(notifications::NotificationInbox::default()),
+            session_book: base.map(|b| b.session_book.clone()).unwrap_or_default(),
+            dirty_histories: base.map(|b| b.dirty_histories.clone()).unwrap_or_default(),
+            history_cache_written: base
+                .map(|b| b.history_cache_written.clone())
+                .unwrap_or_default(),
+            notifications: base.map(|b| b.notifications.clone()).unwrap_or_default(),
             notification_job: Mutex::new(None),
-            notification_ready: std::sync::atomic::AtomicBool::new(false),
+            notification_ready: base
+                .map(|b| b.notification_ready.clone())
+                .unwrap_or_default(),
             clipboard_mirrors: Mutex::new(BTreeMap::new()),
             clipboard_operations: AsyncMutex::new(()),
         })
@@ -439,7 +502,7 @@ impl AppCore {
         if let Some(d) = data {
             self.update(|s| {
                 s.hosts = d.hosts;
-                s.selected_host = d.selected_host;
+                s.selected_host = self.workspace_host.clone().or(d.selected_host);
             });
         }
     }
@@ -621,7 +684,7 @@ impl AppCore {
         automatic: bool,
     ) -> Result<(), AppError> {
         let core = self;
-        {
+        if core.workspace_host.is_none() {
             let mut store = lock(&core.store);
             let store = store
                 .as_mut()
@@ -1691,6 +1754,7 @@ impl AppCore {
             core.reset_history_view();
             core.update(|s| {
                 s.selected_agent = Some(id);
+                s.selected_session = None;
                 s.composer = Composer::default();
                 s.agent_output.clear();
                 s.replace_conversation(Vec::new(), false);

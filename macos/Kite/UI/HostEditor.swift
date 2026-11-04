@@ -100,7 +100,9 @@ struct SessionEditor: View {
                 Spacer(); Button(tr("cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(tr("create")) {
                     let provider = provider, title = title, cwd = cwd
-                    model.command { try await $0.createSession(provider: provider, cwd: cwd, title: title) }
+                    if let host = model.snapshot?.selectedHost {
+                        model.command { try await $0.createSession(hostId: host, provider: provider, cwd: cwd, title: title) }
+                    }
                     dismiss()
                 }.buttonStyle(.borderedProminent).disabled(provider.isEmpty)
             }

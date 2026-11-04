@@ -17,7 +17,7 @@ struct ChatPane: View {
                 if let state = model.snapshot, let id = state.selectedAgent,
                    state.agents.first(where: { $0.id == id })?.canPause == true {
                     Button(tr(state.agentPause == .paused ? "resume_agent" : "pause_agent")) {
-                        model.command { try await $0.setAgentPaused(agentId: id, paused: state.agentPause != .paused) }
+                        model.command { try await $0.setAgentPaused(hostId: state.selectedHost ?? "", agentId: id, paused: state.agentPause != .paused) }
                     }.buttonStyle(.borderless).font(.caption)
                 }
             }.padding(14)
@@ -38,10 +38,10 @@ struct ChatPane: View {
                                 Button(tr("retry_history")) { model.command { try await $0.retryHistory() } }
                             }
                             if let approval = model.snapshot?.approval, let agent = model.snapshot?.selectedAgent {
-                                ApprovalCard(model: model, approval: approval, agent: agent).id(approval.id)
+                                ApprovalCard(model: model, approval: approval, agent: agent, host: model.snapshot?.selectedHost ?? "").id(approval.id)
                             }
                             if let question = model.snapshot?.question, let agent = model.snapshot?.selectedAgent {
-                                QuestionCard(model: model, question: question, agent: agent).id(question.id)
+                                QuestionCard(model: model, question: question, agent: agent, host: model.snapshot?.selectedHost ?? "").id(question.id)
                             }
                             if let phase = model.snapshot?.responsePhase, phase != .idle {
                                 HStack(spacing: 8) {
@@ -77,7 +77,7 @@ struct ChatPane: View {
                         ForEach(state.composer.settings, id: \.id) { setting in
                             Menu {
                                 ForEach(setting.options, id: \.value) { choice in
-                                    Button(choice.name) { model.command { try await $0.setChatSetting(agentId: agent, setting: setting.id, value: choice.value) } }
+                                    Button(choice.name) { model.command { try await $0.setChatSetting(hostId: state.selectedHost ?? "", agentId: agent, setting: setting.id, value: choice.value) } }
                                 }
                             } label: {
                                 Label(setting.options.first(where: { $0.value == setting.currentValue })?.name ?? setting.name, systemImage: "lock.shield")
@@ -89,7 +89,7 @@ struct ChatPane: View {
                 HStack(spacing: 8) {
                     Menu {
                         ForEach(state.composer.models, id: \.model) { choice in
-                            Button(choice.name) { model.command { try await $0.setChatModel(agentId: agent, model: choice.model, effort: choice.defaultEffort) } }
+                            Button(choice.name) { model.command { try await $0.setChatModel(hostId: state.selectedHost ?? "", agentId: agent, model: choice.model, effort: choice.defaultEffort) } }
                         }
                         Divider()
                         Button(tr("refresh")) { model.command { try await $0.reloadComposer() } }
@@ -98,7 +98,7 @@ struct ChatPane: View {
                     if let selected = state.composer.models.first(where: { $0.model == state.composer.model }), !selected.efforts.isEmpty {
                         Menu(state.composer.effort) {
                             ForEach(selected.efforts, id: \.self) { effort in
-                                Button(effort) { model.command { try await $0.setChatModel(agentId: agent, model: state.composer.model, effort: effort) } }
+                                Button(effort) { model.command { try await $0.setChatModel(hostId: state.selectedHost ?? "", agentId: agent, model: state.composer.model, effort: effort) } }
                             }
                         }.menuStyle(.borderlessButton).fixedSize()
                     }
@@ -111,7 +111,7 @@ struct ChatPane: View {
                     ScrollView(.horizontal) {
                         HStack {
                             ForEach(state.composer.skills.selected, id: \.path) { skill in
-                                Button { model.command { try await $0.selectSkill(agentId: agent, path: skill.path, selected: false) } } label: {
+                                Button { model.command { try await $0.selectSkill(hostId: state.selectedHost ?? "", agentId: agent, path: skill.path, selected: false) } } label: {
                                     Label(skill.displayName ?? skill.name, systemImage: "xmark.circle.fill")
                                 }.buttonStyle(.bordered).font(.caption)
                             }
@@ -125,7 +125,7 @@ struct ChatPane: View {
                             Text(upload.file.name).lineLimit(1)
                             if !upload.ready && !upload.failed { ProgressView().controlSize(.small) }
                             Spacer()
-                            Button { model.command { try await $0.removeAttachment(agentId: agent, uploadId: upload.file.id) } } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+                            Button { model.command { try await $0.removeAttachment(hostId: state.selectedHost ?? "", agentId: agent, uploadId: upload.file.id) } } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                         }.font(.caption)
                     }
                 }
@@ -238,6 +238,7 @@ struct ApprovalCard: View {
     let model: ClientModel
     let approval: ApprovalInfo
     let agent: String
+    let host: String
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(tr("approval_required"), systemImage: "hand.raised").fontWeight(.medium)
@@ -253,7 +254,7 @@ struct ApprovalCard: View {
             }
             HStack {
                 ForEach(Array(approval.choices.enumerated()), id: \.offset) { index, choice in
-                    Button(choice.label) { model.command { try await $0.respondApproval(agentId: agent, requestId: approval.id, choice: UInt32(index)) } }
+                    Button(choice.label) { model.command { try await $0.respondApproval(hostId: host, agentId: agent, requestId: approval.id, choice: UInt32(index)) } }
                 }
             }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -265,6 +266,7 @@ struct QuestionCard: View {
     let model: ClientModel
     let question: QuestionInfo
     let agent: String
+    let host: String
     @State private var answers: [String: String] = [:]
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -292,7 +294,7 @@ struct QuestionCard: View {
             }
             Button(tr("submit_answer")) {
                 let values = question.fields.map { QuestionAnswerInfo(questionId: $0.id, value: answers[$0.id] ?? "") }
-                model.command { try await $0.answerQuestion(agentId: agent, requestId: question.id, answers: values) }
+                model.command { try await $0.answerQuestion(hostId: host, agentId: agent, requestId: question.id, answers: values) }
             }.buttonStyle(.borderedProminent).disabled(question.fields.contains { answers[$0.id]?.isEmpty != false })
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             .background(.cyan.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
@@ -308,9 +310,9 @@ struct SkillPicker: View {
             if model.snapshot?.composer.skills.loading == true { ProgressView() }
             List((model.snapshot?.composer.skills.available ?? []).filter { search.isEmpty || ($0.displayName ?? $0.name).localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }, id: \.path) { skill in
                 Button {
-                    if let id = model.snapshot?.selectedAgent {
+                    if let id = model.snapshot?.selectedAgent, let host = model.snapshot?.selectedHost {
                         let selected = model.snapshot?.composer.skills.selected.contains { $0.path == skill.path } == true
-                        model.command { try await $0.selectSkill(agentId: id, path: skill.path, selected: !selected) }
+                        model.command { try await $0.selectSkill(hostId: host, agentId: id, path: skill.path, selected: !selected) }
                     }
                 } label: {
                     HStack {

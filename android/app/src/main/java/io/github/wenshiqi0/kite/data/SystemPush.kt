@@ -52,15 +52,16 @@ class SystemPush(private val context:Context,private val engine:CoreController) 
         }
         if(token==null){status=Status.REGISTERING;return}
         val state=engine.state.value?:return
-        if(state.connection!=ConnectionStatus.CONNECTED){registered=null;return}
-        val key="${state.selectedHost}/$token"
+        val hosts=state.hostConnections.filter{it.connection==ConnectionStatus.CONNECTED}.map{it.hostId}.sorted()
+        if(hosts.isEmpty()){registered=null;return}
+        val key="$hosts/$token"
         if(registered==key||busy)return
         busy=true;status=Status.REGISTERING
         val sending=token!!
         engine.scope.launch {
             try {
                 val configured=engine.core.registerPush(deviceId,sending,FirebaseOptions.fromResource(context)!!.projectId.orEmpty())
-                if(engine.state.value?.selectedHost==state.selectedHost&&token==sending){registered=if(configured)key else null;status=if(configured)Status.READY else Status.HOST_UNCONFIGURED;if(!configured)retryAt=System.currentTimeMillis()+30_000}
+                if(engine.state.value?.hostConnections?.filter{it.connection==ConnectionStatus.CONNECTED}?.map{it.hostId}?.sorted()==hosts&&token==sending){registered=if(configured)key else null;status=if(configured)Status.READY else Status.HOST_UNCONFIGURED;if(!configured)retryAt=System.currentTimeMillis()+30_000}
             }catch(e:kotlinx.coroutines.CancellationException){throw e}
             catch(_:Exception){status=Status.RETRY;retryAt=System.currentTimeMillis()+30_000}
             finally{busy=false}
@@ -72,7 +73,7 @@ class SystemPush(private val context:Context,private val engine:CoreController) 
             status=Status.DISABLED
             token=null;sdkRegistered=false;preferences.edit().remove("token").apply()
             messaging()?.let{it.isAutoInitEnabled=false;it.unregister()}
-            if(engine.state.value?.connection==ConnectionStatus.CONNECTED)engine.scope.launch{runCatching{engine.core.registerPush(deviceId,null,"")}}
+            if(engine.state.value?.hostConnections?.any{it.connection==ConnectionStatus.CONNECTED}==true)engine.scope.launch{runCatching{engine.core.registerPush(deviceId,null,"")}}
         }else{retryAt=0;refresh()}
     }
 }

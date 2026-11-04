@@ -6,6 +6,11 @@ pub(super) struct ConnectionIntent {
     pub host_id: Option<String>,
 }
 
+#[derive(Default, Serialize, Deserialize)]
+pub(super) struct Connections {
+    pub hosts: BTreeSet<String>,
+}
+
 pub(super) fn retryable(error: &AppError) -> bool {
     match error {
         AppError::Ssh(error)
@@ -38,11 +43,32 @@ impl AppCore {
         let intent = ConnectionIntent {
             host_id: host_id.clone(),
         };
+        let mut intents = lock(&self.connection_intents);
+        let mut next = intents.clone();
+        if let Some(previous) = self
+            .workspace_host
+            .as_ref()
+            .cloned()
+            .or_else(|| lock(&self.desired_connection).clone())
+        {
+            next.remove(&previous);
+        }
+        next.extend(host_id.iter().cloned());
         if let Some(store) = lock(&self.store).as_ref() {
-            store.write_document("connection-intent", &intent)?;
+            if self.workspace_host.is_some() {
+                store.write_document(
+                    "connections",
+                    &Connections {
+                        hosts: next.clone(),
+                    },
+                )?;
+            } else {
+                store.write_document("connection-intent", &intent)?;
+            }
         } else if host_id.is_some() {
             return Err(AppError::State("core is not initialized".into()));
         }
+        *intents = next;
         *lock(&self.desired_connection) = host_id;
         Ok(())
     }

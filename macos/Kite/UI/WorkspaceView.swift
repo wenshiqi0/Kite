@@ -75,25 +75,40 @@ struct WorkspaceView: View {
             List {
                 Section(tr("machines")) {
                     ForEach(model.snapshot?.hosts ?? [], id: \.id) { host in
+                        let connection = model.snapshot?.hostConnections.first { $0.hostId == host.id }?.connection ?? .disconnected
+                        let selected = host.id == model.snapshot?.selectedHost
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "desktopcomputer").foregroundStyle(host.id == model.snapshot?.selectedHost && model.connected ? .cyan : .secondary).padding(.top, 3)
+                            Image(systemName: selected ? "checkmark.circle.fill" : "desktopcomputer").foregroundStyle(connection == .connected ? .cyan : .secondary).padding(.top, 3)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(host.host).fontWeight(.medium).lineLimit(1)
-                                Text(host.id == model.snapshot?.selectedHost ? connectionLabel : tr("disconnected"))
+                                Text(connectionLabel(for: connection))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 2)
                             Button { editor = HostDraft(host) } label: { Image(systemName: "pencil") }
                                 .buttonStyle(.borderless).help(tr("edit_host"))
                             Button { model.connect(host.id) } label: { Image(systemName: host.id == model.snapshot?.selectedHost && model.connected ? "checkmark.circle.fill" : "arrow.right.circle") }
-                                .buttonStyle(.borderless).disabled(model.busy || model.snapshot?.connection == .connecting)
+                                .buttonStyle(.borderless).disabled(model.busy)
                                 .help(tr("connect"))
                         }.padding(.vertical, 7)
-                            .contextMenu { Button(tr("edit_host")) { editor = HostDraft(host) } }
+                            .contextMenu {
+                                Button(tr("edit_host")) { editor = HostDraft(host) }
+                                Button(tr("disconnect")) { model.command(scoped: false) { try await $0.disconnectHost(hostId: host.id) } }
+                            }
                     }
                     if model.snapshot?.hosts.isEmpty != false { Button(tr("add_host")) { editor = HostDraft() } }
                 }
                 if model.connected {
+                    if let state = model.snapshot, let host = state.selectedHost {
+                        Picker(tr("session_sort"), selection: Binding(get: { state.sessionSort }, set: { order in
+                            model.command { try await $0.setSessionSort(hostId: host, order: order) }
+                        })) {
+                            Text(tr("sort_newest")).tag(SessionSortOrder.newest)
+                            Text(tr("sort_oldest")).tag(SessionSortOrder.oldest)
+                            Text(tr("sort_activity")).tag(SessionSortOrder.recentActivity)
+                            Text(tr("sort_title")).tag(SessionSortOrder.title)
+                        }
+                    }
                     Section {
                         ForEach((model.snapshot?.sessions ?? []).filter { $0.archived == model.showArchived }, id: \.id) { session in
                             Button { model.open(session) } label: {
@@ -106,9 +121,12 @@ struct WorkspaceView: View {
                                     }
                                 }.padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain)
+                            .listRowBackground(session.id == model.snapshot?.selectedSession ? Color.cyan.opacity(0.12) : Color.clear)
                             .contextMenu {
                                 Button(tr(session.archived ? "restore_session" : "archive_session")) {
-                                    model.command { try await $0.archiveSession(sessionId: session.id, archived: !session.archived) }
+                                    if let host = model.snapshot?.selectedHost {
+                                        model.command { try await $0.archiveSession(hostId: host, sessionId: session.id, archived: !session.archived) }
+                                    }
                                 }
                             }
                         }
@@ -118,6 +136,7 @@ struct WorkspaceView: View {
                             Button { creatingSession = true } label: { Image(systemName: "plus") }.buttonStyle(.plain)
                         }
                     }
+                    .id(model.snapshot?.selectedHost)
                 }
             }.listStyle(.sidebar)
             Spacer(minLength: 0)
@@ -134,7 +153,10 @@ struct WorkspaceView: View {
         }
     }
     private var connectionLabel: String {
-        switch model.snapshot?.connection {
+        connectionLabel(for: model.snapshot?.connection ?? .disconnected)
+    }
+    private func connectionLabel(for connection: ConnectionStatus) -> String {
+        switch connection {
         case .connected: tr("connected")
         case .connecting: tr("connecting")
         case .reconnecting: tr("reconnecting")
@@ -191,7 +213,7 @@ struct DesktopPane: View {
                             Text(tr("pairing_instruction")).multilineTextAlignment(.center)
                             Text(model.snapshot?.desktop.pin ?? "").font(.system(size: 36, weight: .medium, design: .monospaced)).textSelection(.enabled)
                             Button(tr("approve_pairing")) {
-                                if let pin = model.snapshot?.desktop.pin { model.command { try await $0.approvePairing(pin: pin) } }
+                                if let pin = model.snapshot?.desktop.pin, let host = model.snapshot?.selectedHost { model.command { try await $0.approvePairing(hostId: host, pin: pin) } }
                             }
                         } else if model.snapshot?.desktop.status == .starting || model.snapshot?.desktop.status == .stopping {
                             ProgressView(tr("desktop_connecting"))

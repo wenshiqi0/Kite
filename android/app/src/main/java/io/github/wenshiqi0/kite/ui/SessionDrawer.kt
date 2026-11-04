@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,32 +36,65 @@ import io.github.wenshiqi0.kite.core.*
 @Composable fun sessionTitle(session: SessionInfo): String = session.title.ifBlank { providerLabel(session.provider) + " · " + stringResource(R.string.new_session_short) }
 
 @Composable
-fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String) -> Unit, create: () -> Unit, settings: () -> Unit) {
-    var archived by rememberSaveable { mutableStateOf(false) }
+fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String, String) -> Unit, create: () -> Unit, settings: () -> Unit) {
+    val host = state?.selectedHost.orEmpty()
+    var archived by rememberSaveable(host) { mutableStateOf(false) }
+    var query by rememberSaveable(host) { mutableStateOf("") }
+    var sortMenu by remember(host) { mutableStateOf(false) }
+    var hostsMenu by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
     Column(Modifier.fillMaxHeight().width(310.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.app_name), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             val description = stringResource(R.string.close_navigation)
             IconButton(onClick = close, modifier = Modifier.semantics { contentDescription = description }) { ProductIcon(Mark.Close) }
         }
+        Box(Modifier.padding(horizontal = 14.dp)) {
+            TextButton(onClick = { hostsMenu = true }) {
+                ProductIcon(Mark.Monitor, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text(state?.hosts?.find { it.id == host }?.host ?: stringResource(R.string.hosts_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            DropdownMenu(hostsMenu, { hostsMenu = false }) {
+                state?.hosts.orEmpty().forEach { machine ->
+                    val connected = state?.hostConnections?.find { it.hostId == machine.id }?.connection == ConnectionStatus.CONNECTED
+                    DropdownMenuItem(text = { Text((if(machine.id == host) "✓ " else "") + machine.host + if(connected) " · " + stringResource(R.string.host_online) else "") },
+                        onClick = { hostsMenu = false; vm.connectSaved(machine) }, enabled = !vm.sessionBusy)
+                }
+            }
+        }
         TextButton(onClick = create, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.creatingAgent && !vm.sessionBusy, modifier = Modifier.padding(horizontal = 14.dp)) { ProductIcon(Mark.Plus); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.new_session)) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(false, true).forEach { filter ->
-                FilterChip(selected = archived == filter, onClick = { archived = filter }, label = { Text(stringResource(if (filter) R.string.archived_sessions else R.string.active_sessions)) })
+                FilterChip(selected = archived == filter, onClick = { archived = filter }, label = { Text(stringResource(if (filter) R.string.archived_sessions else R.string.active_sessions) + " (${state?.sessions.orEmpty().count { it.archived == filter }})") })
             }
         }
-        val sessions = remember(state?.sessions,archived){state?.sessions.orEmpty().filter { it.archived == archived }}
+        OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_sessions)) }, singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        Box(Modifier.padding(horizontal = 14.dp)) {
+            TextButton(onClick = { sortMenu = true }) { Text(stringResource(sessionSortLabel(state?.sessionSort ?: SessionSortOrder.NEWEST))) }
+            DropdownMenu(sortMenu, { sortMenu = false }) {
+                SessionSortOrder.entries.forEach { order ->
+                    DropdownMenuItem(text = { Text((if(state?.sessionSort == order) "✓ " else "") + stringResource(sessionSortLabel(order))) },
+                        onClick = { sortMenu = false; vm.setSessionSort(order) }, enabled = !vm.sessionBusy)
+                }
+            }
+        }
+        val sessions = remember(state?.sessions,archived,query){state?.sessions.orEmpty().filter { it.archived == archived && (query.isBlank() || it.title.contains(query,true) || it.preview.contains(query,true) || it.provider.contains(query,true)) }}
+        LaunchedEffect(host, archived, state?.sessionSort) {
+            val selected = sessions.indexOfFirst { it.id == state?.selectedSession }
+            listState.scrollToItem(selected.coerceAtLeast(0))
+        }
         if (archived) ArchivedReleaseControls(
             enabled = state?.connection == ConnectionStatus.CONNECTED && state.providers.any { it.release } && !vm.sessionBusy,
             releasing = vm.releasingArchived,
             result = vm.archiveReleaseStatus?.takeIf { vm.archiveReleaseHost == state?.selectedHost },
             onRelease = vm::releaseArchivedSessions)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(sessions, key = { it.id },contentType={"session"}) { session ->
-                var menu by remember(session.id) { mutableStateOf(false) }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(sessions, key = { "$host/${it.id}" },contentType={"session"}) { session ->
+                var menu by remember(host,session.id) { mutableStateOf(false) }
                 val selected = state?.selectedSession == session.id
                 Surface(color = if (selected) KiteColors.AccentSurface else Color.Transparent, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().clickable { open(session.id) }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().semantics { this.selected = selected }.clickable(enabled = !vm.sessionBusy) { open(host, session.id) }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(providerLabel(session.provider), fontSize = 10.sp, color = KiteColors.Muted)
@@ -74,8 +109,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                             val label = stringResource(R.string.session_actions)
                             IconButton(onClick = { menu = true }, modifier = Modifier.size(40.dp).semantics { contentDescription = label }) { ProductIcon(Mark.More, modifier = Modifier.size(17.dp)) }
                             DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem(text = { Text(stringResource(if (archived) R.string.restore_session else R.string.archive_session)) }, onClick = { menu = false; vm.archiveSession(session.id, !session.archived) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
-                                DropdownMenuItem(text = { Text(stringResource(R.string.delete_session), color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; vm.requestSessionDeletion(session) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
+                                DropdownMenuItem(text = { Text(stringResource(if (archived) R.string.restore_session else R.string.archive_session)) }, onClick = { menu = false; vm.archiveSession(session.id, !session.archived, host) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
+                                DropdownMenuItem(text = { Text(stringResource(R.string.delete_session), color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; vm.requestSessionDeletion(session, host) }, enabled = state?.connection == ConnectionStatus.CONNECTED && !vm.sessionBusy)
                             }
                         }
                     }
@@ -85,6 +120,13 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
         }
         TextButton(onClick = settings, modifier = Modifier.padding(12.dp)) { ProductIcon(Mark.Settings); Spacer(Modifier.width(10.dp)); Text(stringResource(R.string.host_settings)) }
     }
+}
+
+internal fun sessionSortLabel(order: SessionSortOrder): Int = when(order) {
+    SessionSortOrder.NEWEST -> R.string.sort_newest
+    SessionSortOrder.OLDEST -> R.string.sort_oldest
+    SessionSortOrder.RECENT_ACTIVITY -> R.string.sort_activity
+    SessionSortOrder.TITLE -> R.string.sort_title
 }
 
 @Composable

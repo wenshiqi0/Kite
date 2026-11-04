@@ -20,6 +20,8 @@ pub(super) struct SessionBook {
     catalogs: BTreeMap<String, Vec<Record>>,
     selected: BTreeMap<String, Option<String>>,
     revisions: BTreeMap<String, u64>,
+    #[serde(default)]
+    sorts: BTreeMap<String, SessionSort>,
     #[serde(default, skip_serializing)]
     pub(super) histories: BTreeMap<String, CachedConversation>,
 }
@@ -42,7 +44,7 @@ fn now_ms() -> i64 {
         .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
         .unwrap_or(0)
 }
-fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
+fn views(records: &[Record], agents: &[Agent], sort: SessionSort) -> Vec<ConversationSession> {
     let mut result: Vec<_> = records
         .iter()
         .map(|r| {
@@ -55,6 +57,7 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
                 cwd: r.cwd.clone(),
                 archived: r.archived,
                 updated_ms: r.updated_ms,
+                created_ms: r.created_ms,
                 agent_id: live.map(|a| a.terminal_id.clone()),
                 status: live
                     .map(|a| {
@@ -69,12 +72,47 @@ fn views(records: &[Record], agents: &[Agent]) -> Vec<ConversationSession> {
             }
         })
         .collect();
-    result.sort_by(|a, b| {
-        b.updated_ms
-            .cmp(&a.updated_ms)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    sort_views(&mut result, sort);
     result
+}
+
+fn sort_views(result: &mut [ConversationSession], sort: SessionSort) {
+    result.sort_by(|a, b| {
+        (match sort {
+            SessionSort::Newest => b.created_ms.cmp(&a.created_ms),
+            SessionSort::Oldest => a.created_ms.cmp(&b.created_ms),
+            SessionSort::RecentActivity => b.updated_ms.cmp(&a.updated_ms),
+            SessionSort::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        })
+        .then_with(|| b.created_ms.cmp(&a.created_ms))
+        .then_with(|| a.id.cmp(&b.id))
+    });
+}
+
+/// Use the order the user acted on, before the remote mutation changes metadata.
+fn next_session(
+    previous: &[ConversationSession],
+    removed: &str,
+    records: &[Record],
+    sort: SessionSort,
+) -> Option<String> {
+    let available = |id: &str| {
+        records
+            .iter()
+            .any(|r| r.id == id && !r.archived && r.id != removed)
+    };
+    if let Some(at) = previous.iter().position(|s| s.id == removed)
+        && let Some(next) = previous[at + 1..]
+            .iter()
+            .chain(previous[..at].iter().rev())
+            .find(|s| available(&s.id))
+    {
+        return Some(next.id.clone());
+    }
+    views(records, &[], sort)
+        .into_iter()
+        .find(|s| available(&s.id))
+        .map(|s| s.id)
 }
 
 fn activity_status<'a>(
@@ -111,6 +149,25 @@ fn activity_status<'a>(
 }
 
 impl AppCore {
+    pub async fn set_session_sort(self: &Arc<Self>, sort: SessionSort) -> Result<(), AppError> {
+        let core = self.clone();
+        dispatch(async move {
+            let _guard = core.operations.lock().await;
+            let host = core
+                .snapshot()
+                .selected_host
+                .ok_or_else(|| AppError::State("host unavailable".into()))?;
+            lock(&core.session_book).sorts.insert(host.clone(), sort);
+            core.persist_session_book()?;
+            core.update(|s| {
+                s.session_sort = sort;
+                sort_views(&mut s.sessions, sort);
+            });
+            Ok(())
+        })
+        .await
+    }
+
     pub(super) async fn refresh_session_activity(&self, c: &Connected, generation: u64) {
         #[derive(Deserialize)]
         struct Facts {
@@ -275,7 +332,8 @@ impl AppCore {
             .as_ref()
             .and_then(|id| self.cached_history(&host, id));
         self.update(|s| {
-            s.sessions = views(&records, &s.agents);
+            s.session_sort = book.sorts.get(&host).copied().unwrap_or_default();
+            s.sessions = views(&records, &s.agents, s.session_sort);
             s.selected_session = selected;
             if s.selected_agent.is_none() {
                 s.replace_shared_conversation(
@@ -385,16 +443,16 @@ impl AppCore {
         };
         let current = self.snapshot();
         let mut selected = current
-            .selected_agent
-            .as_ref()
-            .and_then(|id| agents.iter().find(|a| &a.terminal_id == id))
-            .and_then(|a| catalog.sessions.iter().find(|r| r.matches(a)))
-            .map(|r| r.id.clone());
+            .selected_session
+            .clone()
+            .filter(|id| catalog.sessions.iter().any(|r| &r.id == id));
         if selected.is_none() {
             selected = current
-                .selected_session
-                .clone()
-                .filter(|id| catalog.sessions.iter().any(|r| &r.id == id));
+                .selected_agent
+                .as_ref()
+                .and_then(|id| agents.iter().find(|a| &a.terminal_id == id))
+                .and_then(|a| catalog.sessions.iter().find(|r| r.matches(a)))
+                .map(|r| r.id.clone());
         }
         if selected.is_none() {
             selected = lock(&self.session_book)
@@ -405,12 +463,10 @@ impl AppCore {
                 .filter(|id| catalog.sessions.iter().any(|r| &r.id == id));
         }
         if selected.is_none() && current.selected_agent.is_none() {
-            selected = catalog
-                .sessions
-                .iter()
-                .filter(|r| !r.archived)
-                .max_by_key(|r| r.updated_ms)
-                .map(|r| r.id.clone());
+            selected = views(&catalog.sessions, agents, current.session_sort)
+                .into_iter()
+                .find(|r| !r.archived)
+                .map(|r| r.id);
         }
         let record = selected
             .as_ref()
@@ -437,7 +493,7 @@ impl AppCore {
         let cache = selected
             .as_ref()
             .and_then(|id| self.cached_history(&c.host.id, id));
-        let mut all_views = views(&catalog.sessions, agents);
+        let mut all_views = views(&catalog.sessions, agents, current.session_sort);
         for view in &mut all_views {
             if let Some(previous) = current
                 .sessions
@@ -502,15 +558,15 @@ impl AppCore {
                 .get(&c.host.id)
                 .cloned()
                 .flatten();
+            let ordered = views(&catalog.sessions, agents, self.snapshot().session_sort);
             let record = selected
                 .as_ref()
                 .and_then(|id| catalog.sessions.iter().find(|r| &r.id == id && !r.archived))
                 .or_else(|| {
-                    catalog
-                        .sessions
+                    ordered
                         .iter()
-                        .filter(|r| !r.archived)
-                        .max_by_key(|r| r.updated_ms)
+                        .find(|r| !r.archived)
+                        .and_then(|view| catalog.sessions.iter().find(|r| r.id == view.id))
                 });
             if let Some(record) = record.filter(|r| {
                 r.provider == "codex"
@@ -743,33 +799,9 @@ impl AppCore {
         dispatch(async move {
             let _guard = core.operations.lock().await;
             let c = core.connection()?;
+            let before = core.snapshot();
             let catalog = Repository::new(&c.ssh).archive(&id, archived).await?;
-            core.install_catalog(&c.host.id, &catalog)?;
-            if archived && core.snapshot().selected_session.as_ref() == Some(&id) {
-                core.reset_history_view();
-                let next = catalog
-                    .sessions
-                    .iter()
-                    .filter(|r| !r.archived)
-                    .max_by_key(|r| r.updated_ms)
-                    .map(|r| r.id.clone());
-                lock(&core.session_book)
-                    .selected
-                    .insert(c.host.id.clone(), next.clone());
-                core.update(|s| {
-                    s.selected_session = next;
-                    s.selected_agent = None;
-                    s.replace_conversation(Vec::new(), false);
-                    s.conversation_available = false;
-                    s.history_status = HistoryStatus::default();
-                    s.composer = Composer::default();
-                    s.approval = None;
-                    s.question = None;
-                    s.response_activity = ResponseActivity::Idle;
-                });
-                core.persist_session_book()?;
-                *lock(&core.history) = None;
-            }
+            core.apply_session_archive(&c.host.id, &id, archived, &catalog, &before)?;
             let agents = core.snapshot().agents;
             drop(_guard);
             core.sync_sessions(&c, &agents, core.generation.load(Ordering::SeqCst))
@@ -777,6 +809,58 @@ impl AppCore {
             Ok(())
         })
         .await
+    }
+
+    fn apply_session_archive(
+        &self,
+        host: &str,
+        id: &str,
+        archived: bool,
+        catalog: &Catalog,
+        before: &Snapshot,
+    ) -> Result<(), AppError> {
+        let catalog = self.install_catalog(host, catalog)?;
+        let selected = archived && before.selected_session.as_deref() == Some(id);
+        let next = if selected {
+            next_session(&before.sessions, id, &catalog.sessions, before.session_sort)
+        } else {
+            before.selected_session.clone()
+        };
+        let cache = if selected {
+            next.as_ref().and_then(|id| self.cached_history(host, id))
+        } else {
+            None
+        };
+        if selected {
+            self.reset_history_view();
+            lock(&self.session_book)
+                .selected
+                .insert(host.to_owned(), next.clone());
+            self.persist_session_book()?;
+            *lock(&self.history) = None;
+        }
+        self.update(|s| {
+            s.sessions = views(&catalog.sessions, &s.agents, s.session_sort);
+            if selected {
+                s.selected_session = next;
+                s.selected_agent = None;
+                s.replace_shared_conversation(
+                    cache
+                        .as_ref()
+                        .map(|c| c.messages.as_ref().clone())
+                        .unwrap_or_default(),
+                    cache.is_some_and(|c| c.available),
+                );
+                s.history_status = HistoryStatus::default();
+                s.composer = Composer::default();
+                s.approval = None;
+                s.question = None;
+                s.response_activity = ResponseActivity::Idle;
+                s.agent_output.clear();
+                s.agent_pause = AgentPause::Running;
+            }
+        });
+        Ok(())
     }
 
     pub async fn delete_session(
@@ -841,17 +925,13 @@ impl AppCore {
         agents: Vec<Agent>,
     ) -> Result<(), AppError> {
         let selected = self.snapshot().selected_session.as_deref() == Some(id);
+        let before = self.snapshot();
         if selected {
             self.reset_history_view();
         }
         let catalog = self.install_catalog(host, catalog)?;
         let next = if selected {
-            catalog
-                .sessions
-                .iter()
-                .filter(|r| !r.archived)
-                .max_by_key(|r| r.updated_ms)
-                .map(|r| r.id.clone())
+            next_session(&before.sessions, id, &catalog.sessions, before.session_sort)
         } else {
             self.snapshot().selected_session
         };
@@ -862,7 +942,7 @@ impl AppCore {
             .then(|| next.as_ref().and_then(|id| self.cached_history(host, id)))
             .flatten();
         self.update(|snapshot| {
-            snapshot.sessions = views(&catalog.sessions, &agents);
+            snapshot.sessions = views(&catalog.sessions, &agents, snapshot.session_sort);
             snapshot.agents = agents;
             if selected {
                 snapshot.selected_session = next;
@@ -965,7 +1045,7 @@ impl AppCore {
             core.persist_session_book()?;
             core.reset_history_view();
             core.update(|s| {
-                s.sessions = views(&catalog.sessions, &s.agents);
+                s.sessions = views(&catalog.sessions, &s.agents, s.session_sort);
                 s.selected_session = Some(id.clone());
                 s.selected_agent = None;
                 s.replace_conversation(Vec::new(), false);
@@ -1021,6 +1101,59 @@ impl AppCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creation_order_does_not_move_on_activity_or_archive_and_ties_are_deterministic() {
+        let mut records: Vec<_> = [("b", 10), ("c", 20), ("a", 10)]
+            .into_iter()
+            .map(|(id, created)| {
+                Record::draft(id.into(), "codex".into(), id.to_uppercase(), None, created)
+            })
+            .collect();
+        let ids = |sort| {
+            views(&records, &[], sort)
+                .into_iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(SessionSort::Newest), ["c", "a", "b"]);
+        assert_eq!(ids(SessionSort::Oldest), ["a", "b", "c"]);
+        assert_eq!(ids(SessionSort::Title), ["a", "b", "c"]);
+        records[0].updated_ms = 9999;
+        records[0].archived = true;
+        records.reverse();
+        let ids = |sort| {
+            views(&records, &[], sort)
+                .into_iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(SessionSort::Newest), ["c", "a", "b"]);
+        assert_eq!(ids(SessionSort::RecentActivity), ["b", "c", "a"]);
+    }
+
+    #[test]
+    fn removing_the_selection_uses_its_previous_neighbor_even_after_remote_reordering() {
+        let mut records: Vec<_> = [("a", 30), ("b", 20), ("c", 10)]
+            .into_iter()
+            .map(|(id, created)| Record::draft(id.into(), "codex".into(), id.into(), None, created))
+            .collect();
+        let before = views(&records, &[], SessionSort::RecentActivity);
+        records[1].archived = true;
+        records[0].updated_ms = 1000;
+        records[2].updated_ms = 999;
+        assert_eq!(
+            next_session(&before, "b", &records, SessionSort::RecentActivity).as_deref(),
+            Some("c")
+        );
+        records.retain(|r| r.id != "c");
+        assert_eq!(
+            next_session(&before, "c", &records, SessionSort::Newest).as_deref(),
+            Some("a")
+        );
+        records[0].archived = true;
+        assert!(next_session(&before, "b", &records, SessionSort::Newest).is_none());
+    }
     struct Secrets;
     impl SecretStorage for Secrets {
         fn read(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
@@ -1033,6 +1166,64 @@ mod tests {
     struct Silent;
     impl Observer for Silent {
         fn changed(&self, _: Snapshot) {}
+    }
+    #[test]
+    fn archiving_publishes_the_new_list_and_neighbor_cache_without_disturbing_other_selection() {
+        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let mut records: Vec<_> = [("a", 30), ("b", 20), ("c", 10)]
+            .into_iter()
+            .map(|(id, created)| Record::draft(id.into(), "codex".into(), id.into(), None, created))
+            .collect();
+        core.update(|s| {
+            s.selected_host = Some("host".into());
+            s.selected_session = Some("b".into());
+            s.sessions = views(&records, &[], SessionSort::Newest);
+        });
+        let before = core.snapshot();
+        let messages = Arc::new(vec![Arc::new(Message {
+            id: "cached-next".into(),
+            role: Role::Assistant,
+            text: "Next conversation".into(),
+            intermediate: false,
+            tool: None,
+            question_replies: Vec::new(),
+        })]);
+        core.cache_conversation("host", "c", &messages, true)
+            .unwrap();
+        records[1].archived = true;
+        records[0].updated_ms = 9999;
+        let catalog = Catalog {
+            revision: 1,
+            now_ms: 1,
+            sessions: records.clone(),
+        };
+        core.apply_session_archive("host", "b", true, &catalog, &before)
+            .unwrap();
+        assert_eq!(core.snapshot().selected_session.as_deref(), Some("c"));
+        assert_eq!(core.snapshot().conversation[0].text, "Next conversation");
+        assert!(
+            core.snapshot()
+                .sessions
+                .iter()
+                .find(|s| s.id == "b")
+                .unwrap()
+                .archived
+        );
+        records[0].archived = true;
+        let before = core.snapshot();
+        core.apply_session_archive(
+            "host",
+            "a",
+            true,
+            &Catalog {
+                revision: 2,
+                now_ms: 2,
+                sessions: records,
+            },
+            &before,
+        )
+        .unwrap();
+        assert_eq!(core.snapshot().selected_session.as_deref(), Some("c"));
     }
     #[test]
     fn session_attention_survives_turn_completion_and_resolves_from_fresh_controls() {
@@ -1237,7 +1428,9 @@ mod tests {
         book.selected.insert("host".into(), Some("a".into()));
         let data = serde_json::to_vec(&book).unwrap();
         let restored: SessionBook = serde_json::from_slice(&data).unwrap();
-        let view = views(&restored.catalogs["host"], &[]).pop().unwrap();
+        let view = views(&restored.catalogs["host"], &[], SessionSort::default())
+            .pop()
+            .unwrap();
         assert!(view.archived && view.agent_id.is_none() && !view.recorded);
         assert_eq!(view.provider, "claude");
         assert_eq!(restored.selected["host"], Some("a".into()));

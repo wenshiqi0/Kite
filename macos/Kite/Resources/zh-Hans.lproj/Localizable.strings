@@ -130,3 +130,9 @@
 "host_show_component" = "在 Finder 中显示 Kite Host";
 "reconnecting" = "正在重新连接";
 "cancel_reconnect" = "取消重新连接";
+
+"session_sort" = "会话排序";
+"sort_newest" = "创建时间：从新到旧";
+"sort_oldest" = "创建时间：从旧到新";
+"sort_activity" = "最近活动";
+"sort_title" = "按标题";

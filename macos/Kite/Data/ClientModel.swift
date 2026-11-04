@@ -66,6 +66,7 @@ final class ClientModel {
                     .appendingPathComponent("io.github.wenshiqi0.kite.mac/core", isDirectory: true)
                 try await core.initialize(dataDirectory: folder.path, deviceName: "kite@macOS", legacy: LegacyData(source: "macos-v1", host: nil, trustedKeys: []))
                 accept(try core.snapshot())
+                try await core.restoreConnection()
             } catch { nativeError = String(describing: error) }
         }
         initialization = task
@@ -152,29 +153,30 @@ final class ClientModel {
         }
     }
     func open(_ session: SessionInfo) {
-        guard !busy else { return }
-        command { try await $0.openSession(sessionId: session.id) }
+        guard !busy, let host = snapshot?.selectedHost else { return }
+        command { try await $0.openSession(hostId: host, sessionId: session.id) }
     }
     func send() {
         guard canSend, let id = snapshot?.selectedAgent, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let text = draft, target = destination
         command { [weak self] core in
-            try await core.promptAgent(agentId: id, text: text)
+            try await core.promptAgent(hostId: target.host ?? "", agentId: id, text: text)
             guard let self else { return }
             if self.destination == target && self.draft == text { self.draft = "" }
             else { self.drafts[DestinationKey(host: target.host, context: target.conversation)] = "" }
         }
     }
     func desktop() {
-        guard let state = snapshot else { return }
+        guard let state = snapshot, let host = state.selectedHost else { return }
         if state.desktop.status == .streaming || state.desktop.status == .starting || state.desktop.status == .pairing {
             media.input.cancel()
-            command { try await $0.stopDesktop() }
-        } else { let handle = media.handle; command { try await $0.startDesktop(mediaTarget: handle) } }
+            command { try await $0.stopDesktop(hostId: host) }
+        } else { let handle = media.handle; command { try await $0.startDesktop(hostId: host, mediaTarget: handle) } }
     }
     func takeover(_ value: Bool) {
+        guard let host = snapshot?.selectedHost else { return }
         if !value { media.input.enabled = false; media.input.cancel() }
-        command { try await $0.setTakeover(enabled: value) }
+        command { try await $0.setTakeover(hostId: host, enabled: value) }
     }
     func lostFocus() {
         windowFocused = false
@@ -189,7 +191,7 @@ final class ClientModel {
     }
     func shutdown() async {
         lostFocus()
-        try? await core?.disconnect()
+        try? await core?.disconnectAll()
         media.detach()
     }
     func clearError() {
@@ -197,11 +199,11 @@ final class ClientModel {
         command { try await $0.clearFailure() }
     }
     func upload(_ urls: [URL]) {
-        guard let id = snapshot?.selectedAgent else { return }
+        guard let id = snapshot?.selectedAgent, let host = snapshot?.selectedHost else { return }
         for url in urls {
             let mime = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.preferredMIMEType ?? "application/octet-stream"
             command { core in
-                try await core.uploadAttachment(agentId: id, localPath: url.path, name: url.lastPathComponent, mime: mime, retryId: nil)
+                try await core.uploadAttachment(hostId: host, agentId: id, localPath: url.path, name: url.lastPathComponent, mime: mime, retryId: nil)
             }
         }
     }

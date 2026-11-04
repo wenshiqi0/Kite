@@ -37,14 +37,15 @@ internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit)
                 Text(stringResource(R.string.core_initializing))
                 if (state?.failure != null) FailureCard(state.failure!!, onForget = null)
             } else {
-                val connected = state.selectedHost==viewModel.form.id&&state.connection == ConnectionStatus.CONNECTED
-                val running = state.selectedHost==viewModel.form.id&&state.connection in listOf(ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING)
+                val hostConnection = state.hostConnections.find { it.hostId == viewModel.form.id }
+                val connected = hostConnection?.connection == ConnectionStatus.CONNECTED
+                val running = hostConnection?.connection in listOf(ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING)
                 if(state.selectedHost==viewModel.form.id)Text(connectionStepLabel(state), color = if (state.connection == ConnectionStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 state.failure?.takeIf{state.selectedHost==viewModel.form.id}?.let { failure -> FailureCard(failure, if (failure.kind == FailureKind.HOST_KEY_CHANGED) ({ state.selectedHost?.let(viewModel::forget) }) else null) }
                 if (viewModel.form.id.isNotEmpty()) HostResourcesCard(
-                    profile = if (connected) state.hostResources else null,
+                    profile = hostConnection?.resources,
                     connected = connected, saving = viewModel.updatingMemoryLimit,
-                    onRefresh = { viewModel.engine.command { viewModel.engine.core.refreshHostResources() } },
+                    onRefresh = { val host = viewModel.form.id; viewModel.engine.command { viewModel.engine.core.refreshHostResources(host) } },
                     onSetLimit = viewModel::updateAgentMemoryLimit,
                 )
                 HostFormCard(viewModel, enabled = !running && !viewModel.savingHost && state.pendingHostKey == null, running = running, connected = connected)
@@ -54,8 +55,8 @@ internal fun HostEditorScreen(viewModel: HostCheckViewModel, onBack: () -> Unit)
                     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.connection_active), style = MaterialTheme.typography.titleMedium)
-                            Text(stringResource(R.string.herdr_connected_version, state.herdrVersion.orEmpty()))
-                            Button(onClick = viewModel::openDesktop, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_desktop)) }
+                            if(state.selectedHost == viewModel.form.id)Text(stringResource(R.string.herdr_connected_version, state.herdrVersion.orEmpty()))
+                            Button(onClick = { viewModel.openHostDesktop(viewModel.form.id) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_desktop)) }
                         }
                     }
                 }
@@ -111,7 +112,7 @@ private fun HostFormCard(vm: HostCheckViewModel, enabled: Boolean, running: Bool
                 Button(onClick=vm::connect,enabled=enabled,modifier=Modifier.weight(1f)){Text("保存并连接")}
             }
             if(running||vm.savingHost)LinearProgressIndicator(Modifier.fillMaxWidth())
-            if(connected)TextButton(onClick=vm::disconnect){Text(stringResource(R.string.disconnect))}
+            if(connected)TextButton(onClick={ vm.disconnectHost(vm.form.id) }){Text(stringResource(R.string.disconnect))}
         }
     }
 }

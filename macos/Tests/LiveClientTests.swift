@@ -71,10 +71,10 @@ final class LiveClientTests: XCTestCase {
             XCTAssertFalse(state.providers.isEmpty)
             let saved = state.sessions.filter { $0.cwd == config.project && $0.provider == "codex" }.max(by: { $0.updatedMs < $1.updatedMs })
             if let saved {
-                if saved.archived { try await core.resumeSession(sessionId: saved.id) }
-                else { try await core.openSession(sessionId: saved.id) }
+                if saved.archived { try await core.resumeSession(hostId: id, sessionId: saved.id) }
+                else { try await core.openSession(hostId: id, sessionId: saved.id) }
             } else {
-                try await core.createSession(provider: "codex", cwd: config.project, title: "Kite Mac client QA")
+                try await core.createSession(hostId: id, provider: "codex", cwd: config.project, title: "Kite Mac client QA")
             }
             print("live_stage=session_created")
             state = try await wait(core, seconds: 60) { state in
@@ -84,7 +84,7 @@ final class LiveClientTests: XCTestCase {
             if saved != nil { state = try await wait(core) { $0.history.complete } }
             let agent = try XCTUnwrap(state.selectedAgent), session = try XCTUnwrap(state.selectedSession)
             if !core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items).contains(where: { $0.kind == .assistant && $0.text.contains("MAC_CLIENT_QA_OK") }) {
-                try await core.promptAgent(agentId: agent, text: "仅回复 MAC_CLIENT_QA_OK，不调用工具。")
+                try await core.promptAgent(hostId: id, agentId: agent, text: "仅回复 MAC_CLIENT_QA_OK，不调用工具。")
             }
             state = try await wait(core, seconds: 90) { state in
                 core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items)
@@ -100,9 +100,9 @@ final class LiveClientTests: XCTestCase {
             panel.isReleasedWhenClosed = false
             panel.title = "Kite Mac owned integration"; panel.contentView = surface
             panel.makeKeyAndOrderFront(nil); window = panel
-            try await core.startDesktop(mediaTarget: receiver.handle)
+            try await core.startDesktop(hostId: id, mediaTarget: receiver.handle)
             state = try await wait(core) { $0.desktop.status == .pairing || $0.desktop.status == .streaming || $0.desktop.status == .failed }
-            if let pin = state.desktop.pin { try await core.approvePairing(pin: pin) }
+            if let pin = state.desktop.pin { try await core.approvePairing(hostId: id, pin: pin) }
             state = try await wait(core) { $0.desktop.status == .streaming && $0.desktop.renderedFrames >= 30 }
             XCTAssertEqual(state.desktop.width, 1920); XCTAssertEqual(state.desktop.height, 1080)
             let startFrames = state.desktop.renderedFrames
@@ -112,7 +112,7 @@ final class LiveClientTests: XCTestCase {
             let displayedFrames = state.desktop.renderedFrames
             print("live_stage=video_presented fps=\(displayFPS)")
             // These events only target the disposable Xvfb fixture, never :10.
-            try await core.setTakeover(enabled: true)
+            try await core.setTakeover(hostId: id, enabled: true)
             receiver.input.enabled = true
             receiver.input.move(CGPoint(x: 960, y: 420), source: source)
             receiver.input.button(1, down: true)
@@ -130,12 +130,12 @@ final class LiveClientTests: XCTestCase {
             receiver.input.text("Kite 远程桌面 29"); receiver.input.barrier()
             try await Task.sleep(for: .seconds(1))
             receiver.input.enabled = false; receiver.input.cancel()
-            try await core.setTakeover(enabled: false)
-            try await core.stopDesktop()
+            try await core.setTakeover(hostId: id, enabled: false)
+            try await core.stopDesktop(hostId: try core.snapshot().selectedHost ?? "")
             try await core.disconnect()
             try await core.connect(hostId: id)
             _ = try await wait(core) { $0.connection == .connected }
-            try await core.openSession(sessionId: session)
+            try await core.openSession(hostId: id, sessionId: session)
             state = try await wait(core) { $0.conversationCount >= 2 && $0.history.complete }
             XCTAssertTrue(core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items).contains { $0.text.contains("MAC_CLIENT_QA_OK") })
             let result: [String: Any] = ["ssh": true, "codex_turn": true, "history_reconnect": true,
@@ -143,13 +143,13 @@ final class LiveClientTests: XCTestCase {
                 "rendered_frames": displayedFrames, "session_id": session, "conversation_context": context,
                 "input": "sent to owned display; verify remote input.json separately", "audio": "muted; offline decode verified separately"]
             try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("result.json"))
-            try await core.archiveSession(sessionId: session, archived: true)
+            try await core.archiveSession(hostId: id, sessionId: session, archived: true)
             for owned in state.sessions where owned.cwd == config.project && !owned.archived && owned.id != session {
-                try await core.archiveSession(sessionId: owned.id, archived: true)
+                try await core.archiveSession(hostId: id, sessionId: owned.id, archived: true)
             }
             try await core.disconnect(); receiver.detach(); window?.close()
         } catch {
-            try? await core.stopDesktop(); try? await core.disconnect(); receiver.detach(); window?.close()
+            try? await core.stopDesktop(hostId: try core.snapshot().selectedHost ?? ""); try? await core.disconnect(); receiver.detach(); window?.close()
             throw error
         }
     }

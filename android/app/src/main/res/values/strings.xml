@@ -456,4 +456,9 @@
     <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
     <string name="harness_selector">智能体</string>
     <string name="provider_ply">Ply</string>
+    <string name="search_sessions">搜索会话</string>
+    <string name="sort_newest">创建时间：从新到旧</string>
+    <string name="sort_oldest">创建时间：从旧到新</string>
+    <string name="sort_activity">最近活动</string>
+    <string name="sort_title">按标题</string>
 </resources>

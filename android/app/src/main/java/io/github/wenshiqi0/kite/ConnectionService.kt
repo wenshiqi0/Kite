@@ -41,7 +41,7 @@ class ConnectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == DISCONNECT) {
-            engine.command { engine.core.disconnect() }
+            engine.command { engine.core.disconnectAll() }
             return START_NOT_STICKY
         }
         return START_STICKY
