@@ -22,3 +22,13 @@ Rust Core 发布所有已保存机器的会话目录、连接、能力、排序�
 - Rust 工作区测试通过，包含多机器离线目录、同名会话身份、无效目标不改变选中，以及全局排序/新机器默认与重建恢复。
 - Bun 类型、边界、lint 和测试通过，覆盖 WS 认证/Origin、UTF-8、非法帧、权限隔离、取消、断线不重放、真实 socket CLI、工具数组内容与 MCP 在途取消。
 - Android Release JVM tests、lint、Debug instrumentation 源码编译通过。Mac 原生测试及应用构建通过；截图/触控等设备运行结论单独记录。
+
+## 正式发布与安装
+
+- [Alpha 82 prerelease](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.82)，源码 `96f279d97ad2770d078c4632e521a9ae0daddd27`、Android versionCode 84。附件校验及与 Alpha 81 相同的签名证书已复核。
+- [Android/Linux CI](https://github.com/wenshiqi0/Kite/actions/runs/41843390791) 最终成功。首次受控 GTK 截图文件未生成，重跑后原检查通过，没有跳过检查或改变截图断言。
+- [Mac 原生测试与构建](https://github.com/wenshiqi0/Kite/actions/runs/41837700819) 成功，覆盖本次相同的原生侧栏与 FFI 数据实现；后续修复在 Bun 协议适配及说明中。
+- 本机和 mini 的正式 Node 均为 Alpha 82，`health=ready`。兼容安装保留原 Node ID；本机 77 条与 mini 安装前 2 条会话引用均核对保留。随后仅删除本次自有验证会话，保留 mini 的其他会话。
+- 两台机器的 `kite-acp.service` 已启用；本机还启用 `kite-acp-mini-link.service`，使用已有受信任 SSH 提供反向加密连接。`mini` 与 `local` peer 的初始化、会话列表和实际目标机器身份均验证通过。token 位于各机私有配置目录，未进入仓库或发布附件。
+- 官方 compat-v2 APK 已覆盖安装到 API 36 模拟器。实际观察到一行紧凑搜索与右侧加号，四种排序菜单可操作，搜索输入和无匹配状态正确。本模拟器没有保存机器配置，因此不把空列表截图当作多机填充列表或新建模型会话的设备运行验收；后两项由 Core/协议及真实 mini 任务分别提供证据。
+- mini 的协作源码放在 `/home/wenshiqi/workspace/wenshiqi/Kite-network-acp`，检出 `feat/network-acp-workspaces`；原始 `/home/wenshiqi/workspace/wenshiqi/Kite` checkout 未被覆盖。临时验证网关及其 token、验证会话已清理，正式服务继续运行。
