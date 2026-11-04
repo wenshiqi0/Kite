@@ -434,7 +434,10 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
       });
       return { agent: managed };
     }
-    check(Bun.which(provider), "backend is not installed or connected");
+    check(
+      Bun.which(provider, { PATH: process.env.PATH ?? "" }),
+      "backend is not installed or connected",
+    );
     let agents = array((await api(binary, "agent.list", {})).agents).map(object);
     const existing = agents.find((a) => sameReference(a, record));
     if (existing) {
