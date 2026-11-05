@@ -36,7 +36,8 @@ import io.github.wenshiqi0.kite.core.*
 @Composable fun sessionTitle(session: SessionInfo): String = session.title.ifBlank { providerLabel(session.provider) + " · " + stringResource(R.string.new_session_short) }
 
 @Composable
-fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String, String) -> Unit, create: () -> Unit, settings: () -> Unit) {
+fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String, String) -> Unit, create: () -> Unit, settings: () -> Unit,
+    inspectSubagent: ((String, String, SubagentInfo) -> Unit)? = null) {
     var archived by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
@@ -114,7 +115,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                             }
                         }
                         SubagentTree("${host.id}/${session.id}/${query.isNotBlank()}", session.subagents, session.subagentsError, connected,
-                            Modifier.padding(start = 16.dp, bottom = 4.dp), initiallyExpanded = selected || query.isNotBlank())
+                            Modifier.padding(start = 16.dp, bottom = 4.dp), initiallyExpanded = selected || query.isNotBlank(),
+                            inspect = inspectSubagent?.let { inspect -> { child -> inspect(host.id, session.id, child) } })
                     }
                     if (sessions.isEmpty()) item(key = "empty/${host.id}") { Text(stringResource(if (archived) R.string.no_archived_sessions else R.string.no_active_sessions), fontSize = 12.sp, color = KiteColors.Muted, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) }
                 }

@@ -38,6 +38,40 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun completedSubagentOpensReadonlyRecordsAndRefreshDoesNotChangeItsParent() {
+        val child = SubagentInfo("child", "parent", "Worker", "research", "done", 0)
+        val selected = androidx.compose.runtime.mutableStateOf<SubagentInfo?>(null)
+        val reads = java.util.concurrent.atomic.AtomicInteger()
+        overlay({
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                androidx.compose.material3.Text("Parent remains selected")
+                SubagentTree("inspection-fixture", listOf(child), false, true, inspect = { selected.value = it })
+                selected.value?.let { target ->
+                    SubagentInspector(target, true, load = {
+                        reads.incrementAndGet()
+                        SubagentInspectionInfo(listOf(ItemInfo("reply", ItemRole.ASSISTANT,
+                            listOf(BlockInfo.Text("Inspection result is ready")), false, null)), true)
+                    }, dismiss = { selected.value = null })
+                }
+            }
+        }) {
+            waitFor("folded tree states completion") { find(text = "1 个已完成") != null }
+            assertNull(find(text = "Worker"))
+            actionNode(requireNotNull(find(text = "子 agent · 1")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("worker row is visible") { find(text = "Worker") != null }
+            actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("the leaf opens its readonly history") { find(text = "Inspection result is ready") != null }
+            assertEquals(1, reads.get())
+            assertNotNull(find(text = "只读 · 最近记录"))
+            screenshot("subagent-readonly-inspection.png")
+            actionNode(requireNotNull(find(text = "刷新记录")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("refresh reads the same history") { reads.get() == 2 }
+            assertEquals("child", selected.value?.id)
+            actionNode(requireNotNull(find(description = "关闭")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("closing returns to the parent") { selected.value == null && find(text = "Parent remains selected") != null }
+        }
+    }
+
     @Test fun subagentTreeShowsParentsAndStatusesAndCollapsesOnlyTheSelectedBranch() {
         val agents = listOf(
             SubagentInfo("worker", "parent", "Worker", "research", "working", 0),

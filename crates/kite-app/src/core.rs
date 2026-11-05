@@ -52,12 +52,14 @@ mod permissions;
 #[cfg(test)]
 mod recovery_tests;
 mod skills;
+mod subagent_history;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use key::ConversationKey;
 use key::{AgentKey, agent_source, approval_token, pane_key};
 use live::{CoreState, LiveSession, PendingItem};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
+pub use subagent_history::SubagentInspection;
 
 #[derive(Clone, Debug)]
 pub struct ConversationSession {

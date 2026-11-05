@@ -98,6 +98,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val drawerActive = drawer.currentValue != DrawerValue.Closed || drawer.targetValue != DrawerValue.Closed
     val scope = rememberCoroutineScope()
+    var inspectedSubagent by remember { mutableStateOf<SubagentTarget?>(null) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var autoFullscreen by remember { mutableStateOf(false) }
     var tools by remember { mutableStateOf(false) }
@@ -245,7 +246,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
-            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } })
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } },
+                inspectSubagent = { host, parent, child -> inspectedSubagent = SubagentTarget(host, parent, child); scope.launch { drawer.close() } })
         }
     }) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else KiteColors.Surface).pointerInput(vm.target,bridgeActive){
@@ -309,7 +311,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
                     Box(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
                         SubagentTree("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
-                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp))
+                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp),
+                            inspect = { child -> state?.selectedHost?.let { host -> inspectedSubagent = SubagentTarget(host, session.id, child) } })
                     }
                 }
                 if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -639,6 +642,15 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) }
         }
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })
+    inspectedSubagent?.takeIf { !hideChrome }?.let { target ->
+        val workspace = state?.hostConnections?.find { it.hostId == target.host }
+        val child = workspace?.sessions?.find { it.id == target.parent }?.subagents?.find { it.id == target.agent.id } ?: target.agent
+        key(target.host, target.parent, target.agent.id) {
+            SubagentInspector(child, workspace?.connection == ConnectionStatus.CONNECTED,
+                load = { vm.engine.core.inspectSubagent(target.host, target.parent, target.agent.id) },
+                dismiss = { inspectedSubagent = null })
+        }
+    }
     val platformError by vm.engine.platformError.collectAsState()
     val error = warning ?: platformError
     vm.sessionToDelete?.takeIf { !hideChrome }?.let { (host, session) ->
