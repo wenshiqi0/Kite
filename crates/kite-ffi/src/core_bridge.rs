@@ -883,6 +883,11 @@ pub struct SubagentInfo {
     pub status: String,
     pub updated_ms: i64,
 }
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct SubagentInspectionInfo {
+    pub items: Vec<ItemInfo>,
+    pub has_older: bool,
+}
 impl From<kite_app::Subagent> for SubagentInfo {
     fn from(value: kite_app::Subagent) -> Self {
         Self {
@@ -1666,6 +1671,21 @@ impl KiteCore {
     }
     pub async fn retry_history(&self) -> Result<(), KiteError> {
         self.inner.retry_history().await.map_err(Into::into)
+    }
+    pub async fn inspect_subagent(
+        &self,
+        host_id: String,
+        parent_id: String,
+        child_id: String,
+    ) -> Result<SubagentInspectionInfo, KiteError> {
+        let inspection = self
+            .inner
+            .inspect_subagent(host_id, parent_id, child_id)
+            .await?;
+        Ok(SubagentInspectionInfo {
+            items: inspection.items.iter().map(Into::into).collect(),
+            has_older: inspection.has_older,
+        })
     }
 
     pub async fn read_clipboard(&self, host_id: String) -> Result<RemoteClipboardInfo, KiteError> {

@@ -628,6 +628,16 @@ impl ClientCore {
     pub async fn retry_history(&self) -> Result<(), AppError> {
         self.selected()?.retry_history().await
     }
+    pub async fn inspect_subagent(
+        &self,
+        host: String,
+        parent: String,
+        child: String,
+    ) -> Result<SubagentInspection, AppError> {
+        self.runtime(&host)?
+            .inspect_subagent(host, parent, child)
+            .await
+    }
     pub async fn chat_attachment(&self, context: String, id: String) -> Result<Vec<u8>, AppError> {
         self.selected()?.chat_attachment(context, id).await
     }

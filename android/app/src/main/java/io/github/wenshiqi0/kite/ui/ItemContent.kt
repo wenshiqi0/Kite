@@ -31,6 +31,7 @@ internal fun ItemContent(
     streaming: Boolean = false,
     inspect: () -> Unit = {},
     desktop: () -> Unit = {},
+    desktopEnabled: Boolean = true,
     attachment: @Composable (AttachmentInfo) -> Unit,
 ) {
     val context = LocalContext.current
@@ -56,7 +57,7 @@ internal fun ItemContent(
                     is BlockInfo.QuestionReply -> AnsweredQuestions(listOf(block.reply))
                     is BlockInfo.Tool -> ToolGroupCard(
                         ChatEntry.Work(listOf(message.copy(id = "${message.id}:block:$index", blocks = listOf(block)))),
-                        streaming, inspect, desktop,
+                        streaming, inspect, desktop, desktopEnabled,
                     )
                     // Reserved until the snapshot protocol lands in phase 3.
                     is BlockInfo.Embed -> Text(stringResource(R.string.chat_reference_pending), color = KiteColors.Muted)

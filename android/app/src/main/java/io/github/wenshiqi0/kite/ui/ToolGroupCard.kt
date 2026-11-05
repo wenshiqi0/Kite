@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import io.github.wenshiqi0.kite.R
 
 @Composable
-fun ToolGroupCard(group: ChatEntry.Work, working: Boolean, inspect: () -> Unit, desktop: () -> Unit) {
+fun ToolGroupCard(group: ChatEntry.Work, working: Boolean, inspect: () -> Unit, desktop: () -> Unit, desktopEnabled: Boolean = true) {
     var expanded by rememberSaveable(group.key) { mutableStateOf(false) }
     var selectedCall by rememberSaveable(group.key) { mutableStateOf<String?>(null) }
     val calls = group.calls
@@ -48,7 +48,7 @@ fun ToolGroupCard(group: ChatEntry.Work, working: Boolean, inspect: () -> Unit, 
                     val status = if (running != null && working) stringResource(R.string.tool_group_running) else if (failed > 0) stringResource(R.string.tool_group_failed, failed) else if (running != null) stringResource(R.string.tool_group_pending) else stringResource(R.string.tool_group_completed)
                     Text(status + calls.lastOrNull()?.tool?.summary?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), fontSize = 11.sp, color = colour, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (calls.any { it.tool?.computer == true }) {
+                if (desktopEnabled && calls.any { it.tool?.computer == true }) {
                     val label = stringResource(R.string.open_desktop)
                     IconButton(onClick = desktop, modifier = Modifier.size(40.dp).semantics { contentDescription = label }) { ProductIcon(Mark.Monitor, modifier = Modifier.size(18.dp)) }
                 }
