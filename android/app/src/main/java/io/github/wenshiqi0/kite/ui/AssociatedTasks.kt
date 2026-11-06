@@ -30,7 +30,6 @@ internal fun AssociatedTasks(
     connected: Boolean,
     modifier: Modifier = Modifier,
     initiallyExpanded: Boolean = false,
-    onToggle: () -> Unit = {},
     inspect: ((SubagentInfo) -> Unit)? = null,
 ) {
     if (tasks.isEmpty() && !failed) return
@@ -41,7 +40,7 @@ internal fun AssociatedTasks(
     val completed = rows.count { sessionStatus(it.status, connected) == SessionStatus.Completed }
     Column(modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onToggle(); expanded = !expanded }.padding(horizontal = 8.dp),
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = !expanded }.padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {

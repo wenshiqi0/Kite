@@ -1729,9 +1729,12 @@ impl AppCore {
             if s.selected_session.is_none() {
                 state.selected = None;
             }
-            state.live.drain()
+            state.live.detach(&lock(&self.session_book))
         });
         self.retire(retired);
+        if let Err(error) = self.persist_live_histories() {
+            self.report(&error);
+        }
         lock(&self.consumed_approvals).clear();
         lock(&self.agent_starts).clear();
         self.chat_clients.lock().await.clear();
