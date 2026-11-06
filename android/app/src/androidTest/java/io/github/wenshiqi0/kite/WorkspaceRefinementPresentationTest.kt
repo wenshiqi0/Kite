@@ -45,9 +45,9 @@ class WorkspaceRefinementPresentationTest {
         overlay({
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 androidx.compose.material3.Text("Parent remains selected")
-                SubagentTree("inspection-fixture", listOf(child), false, true, inspect = { selected.value = it })
+                AssociatedTasks("inspection-fixture", listOf(child), false, true, inspect = { selected.value = it })
                 selected.value?.let { target ->
-                    SubagentInspector(target, true, load = {
+                    AssociatedTaskInspector(target, true, load = {
                         reads.incrementAndGet()
                         SubagentInspectionInfo(listOf(ItemInfo("reply", ItemRole.ASSISTANT,
                             listOf(BlockInfo.Text("Inspection result is ready")), false, null)), true)
@@ -57,7 +57,7 @@ class WorkspaceRefinementPresentationTest {
         }) {
             waitFor("folded tree states completion") { find(text = "1 个已完成") != null }
             assertNull(find(text = "Worker"))
-            actionNode(requireNotNull(find(text = "子 agent · 1")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            actionNode(requireNotNull(find(text = "关联任务 · 1")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
             waitFor("worker row is visible") { find(text = "Worker") != null }
             actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
             waitFor("the leaf opens its readonly history") { find(text = "Inspection result is ready") != null }
@@ -69,31 +69,6 @@ class WorkspaceRefinementPresentationTest {
             assertEquals("child", selected.value?.id)
             actionNode(requireNotNull(find(description = "关闭")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
             waitFor("closing returns to the parent") { selected.value == null && find(text = "Parent remains selected") != null }
-        }
-    }
-
-    @Test fun subagentTreeShowsParentsAndStatusesAndCollapsesOnlyTheSelectedBranch() {
-        val agents = listOf(
-            SubagentInfo("worker", "parent", "Worker", "research", "working", 0),
-            SubagentInfo("verifier", "worker", "Verifier", "research/verify", "done", 0),
-            SubagentInfo("auditor", "parent", "Auditor", "audit", "failed", 0),
-        )
-        overlay({
-            Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                androidx.compose.material3.Text("父 agent · 项目检查")
-                SubagentTree("tree-fixture", agents, false, true, initiallyExpanded = true)
-            }
-        }) {
-            waitFor("nested worker is visible") { find(text = "Verifier") != null }
-            assertNotNull(find(text = "运行中"))
-            assertNotNull(find(text = "已完成"))
-            assertNotNull(find(text = "运行失败"))
-            screenshot("subagent-tree-expanded.png")
-            assertTrue(actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitFor("only the worker branch collapses") { find(text = "Verifier") == null }
-            assertNotNull(find(text = "Auditor"))
-            assertNotNull(find(text = "运行失败"))
-            screenshot("subagent-tree-collapsed.png")
         }
     }
 
