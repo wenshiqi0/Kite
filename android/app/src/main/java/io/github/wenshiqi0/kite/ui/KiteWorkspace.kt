@@ -311,6 +311,12 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
                     AssociatedTasks("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
                             state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp),
+                            onToggle = {
+                                // Apply the tail anchor in the same measure as the resized viewport.
+                                // Waiting for ChatTailFollow would draw the old position for one frame.
+                                val lastIndex = chatScroll.layoutInfo.totalItemsCount - 1
+                                if (followTail && !chatScroll.isScrollInProgress && lastIndex >= 0) chatScroll.requestScrollToItem(lastIndex)
+                            },
                             inspect = { child -> state?.selectedHost?.let { host -> inspectedTask = AssociatedTaskTarget(host, session.id, child) } })
                 }
                 if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

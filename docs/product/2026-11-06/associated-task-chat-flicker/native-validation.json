@@ -1,0 +1,91 @@
+{
+  "environment": {
+    "platform": "Android 16 / API 36",
+    "abi": "x86_64",
+    "records": "isolated synthetic native display mirror; no host or provider turn"
+  },
+  "baseline": {
+    "initialTop": 1199,
+    "drawnTops": [
+      1199,
+      1451,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1451,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1451,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1451,
+      1199,
+      1199,
+      1199,
+      1199
+    ],
+    "missingDraws": 0
+  },
+  "fixed": {
+    "initialTop": 1199,
+    "drawnTops": [
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199,
+      1199
+    ],
+    "missingDraws": 0
+  },
+  "history": {
+    "relativeTops": [
+      -776,
+      -776,
+      -776,
+      -776,
+      -776
+    ]
+  },
+  "native": {
+    "executed": 9,
+    "failed": 0,
+    "skipped": 0
+  },
+  "releaseJvm": {
+    "tests": 83,
+    "failed": 0
+  },
+  "releaseLint": "passed",
+  "publisherTests": {
+    "tests": 9,
+    "failed": 0
+  },
+  "physicalHandset": "not executed"
+}
