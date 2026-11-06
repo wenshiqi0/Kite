@@ -326,7 +326,32 @@ impl LiveSessions {
         }
         evicted
     }
-    /// The caller persists the sessions before dropping them.
+    /// Transport teardown expires input authority, not a saved conversation's read model.
+    pub(super) fn detach(
+        &mut self,
+        book: &sessions::SessionBook,
+    ) -> Vec<(ConversationKey, LiveSession)> {
+        let ephemeral: Vec<_> = self
+            .sessions
+            .keys()
+            .filter(|key| sessions::saved_record(key, book).is_none())
+            .cloned()
+            .collect();
+        let mut retired = Vec::new();
+        for key in ephemeral {
+            let live = self.sessions.remove(&key).unwrap();
+            self.revision_floor = self.revision_floor.max(live.revision);
+            retired.push((key, live));
+        }
+        for live in self.sessions.values_mut() {
+            live.cancel_sync();
+            live.launching = None;
+            live.bind(None, false);
+        }
+        retired
+    }
+
+    /// Client destruction releases read models too; a transport retry uses `detach`.
     pub(super) fn drain(&mut self) -> Vec<(ConversationKey, LiveSession)> {
         let sessions = std::mem::take(&mut self.sessions);
         for live in sessions.values() {
@@ -606,6 +631,21 @@ impl AppCore {
             self.report(&error);
         }
     }
+
+    pub(super) fn persist_live_histories(&self) -> Result<(), AppError> {
+        let histories: Vec<_> = lock(&self.state)
+            .live
+            .sessions
+            .iter()
+            .map(|(key, live)| (key.clone(), live.conversation.clone(), live.available))
+            .collect();
+        for (key, messages, available) in histories {
+            if !messages.is_empty() && self.session_record(&key.host, &key.conversation).is_some() {
+                self.cache_conversation(&key, &messages, available)?;
+            }
+        }
+        self.flush_history_caches(true)
+    }
 }
 
 #[cfg(test)]
@@ -650,8 +690,14 @@ mod tests {
     }
     /// A core on one host whose catalog holds the given saved conversations.
     fn core(ids: &[&str]) -> (Arc<AppCore>, tempfile::TempDir) {
+        core_with_observer(ids, Arc::new(Silent))
+    }
+    fn core_with_observer(
+        ids: &[&str],
+        observer: Arc<dyn Observer>,
+    ) -> (Arc<AppCore>, tempfile::TempDir) {
         let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::new(Arc::new(Secrets), Arc::new(Silent));
+        let core = AppCore::new(Arc::new(Secrets), observer);
         *lock(&core.store) = Some(Store::open(directory.path()).unwrap());
         core.install_catalog(
             "host",
@@ -696,6 +742,87 @@ mod tests {
         assert_eq!(after.approval.unwrap().id, "kept");
         assert_eq!(after.agent_output, "pane text");
         assert_eq!(after.response_activity, ResponseActivity::Tool);
+    }
+
+    #[tokio::test]
+    async fn repeated_transport_cleanup_keeps_saved_messages_but_retires_live_controls() {
+        let observed = Arc::new(Recording::default());
+        let (core, _directory) = core_with_observer(&["saved"], observed.clone());
+        let mut record = Record::draft("saved".into(), "claude".into(), String::new(), None, 1);
+        record.reference = pane("T", Some("thread")).agent_session;
+        record.terminal_id = "T".into();
+        core.install_catalog(
+            "host",
+            &Catalog {
+                revision: 2,
+                now_ms: 1,
+                sessions: vec![record],
+            },
+        )
+        .unwrap();
+        core.select(Some(key("saved")), |s| {
+            s.agents = vec![pane("T", Some("thread"))]
+        });
+        core.open_session("saved".into()).await.unwrap();
+        core.update(|s| {
+            s.connection = ConnectionPhase::Reconnecting;
+            s.agents = vec![pane("T", Some("thread"))];
+        });
+        let job = tokio::spawn(std::future::pending());
+        let cancelled = job.abort_handle();
+        core.update_live(&key("saved"), |live| {
+            live.replace_conversation(vec![message("retained")], true);
+            live.composer.ready = true;
+            live.approval = Some(approval("expired"));
+            live.response_activity = ResponseActivity::Tool;
+            live.sync_job = Some(job);
+        });
+        core.update_state(|state| {
+            state
+                .live
+                .open(&key("ephemeral"), None)
+                .replace_conversation(vec![message("pane-only")], true);
+        });
+        let before = core.snapshot();
+        lock(&observed.0).clear();
+        for _ in 0..4 {
+            core.disconnect_inner(false).await.unwrap();
+            let after = core.snapshot();
+            assert_eq!(after.conversation_context(), before.conversation_context());
+            assert!(Arc::ptr_eq(&after.conversation, &before.conversation));
+            assert_eq!(after.conversation_revision, before.conversation_revision);
+            assert!(after.conversation_available);
+            assert!(after.selected_agent.is_none());
+            assert!(!after.composer.ready && after.approval.is_none() && after.question.is_none());
+            assert_eq!(after.response_activity, ResponseActivity::Idle);
+            let delta = core
+                .conversation_since(&before.conversation_context(), before.conversation_revision);
+            assert!(!delta.reset && delta.edits.is_empty());
+            assert!(core.read_live(&key("ephemeral"), |_| ()).is_none());
+        }
+        tokio::task::yield_now().await;
+        assert!(cancelled.is_finished());
+        core.update(|s| s.agents = vec![pane("T", Some("thread"))]);
+        assert_eq!(core.snapshot().selected_agent.as_deref(), Some("T"));
+        assert!(Arc::ptr_eq(
+            &core.snapshot().conversation,
+            &before.conversation
+        ));
+        assert!(!core.snapshot().composer.ready);
+        for publication in lock(&observed.0).iter() {
+            assert_eq!(
+                publication.conversation_context(),
+                before.conversation_context()
+            );
+            assert!(
+                Arc::ptr_eq(&publication.conversation, &before.conversation),
+                "A reconnect publication briefly emptied or replaced cached messages"
+            );
+            assert_eq!(
+                publication.conversation_revision,
+                before.conversation_revision
+            );
+        }
     }
 
     #[test]

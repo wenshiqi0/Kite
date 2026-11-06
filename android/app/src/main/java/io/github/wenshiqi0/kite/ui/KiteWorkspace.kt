@@ -158,7 +158,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val conversationContext=timeline.context
     val streamingId=timeline.messages.lastOrNull{it.role==ItemRole.ASSISTANT}?.id
     val cacheWindow=remember{LazyLayoutCacheWindow(1f,.5f)}
-    val chatScroll=rememberLazyListState(cacheWindow=cacheWindow)
+    val chatScroll=key(conversationContext){rememberLazyListState(cacheWindow=cacheWindow)}
     var followTail by remember(conversationContext){mutableStateOf(true)}
     val tailMargin=remember(conversationContext){ChatTailMargin()}
     var latestVisible by remember(conversationContext){mutableStateOf(false)}
@@ -169,7 +169,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             return Offset.Zero
         }
     }}
-    var chatHeight by remember{mutableIntStateOf(0)}
     val draggingHistory by chatScroll.interactionSource.collectIsDraggedAsState()
     fun pauseHistory(){followTail=false}
     fun jumpToLatest(){tailMargin.reset();latestVisible=false;followTail=true}
@@ -193,7 +192,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
-    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && chatHeight >= 16 && entries.isNotEmpty() }
+    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && entries.isNotEmpty() }
     val attachments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.externalActivity = false
         updatePip()
@@ -311,19 +310,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
                     AssociatedTasks("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
                             state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp),
-                            onToggle = {
-                                // Apply the tail anchor in the same measure as the resized viewport.
-                                // Waiting for ChatTailFollow would draw the old position for one frame.
-                                val lastIndex = chatScroll.layoutInfo.totalItemsCount - 1
-                                if (followTail && !chatScroll.isScrollInProgress && lastIndex >= 0) chatScroll.requestScrollToItem(lastIndex)
-                            },
                             inspect = { child -> state?.selectedHost?.let { host -> inspectedTask = AssociatedTaskTarget(host, session.id, child) } })
-                }
-                if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connection_reconnecting), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = vm::disconnect) { Text(stringResource(R.string.disconnect)) }
                 }
                 if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                     ResourceWarning(state?.hostResources) {
@@ -346,14 +333,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     if(padVisible)TouchpadPanel(vm,padHeight,bridgeActive,vm::hideTouchpad)
                 }
                 if (state == null || !state.initialized) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Blue)
-                if (state != null && state.connection != ConnectionStatus.CONNECTED) {
-                    Column(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(connectionStepLabel(state), color = Muted)
-                        state.failure?.let { Text(it.details, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-                        TextButton(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
-                    }
-                }
-                Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
+                state?.let { WorkspaceConnectionNotice(it, {diagnostics=true}, {vm.openMachineSettings()}, vm::disconnect) }
+                ChatViewport(chatScroll,conversationContext,{followTail && !vm.inPip && !vm.pipTransition},Modifier.weight(1f).fillMaxWidth()){
                 if (showInitialization) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                     SessionInitializationMessage(failed=initializationFailed,retryEnabled=!vm.sessionBusy,onRetry={
                         if(currentSession!=null&&(agent==null||state?.failure?.kind==FailureKind.AGENT_START))vm.resumeSession(currentSession.id)

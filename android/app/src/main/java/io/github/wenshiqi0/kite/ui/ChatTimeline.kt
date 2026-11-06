@@ -55,8 +55,16 @@ class ChatTimelineState {
         require(delta.context==context)
         if(!delta.reset && delta.revision<revision)return
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
-            if(delta.reset){messageItems.clear();rowItems.clear();rowByMessage.clear()}
-            for(edit in delta.edits)splice(edit.at.toInt(),edit.remove.toInt(),edit.items)
+            if(delta.reset) {
+                val next=mutableListOf<ItemInfo>()
+                for(edit in delta.edits) {
+                    val at=edit.at.toInt();val remove=edit.remove.toInt()
+                    require(at>=0 && remove>=0 && at+remove<=next.size)
+                    next.subList(at,at+remove).clear();next.addAll(at,edit.items)
+                }
+                // A full transport resync of this context still has the same display rows.
+                if(next!=messageItems)splice(0,messageItems.size,next)
+            } else for(edit in delta.edits)splice(edit.at.toInt(),edit.remove.toInt(),edit.items)
             revision=delta.revision;appliedContext=delta.context
         }
     }
