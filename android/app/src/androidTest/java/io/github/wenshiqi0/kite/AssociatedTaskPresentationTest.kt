@@ -8,6 +8,8 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
@@ -29,6 +31,7 @@ import org.junit.Test
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Owned display records only. No host, credentials, model turn or real conversation is used. */
 class AssociatedTaskPresentationTest {
@@ -216,6 +219,129 @@ class AssociatedTaskPresentationTest {
             screenshot("associated-task-workspace-fling.png")
         } finally {
             main { vm.engine.timeline.prepareContext(saved.context); vm.engine.timeline.apply(saved); activity.finish() }
+        }
+    }
+
+    @Test fun expandingRelatedTasksKeepsTheChatTailInPlaceOnEveryDraw() = withRelatedTaskWorkspace { activity, _ ->
+        val root = activity.findViewById<View>(android.R.id.content)
+        fun reply(): MarkdownTextView? {
+            fun visit(view: View): MarkdownTextView? {
+                if (view is MarkdownTextView && view.text.startsWith("Owned expansion tail")) return view
+                if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))?.let { return it }
+                return null
+            }
+            return visit(root)
+        }
+        lateinit var original: MarkdownTextView
+        var initialTop = 0
+        main {
+            original = requireNotNull(reply())
+            initialTop = IntArray(2).also(original::getLocationOnScreen)[1]
+        }
+        val positions = mutableListOf<Int>()
+        val missing = AtomicInteger()
+        val observer = ViewTreeObserver.OnDrawListener {
+            positions += IntArray(2).also(original::getLocationOnScreen)[1]
+            val visible = Rect()
+            if (reply() !== original || !original.isShown || !original.getGlobalVisibleRect(visible) || visible.height() != original.height) missing.incrementAndGet()
+        }
+        main { root.viewTreeObserver.addOnDrawListener(observer) }
+        try {
+            repeat(8) { step ->
+                click(text = "关联任务 · 3")
+                waitFor("The task list changes expansion") { (find(text = "expand-check") != null) == (step % 2 == 0) }
+                SystemClock.sleep(180)
+                main { root.invalidate() }
+                test.waitForIdleSync()
+            }
+            main {
+                File(test.targetContext.getExternalFilesDir(null), "associated-task-expansion-draws.json")
+                    .writeText("""{"initialTop":$initialTop,"drawnTops":$positions,"missingDraws":${missing.get()}}""")
+                assertTrue("Each expansion/collapse reaches an Android draw", positions.size >= 8)
+                assertEquals("Every draw retains the complete native reply", 0, missing.get())
+                assertTrue("Expanding tasks must not displace the chat before correcting its scroll: $positions", positions.all { kotlin.math.abs(it - initialTop) <= 1 })
+            }
+            screenshot("associated-task-expansion-stable-tail.png")
+        } finally {
+            main { root.viewTreeObserver.removeOnDrawListener(observer) }
+        }
+    }
+
+    @Test fun expandingRelatedTasksKeepsTheReaderInHistory() = withRelatedTaskWorkspace { activity, vm ->
+        fastSwipe(bounds(description = "聊天记录"), upward = false)
+        waitFor("The reader is viewing earlier messages") { find(text = "Owned expansion record ") != null && find(text = "Owned expansion tail") == null }
+        var previous: Pair<String, Int>? = null
+        var unchanged = 0
+        waitFor("The history gesture settles before toggling tasks") {
+            val next = find(text = "Owned expansion record ")?.let { it.text.toString() to Rect().also(it::getBoundsInScreen).top }
+            unchanged = if (next != null && next == previous) unchanged + 1 else 0
+            previous = next
+            unchanged >= 8
+        }
+        val reading = requireNotNull(find(text = "Owned expansion record ")).text.toString()
+        val root = activity.findViewById<View>(android.R.id.content)
+        fun reply(view: View): MarkdownTextView? {
+            if (view is MarkdownTextView && view.text.toString() == reading) return view
+            if (view is ViewGroup) for (index in 0 until view.childCount) reply(view.getChildAt(index))?.let { return it }
+            return null
+        }
+        lateinit var original: MarkdownTextView
+        main { original = requireNotNull(reply(root)) }
+        fun position(): Int {
+            var top = 0
+            // Accessibility clips a partly visible reply's bounds to the screen edge.
+            main { top = IntArray(2).also(original::getLocationOnScreen)[1] }
+            return top - bounds(description = "聊天记录").top
+        }
+        val before = position()
+        val positions = mutableListOf(before)
+        screenshot("associated-task-expansion-history-before.png")
+        repeat(4) {
+            click(text = "关联任务 · 3")
+            SystemClock.sleep(250)
+            assertNotNull("Expansion retains the same historical message", find(text = reading))
+            assertNull("Expansion must not resume tail following", find(text = "Owned expansion tail"))
+            main { assertSame("Expansion retains the native historical reply", original, reply(root)) }
+            positions += position()
+            File(test.targetContext.getExternalFilesDir(null), "associated-task-expansion-history.json").writeText("""{"relativeTops":$positions}""")
+            assertEquals(before.toFloat(), positions.last().toFloat(), 1f)
+        }
+        assertEquals(81, vm.engine.timeline.messages.size)
+        screenshot("associated-task-expansion-history.png")
+    }
+
+    private fun withRelatedTaskWorkspace(check: (MainActivity, HostCheckViewModel) -> Unit) {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("qa_native_history") == "true")
+        val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var vm: HostCheckViewModel
+        main { vm = ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+        waitFor("Core initialized") { vm.engine.state.value?.initialized == true }
+        val saved = requireNotNull(vm.engine.state.value)
+        assumeTrue("The workspace fixture requires an empty isolated app", saved.hosts.isEmpty())
+        val savedHistory = runBlocking { vm.engine.core.conversationSince(saved.conversationContext, 0uL) }
+        // Replace only the native display mirror; no host, provider or persisted state is changed.
+        @Suppress("UNCHECKED_CAST")
+        val display = vm.engine.javaClass.getDeclaredField("current").apply { isAccessible = true }.get(vm.engine) as MutableStateFlow<CoreSnapshot?>
+        val tasks = (0..2).map { task.copy(id = "owned-expansion-task-$it", task = if (it == 0) "expand-check" else "expansion-task-$it") }
+        val records = (0..80).map { index -> ItemInfo("owned-expansion-$index", ItemRole.ASSISTANT,
+            listOf(BlockInfo.Text(if (index == 80) "Owned expansion tail\n\nThe latest reply stays above the composer." else
+                "Owned expansion record $index\n\n" + (1..5).joinToString("\n\n") { "Owned paragraph $it for expansion verification." })), false, null) }
+        try {
+            main {
+                vm.settingsVisible = false
+                display.value = saved.copy(connection = ConnectionStatus.CONNECTED, selectedHost = "owned-expansion-host", selectedSession = "owned-expansion-session",
+                    sessions = listOf(SessionInfo("owned-expansion-session", "codex", "Owned expansion conversation", "", null, false, 0, null, "done", true, tasks, false)))
+                vm.engine.timeline.prepareContext(saved.conversationContext)
+                vm.engine.timeline.apply(ConversationDeltaInfo(saved.conversationContext, 100000uL, true, listOf(ConversationEditInfo(0uL, 0uL, records))))
+            }
+            waitFor("The actual workspace shows its related tasks and latest reply") { find(text = "关联任务 · 3") != null && find(text = "Owned expansion tail") != null }
+            SystemClock.sleep(500)
+            check(activity, vm)
+        } catch (error: Throwable) {
+            runCatching { screenshot("associated-task-expansion-failure.png") }
+            throw error
+        } finally {
+            main { display.value = saved; vm.engine.timeline.prepareContext(savedHistory.context); vm.engine.timeline.apply(savedHistory); activity.finish() }
         }
     }
 
