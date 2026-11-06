@@ -114,8 +114,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
                                 }
                             }
                         }
-                        SubagentTree("${host.id}/${session.id}/${query.isNotBlank()}", session.subagents, session.subagentsError, connected,
-                            Modifier.padding(start = 16.dp, bottom = 4.dp), initiallyExpanded = selected || query.isNotBlank(),
+                        AssociatedTasks("${host.id}/${session.id}/${query.isNotBlank()}", session.subagents, session.subagentsError, connected,
+                            Modifier.padding(start = 16.dp, bottom = 4.dp), initiallyExpanded = query.isNotBlank(),
                             inspect = inspectSubagent?.let { inspect -> { child -> inspect(host.id, session.id, child) } })
                     }
                     if (sessions.isEmpty()) item(key = "empty/${host.id}") { Text(stringResource(if (archived) R.string.no_archived_sessions else R.string.no_active_sessions), fontSize = 12.sp, color = KiteColors.Muted, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)) }
