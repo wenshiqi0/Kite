@@ -18,4 +18,12 @@ The regression `core::client::tests::reading_history_during_initialization_keeps
 - `cargo clippy -p kite-app --all-targets --locked -- -D warnings`: passed.
 - Alpha 89 is based on the published Alpha 88 source, retaining its previous fixes.
 
-The isolated regression reproduces the client state sequence; it is not a physical-handset execution. No Android device is connected to the local ADB server. Publication and tagged CI evidence are recorded after the build completes.
+The isolated regression reproduces the client state sequence; it is not a physical-handset execution. No Android device is connected to the local ADB server.
+
+## Published delivery
+
+[Alpha 89](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.89), versionCode 91, is published from source `e2e5c7317e04ec18a1096764e25d3dd2c3b86450`. Both the build and publication jobs in [tagged CI](https://github.com/wenshiqi0/Kite/actions/runs/42735025504) pass, including full Rust checks, Linux native checks, Release Android lint/JVM tests and signing/package checks.
+
+Fresh downloads of both public APKs match the public checksums and manifest. SDK verification independently confirms the Alpha 88 certificate, Release variant/version, arm64 ABI, API-23 v1 signatures, API-36 primary v3 and compatibility v2 signatures, identical application payloads and 16 KiB alignment. See [published package evidence](published-release.json).
+
+Update the Android client; the host protocol is unchanged. Physical-handset startup acceptance remains separate.
