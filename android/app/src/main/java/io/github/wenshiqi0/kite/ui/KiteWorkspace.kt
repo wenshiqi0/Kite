@@ -312,9 +312,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp),
                             inspect = { child -> state?.selectedHost?.let { host -> inspectedTask = AssociatedTaskTarget(host, session.id, child) } })
                 }
-                if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    ResourceWarning(state?.hostResources) {
-                        state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.openMachineSettings() }
+                if (state?.connection == ConnectionStatus.CONNECTED) {
+                    ResourceWarning(state.hostResources, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        state.hosts.find { it.id == state.selectedHost }?.let { host -> vm.chooseHost(host); vm.openMachineSettings() }
                     }
                 }
                 if (split) {
