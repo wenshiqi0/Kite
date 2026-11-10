@@ -1,0 +1,40 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.92",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/42834700778",
+  "sourceCommit": "73685de105472e736498f957c2e85098bc7a48c6",
+  "versionName": "0.2.0-alpha.92",
+  "versionCode": 94,
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "certificateMatchesAlpha91": true,
+  "primaryAndCompatibilityApplicationPayloadsMatch": true,
+  "checks": [
+    "fresh public downloads and SHA256SUMS",
+    "manifest/source/version/Release/ABI",
+    "API 23 v1 signatures",
+    "API 36 primary v3 and compatibility v2 signatures",
+    "16 KiB ZIP alignment"
+  ],
+  "files": [
+    {
+      "asset": "kite-0.2.0-alpha.92-arm64-v8a.apk",
+      "sha256": "54a949bcf53c4b1d7b851817c7c821e6db83a5b42687e3d53d9ce04c803b09fb",
+      "bytes": 26037344
+    },
+    {
+      "asset": "kite-0.2.0-alpha.92-arm64-v8a-compat-v2.apk",
+      "sha256": "e615160aaf612d806e38a7bc79d36ab6225a6811767578172fb85df69d8e94a1",
+      "bytes": 26037344
+    },
+    {
+      "asset": "kite-host-0.2.0-alpha.92-linux-x86_64.tar.gz",
+      "sha256": "7937d3861c77c77d41f14be9d6546f7f40f0a6ff310fd98536b987cc0a46bc2a",
+      "bytes": 3677899
+    },
+    {
+      "asset": "release-manifest.json",
+      "sha256": "d1004a98053a8950c555a2a712d84d34459ac93a72314f2c973542768c37f11c",
+      "bytes": 1359
+    }
+  ],
+  "physicalHandsetTested": false
+}

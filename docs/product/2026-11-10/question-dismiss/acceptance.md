@@ -16,3 +16,5 @@ Validation on 2026-11-10:
 The first native attempt was blocked by an Android System UI ANR dialog during fresh emulator startup. After dismissing that system dialog, the final APK passed. Physical-handset installation and rendering remain untested.
 
 Version **0.2.0-alpha.92**, Android versionCode **94**, is based on published Alpha 91. The host protocol is unchanged; only the Android client needs updating.
+
+[Alpha 92 is published](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.92) from `73685de105472e736498f957c2e85098bc7a48c6`. Both [tagged build/publication jobs](https://github.com/wenshiqi0/Kite/actions/runs/42834700778) pass. Fresh public downloads independently pass all asset checksums, manifest/source/version/Release/ABI checks, the Alpha 91 certificate pin, API 23/36 signature verification, equal primary/compatibility application payloads and 16 KiB ZIP alignment. [Publication record](published-release.json).
