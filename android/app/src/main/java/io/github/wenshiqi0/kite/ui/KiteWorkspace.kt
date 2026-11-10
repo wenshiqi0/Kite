@@ -496,11 +496,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }else{chromeBounds.remove("top");chromeBounds.remove("rail");chromeBounds.remove("toolbar")}
                 }
                 Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper)) {
-                    AndroidView(factory = { VideoSurface(it, vm::videoReady, {id->vm.videoGone(id);if(videoReference.value?.target==id){videoReference.value=null;vm.flushRemoteText=null}}).also { surface ->
+                    AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone).also { surface ->
                         videoReference.value=surface
                         val weak=WeakReference(surface)
                         vm.flushRemoteText={weak.get()?.flushRemoteText()}
-                    } }, update = { surface ->
+                    } }, onRelease = { surface ->
+                        // SurfaceHolder may recreate its renderer while this same view
+                        // stays composed. Toolbar actions belong to the view's lifetime.
+                        surface.closeRemoteKeyboard(hide = surface.remoteKeyboardActive)
+                        if (videoReference.value === surface) {
+                            videoReference.value = null
+                            vm.flushRemoteText = null
+                        }
+                    }, update = { surface ->
                         surface.takeover = takeover && !docked
                         surface.audioEnabled=vm.engine.desktopAudioEnabled
                         surface.fullscreenInput = vm.layout == DesktopLayout.Fullscreen

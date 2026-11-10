@@ -1,0 +1,24 @@
+{
+  "platform": "Android API 36 x86_64",
+  "fixture": "real split workspace and Android IME; synthetic desktop state; empty owned app; network disabled; no selected host",
+  "baseline": {
+    "application": "existing Alpha 92 debug build",
+    "tests": 2,
+    "failures": 1,
+    "failedTest": "SplitKeyboardLifecycleTest.toolbarReopensAfterTheSameVideoViewRecreatesItsSurface",
+    "failedAt": "toolbar remote keyboard open after first Surface recreation"
+  },
+  "fixed": {
+    "tests": 6,
+    "failures": 0,
+    "surfaceRecreationCycles": 3,
+    "chatAndTouchpadSwitchCycles": 3,
+    "systemImeVisibleAndServedByVideoView": true,
+    "videoViewIdentityRetainedAndRendererIdentityChanged": true,
+    "legacyWindowFocusCancellationAndCompositionRegressions": "PASS"
+  },
+  "releaseJvmTests": 85,
+  "releaseLint": "PASS",
+  "physicalHandsetTested": false,
+  "remoteHostConnected": false
+}
