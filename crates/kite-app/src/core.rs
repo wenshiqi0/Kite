@@ -1821,14 +1821,6 @@ impl AppCore {
             }
             let attachments: Vec<_> = files.iter().map(|u| u.attachment.clone()).collect();
             let blocks = composer::prompt_blocks(&text, &attachments, &skills);
-            if core
-                .snapshot()
-                .question
-                .as_ref()
-                .is_some_and(|q| q.blocking)
-            {
-                return Err(AppError::State("answer the pending model question".into()));
-            }
             core.update_live(&conversation, |live| {
                 live.response_activity = ResponseActivity::Sending;
             });

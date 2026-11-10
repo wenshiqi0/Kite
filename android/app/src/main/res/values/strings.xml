@@ -328,6 +328,8 @@
     <string name="question_progress">%1$d / %2$d</string>
     <string name="question_previous">上一个</string>
     <string name="question_next">下一个</string>
+    <string name="question_answer_later">稍后回答</string>
+    <string name="question_continue_hint">可以稍后回答，也可以直接发消息继续</string>
     <string name="expand_virtual_mouse">展开鼠标</string>
     <string name="collapse_virtual_mouse">收起鼠标</string>
     <string name="move_virtual_mouse">移动虚拟指针</string>

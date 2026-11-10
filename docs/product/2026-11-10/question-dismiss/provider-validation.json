@@ -1,0 +1,8 @@
+{
+  "provider": "codex-cli 0.166.0",
+  "scope": "owned ephemeral app-server thread; real model; no Kite host session",
+  "blocking_question_count": 1,
+  "empty_answers_rpc_accepted": true,
+  "immediate_followup_accepted": true,
+  "followup_completed_with_expected_marker": true
+}

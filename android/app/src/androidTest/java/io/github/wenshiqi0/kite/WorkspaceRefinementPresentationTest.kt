@@ -38,6 +38,63 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun questionsCanCloseMidFormKeepDraftsAndLeaveTheWorkspaceComposerEnabled() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("qa_native_history") == "true")
+        val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var vm: HostCheckViewModel
+        main { vm = ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+        waitFor("Core initialized") { vm.engine.state.value?.initialized == true }
+        val saved = requireNotNull(vm.engine.state.value)
+        assumeTrue("Only an empty isolated app may use this fixture", saved.hosts.isEmpty())
+        @Suppress("UNCHECKED_CAST")
+        val display = vm.engine.javaClass.getDeclaredField("current").apply { isAccessible = true }.get(vm.engine) as kotlinx.coroutines.flow.MutableStateFlow<CoreSnapshot?>
+        val agent = AgentInfo("owned-question-agent", null, "codex", "Owned questions", "blocked", "%owned", null, false, false, true)
+        val base = saved.copy(connection = ConnectionStatus.CONNECTED, selectedHost = "owned-question-host",
+            selectedSession = "owned-question-session", selectedAgent = agent.id, agents = listOf(agent),
+            providers = listOf(ProviderInfo("codex", true, false, false, false, false, false, false, false)),
+            agentPause = AgentPauseStatus.RUNNING, responsePhase = ResponsePhase.WAITING,
+            composer = saved.composer.copy(ready = true, loading = false, details = ""),
+            sessions = listOf(SessionInfo("owned-question-session", "codex", "Owned questions", "", null, false, 0, agent.id, "question", true, emptyList(), false)))
+        fun clickText(text: String) = assertTrue(actionNode(requireNotNull(find(text = text)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        try {
+            for (blocking in listOf(false, true)) {
+                val question = QuestionInfo("owned-question-$blocking", blocking, listOf(
+                    QuestionFieldInfo("colour", "颜色", "Owned colour question", true, false, listOf(QuestionOptionInfo("蓝色", ""))),
+                    QuestionFieldInfo("note", "说明", "Owned note question", true, false, emptyList()),
+                ))
+                main { vm.settingsVisible = false; vm.draft = "继续，先按默认方案处理"; display.value = base.copy(question = question) }
+                waitFor("The real workspace displays the question") { find(text = "Owned colour question") != null }
+                clickText("蓝色"); clickText("下一个")
+                waitFor("Second question opens") { find(text = "Owned note question") != null }
+                val answer = actionNode(requireNotNull(find(description = "回答：说明")), AccessibilityNodeInfo.ACTION_SET_TEXT)
+                assertTrue(answer.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "保留未提交草稿")
+                }))
+                clickText("稍后回答")
+                waitFor("Closing hides the unfinished form") { find(text = "Owned note question") == null }
+                assertEquals("蓝色", vm.questionValues(question.id)["colour"])
+                assertEquals("保留未提交草稿", vm.questionValues(question.id)["note"])
+                val send = actionNode(requireNotNull(find(description = "发送消息")), AccessibilityNodeInfo.ACTION_CLICK)
+                assertTrue("A pending question must allow a normal follow-up", send.isEnabled)
+                screenshot("question-closed-$blocking.png")
+                clickText("回答问题")
+                waitFor("Reopening restores the same page and draft") { find(text = "Owned note question") != null && find(text = "保留未提交草稿") != null }
+                assertNotNull(find(text = "2 / 2"))
+                // The closed form did not submit any answer or mutate the provider snapshot.
+                assertEquals(question.id, display.value?.question?.id)
+                screenshot("question-reopened-$blocking.png")
+                clickText("回答问题")
+                waitFor("The answer sheet opens independently") { find(text = "Owned colour question") != null }
+                screenshot("question-sheet-$blocking.png")
+                clickText("稍后回答")
+                waitFor("Closing the sheet returns to the composer") { find(text = "Owned note question") != null && find(description = "发送消息") != null }
+                assertEquals("保留未提交草稿", vm.questionValues(question.id)["note"])
+                main { display.value = base.copy(question = null) }
+                waitFor("Resolved question leaves the workspace") { find(text = "Owned note question") == null }
+            }
+        } finally { main { display.value = saved; activity.finish() } }
+    }
+
     @Test fun subagentHistorySharesGlobalInstructionsSkillCardsAndMessageBubblesWithMainChat() {
         val global = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nGlobal instruction fixture body\n</INSTRUCTIONS>"
         val messages = listOf(

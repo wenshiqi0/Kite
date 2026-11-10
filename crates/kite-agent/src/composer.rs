@@ -495,10 +495,12 @@ impl Client {
             .find(|m| m.model == selected.model)
             .ok_or(Error::Invalid("model unavailable"))?;
         let input = turn_input(blocks, skills, model)?;
-        if lock(&self.runtime).question().is_some_and(|q| q.blocking) {
-            return Err(Error::Invalid("answer the pending model question"));
-        }
         settings::validate(&self.settings, &selected.settings)?;
+        let unanswered = lock(&self.runtime).unanswered_question_replies();
+        for (id, reply) in unanswered {
+            self.write(reply).await?;
+            lock(&self.runtime).answered(&id);
+        }
         lock(&self.runtime).begin();
         let mut params = json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort});
         settings::apply(

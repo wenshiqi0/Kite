@@ -417,18 +417,17 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     agent.launchPending -> R.string.composer_starting
                     providerInfo?.managedChat == true && !state.composer.ready -> if(state.composer.loading)R.string.composer_starting else R.string.composer_backend_unavailable
                     state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
-                    state.question != null -> if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_hint
                     agent.status == "blocked" && state.question == null && !responseInProgress -> R.string.composer_blocked_hint
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
                 if (initializingSession && !showInitialization) SessionInitializationMessage(Modifier.align(Alignment.CenterHorizontally))
-                if (!initializingSession && !showInitialization && composeReason != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                val composeHint = composeReason ?: state?.question?.let { R.string.question_continue_hint }
+                if (!initializingSession && !showInitialization && composeHint != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(composeHint), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     if (state?.question != null) TextButton(onClick = { answerRequest = state.question?.id }) { Text(stringResource(R.string.go_answer)) }
                     else if(composeReason==R.string.composer_backend_unavailable)TextButton(onClick={vm.engine.command{vm.engine.core.reloadComposer()}}){Text(stringResource(R.string.retry))}
                 }
-                if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty(), onExternalActivityChanged = updatePip, inspect = ::pauseHistory)
                 SkillDrafts(state?.composer?.skills?.selected.orEmpty(), !vm.sending && !vm.skillBusy) { skill ->
                     agent?.id?.let { vm.selectSkill(it, skill.path, false) }
@@ -459,14 +458,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     ComposerActionButton(
                         working = vm.sessionStartup == SessionStartupPhase.READY && if (providerInfo?.managedChat == true) state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.WAITING) else agent?.status in listOf("working", "blocked"),
                         hasInput = !vm.creatingAgent && (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()),
-                        canSend = !vm.submissionLocked && agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && !vm.interrupting && state?.composer?.uploads?.all { it.ready } != false && composeReason == null,
+                        canSend = !vm.submissionLocked && agent != null && !vm.sending && !vm.answeringQuestion && !vm.skillBusy && !vm.copyingAttachments && !vm.interrupting && state?.composer?.uploads?.all { it.ready } != false && composeReason == null,
                         canInterrupt = !vm.submissionLocked && agent != null && state?.agentPause == AgentPauseStatus.RUNNING && (providerInfo?.managedChat == true || providerInfo?.terminal == true),
                         sending = vm.sending,
                         interrupting = vm.interrupting,
                         onSend = { agent?.id?.let(vm::sendPrompt) },
                         onInterrupt = { agent?.id?.let(vm::interruptAgent) },
                     )
-                }
                 }
                 }
             }
@@ -603,7 +601,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     state?.question?.takeIf { it.id == answerRequest && !hideChrome }?.let { question ->
         ModalBottomSheet(onDismissRequest = { answerRequest = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .8f).dp).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).navigationBarsPadding().imePadding()) {
-                ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING)
+                ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING, onDismiss = { answerRequest = null })
                 Spacer(Modifier.height(12.dp))
             }
         }
