@@ -677,6 +677,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reading_history_during_initialization_keeps_workspace_ready() {
+        struct StartupReader {
+            client: Mutex<std::sync::Weak<ClientCore>>,
+            read: AtomicBool,
+        }
+        impl Observer for StartupReader {
+            fn changed(&self, snapshot: Snapshot) {
+                // Android requests a conversation delta for every published snapshot,
+                // including the saved host published before initialization completes.
+                if snapshot.selected_host.is_some()
+                    && !snapshot.initialized
+                    && !self.read.swap(true, Ordering::SeqCst)
+                {
+                    let client = lock(&self.client).upgrade().unwrap();
+                    client.conversation_since("", 0);
+                }
+            }
+        }
+
+        let fixture = Fixture::new(false).await;
+        let directory = tempfile::tempdir().unwrap();
+        let reader = Arc::new(StartupReader {
+            client: Mutex::new(std::sync::Weak::new()),
+            read: AtomicBool::new(false),
+        });
+        let client = ClientCore::new(fixture.core.secrets.clone(), reader.clone());
+        *lock(&reader.client) = Arc::downgrade(&client);
+        client
+            .initialize(
+                directory.path().into(),
+                "startup-reader".into(),
+                LegacyImport {
+                    source: "startup-reader".into(),
+                    host: Some(fixture.core.host("host").unwrap()),
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(reader.read.load(Ordering::SeqCst));
+        let snapshot = client.snapshot();
+        assert!(snapshot.initialized);
+        assert!(snapshot.key.is_some());
+        assert_eq!(snapshot.selected_host.as_deref(), Some("host"));
+        assert!(client.runtime("host").unwrap().snapshot().initialized);
+        fixture.stop().await;
+    }
+
+    #[tokio::test]
     async fn grouped_workspaces_keep_offline_sessions_and_open_the_exact_machine_session() {
         let fixture = Fixture::new(false).await;
         let directory = tempfile::tempdir().unwrap();
