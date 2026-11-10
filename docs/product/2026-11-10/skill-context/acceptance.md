@@ -14,3 +14,5 @@ Validation:
 The first emulator attempt was obscured by an Android System UI ANR dialog during its initial startup. The unchanged APK passed after that system dialog was dismissed. No model turn or real host connection was used. Physical-handset installation and rendering remain untested.
 
 Version: **0.2.0-alpha.91**, Android versionCode **93**, based on published Alpha 90. The host protocol is unchanged; this update only requires the Android client.
+
+[Alpha 91 is published](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.91) from `b53896a0aa4f77402f990072f9e9b4db3ac8e611`. Both [tagged CI jobs](https://github.com/wenshiqi0/Kite/actions/runs/42776536134) pass. Fresh public downloads independently pass checksums/manifest, source/version/ABI, the Alpha 90 signing-certificate pin, API 23/36 signature verification, identical primary/compatibility application payloads and 16 KiB ZIP alignment. [Publication and verification record](published-release.json).
