@@ -1,0 +1,43 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.93",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/42886781304",
+  "sourceCommit": "0261bf24e566e1a64872dd8781efa500535749f1",
+  "versionName": "0.2.0-alpha.93",
+  "versionCode": 95,
+  "signatureAndApkPayloadVerification": "trusted tagged Build Release APK job",
+  "publishedAssetByteVerification": "trusted Publish Alpha Release job re-downloads all five assets and compares bytes",
+  "independentChecks": [
+    "public manifest source/version/variant/ABI",
+    "signing certificate equals Alpha 92 pin",
+    "scheme and alignment metadata",
+    "public SHA256SUMS and available GitHub server asset digests"
+  ],
+  "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273",
+  "assets": [
+    {
+      "asset": "kite-0.2.0-alpha.93-arm64-v8a.apk",
+      "bytes": 26037344,
+      "sha256": "c79859c7f325631ddb196c2fd643e425d9315abb0259a9f5e9f21dfc1b6149ba",
+      "githubServerDigestMatches": true
+    },
+    {
+      "asset": "kite-0.2.0-alpha.93-arm64-v8a-compat-v2.apk",
+      "bytes": 26037344,
+      "sha256": "0e29244d29666e132a47e14b46d83632e636f00f7f0972dbaae2404d00a1c81d",
+      "githubServerDigestMatches": true
+    },
+    {
+      "asset": "kite-host-0.2.0-alpha.93-linux-x86_64.tar.gz",
+      "bytes": 3677890,
+      "sha256": "a4c4ed7085c9170245facbc0c3b5b768dbf67233d1ed0127da50564c47059b7e",
+      "githubServerDigestMatches": true
+    },
+    {
+      "asset": "release-manifest.json",
+      "bytes": 1359,
+      "sha256": "2704929264442f3187d0b1edacaefecdabe64306f64d080e820785b03cb2f817",
+      "githubServerDigestMatches": true
+    }
+  ],
+  "physicalHandsetTested": false
+}

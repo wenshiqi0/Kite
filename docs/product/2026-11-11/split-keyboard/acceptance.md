@@ -20,3 +20,5 @@ Alpha 92 的工作区在 `VideoSurface` 的 renderer 销毁回调中，同时清
 测试使用空白隔离应用及合成桌面状态，不连接主机、不发送模型请求、不验证远端字符接收。复用了自有 QA 模拟器数据；本次启动的 Android System UI 未响应弹窗在运行测试前已关闭。实体手机和 OEM 输入法尚未实测。用户主机、会话和配对配置未修改。
 
 发布版本为 **0.2.0-alpha.93 / versionCode 95**，基于 Alpha 92，仅需更新 Android 客户端。
+
+[Alpha 93 已发布](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.93)，源码为 `0261bf24e566e1a64872dd8781efa500535749f1`。[标签构建与发布](https://github.com/wenshiqi0/Kite/actions/runs/42886781304) 的两项任务均通过：可信构建验证 SDK 签名、既有证书、API 23/36、APK payload 一致及 16 KiB 对齐，发布任务重新下载全部五个附件核对字节。另独立读取公开 manifest 与 SHA256SUMS，确认源码/版本/Release/ABI、Alpha 92 证书 pin，以及全部四项 checksum 与 GitHub 服务端附件 digest 一致。[发布核验记录](published-release.json)。
