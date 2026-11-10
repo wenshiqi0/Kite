@@ -455,6 +455,10 @@
     <string name="harness_session_hint">连接智能体后即可开始对话</string>
     <string name="harness_unavailable">选定的智能体当前在主机上不可用</string>
     <string name="chat_reference_pending">此引用暂不支持展示</string>
+    <string name="skill_context_title">Skill 指令</string>
+    <string name="skill_context_expand">展开 %1$s 的 Skill 指令</string>
+    <string name="skill_context_collapse">收起 %1$s 的 Skill 指令</string>
+    <string name="skill_context_source">来源：%1$s</string>
     <string name="harness_selector">智能体</string>
     <string name="provider_ply">Ply</string>
     <string name="search_sessions">搜索会话</string>

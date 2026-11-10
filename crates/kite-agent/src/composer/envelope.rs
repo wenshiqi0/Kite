@@ -26,7 +26,10 @@ pub fn encode(blocks: &[Block]) -> Result<String, Error> {
             }
             Block::Attachment(file) if files.len() < MAX_ATTACHMENTS => files.push(file),
             Block::Attachment(_) => return Err(Error::Invalid("too many attachment blocks")),
-            Block::Tool(_) | Block::QuestionReply(_) | Block::Embed(_) => {
+            Block::Tool(_)
+            | Block::QuestionReply(_)
+            | Block::Embed(_)
+            | Block::SkillContext { .. } => {
                 return Err(Error::Invalid("block has no provider encoding"));
             }
         }
@@ -127,6 +130,11 @@ mod tests {
             Block::Tool(tool),
             Block::QuestionReply(reply),
             Block::Embed(embed),
+            Block::SkillContext {
+                name: "report".into(),
+                path: "/skills/report/SKILL.md".into(),
+                content: "Report rules".into(),
+            },
         ] {
             assert!(matches!(
                 encode(&[Block::Text("kept".into()), block]),

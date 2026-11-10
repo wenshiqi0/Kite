@@ -13,7 +13,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.ComposeView
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.core.ChatSkillInfo
+import io.github.wenshiqi0.kite.core.BlockInfo
+import io.github.wenshiqi0.kite.core.ItemInfo
+import io.github.wenshiqi0.kite.core.ItemRole
 import io.github.wenshiqi0.kite.core.SkillDraftInfo
+import io.github.wenshiqi0.kite.ui.ChatEntry
+import io.github.wenshiqi0.kite.ui.ChatEntryContent
 import io.github.wenshiqi0.kite.ui.SkillDrafts
 import io.github.wenshiqi0.kite.ui.SkillPicker
 import io.github.wenshiqi0.kite.ui.theme.KiteTheme
@@ -137,6 +142,39 @@ class SkillPickerPresentationTest {
             overlay({ SkillPicker(draft, true, { _, _ -> }, {}, {}) }) {
                 waitFor(label) { find(text = label) != null }
             }
+        }
+    }
+
+    @Test fun transcriptSkillCardsFoldIndependentlyAndKeepTheUsersOwnTextVisible() {
+        val message = ItemInfo("mixed-skills", ItemRole.USER, listOf(
+            BlockInfo.Text("\$report：请检查测试。"),
+            BlockInfo.SkillContext("report", "/owned/report/SKILL.md", "# 项目报告\n\n只处理当前项目的报告。"),
+            BlockInfo.SkillContext("review", "/owned/review/SKILL.md", "# 代码检查\n\n检查回归风险。"),
+            BlockInfo.Text("保留这条补充要求。"),
+        ), false, null)
+        overlay({ ChatEntryContent(ChatEntry.Message(message)) {} }) {
+            waitFor("Skill context label") { find(text = "Skill 指令") != null }
+            assertNotNull(find(text = "\$report：请检查测试。"))
+            assertNotNull(find(text = "保留这条补充要求。"))
+            assertNull(find(text = "只处理当前项目的报告。"))
+            assertNull(find(text = "/owned/report/SKILL.md"))
+            assertNull(find(text = "检查回归风险。"))
+            click(requireNotNull(find(description = "展开 report 的 Skill 指令")))
+            waitFor("Expanded Markdown body") { find(text = "只处理当前项目的报告。") != null }
+            assertNotNull(find(text = "来源：/owned/report/SKILL.md"))
+            assertNull(find(text = "检查回归风险。"))
+            val screenshot = requireNotNull(test.uiAutomation.takeScreenshot())
+            File(test.targetContext.getExternalFilesDir(null), "skill-context-expanded.png").outputStream().use {
+                screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            screenshot.recycle()
+            click(requireNotNull(find(description = "收起 report 的 Skill 指令")))
+            waitFor("Collapsed body") { find(text = "只处理当前项目的报告。") == null }
+            click(requireNotNull(find(description = "展开 review 的 Skill 指令")))
+            waitFor("Second independent body") { find(text = "检查回归风险。") != null }
+            assertNull(find(text = "只处理当前项目的报告。"))
+            assertNotNull(find(text = "\$report：请检查测试。"))
+            assertNotNull(find(text = "保留这条补充要求。"))
         }
     }
 }

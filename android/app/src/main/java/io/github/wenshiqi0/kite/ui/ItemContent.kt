@@ -54,6 +54,7 @@ internal fun ItemContent(
                         }
                     }
                     is BlockInfo.Attachment -> attachment(block.file)
+                    is BlockInfo.SkillContext -> SkillContextCard(block)
                     is BlockInfo.QuestionReply -> AnsweredQuestions(listOf(block.reply))
                     is BlockInfo.Tool -> ToolGroupCard(
                         ChatEntry.Work(listOf(message.copy(id = "${message.id}:block:$index", blocks = listOf(block)))),

@@ -11,6 +11,7 @@ mod presentation;
 pub mod process;
 pub mod providers;
 pub mod sessions;
+mod skill_context;
 pub mod subagents;
 pub mod usage;
 
@@ -108,6 +109,12 @@ pub enum Reference {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Block {
     Text(String),
+    /// Read-only presentation of provider-injected skill instructions.
+    SkillContext {
+        name: String,
+        path: String,
+        content: String,
+    },
     Attachment(composer::Attachment),
     Tool(Tool),
     QuestionReply(QuestionReply),
@@ -117,6 +124,11 @@ impl Block {
     fn payload_len(&self) -> usize {
         match self {
             Self::Text(text) => text.len(),
+            Self::SkillContext {
+                name,
+                path,
+                content,
+            } => name.len() + path.len() + content.len(),
             Self::Attachment(file) => file.name.len() + file.path.len(),
             Self::Tool(tool) => tool.arguments.len() + tool.output.len(),
             Self::QuestionReply(reply) => reply.question.len() + reply.answer.len(),
@@ -248,6 +260,14 @@ impl Item {
     /// Keep original records for paging/cache merges, but expose user-facing
     /// messages and report bodies to native clients instead of machine receipts.
     pub fn presentation(&self) -> std::borrow::Cow<'_, Self> {
+        if self.role == Role::User
+            && let Some(blocks) = skill_context::project(&self.blocks)
+        {
+            return std::borrow::Cow::Owned(Self {
+                blocks,
+                ..self.clone()
+            });
+        }
         if self.role == Role::Assistant
             && !self.intermediate
             && let [Block::Text(source)] = self.blocks.as_slice()
@@ -311,9 +331,9 @@ fn text_content(v: &Value) -> String {
         .unwrap_or_default()
 }
 
-fn codex_message_text(v: &Value) -> String {
+fn codex_text_parts(v: &Value) -> Vec<&str> {
     let Some(blocks) = v.as_array() else {
-        return text_content(v);
+        return v.as_str().into_iter().collect();
     };
     let mut text = Vec::new();
     let mut i = 0;
@@ -336,7 +356,30 @@ fn codex_message_text(v: &Value) -> String {
         }
         i += 1;
     }
-    text.join("\n")
+    text
+}
+
+fn codex_message_text(v: &Value) -> String {
+    codex_text_parts(v).join("\n")
+}
+
+fn codex_user_blocks(v: &Value) -> Vec<Block> {
+    let parts = codex_text_parts(v);
+    // Retain a provider content boundary around skill context so a mixed item
+    // never hides or relabels the user's neighbouring text or attachments.
+    let mut blocks = Vec::new();
+    let mut text = Vec::new();
+    for part in parts {
+        if skill_context::decode(part).is_some() {
+            blocks.extend(composer::envelope::decode(&text.join("\n")));
+            text.clear();
+            blocks.push(Block::Text(part.into()));
+        } else {
+            text.push(part);
+        }
+    }
+    blocks.extend(composer::envelope::decode(&text.join("\n")));
+    blocks
 }
 
 fn add_blocks(items: &mut Vec<Item>, id: String, role: Role, blocks: Vec<Block>) {
@@ -567,17 +610,18 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Item> {
                         };
                         if text.starts_with("<environment_context>")
                             || text.starts_with("<turn_aborted>")
-                            // Codex injects the explicitly selected skill body as
-                            // user-role context; keep the actual $name prompt visible.
-                            || (role == Role::User
-                                && text.starts_with("<skill>\n<name>")
-                                && text.contains("</name>\n<path>")
-                                && text.trim_end().ends_with("</skill>"))
                         {
                             continue;
                         }
                         let item_id = p["id"].as_str().unwrap_or(&id).to_owned();
-                        if replies.is_empty() {
+                        if replies.is_empty() && role == Role::User {
+                            add_blocks(
+                                &mut items,
+                                item_id.clone(),
+                                role,
+                                codex_user_blocks(&p["content"]),
+                            );
+                        } else if replies.is_empty() {
                             add_text(&mut items, item_id.clone(), role, text);
                         } else {
                             let blocks = replies.into_iter().map(Block::QuestionReply).collect();
@@ -851,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_skill_instructions_do_not_appear_as_extra_user_prompts() {
+    fn selected_skill_instructions_are_presented_separately_from_user_prompts() {
         let context = "<skill>\n<name>report</name>\n<path>/skills/report/SKILL.md</path>\nWrite a report.\n</skill>";
         let wire = |role: &str, text: &str| {
             serde_json::json!({"type":"response_item","payload":{"type":"message","role":role,"content":[{"type":"input_text","text":text}]}}).to_string()
@@ -864,11 +908,15 @@ mod tests {
         ]
         .join("\n");
         let items = parse_history("codex", lines.as_bytes());
-        assert_eq!(items.len(), 3);
+        assert_eq!(items.len(), 4);
         assert_eq!(items[0].text(), "$report\n\nSummarize changes");
-        assert_eq!(items[1].role, Role::Assistant);
+        assert!(
+            matches!(items[1].presentation().blocks.as_slice(), [Block::SkillContext { name, .. }] if name == "report")
+        );
         assert_eq!(items[1].text(), context);
-        assert_eq!(items[2].text(), "Explain <skill> tags");
+        assert_eq!(items[2].role, Role::Assistant);
+        assert_eq!(items[2].text(), context);
+        assert_eq!(items[3].text(), "Explain <skill> tags");
     }
     #[test]
     fn generated_images_render_as_assistant_attachments_with_stable_identity() {

@@ -38,6 +38,51 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun subagentHistorySharesGlobalInstructionsSkillCardsAndMessageBubblesWithMainChat() {
+        val global = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nGlobal instruction fixture body\n</INSTRUCTIONS>"
+        val messages = listOf(
+            ItemInfo("global", ItemRole.USER, listOf(BlockInfo.Text(global)), false, null),
+            ItemInfo("skill", ItemRole.USER, listOf(BlockInfo.SkillContext("report", "/skills/report/SKILL.md", "使用同一套消息渲染。")), false, null),
+            ItemInfo("user", ItemRole.USER, listOf(BlockInfo.Text("保留用户的补充要求。")), false, null),
+            ItemInfo("reply", ItemRole.ASSISTANT, listOf(BlockInfo.Text("Inspection result is ready")), false, null),
+        )
+        val child = SubagentInfo("child", "parent", "Worker", "research", "done", 0)
+        val inspecting = androidx.compose.runtime.mutableStateOf(false)
+        fun checkSharedMessages() {
+            waitFor("global instruction notice") { find(text = "已加载全局指令") != null }
+            assertNull(find(text = "# AGENTS.md instructions"))
+            assertNull(find(text = "Global instruction fixture body"))
+            assertNotNull(find(text = "Skill 指令"))
+            assertNotNull(find(text = "保留用户的补充要求。"))
+            assertNotNull(find(text = "Inspection result is ready"))
+            assertNull(find(text = "使用同一套消息渲染。"))
+        }
+        overlay({
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                messages.forEach { ChatEntryContent(ChatEntry.Message(it)) {} }
+                androidx.compose.material3.TextButton(onClick = { inspecting.value = true }) {
+                    androidx.compose.material3.Text("Inspect shared history fixture")
+                }
+            }
+            if (inspecting.value) AssociatedTaskInspector(child, true, load = {
+                SubagentInspectionInfo(messages, false)
+            }, dismiss = { inspecting.value = false })
+        }) {
+            checkSharedMessages()
+            screenshot("main-shared-message-rendering.png")
+            actionNode(requireNotNull(find(text = "Inspect shared history fixture")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("child history opens") { find(text = "只读记录") != null }
+            checkSharedMessages()
+            actionNode(requireNotNull(find(description = "展开 report 的 Skill 指令")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("child Skill expands") { find(text = "使用同一套消息渲染。") != null }
+            assertNotNull(find(text = "来源：/skills/report/SKILL.md"))
+            assertNull(find(text = "Global instruction fixture body"))
+            screenshot("subagent-shared-message-rendering.png")
+        }
+    }
+
     @Test fun completedSubagentOpensReadonlyRecordsAndRefreshDoesNotChangeItsParent() {
         val child = SubagentInfo("child", "parent", "Worker", "research", "done", 0)
         val selected = androidx.compose.runtime.mutableStateOf<SubagentInfo?>(null)

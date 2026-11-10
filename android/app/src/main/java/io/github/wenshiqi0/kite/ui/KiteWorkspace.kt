@@ -372,10 +372,16 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             } else Button(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.role}) { entry -> when (entry) {
-                        is ChatEntry.Message -> MessageCard(vm, updatePip, ::pauseHistory, entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
-                        is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
-                    } }
+                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.role}) { entry ->
+                        ChatEntryContent(
+                            entry, working = agent?.status == "working",
+                            streaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId,
+                            inspect = ::pauseHistory, desktop = vm::openDesktop,
+                        ) { file ->
+                            if (file.generatedImage) GeneratedImages(vm, listOf(file), onExternalActivityChanged = updatePip, onOpenPreview = ::pauseHistory)
+                            else MessageAttachments(vm, listOf(file), updatePip, ::pauseHistory)
+                        }
+                    }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
                     if (state?.connection == ConnectionStatus.CONNECTED && presentationPhase != ResponsePhase.IDLE) item(key = "response-feedback") { ResponseFeedback(presentationPhase, vm.sending, waitingForApproval = state.question == null && state.approval != null, details = state.composer.details) }
@@ -669,26 +675,5 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     val description = if (label == R.string.zoom_in || label == R.string.zoom_out) translated else text ?: translated
     Surface(onClick = action, color = if (active) KiteColors.AccentSurface else KiteColors.Raised, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(40.dp).widthIn(min = 40.dp).semantics { contentDescription = description }) {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else KiteColors.Muted, Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
-    }
-}
-@Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: ItemInfo, streaming: Boolean = false) {
-    if (remember(message) { isGlobalInstructionsMessage(message) }) {
-        GlobalInstructionsNotice()
-        return
-    }
-    if (message.role == ItemRole.ERROR) {
-        TurnFailureMessage(message.text)
-        return
-    }
-    val user = message.role == ItemRole.USER
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
-        Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
-            Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                ItemContent(message, streaming, inspect, vm::openDesktop) { file ->
-                    if (file.generatedImage) GeneratedImages(vm, listOf(file), onExternalActivityChanged = updatePip, onOpenPreview = inspect)
-                    else MessageAttachments(vm, listOf(file), updatePip, inspect)
-                }
-            }
-        }
     }
 }

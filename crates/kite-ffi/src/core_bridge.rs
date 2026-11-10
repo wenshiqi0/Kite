@@ -669,17 +669,41 @@ pub enum ReferenceInfo {
 }
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum BlockInfo {
-    Text { text: String },
-    Attachment { file: AttachmentInfo },
-    Tool { tool: ToolInfo },
-    QuestionReply { reply: QuestionReplyInfo },
-    Embed { reference: ReferenceInfo },
+    Text {
+        text: String,
+    },
+    SkillContext {
+        name: String,
+        path: String,
+        content: String,
+    },
+    Attachment {
+        file: AttachmentInfo,
+    },
+    Tool {
+        tool: ToolInfo,
+    },
+    QuestionReply {
+        reply: QuestionReplyInfo,
+    },
+    Embed {
+        reference: ReferenceInfo,
+    },
 }
 impl From<&kite_app::ChatBlock> for BlockInfo {
     fn from(block: &kite_app::ChatBlock) -> Self {
         use kite_app::{ChatBlock as B, ChatReference as R};
         match block {
             B::Text(text) => Self::Text { text: text.clone() },
+            B::SkillContext {
+                name,
+                path,
+                content,
+            } => Self::SkillContext {
+                name: name.clone(),
+                path: path.clone(),
+                content: content.clone(),
+            },
             B::Attachment(file) => Self::Attachment {
                 file: file.clone().into(),
             },
@@ -1731,6 +1755,22 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn skill_context_reaches_native_as_a_separate_block_without_changing_the_record() {
+        let raw = "<skill>\n<name>report</name>\n<path>/skills/report/SKILL.md</path>\n# Report\n\nWrite **clearly**.\n</skill>";
+        let item = kite_app::ChatItem::new(
+            "skill-context".into(),
+            kite_app::ChatRole::User,
+            vec![kite_app::ChatBlock::Text(raw.into())],
+        );
+        let displayed = super::ItemInfo::from(&item);
+        assert_eq!(displayed.id, item.id);
+        assert!(
+            matches!(&displayed.blocks[..], [super::BlockInfo::SkillContext { name, path, content }]
+            if name == "report" && path == "/skills/report/SKILL.md" && content == "# Report\n\nWrite **clearly**.")
+        );
+        assert_eq!(item.text(), raw);
+    }
     use super::*;
     use kite_app::{ChatAttachment, ChatBlock, ChatItem, ChatItemOrigin, ChatReference, ChatRole};
 

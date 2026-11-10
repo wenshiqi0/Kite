@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.Velocity
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.SubagentInfo
 import io.github.wenshiqi0.kite.core.SubagentInspectionInfo
-import io.github.wenshiqi0.kite.core.ItemRole
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 import kotlinx.coroutines.CancellationException
 
@@ -104,10 +103,8 @@ internal fun AssociatedTaskInspector(
                 val historyLabel = stringResource(R.string.associated_task_readonly_history)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = historyLabel }, state = scroll, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(entries, key = { it.key }) { entry ->
-                        when (entry) {
-                            is ChatEntry.Work -> ToolGroupCard(entry, connected && task.status == "working", {}, {}, desktopEnabled = false)
-                            is ChatEntry.Message -> if (entry.message.role == ItemRole.ERROR) TurnFailureMessage(entry.message.text)
-                                else ItemContent(entry.message, desktopEnabled = false) { file -> Text(file.name, fontSize = 13.sp, color = KiteColors.Muted) }
+                        ChatEntryContent(entry, working = connected && task.status == "working", desktopEnabled = false) { file ->
+                            Text(file.name, fontSize = 13.sp, color = KiteColors.Muted)
                         }
                     }
                 }

@@ -1,6 +1,9 @@
 package io.github.wenshiqi0.kite.ui
 
 import io.github.wenshiqi0.kite.core.ChatSkillInfo
+import io.github.wenshiqi0.kite.core.BlockInfo
+import io.github.wenshiqi0.kite.core.ItemInfo
+import io.github.wenshiqi0.kite.core.ItemRole
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -29,5 +32,17 @@ class SkillPresentationTest {
             assertEquals(photos.name, legacy.presentationName)
             assertEquals(photos.description, legacy.presentationDescription)
         }
+    }
+
+    @Test fun onlyPureSkillContextLeavesTheUserBubbleAndOrdinaryTextStaysUnchanged() {
+        val skill = BlockInfo.SkillContext("report", "/skills/report/SKILL.md", "# Report")
+        val item = ItemInfo("context", ItemRole.USER, listOf(skill), false, null)
+        assertTrue(item.isSkillContextOnly)
+        assertFalse(item.copy(blocks = emptyList()).isSkillContextOnly)
+        val ordinary = BlockInfo.Text("\$report\n\nPlease check the tests.")
+        val mixed = item.copy(blocks = listOf(skill, ordinary))
+        assertFalse(mixed.isSkillContextOnly)
+        assertEquals(ordinary.text, mixed.text)
+        assertEquals(ordinary.text, item.copy(blocks = listOf(ordinary)).text)
     }
 }
