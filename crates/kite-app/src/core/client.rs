@@ -122,6 +122,12 @@ impl ClientCore {
     }
 
     fn runtime(&self, host: &str) -> Result<Arc<AppCore>, AppError> {
+        // History readers can observe the saved host before base initialization
+        // publishes its key and readiness. Do not freeze that partial state into
+        // a workspace; conversation_since can serve the base snapshot meanwhile.
+        if !self.base.snapshot().initialized {
+            return Err(AppError::State("core is not initialized".into()));
+        }
         self.base.host(host)?;
         let mut runtimes = lock(&self.runtimes);
         Ok(runtimes
