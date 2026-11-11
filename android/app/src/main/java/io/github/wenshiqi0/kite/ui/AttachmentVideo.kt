@@ -91,7 +91,7 @@ private class AttachmentVideoPlayer(private val file: File, context: Context) : 
         setAudioAttributes(attributes)
         setOnPreparedListener {
             if (!released) {
-                duration = it.duration.coerceAtLeast(0)
+                this@AttachmentVideoPlayer.duration = it.duration.coerceAtLeast(0)
                 ready = true
                 if (it.videoWidth > 0 && it.videoHeight > 0) aspect = it.videoWidth.toFloat() / it.videoHeight
                 it.seekTo(1)
