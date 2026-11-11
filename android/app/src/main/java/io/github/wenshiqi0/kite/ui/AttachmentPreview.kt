@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.content.Context
+import android.net.Uri
 import android.widget.Toast
 import android.widget.VideoView
 import android.widget.MediaController
@@ -186,25 +187,24 @@ internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, att
 
 @Composable
 private fun PreviewVideo(file: File) {
+    val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var view by remember(file.path) { mutableStateOf<VideoView?>(null) }
+    val view = remember(context, file.path) { VideoView(context) }
     var failed by remember(file.path) { mutableStateOf(false) }
     DisposableEffect(lifecycle, view) {
-        val video = view
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) video?.pause() }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) view.pause() }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); video?.stopPlayback() }
+        onDispose { lifecycle.removeObserver(observer); view.stopPlayback() }
     }
     if (failed) Text(stringResource(R.string.attachment_preview_failed))
     else AndroidView(factory = { context ->
-        VideoView(context).apply {
-            view = this
+        view.apply {
             val controls = MediaController(context)
             controls.setAnchorView(this)
             setMediaController(controls)
             setOnPreparedListener { seekTo(1); controls.show(0) }
             setOnErrorListener { _, _, _ -> failed = true; true }
-            setVideoPath(file.path)
+            setVideoURI(Uri.fromFile(file))
         }
     }, modifier = Modifier.fillMaxWidth().height(300.dp))
 }
