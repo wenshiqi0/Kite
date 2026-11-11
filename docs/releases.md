@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-11-11
+
+[0.2.0-alpha.94](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.94) / versionCode **96** adds author-independent Markdown/cards and ordered image, audio, video and file attachments, including provider media and tool results. Source checks passed: 110 Bun, 193 Rust and 85 Android JVM tests, strict Clippy and Release lint. Three isolated Android 16 native tests cover both authors' image layout/previews, actual audio/video playback and file preview. Tagged build/publication and independent downloaded-byte, stable-certificate, signature, payload and alignment checks passed. Update client and host together. Real-model generation, physical-handset acceptance and macOS execution remain unverified. [Evidence](product/2026-11-11/multimodal-items/acceptance.md).
+
 ## Verified delivery — 2026-11-04
 
 [0.2.0-alpha.83](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.83) / versionCode **85** adds expandable Codex subagent trees and individual activity states. Source and tagged CI checks pass; public checksums, stable signatures, API-23/36 verification, identical APK payloads and alignment are independently verified. The matching public Linux host is installed with all 78 saved references and three active Codex owners preserved, and installed discovery returns the actual worker. Android handset and macOS native rendering remain unverified; the x86_64 Android component run is blocked by the existing Moonlight linker issue. [Evidence](product/2026-11-04/codex-subagents/acceptance.md).

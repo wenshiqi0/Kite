@@ -47,4 +47,10 @@ authenticated remote-media or real-model generation result is inferred.
 Alpha 94 / versionCode 96 ships the Android and Linux host packages together via
 the tagged release workflow. Install the matching host to enable the new history
 projection. The macOS edit is a source-level author-label colour adjustment only.
-Public artifact verification is recorded after publication.
+Published [Alpha 94](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.94)
+from `99728529756798ff5dcaf96d9741cc2882c0f24d`.
+Both jobs in [tagged CI](https://github.com/wenshiqi0/Kite/actions/runs/42998393979)
+passed. Independent downloads matched every public SHA256SUMS entry; SDK checks
+confirmed the Alpha 93 certificate pin, primary v1/v2/v3 and compatibility v1/v2
+signatures, equal application payloads and 16 KiB ZIP alignment. Full public
+metadata is in [published-release.json](published-release.json).
