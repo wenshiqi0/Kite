@@ -6,7 +6,7 @@ JSONL rollout. The old client stopped at the missing file. Conversation browsing
 also awaited a remote catalog and full source/composer refresh under selection
 operation locks, so slow reads prevented further session changes.
 
-Alpha 97 adds a read-only native-store adapter. Public native UI items are
+Alpha 98 adds a read-only native-store adapter. Public native UI items are
 projected to the existing history protocol in a private, append-only Kite cache.
 Provider databases, thread identities and model context remain unchanged.
 Reasoning items are excluded, source ordinals and terminal errors retain their
@@ -48,3 +48,9 @@ Validation on 2026-11-11:
 The emulator run validates the full native client path, not a manually injected
 message mirror. Its owned fixture did not use or alter real SSH authorization.
 Physical-handset results remain separate. Public delivery is recorded below.
+
+Alpha 97 was not published: both tag attempts failed while installing Ubuntu
+QA dependencies because the hosted image could not resolve its Azure mirror.
+Alpha 98 retains the same functional implementation and validation, changes
+only version metadata and the workflow to use signed official Ubuntu sources
+with bounded acquisition timeouts/retries, and keeps all checks enabled.
