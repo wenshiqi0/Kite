@@ -188,7 +188,7 @@ else
   file=$files
 fi
 if ! test -f "$file"; then printf 'kite-history-pending-v1\n'; exit 0; fi
-stamp="$(stat -c '%d:%i:%s:%y' "$file"):media-v2:{claude_projection}"
+stamp="$(stat -c '%d:%i:%s:%y' "$file"):media-v3:{claude_projection}"
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
 if test "$provider" = codex; then

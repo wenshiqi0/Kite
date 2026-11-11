@@ -127,6 +127,18 @@ test("embedded resources and tool results retain media without exposing their bi
   ]);
   expect(object(resource[0]?.file).mime).toBe("audio/wav");
 });
+test("Markdown web pages stay navigable while local Markdown remains a readable attachment", () => {
+  const text =
+    "[AGENTS.md](https://github.com/owned/private/blob/main/AGENTS.md)\n" +
+    "[Guide](https://docs.example.test/guide.md?view=source#setup)";
+  expect(projectContent(text)).toEqual([{ type: "text", text }]);
+  const path = join(home, "AGENTS.md");
+  const bytes = Buffer.from("# 本地文档\n\n- 可预览的 Markdown\n");
+  writeFileSync(path, bytes);
+  const file = object(projectContent(`[AGENTS.md](${path})`)[0]?.file);
+  expect(file.mime).toBe("text/markdown");
+  expect(uploadedFile(string(file.id), string(file.name))).toEqual(bytes);
+});
 test("malformed native attachments show a placeholder and missing Markdown files retain the link", () => {
   expect(
     projectContent([{ type: "audio", data: "not-base64!", mimeType: "audio/wav" }])[0]?.text,
@@ -145,7 +157,7 @@ test("ACP text chunks merge around, and never across, media boundaries", () => {
     { type: "text", text: "After" },
   ]);
 });
-test("remote files fetch only on viewing, then serve the same cached bytes", async () => {
+test("explicit remote audio and Markdown fetch only on viewing, then serve the same cached bytes", async () => {
   let requests = 0;
   const bytes = Buffer.from("owned-audio");
   const server = Bun.serve({
@@ -157,22 +169,28 @@ test("remote files fetch only on viewing, then serve the same cached bytes", asy
     },
   });
   try {
-    const projected = projectContent([
-      {
-        type: "resource_link",
-        uri: `${server.url}audio.wav`,
-        mimeType: "audio/wav",
-        name: "clip.wav",
-      },
-    ]);
-    const file = object(projected[0]?.file);
-    expect(requests).toBe(0);
-    expect(file.size).toBe(0);
-    const body = await attachmentRead(string(file.id), string(file.name));
-    expect(body.subarray(body.indexOf(10) + 1)).toEqual(bytes);
-    expect(requests).toBe(1);
-    expect(await attachmentRead(string(file.id), string(file.name))).toEqual(body);
-    expect(requests).toBe(1);
+    for (const [mimeType, name] of [
+      ["audio/wav", "clip.wav"],
+      ["text/markdown", "AGENTS.md"],
+    ]) {
+      requests = 0;
+      const projected = projectContent([
+        {
+          type: "resource_link",
+          uri: `${server.url}${name}`,
+          mimeType,
+          name,
+        },
+      ]);
+      const file = object(projected[0]?.file);
+      expect(requests).toBe(0);
+      expect(file.size).toBe(0);
+      const body = await attachmentRead(string(file.id), string(file.name));
+      expect(body.subarray(body.indexOf(10) + 1)).toEqual(bytes);
+      expect(requests).toBe(1);
+      expect(await attachmentRead(string(file.id), string(file.name))).toEqual(body);
+      expect(requests).toBe(1);
+    }
   } finally {
     server.stop(true);
   }

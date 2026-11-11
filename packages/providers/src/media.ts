@@ -201,6 +201,10 @@ function markdown(text: string, cwd: string): ObjectValue[] {
           .toLowerCase()
       ] || "";
     if (!match[2] && (!type || !/^(?:https?:\/\/|file:|sandbox:|\/|\.\.?\/)/.test(uri))) continue;
+    // A Markdown web page (including a private repository's blob page) is a
+    // navigable link, not downloadable Markdown bytes. Explicit resource blocks
+    // can still identify remote documents as attachments.
+    if (!match[2] && type === "text/markdown" && /^https?:\/\//i.test(uri)) continue;
     try {
       const file = attachment(uri, type || (match[2] ? "image/*" : ""), "", cwd);
       if (match.index > start) result.push({ type: "text", text: text.slice(start, match.index) });
