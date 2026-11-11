@@ -28,4 +28,23 @@ Nodes and synthetic native databases, loads large multi-page histories, switches
 between four sessions and measures selection/UI-pulse latency. No model turn is
 sent and no real user host authorization is modified by the fixture.
 
-Execution and public-delivery results are recorded after verification.
+Validation on 2026-11-11:
+
+- Bun type/lint/boundary checks and 115 tests passed; one Darwin-only case skipped.
+- 232 Rust tests passed with the host feature, including the native-database
+  authenticated SSH/Node/Bun path and blocked-catalog selection case. Strict
+  clippy passed, including the owned host example.
+- 85 Android Release JVM tests, Release lint and native source compilation passed.
+- `NativeHistoryNavigationTest` passed against two pinned, loopback-only SSH
+  peers running the real Node and synthetic native SQLite stores. Four sessions
+  each contain 450 tool calls and a substantive final answer, spanning multiple
+  history pages. Eight selections took 21–83 ms, UI pulses took 0–1 ms and each
+  target's final answer was verified in the actual accessibility tree. The latest
+  page appeared before complete older-page backfill. No model turn was sent.
+- The real local native database was read without modification for three
+  previously unresolvable references; 79, 190 and five public message rows were
+  available, and their projections were produced in 18–101 ms.
+
+The emulator run validates the full native client path, not a manually injected
+message mirror. Its owned fixture did not use or alter real SSH authorization.
+Physical-handset results remain separate. Public delivery is recorded below.
