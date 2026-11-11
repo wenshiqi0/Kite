@@ -22,6 +22,29 @@ native ACP chunks, media-only messages, legacy attachment envelopes, local files
 and lazy remote downloads. A generated two-second video fixture and synthetic
 PCM audio are used only by native tests.
 
-Static checks and native test results are recorded with the publication below.
-No physical-handset, authenticated remote-media or real-model generation result
-is inferred from the isolated fixtures.
+Validation on 2026-11-11:
+
+- Bun type, boundary and lint checks: passed; 110 tests passed, one Darwin-only
+  case skipped on Linux.
+- Rust `kite-agent`, `kite-app` and `kite-ffi`: 193 tests passed, one opt-in real
+  transcript case ignored; clippy with `-D warnings` and formatting passed.
+- Android: 85 Release JVM tests passed; Release lint and native test compilation
+  passed.
+- Three native Android 16 emulator tests passed against the owned offline fixture:
+  `humanAndAgentShareMarkdownImageLayoutAndPreviewControls`,
+  `nativeAudioVideoAndTextAttachmentsOpenWithoutAutoplay` and
+  `SessionImagesPresentationTest.statusBadgesAndOfflineGeneratedImagePreviewRender`.
+  Captures verify equal Markdown colours, sizes and image bounds for both authors,
+  both zoom/save previews, actual WAV and video playback, non-autoplay and text
+  attachment rendering. The video fixture exposed and verified the fix for a
+  player being stopped by the initial Compose state transition.
+
+The emulator ran in the existing isolated QA container with a new disposable AVD;
+no real host or saved user session was connected. Native sources use the shared
+arm64 core through Android's translation layer. No physical-handset,
+authenticated remote-media or real-model generation result is inferred.
+
+Alpha 94 / versionCode 96 ships the Android and Linux host packages together via
+the tagged release workflow. Install the matching host to enable the new history
+projection. The macOS edit is a source-level author-label colour adjustment only.
+Public artifact verification is recorded after publication.
