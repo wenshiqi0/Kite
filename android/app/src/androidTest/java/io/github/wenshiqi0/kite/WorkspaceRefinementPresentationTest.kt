@@ -99,11 +99,14 @@ class WorkspaceRefinementPresentationTest {
                 screenshot("compact-tool-image-and-album.png")
                 assertTrue(actionNode(requireNotNull(find(description = long.name)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 waitFor("Full image preview opens") { find(text = context.getString(R.string.attachment_save)) != null }
-                test.uiAutomation.takeScreenshot().let { capture ->
-                    val pixels = IntArray(capture.width * capture.height)
-                    capture.getPixels(pixels, 0, capture.width, 0, 0, capture.width, capture.height)
-                    assertTrue("The original image bottom is visible in full preview", pixels.count { it == orange } > 1000)
-                    capture.recycle()
+                waitFor("The original image bottom is visible in full preview") {
+                    test.uiAutomation.takeScreenshot().let { capture ->
+                        val pixels = IntArray(capture.width * capture.height)
+                        capture.getPixels(pixels, 0, capture.width, 0, 0, capture.width, capture.height)
+                        val visible = pixels.count { it == orange } > 1000
+                        capture.recycle()
+                        visible
+                    }
                 }
                 screenshot("long-image-full-preview.png")
             }
