@@ -25,4 +25,12 @@ Validation on 2026-11-11:
 - The existing Alpha 94 provider, transport and media validation remains valid:
   those implementations are unchanged. No physical-handset result is claimed.
 
-Publication and independent public artifact verification are recorded below.
+Published [Alpha 95](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.95)
+/ versionCode 97 from `41323c26b4148564468df7b7addc8c65ad44fc9c`.
+Both [tagged CI jobs](https://github.com/wenshiqi0/Kite/actions/runs/43006741757)
+passed. Independent downloads matched the published checksums and the Alpha 94
+certificate pin; SDK checks verified primary v1/v2/v3 and compatibility v1/v2
+signatures, identical application payloads and 16 KiB ZIP alignment.
+[Public verification metadata](published-release.json) records the exact assets.
+Users already on the Alpha 94 host only need to update the Android client for
+this visual correction.
