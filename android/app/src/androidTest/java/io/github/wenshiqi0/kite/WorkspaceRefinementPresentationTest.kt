@@ -39,6 +39,11 @@ import java.io.File
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
     @Test fun nativeAudioVideoAndTextAttachmentsOpenWithoutAutoplay() {
+        // MediaController is a separate native window above the Compose dialog.
+        val service = test.uiAutomation.serviceInfo
+        val originalFlags = service.flags
+        service.flags = service.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        test.uiAutomation.serviceInfo = service
         val context = test.targetContext
         val conversation = "owned-multimodal-items/playback"
         fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -95,7 +100,11 @@ class WorkspaceRefinementPresentationTest {
                 waitFor("Text preview opens") { find(text = "Owned text attachment") != null }
                 screenshot("unified-native-file.png")
             }
-        } finally { directory.deleteRecursively() }
+        } finally {
+            directory.deleteRecursively()
+            service.flags = originalFlags
+            test.uiAutomation.serviceInfo = service
+        }
     }
     @Test fun humanAndAgentShareMarkdownImageLayoutAndPreviewControls() {
         val context = test.targetContext
@@ -303,7 +312,7 @@ class WorkspaceRefinementPresentationTest {
             return null
         }
         if(Build.VERSION.SDK_INT>=33)test.uiAutomation.clearCache()
-        return walk(test.uiAutomation.rootInActiveWindow)
+        return walk(test.uiAutomation.rootInActiveWindow) ?: test.uiAutomation.windows.firstNotNullOfOrNull { walk(it.root) }
     }
     private fun bounds(description:String)=Rect().also{requireNotNull(find(description=description)).getBoundsInScreen(it)}
     private fun actionNode(node:AccessibilityNodeInfo,action:Int):AccessibilityNodeInfo {
