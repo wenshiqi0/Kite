@@ -44,6 +44,7 @@ class NativeHistoryNavigationTest {
             activity.finish();return
         }
         require(vm.engine.state.value!!.hosts.all {it.id.startsWith("owned-native-")})
+        runBlocking(Dispatchers.Default){vm.engine.core.disconnectAll()}
         val metadata=JSONArray(File(directory,"native-history-hosts.json").readText())
         val ids=mutableListOf<Pair<String,String>>()
         for(index in 0 until metadata.length()) {

@@ -58,13 +58,19 @@ impl server::Handler for Peer {
         &mut self,
         ch: ChannelId,
         data: &[u8],
-        _: &mut ServerSession,
+        s: &mut ServerSession,
     ) -> Result<(), Self::Error> {
         self.commands
             .get_mut(&ch)
             .unwrap()
             .1
             .extend_from_slice(data);
+        let ready = self.commands.get(&ch).is_some_and(|(command, input)| {
+            command.contains("herdr-api") && input.contains(&b'\n')
+        });
+        if ready {
+            self.channel_eof(ch, s).await?;
+        }
         Ok(())
     }
     async fn channel_eof(
@@ -72,7 +78,9 @@ impl server::Handler for Peer {
         ch: ChannelId,
         s: &mut ServerSession,
     ) -> Result<(), Self::Error> {
-        let (cmd, input) = self.commands.remove(&ch).unwrap();
+        let Some((cmd, input)) = self.commands.remove(&ch) else {
+            return Ok(());
+        };
         let mut child = Command::new("/bin/sh")
             .args(if cmd == "/bin/sh -s" {
                 vec!["-s"]
@@ -82,6 +90,7 @@ impl server::Handler for Peer {
             .env("HOME", &self.root)
             .env_remove("CODEX_HOME")
             .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("KITE_NODE_SOCKET")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -193,7 +202,15 @@ const insert=db.query('INSERT INTO thread_items VALUES(?,?,?,?,?,?,?)');for(cons
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let key = kite_ssh::generate_ed25519("owned-native-history-host").unwrap();
+    let key_file = root.join("owned-ssh-host-key");
+    let key = if key_file.exists() {
+        kite_ssh::describe_private_key(&fs::read_to_string(&key_file).unwrap()).unwrap()
+    } else {
+        let key = kite_ssh::generate_ed25519("owned-native-history-host").unwrap();
+        fs::write(&key_file, &key.private_key_openssh).unwrap();
+        fs::set_permissions(&key_file, fs::Permissions::from_mode(0o600)).unwrap();
+        key
+    };
     fs::write(root.join("host.json"),json!({"host":"10.0.2.2","port":port,"username":"owned","herdr":herdr,"fingerprint":key.fingerprint,"label":label,"sessions":sessions.iter().map(|s|s["id"].clone()).collect::<Vec<_>>()} ).to_string()).unwrap();
     let cfg = Arc::new(server::Config {
         keys: vec![PrivateKey::from_openssh(key.private_key_openssh).unwrap()],
