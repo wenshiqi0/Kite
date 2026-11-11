@@ -11,6 +11,18 @@ The added author headings are removed. The macOS source-label colour change is
 also reverted. Provider parsing, media transport and attachment previews retain
 the verified Alpha 94 implementation.
 
-The native regression checks different sender alignment, background pixels and
-padding while requiring identical native Markdown rendering and shared image
-preview/save controls. Results and publication verification are recorded below.
+Validation on 2026-11-11:
+
+- 85 Android Release JVM tests and Release lint passed; debug app and native test
+  sources compiled successfully.
+- Two Android 16 native tests passed in a new isolated AVD:
+  `humanAndAgentShareContentRendererInsideDistinctBubbles` and
+  `subagentHistorySharesGlobalInstructionsSkillCardsAndMessageBubblesWithMainChat`.
+  The first checks right/left geometry, the actual user/agent background pixels,
+  distinct padding, equal native Markdown style and both shared image previews.
+  The second verifies that main chat and read-only related-task history continue
+  using the same complete row component.
+- The existing Alpha 94 provider, transport and media validation remains valid:
+  those implementations are unchanged. No physical-handset result is claimed.
+
+Publication and independent public artifact verification are recorded below.
