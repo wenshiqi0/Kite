@@ -1,0 +1,40 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.99",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/43040112755",
+  "sourceCommit": "325b4b2983c6cd8dc16e616a2775212805f52ac3",
+  "versionName": "0.2.0-alpha.99",
+  "versionCode": 101,
+  "assets": [
+    {
+      "asset": "kite-0.2.0-alpha.99-arm64-v8a.apk",
+      "sha256": "cadd5fedb950ceef1822a0b30ea1555de54535f20a5f628f4d9353f1b1ce19d5",
+      "bytes": 26074208
+    },
+    {
+      "asset": "kite-0.2.0-alpha.99-arm64-v8a-compat-v2.apk",
+      "sha256": "166a51c540b24c2d4dda4dd626f477c6396add1e0876de42f2fe044c75fb0e2c",
+      "bytes": 26074208
+    },
+    {
+      "asset": "kite-host-0.2.0-alpha.99-linux-x86_64.tar.gz",
+      "sha256": "eed9839bbe40feb509fa757108e179950ec7996a5e0e8662ab36f37a0464fc83",
+      "bytes": 3702547
+    },
+    {
+      "asset": "release-manifest.json",
+      "sha256": "c74c263c0c556f3c01d0d96c33f1cd45879d2a4d9ff46b665f47eba93cbd5d5d",
+      "bytes": 1360
+    }
+  ],
+  "independentChecks": [
+    "downloaded bytes match every SHA256SUMS entry",
+    "stable certificate matches Alpha 96",
+    "primary v1/v2/v3 and compatibility v1/v2 signatures",
+    "same primary/compatibility application payload",
+    "16 KiB native ZIP alignment",
+    "public tagged CI succeeded"
+  ],
+  "physicalHandsetTested": false,
+  "sshNodeIntegrationTestsPassed": 3,
+  "nativeNavigationCases": 8
+}

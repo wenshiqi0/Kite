@@ -1,0 +1,61 @@
+{
+  "status": "PASS",
+  "cases": [
+    {
+      "host": "owned-native-a",
+      "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0",
+      "selectionMs": 83,
+      "uiPulseMs": 1,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-a",
+      "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+      "selectionMs": 23,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-b",
+      "session": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0",
+      "selectionMs": 81,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-b",
+      "session": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1",
+      "selectionMs": 21,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-b",
+      "session": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1",
+      "selectionMs": 21,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-b",
+      "session": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0",
+      "selectionMs": 22,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-a",
+      "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+      "selectionMs": 22,
+      "uiPulseMs": 0,
+      "messageCount": 126
+    },
+    {
+      "host": "owned-native-a",
+      "session": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0",
+      "selectionMs": 21,
+      "uiPulseMs": 0,
+      "messageCount": 452
+    }
+  ]
+}

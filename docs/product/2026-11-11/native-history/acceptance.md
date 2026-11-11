@@ -59,3 +59,36 @@ published. Alpha 99 resolves the official mirrors to public IPv4 addresses
 before apt, using authenticated HTTPS DNS if the runner's resolver fails.
 Only the disposable CI runner's hosts file is updated; HTTPS certificate
 verification, package signatures and all release checks remain enabled.
+
+## Public delivery and installed hosts
+
+[Alpha 99](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.99),
+Android versionCode 101, is published from
+`325b4b2983c6cd8dc16e616a2775212805f52ac3`.
+[Tagged CI](https://github.com/wenshiqi0/Kite/actions/runs/43040112755) passed
+both build and publication. Independently downloaded attachments passed every
+checksum, the stable certificate pin shared by Alpha 95/96, v1/v2/v3 primary
+and v1/v2 compatibility signatures, identical application payload and 16 KiB
+alignment checks. Exact public checks are in [published-release.json](published-release.json).
+
+The checksum-verified official Linux host archive was installed on wen-h255
+and wen-mini using the compatible `--enable` handover. Both report Alpha 99
+and `historyNativeApi=1`. Node identities, all 111/7 saved references and the
+external Herdr/Sunshine service PIDs were preserved. Three real legacy history
+requests on each host returned substantive replies through the previous
+client's `--provider codex` request. Three real native histories with no JSONL
+source returned substantive replies and stable empty-body unchanged polls;
+64 saved local native references have public assistant replies. The mini host
+has no applicable native-only history. No model turn was sent. Safe counts are
+in [host-recovery.json](host-recovery.json).
+
+The native client measurements are retained in
+[native-history-navigation.json](native-history-navigation.json). They measure
+selection completion and UI pulse time, not total history-download latency.
+Each selected session's final reply was separately asserted in the actual
+accessibility tree. Physical-handset acceptance remains unverified.
+
+Alpha 95 still lacks the native database reader and asynchronous selection.
+The handset must install the Alpha 99 APK over its existing app and reopen it;
+updating only the hosts or reconnecting Alpha 95 cannot supply this client fix.
+No uninstall or application-data reset is required.
