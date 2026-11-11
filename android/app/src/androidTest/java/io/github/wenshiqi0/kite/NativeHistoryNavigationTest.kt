@@ -34,7 +34,8 @@ class NativeHistoryNavigationTest {
         fun waitFor(label:String,timeout:Long=15000,condition:()->Boolean) {
             val deadline=SystemClock.uptimeMillis()+timeout
             while(!condition()&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(20)
-            assertTrue(label+": "+vm.engine.state.value?.failure?.details.orEmpty()+" "+vm.engine.platformError.value.orEmpty(),condition())
+            val state=vm.engine.state.value
+            assertTrue(label+": host="+state?.selectedHost+" connection="+state?.connection+" step="+state?.connectionStep+" "+state?.failure?.details.orEmpty()+" "+vm.engine.platformError.value.orEmpty(),condition())
         }
         waitFor("Core initialized"){vm.engine.state.value?.initialized==true}
         val directory=requireNotNull(test.targetContext.getExternalFilesDir(null))
@@ -45,6 +46,7 @@ class NativeHistoryNavigationTest {
         }
         require(vm.engine.state.value!!.hosts.all {it.id.startsWith("owned-native-")})
         runBlocking(Dispatchers.Default){vm.engine.core.disconnectAll()}
+        waitFor("Owned peers disconnected before setup") {vm.engine.state.value?.hostConnections?.none {it.connection in listOf(ConnectionStatus.CONNECTING,ConnectionStatus.RECONNECTING,ConnectionStatus.CONNECTED)}==true}
         val metadata=JSONArray(File(directory,"native-history-hosts.json").readText())
         val ids=mutableListOf<Pair<String,String>>()
         for(index in 0 until metadata.length()) {
@@ -52,7 +54,7 @@ class NativeHistoryNavigationTest {
             require(m.getString("host")=="10.0.2.2" && m.getInt("port") in 54000..54999)
             val host=HostRecord(id,"10.0.2.2",m.getInt("port").toUShort(),"owned",m.getString("herdr"),null,47989u)
             runBlocking(Dispatchers.Default){vm.engine.core.saveHost(host);vm.engine.core.connect(id)}
-            waitFor("QA host reaches trust or connected") {vm.engine.state.value?.connection in listOf(ConnectionStatus.AWAITING_TRUST,ConnectionStatus.CONNECTED)}
+            waitFor("QA host reaches trust or connected") {vm.engine.state.value?.selectedHost==id&&vm.engine.state.value?.connection in listOf(ConnectionStatus.AWAITING_TRUST,ConnectionStatus.CONNECTED)}
             if(vm.engine.state.value!!.connection==ConnectionStatus.AWAITING_TRUST) {
                 val key=requireNotNull(vm.engine.state.value!!.pendingHostKey)
                 assertEquals(m.getString("fingerprint"),key.fingerprint)
