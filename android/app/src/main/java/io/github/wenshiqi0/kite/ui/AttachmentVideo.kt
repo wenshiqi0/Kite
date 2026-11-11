@@ -191,7 +191,7 @@ internal fun PreviewVideo(file: File) {
                     AndroidView(factory = { TextureView(it).also(controller::attach) },
                         update = controller::transform, modifier = Modifier.fillMaxSize())
                 }
-                if (!controller.hasFrame) info?.poster?.let { Image(it.asImageBitmap(), stringResource(R.string.attachment_video_poster), contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+                if (!controller.hasFrame || !controller.playing && controller.position <= 1) info?.poster?.let { Image(it.asImageBitmap(), stringResource(R.string.attachment_video_poster), contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
                 val playLabel = stringResource(R.string.attachment_video_play)
                 if (!controller.playing && !controller.failed) FilledIconButton(onClick = controller::toggle, enabled = controller.ready, modifier = Modifier.size(64.dp).semantics { contentDescription = playLabel }) {
                     ProductIcon(Mark.Play, KiteColors.OnAccent, Modifier.size(32.dp))
