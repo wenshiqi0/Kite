@@ -1,20 +1,10 @@
 package io.github.wenshiqi0.kite.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.AttachmentInfo
 import io.github.wenshiqi0.kite.core.BlockInfo
@@ -31,8 +21,6 @@ internal fun ItemContent(
     desktopEnabled: Boolean = true,
     attachment: @Composable (AttachmentInfo) -> Unit,
 ) {
-    val context = LocalContext.current
-    val copyLabel = stringResource(R.string.copy_reply)
     Column {
         message.blocks.forEachIndexed { index, block ->
             key(index) {
@@ -51,12 +39,6 @@ internal fun ItemContent(
                     is BlockInfo.Embed -> Text(stringResource(R.string.chat_reference_pending), color = KiteColors.Muted)
                 }
             }
-        }
-        if (message.text.isNotBlank()) IconButton(onClick = {
-            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText(copyLabel, message.text))
-        }, modifier = Modifier.align(Alignment.End).size(40.dp).semantics { contentDescription = copyLabel }) {
-            ProductIcon(Mark.Clipboard, KiteColors.Muted, Modifier.size(17.dp))
         }
     }
 }

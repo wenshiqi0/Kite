@@ -6,7 +6,6 @@
     <string name="history_retry">历史暂不可用，点此重试</string>
     <string name="history_latest">回到最新</string>
     <string name="history_new_messages">新消息</string>
-    <string name="copy_reply">复制消息</string>
     <string name="app_name">kite</string>
     <string name="cancel">取消</string>
 
