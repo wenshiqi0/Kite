@@ -159,6 +159,27 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
         },
       },
     });
+    if (text.includes("owned-multimodal")) {
+      const image = { type: "image", mimeType: "image/png", data: "iVBORw0KGgoA" };
+      const content = text.includes("media-only")
+        ? [image]
+        : [
+            { type: "text", text: "Be" },
+            { type: "text", text: "fore" },
+            image,
+            { type: "audio", mimeType: "audio/wav", data: "UklGRi1vd25lZA==" },
+            { type: "text", text: "After" },
+          ];
+      for (const block of content)
+        send({
+          method: "session/update",
+          params: {
+            sessionId: session,
+            update: { sessionUpdate: "agent_message_chunk", content: block },
+          },
+        });
+      return { stopReason: "end_turn" };
+    }
     send({
       method: "session/update",
       params: {

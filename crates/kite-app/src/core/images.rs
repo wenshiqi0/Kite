@@ -1,4 +1,4 @@
-//! Generated-image transport; payloads never enter snapshots or transcript deltas.
+//! Attachment transport shared by all message authors; bytes stay out of snapshots.
 use super::*;
 
 impl AppCore {
@@ -27,10 +27,11 @@ impl AppCore {
                 )
                 .find(|file| {
                     file.id == id
-                        && file.path.ends_with(&format!(
-                            "/.local/share/kite/uploads/{}/{}",
-                            file.id, file.name
-                        ))
+                        && (file.path == format!("kite-image:{id}")
+                            || file.path.ends_with(&format!(
+                                "/.local/share/kite/uploads/{}/{}",
+                                file.id, file.name
+                            )))
                 })
                 .ok_or_else(|| {
                     AppError::State(
@@ -38,7 +39,11 @@ impl AppCore {
                     )
                 })?;
             let connection = core.connection()?;
-            let bytes = composer::download_attachment(&connection.ssh, file).await?;
+            let bytes = if file.path == format!("kite-image:{id}") {
+                composer::download_image(&connection.ssh, &id).await?
+            } else {
+                composer::download_attachment(&connection.ssh, file).await?
+            };
             if core.snapshot().conversation_context() != context {
                 return Err(AppError::State(
                     "conversation changed during attachment download".into(),

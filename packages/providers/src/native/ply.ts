@@ -13,7 +13,8 @@ import {
   string,
 } from "@kite/protocol";
 import { RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
-import { nativeModelId, optionalObject } from "@kite/runtime/socket";
+import { nativeModelId } from "@kite/runtime/socket";
+import { appendContent } from "../media";
 import { permissionSettings, permissionValues } from "../permissions";
 
 export class Ply implements NativeAdapter {
@@ -24,7 +25,7 @@ export class Ply implements NativeAdapter {
   private session = "";
   private cancelled = false;
   private config: ObjectValue[] = [];
-  private text = "";
+  private content: ObjectValue[] = [];
   private message = "";
   private replaying = false;
   private tools = new Map<string, ObjectValue>();
@@ -155,7 +156,7 @@ export class Ply implements NativeAdapter {
       this.config = array(reply.configOptions).map(object);
     }
     if (this.cancelled) throw new TurnCancelled();
-    this.text = "";
+    this.content = [];
     this.message = crypto.randomUUID();
     this.tools.clear();
     const reply = object(
@@ -170,7 +171,10 @@ export class Ply implements NativeAdapter {
       ),
     );
     if (reply.stopReason === "cancelled") throw new TurnCancelled();
-    check(reply.stopReason === "end_turn" && this.text.trim(), "Ply did not complete its turn");
+    check(
+      reply.stopReason === "end_turn" && this.content.length > 0,
+      "Ply did not complete its turn",
+    );
     this.currentModel = model;
     this.currentEffort = effort;
     return undefined;
@@ -180,15 +184,12 @@ export class Ply implements NativeAdapter {
     const params = object(value.params);
     if (params.sessionId !== this.session) return;
     const update = object(params.update);
-    if (
-      update.sessionUpdate === "agent_message_chunk" &&
-      optionalObject(update.content).type === "text"
-    ) {
-      this.text += string(object(update.content).text);
+    if (update.sessionUpdate === "agent_message_chunk" && update.content) {
+      this.content = appendContent(this.content, update.content);
       this.options.event({
         type: "assistant/message",
         seq: this.message,
-        data: { message: { content: [{ type: "text", text: this.text }] } },
+        data: { message: { content: this.content } },
       });
     } else if (update.sessionUpdate === "config_option_update") {
       this.config = array(update.configOptions).map(object);
@@ -210,14 +211,13 @@ export class Ply implements NativeAdapter {
       const output = array(update.content ?? [])
         .map(object)
         .filter((row) => row.type === "content")
-        .map((row) => optionalString(optionalObject(row.content).text))
-        .join("\n");
+        .map((row) => object(row.content));
       this.options.event({
         type: "tool/result",
         data: {
           message: {
             toolCallId: update.toolCallId,
-            content: [{ type: "text", text: output }],
+            content: output,
             isError: update.status === "failed",
           },
         },

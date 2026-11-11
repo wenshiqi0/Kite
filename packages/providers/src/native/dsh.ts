@@ -20,6 +20,7 @@ import {
 import { atomic, entry, readJson, sleep } from "@kite/runtime";
 import { RpcError, RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
 import { optionalObject, socketRequest } from "@kite/runtime/socket";
+import { appendContent } from "../media";
 import { permissionSettings, permissionValues } from "../permissions";
 export class Dsh implements NativeAdapter {
   models: Model[] = [];
@@ -31,7 +32,8 @@ export class Dsh implements NativeAdapter {
   private config: ObjectValue[] = [];
   private image = false;
   private cancelled = false;
-  private text = new Map<string, string>();
+  private content = new Map<string, ObjectValue[]>();
+  private message = "";
   private tools = new Map<string, ObjectValue>();
   get settings() {
     return permissionSettings(this.config);
@@ -201,7 +203,8 @@ export class Dsh implements NativeAdapter {
     if (this.cancelled) throw new TurnCancelled();
     await this.select(model, effort);
     if (this.cancelled) throw new TurnCancelled();
-    this.text.clear();
+    this.content.clear();
+    this.message = crypto.randomUUID();
     this.tools.clear();
     let value: ObjectValue;
     try {
@@ -232,14 +235,14 @@ export class Dsh implements NativeAdapter {
     const p = object(value.params);
     if (p.sessionId !== this.session) return;
     const u = object(p.update);
-    if (u.sessionUpdate === "agent_message_chunk" && optionalObject(u.content).type === "text") {
-      const id = optionalString(u.messageId) || crypto.randomUUID();
-      const text = (this.text.get(id) || "") + string(object(u.content).text);
-      this.text.set(id, text);
+    if (u.sessionUpdate === "agent_message_chunk" && u.content) {
+      const id = optionalString(u.messageId) || this.message;
+      const content = appendContent(this.content.get(id) || [], u.content);
+      this.content.set(id, content);
       this.options.event({
         type: "assistant/message",
         seq: id,
-        data: { message: { content: [{ type: "text", text }] } },
+        data: { message: { content } },
       });
     } else if (u.sessionUpdate === "tool_call") {
       const id = string(u.toolCallId);
@@ -255,14 +258,13 @@ export class Dsh implements NativeAdapter {
       const output = array(u.content ?? [])
         .map(object)
         .filter((c) => c.type === "content")
-        .map((c) => optionalString(optionalObject(c.content).text))
-        .join("\n");
+        .map((c) => object(c.content));
       this.options.event({
         type: "tool/result",
         data: {
           message: {
             toolCallId: u.toolCallId,
-            content: [{ type: "text", text: output }],
+            content: output,
             isError: u.status === "failed",
           },
         },

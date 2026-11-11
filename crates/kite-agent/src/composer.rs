@@ -780,7 +780,6 @@ pub async fn download_attachment(ssh: &Session, file: &Attachment) -> Result<Vec
             .id
             .bytes()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        || file.size == 0
         || file.size > MAX_FILE
     {
         return Err(Error::Invalid("attachment identity or size"));
@@ -796,12 +795,16 @@ pub async fn download_attachment(ssh: &Session, file: &Attachment) -> Result<Vec
         stream.shutdown().await?;
         let mut reader = BufReader::new(stream);
         let header = read_json(&mut reader).await?;
-        if header["name"] != file.name || header["size"] != file.size {
+        let size = header["size"]
+            .as_u64()
+            .filter(|size| *size > 0 && *size <= MAX_FILE)
+            .ok_or(Error::Invalid("attachment size"))?;
+        if header["name"] != file.name || file.size != 0 && size != file.size {
             return Err(Error::Invalid("attachment metadata changed"));
         }
         let mut bytes = Vec::new();
         reader.take(MAX_FILE + 1).read_to_end(&mut bytes).await?;
-        if bytes.len() as u64 != file.size
+        if bytes.len() as u64 != size
             || header["sha256"] != hex::encode(openssl::sha::sha256(&bytes))
         {
             return Err(Error::Invalid("attachment download incomplete or changed"));

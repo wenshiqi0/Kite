@@ -104,7 +104,13 @@ export function uploadedFile(id: string, name: string): Buffer {
     closeSync(fd);
   }
 }
-export function attachmentRead(id: string, name: string): Buffer {
+export async function attachmentRead(id: string, name: string): Promise<Buffer> {
+  check(/^[a-f0-9]{32}$/.test(id), "invalid attachment identity");
+  filename(name);
+  if (!existsSync(join(uploadRoot(), id, name))) {
+    const { fetchMedia } = await import("./media");
+    await fetchMedia(id, name);
+  }
   const data = uploadedFile(id, name);
   return Buffer.concat([
     Buffer.from(`${JSON.stringify({ name, size: data.length, sha256: sha256(data) })}\n`),

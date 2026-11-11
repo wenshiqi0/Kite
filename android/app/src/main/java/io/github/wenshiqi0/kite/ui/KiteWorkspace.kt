@@ -372,14 +372,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             } else Button(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.role}) { entry ->
+                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else "item"}) { entry ->
                         ChatEntryContent(
                             entry, working = agent?.status == "working",
                             streaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId,
                             inspect = ::pauseHistory, desktop = vm::openDesktop,
                         ) { file ->
-                            if (file.generatedImage) GeneratedImages(vm, listOf(file), onExternalActivityChanged = updatePip, onOpenPreview = ::pauseHistory)
-                            else MessageAttachments(vm, listOf(file), updatePip, ::pauseHistory)
+                            MessageAttachments(vm, listOf(file), updatePip, ::pauseHistory)
                         }
                     }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }

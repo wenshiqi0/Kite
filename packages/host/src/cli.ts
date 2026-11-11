@@ -118,6 +118,7 @@ export async function main(argv: string[]): Promise<void> {
       size: { type: "string" },
       sha256: { type: "string" },
       compressed: { type: "boolean" },
+      provider: { type: "string" },
     } satisfies ParseArgsConfig["options"],
   });
   const arg = (key: string) => {
@@ -201,6 +202,7 @@ export async function main(argv: string[]): Promise<void> {
         arg("file"),
         typeof values.before === "string" ? values.before : undefined,
         typeof values.after === "string" ? values.after : undefined,
+        values.provider === "claude" ? "claude" : "codex",
       );
       process.stdout.write(values.compressed ? gzipSync(body, { level: 1 }) : body);
       break;
@@ -229,7 +231,7 @@ export async function main(argv: string[]): Promise<void> {
       );
       break;
     case "attachment-read":
-      process.stdout.write(attachmentRead(arg("id"), arg("name")));
+      process.stdout.write(await attachmentRead(arg("id"), arg("name")));
       break;
     case "image-read":
       process.stdout.write(readGeneratedImage(arg("id")));

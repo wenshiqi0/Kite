@@ -38,6 +38,121 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun nativeAudioVideoAndTextAttachmentsOpenWithoutAutoplay() {
+        val context = test.targetContext
+        val conversation = "owned-multimodal-items/playback"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val directory = File(context.filesDir, "message-attachments/${sha(conversation.toByteArray())}").apply { mkdirs() }
+        val wave = java.nio.ByteBuffer.allocate(44 + 32000).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+            put("RIFF".toByteArray()); putInt(32036); put("WAVEfmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
+            putInt(8000); putInt(16000); putShort(2); putShort(16); put("data".toByteArray()); putInt(32000)
+            for (index in 0 until 16000) putShort((kotlin.math.sin(index * 2.0 * Math.PI * 220.0 / 8000) * 1500).toInt().toShort())
+        }.array()
+        val video = test.context.assets.open("multimodal-owned.mp4").use { it.readBytes() }
+        val sources = listOf(Triple("owned-audio.wav", "audio/wav", wave), Triple("owned-video.mp4", "video/mp4", video), Triple("owned-notes.txt", "text/plain", "Owned text attachment\n第二行".toByteArray()))
+        val files = sources.mapIndexed { index, (name, mime, bytes) ->
+            val id = (index + 1).toString().repeat(32)
+            File(directory, id).writeBytes(bytes); File(directory, "$id.sha256").writeText(sha(bytes))
+            AttachmentInfo(id, name, mime, bytes.size.toULong(), false)
+        }
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                Column(Modifier.fillMaxWidth().padding(16.dp)) { MessageAttachments(vm, files, {}, {}, conversation) }
+            }) {
+                fun click(label: String) = assertTrue(actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                click("owned-audio.wav")
+                waitFor("Audio prepares") { find(text = "0:00 / 0:02") != null && find(text = context.getString(R.string.attachment_audio_play)) != null }
+                click(context.getString(R.string.attachment_audio_play))
+                waitFor("Audio plays after a tap") { find(text = context.getString(R.string.attachment_audio_pause)) != null }
+                click(context.getString(R.string.attachment_audio_pause))
+                screenshot("unified-native-audio.png")
+                click(context.getString(R.string.dismiss))
+                waitFor("Audio closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                click("owned-video.mp4")
+                var player: android.widget.VideoView? = null
+                waitFor("Video prepares") {
+                    main {
+                        fun walk(view: View) {
+                            if (view is android.widget.VideoView) player = view
+                            if (view is android.view.ViewGroup) for (index in 0 until view.childCount) walk(view.getChildAt(index))
+                        }
+                        android.view.inspector.WindowInspector.getGlobalWindowViews().forEach(::walk)
+                    }
+                    var ready = false; main { ready = (player?.duration ?: 0) > 0 }; ready
+                }
+                main { assertFalse(requireNotNull(player).isPlaying); requireNotNull(player).start() }
+                waitFor("Native video plays") { var playing = false; main { playing = player?.isPlaying == true }; playing }
+                screenshot("unified-native-video.png")
+                main { player?.pause() }
+                click(context.getString(R.string.dismiss))
+                waitFor("Video closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                click("owned-notes.txt")
+                waitFor("Text preview opens") { find(text = "Owned text attachment") != null }
+                screenshot("unified-native-file.png")
+            }
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun humanAndAgentShareMarkdownImageLayoutAndPreviewControls() {
+        val context = test.targetContext
+        val conversation = "owned-multimodal-items/native"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val bitmap = Bitmap.createBitmap(480, 96, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.rgb(45, 110, 190)) }
+        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        bitmap.recycle()
+        val namespace = sha(conversation.toByteArray())
+        val uploadedId = "1234567890abcdef1234567890abcdef"
+        val generatedId = sha(bytes)
+        val uploads = File(context.filesDir, "message-attachments/$namespace").apply { mkdirs() }
+        val generated = File(context.filesDir, "generated-images/$namespace").apply { mkdirs() }
+        File(uploads, uploadedId).writeBytes(bytes)
+        File(uploads, "$uploadedId.sha256").writeText(generatedId)
+        File(generated, generatedId).writeBytes(bytes)
+        val files = listOf(AttachmentInfo(uploadedId, "human-photo.png", "image/png", bytes.size.toULong(), false),
+            AttachmentInfo(generatedId, "agent-photo.png", "image/png", bytes.size.toULong(), true))
+        lateinit var nativeRoot: View
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                nativeRoot = activity.window.decorView
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    files.forEachIndexed { index, file ->
+                        val message = ItemInfo("owned-$index", if (index == 0) ItemRole.USER else ItemRole.ASSISTANT,
+                            listOf(BlockInfo.Text("**统一排版** · `相同内容块`"), BlockInfo.Attachment(file)), false, null)
+                        ChatEntryContent(ChatEntry.Message(message)) { attachment -> MessageAttachments(vm, listOf(attachment), {}, {}, conversation) }
+                    }
+                }
+            }) {
+                waitFor("Both native images load") { find(description = "human-photo.png") != null && find(description = "agent-photo.png") != null }
+                val human = bounds("human-photo.png"); val agent = bounds("agent-photo.png")
+                assertEquals(human.left, agent.left); assertEquals(human.width(), agent.width()); assertEquals(human.height(), agent.height())
+                main {
+                    val views = mutableListOf<MarkdownTextView>()
+                    fun walk(view: View) {
+                        if (view is MarkdownTextView && view.isShown) views.add(view)
+                        if (view is android.view.ViewGroup) for (index in 0 until view.childCount) walk(view.getChildAt(index))
+                    }
+                    walk(nativeRoot)
+                    assertEquals(2, views.size)
+                    assertEquals(views[0].text.toString(), views[1].text.toString())
+                    assertEquals(views[0].currentTextColor, views[1].currentTextColor)
+                    assertEquals(views[0].textSize, views[1].textSize)
+                    assertFalse(views[0].text.contains("**"))
+                }
+                screenshot("unified-human-and-agent-items.png")
+                files.forEach { file ->
+                    val node = requireNotNull(find(description = file.name))
+                    assertTrue(actionNode(node, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("Shared preview controls") { find(text = context.getString(R.string.attachment_save)) != null && find(text = context.getString(R.string.dismiss)) != null }
+                    screenshot("unified-preview-${file.name}.png")
+                    assertTrue(actionNode(requireNotNull(find(text = context.getString(R.string.dismiss))), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("Preview closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                }
+            }
+        } finally { uploads.deleteRecursively(); generated.deleteRecursively() }
+    }
     @Test fun questionsCanCloseMidFormKeepDraftsAndLeaveTheWorkspaceComposerEnabled() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("qa_native_history") == "true")
         val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity

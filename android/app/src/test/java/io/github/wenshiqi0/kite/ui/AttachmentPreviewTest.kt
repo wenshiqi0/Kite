@@ -19,6 +19,8 @@ class AttachmentPreviewTest {
     @Test fun imageAudioAndTextHaveNativePreviewKinds() {
         assertEquals(AttachmentPreviewKind.Image,attachmentPreviewKind("image/jpeg","screenshot.jpg"))
         assertEquals(AttachmentPreviewKind.Audio,attachmentPreviewKind("audio/mp4","recording.m4a"))
+        assertEquals(AttachmentPreviewKind.Video,attachmentPreviewKind("video/mp4","clip.mp4"))
+        assertEquals(AttachmentPreviewKind.Video,attachmentPreviewKind("application/octet-stream","clip.WEBM"))
         assertEquals(AttachmentPreviewKind.Audio,attachmentPreviewKind("application/octet-stream","recording.MP3"))
         assertEquals(AttachmentPreviewKind.Image,attachmentPreviewKind("application/octet-stream","photo.JPG"))
         assertEquals(AttachmentPreviewKind.Text,attachmentPreviewKind("text/plain","notes"))

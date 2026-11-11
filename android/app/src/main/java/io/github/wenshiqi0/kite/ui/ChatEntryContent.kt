@@ -3,10 +3,14 @@ package io.github.wenshiqi0.kite.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.sp
+import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.AttachmentInfo
 import io.github.wenshiqi0.kite.core.ItemInfo
 import io.github.wenshiqi0.kite.core.ItemRole
@@ -50,12 +54,13 @@ private fun ChatMessageCard(
         TurnFailureMessage(message.text)
         return
     }
-    val user = message.role == ItemRole.USER
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(stringResource(if (message.role == ItemRole.USER) R.string.chat_author_you else R.string.chat_author_agent),
+            color = KiteColors.Muted, fontSize = 12.sp)
         Surface(
-            color = if (user) KiteColors.UserBubble else KiteColors.Surface,
+            color = KiteColors.Surface,
             shape = RoundedCornerShape(19.dp),
-            modifier = Modifier.widthIn(max = 340.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
                 ItemContent(message, streaming, inspect, desktop, desktopEnabled, attachment)

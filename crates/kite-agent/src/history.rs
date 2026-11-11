@@ -46,7 +46,7 @@ pub async fn page(
     cursor: &str,
     newer: bool,
 ) -> Arc<History> {
-    if !crate::providers::managed(&reference.agent)
+    if !matches!(reference.agent.as_str(), "codex" | "claude" | "dsh" | "ply")
         || cursor.len() > 128
         || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
     {
@@ -157,14 +157,10 @@ else
   file=$files
 fi
 if ! test -f "$file"; then printf 'kite-history-pending-v1\n'; exit 0; fi
-stamp=$(stat -c '%d:%i:%s:%y' "$file")
+stamp="$(stat -c '%d:%i:%s:%y' "$file"):media-v1"
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
-if test "$provider" = codex; then
-  "$HOME/.local/bin/kite-node" backend history --compressed --file "$file"{page_args}
-else
-  tail -c 2097152 "$file"
-fi
+"$HOME/.local/bin/kite-node" backend history --compressed --provider "$provider" --file "$file"{page_args}
 "#,
         provider = quote(&reference.agent),
         kind = quote(&reference.kind),
@@ -230,7 +226,7 @@ fn response(
     }
     let bytes = lines.next().unwrap_or_default();
     let decoded;
-    let bytes = if crate::providers::managed(&reference.agent) {
+    let bytes = if crate::providers::managed(&reference.agent) || reference.agent == "claude" {
         let Some(value) = decode_history(bytes) else {
             return unavailable(&cache_key, "invalid compressed history response".into());
         };
@@ -239,17 +235,18 @@ fn response(
     } else {
         bytes
     };
-    let (controls, bytes, page) = if crate::providers::managed(&reference.agent) {
-        let Some(parts) = codex_projection(bytes) else {
-            return unavailable(&cache_key, "invalid provider history projection".into());
+    let (controls, bytes, page) =
+        if crate::providers::managed(&reference.agent) || reference.agent == "claude" {
+            let Some(parts) = codex_projection(bytes) else {
+                return unavailable(&cache_key, "invalid provider history projection".into());
+            };
+            let Some((page, display)) = display_page(parts.1) else {
+                return unavailable(&cache_key, "invalid history page".into());
+            };
+            (parts.0, display, Some(page))
+        } else {
+            (&b""[..], bytes, None)
         };
-        let Some((page, display)) = display_page(parts.1) else {
-            return unavailable(&cache_key, "invalid history page".into());
-        };
-        (parts.0, display, Some(page))
-    } else {
-        (&b""[..], bytes, None)
-    };
     Arc::new(History {
         key: cache_key,
         stamp: stamp.into(),
@@ -366,11 +363,15 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
         let p = &value["payload"];
         let id = if let Some(id) = crate::turn_error_id(&value) {
             id
-        } else if p["type"] == "message" || p["type"] == "image_generation_call" {
+        } else if p["type"] == "message"
+            || p["type"] == "image_generation_call"
+            || matches!(value["type"].as_str(), Some("user" | "assistant"))
+        {
             p["id"]
                 .as_str()
                 .or_else(|| value["uuid"].as_str())
                 .or_else(|| value["id"].as_str())
+                .or_else(|| value["_kite_record_id"].as_str())
                 .map(str::to_owned)
                 .unwrap_or_else(|| crate::fingerprint(&value.to_string()))
         } else if let Some(id) = p["call_id"].as_str() {
@@ -392,6 +393,22 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn projected_positions_use_the_same_identity_as_codex_and_claude_items() {
+        for provider in ["codex", "claude"] {
+            let record = if provider == "claude" {
+                serde_json::json!({"type":"assistant", "_kite_record_id":"original", "_kite_offset":42, "message":{"content":[{"type":"text", "text":"kept"}]}})
+            } else {
+                serde_json::json!({"type":"response_item", "_kite_record_id":"original", "_kite_offset":42, "payload":{"type":"message", "role":"assistant", "content":[{"type":"text", "text":"kept"}]}})
+            };
+            let bytes = record.to_string();
+            let items = parse_history(provider, bytes.as_bytes());
+            assert_eq!(
+                record_positions(bytes.as_bytes()).get(&items[0].id),
+                Some(&(42, 0))
+            );
+        }
+    }
     #[test]
     fn pending_source_is_distinct_from_failed_transport_or_invalid_output() {
         let reference = AgentSession {

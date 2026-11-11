@@ -10,7 +10,9 @@ import {
 import { isAbsolute, join } from "node:path";
 import { check, MAX_FILE, type ObjectValue, object, optionalString, parse } from "@kite/protocol";
 import { atomic, locked, privateDir, readJson, sha256 } from "@kite/runtime";
+import { optionalObject } from "@kite/runtime/socket";
 import { stateDir } from "./catalog";
+import { contentFingerprint, projectContent } from "./media";
 import { storeGeneratedBytes, storeGeneratedImage } from "./uploads";
 
 const LIMIT = 2 * 1024 * 1024;
@@ -99,7 +101,7 @@ export function sourceLine(
     complete,
   };
 }
-export function displayLine(fd: number, start: number, limit: number): SourceLine {
+export function displayLine(fd: number, start: number, limit: number, cwd = ""): SourceLine {
   const head = Buffer.alloc(1024);
   const n = readSync(fd, head, 0, 1024, start);
   const prefix = head.subarray(0, n).toString();
@@ -108,7 +110,7 @@ export function displayLine(fd: number, start: number, limit: number): SourceLin
       prefix,
     )
   )
-    return sourceLine(fd, start, limit);
+    return contentLine(fd, start, limit, cwd);
   const row = sourceLine(fd, start, Math.ceil(MAX_FILE / 3) * 4 + limit, true);
   if (!row.complete) return { ...row, text: null };
   if (row.text === null) {
@@ -156,7 +158,7 @@ export function displayLine(fd: number, start: number, limit: number): SourceLin
     payload.type = "image_generation_call";
     payload.id = payload.call_id;
   } else if (record.type !== "response_item" || payload.type !== "image_generation_call")
-    return sourceLine(fd, start, limit);
+    return contentLine(fd, start, limit, cwd);
   const encoded = payload.result;
   delete payload.result;
   delete payload.encrypted_content;
@@ -182,6 +184,41 @@ export function displayLine(fd: number, start: number, limit: number): SourceLin
     payload._kite_image_error = error instanceof Error ? error.message : "invalid generated image";
   }
   return { ...row, text: JSON.stringify(record) };
+}
+// Match serde_json's sorted-key record identity before presentation changes it.
+function sourceIdentity(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(sourceIdentity).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value)
+      .sort()
+      .filter((key) => key !== "_kite_offset")
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${sourceIdentity(key === "image_url" && typeof (value as Record<string, unknown>)[key] === "string" ? "" : (value as Record<string, unknown>)[key])}`,
+      )
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+function contentLine(fd: number, start: number, limit: number, cwd: string): SourceLine {
+  const row = sourceLine(fd, start, 40 * 1024 * 1024, true);
+  if (!row.complete) return { ...row, text: null };
+  // Keep controls/oversized input scanning bounded even when media is too large.
+  if (row.text === null) return sourceLine(fd, start, limit);
+  try {
+    const record = object(parse(row.text));
+    record._kite_record_id = sha256(sourceIdentity(record));
+    const payload = object(
+      record.type === "response_item" ? record.payload : (record.message ?? {}),
+    );
+    payload._kite_content_fingerprint ||= contentFingerprint(payload.content);
+    if (Array.isArray(payload.content) || typeof payload.content === "string")
+      payload.content = projectContent(payload.content, cwd);
+    if (Array.isArray(payload.output)) payload.output = projectContent(payload.output, cwd);
+    const text = JSON.stringify(record);
+    return { ...row, text: Buffer.byteLength(text) <= limit ? text : null };
+  } catch {
+    return { ...row, text: "" };
+  }
 }
 export async function questionRecords(file: string): Promise<Buffer> {
   const cache = join(privateDir(join(stateDir(), "history")), `${sha256(realpathSync(file))}.json`);
@@ -326,7 +363,8 @@ export function cursorPosition(
   );
   return p;
 }
-const displayRecord = (r: ObjectValue) => {
+const displayRecord = (r: ObjectValue, provider: string) => {
+  if (provider === "claude") return r.type === "user" || r.type === "assistant";
   const payload = object(r.payload);
   if (r.type === "event_msg")
     return (
@@ -350,28 +388,40 @@ export async function historyProjection(
   file: string,
   before?: string,
   after?: string,
+  provider = "codex",
 ): Promise<Buffer> {
   check(!(before && after), "choose one history direction");
-  const controls = await questionRecords(file),
+  const controls = provider === "claude" ? Buffer.alloc(0) : await questionRecords(file),
     transport = 4 * 1024 * 1024 - controls.length - 4096,
     pageBudget = Math.min(1024 * 1024, transport);
   const fd = openSync(file, "r");
   try {
     const info = fstatSync(fd),
       boundary = before || after ? cursorPosition(before || after || "", info) : info.size;
+    const header = Buffer.alloc(Math.min(info.size, 65536));
+    readSync(fd, header, 0, header.length, 0);
+    let cwd = "";
+    for (const line of header.toString().split("\n").slice(0, 16)) {
+      try {
+        const row = object(parse(line));
+        cwd ||= optionalString(row.cwd || optionalObject(row.payload).cwd);
+      } catch {
+        /* Only complete metadata rows can provide a working directory. */
+      }
+    }
     const rows: { start: number; end: number; text: string }[] = [];
     let total = 0;
     function* forward(): Generator<[number, number]> {
       let pos = boundary;
       while (pos < info.size) {
-        const row = displayLine(fd, pos, transport);
+        const row = displayLine(fd, pos, transport, cwd);
         if (!row.complete || row.end > info.size) break;
         yield [pos, row.end];
         pos = row.end;
       }
     }
     for (const [start, end] of after ? forward() : reverseRanges(fd, boundary)) {
-      const row = displayLine(fd, start, transport);
+      const row = displayLine(fd, start, transport, cwd);
       if (!row.complete || row.end !== end) continue;
       if (row.text === null) {
         const header = Buffer.alloc(Math.min(1024, end - start));
@@ -385,7 +435,7 @@ export async function historyProjection(
       let r: ObjectValue;
       try {
         r = object(parse(row.text));
-        if (!displayRecord(r)) continue;
+        if (!displayRecord(r, provider)) continue;
       } catch {
         continue;
       }
@@ -418,7 +468,7 @@ export async function historyProjection(
 }
 export function historyStamp(file: string): string {
   const s = statSync(file, { bigint: true });
-  return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}`;
+  return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:media-v1`;
 }
 export function historyFiles(root: string, id: string): string[] {
   return Array.from(
