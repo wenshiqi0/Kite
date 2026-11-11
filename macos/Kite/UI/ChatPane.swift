@@ -186,7 +186,7 @@ struct MessageRow: View {
             } else if message.role != .tool && !skillContextOnly {
                 Text(tr(message.role == .user ? "you" : "agent"))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(message.role == .user ? Color.secondary : Color.cyan)
             }
             ForEach(Array(message.blocks.enumerated()), id: \.offset) { entry in
                 switch entry.element {

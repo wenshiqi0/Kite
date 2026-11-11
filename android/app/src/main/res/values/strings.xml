@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="chat_author_you">你</string>
-    <string name="chat_author_agent">Agent</string>
     <string name="connection_reconnecting">正在自动重连…</string>
     <string name="history_older">加载更早的消息</string>
     <string name="history_newer">加载更新的消息</string>

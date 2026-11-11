@@ -106,7 +106,7 @@ class WorkspaceRefinementPresentationTest {
             test.uiAutomation.serviceInfo = service
         }
     }
-    @Test fun humanAndAgentShareMarkdownImageLayoutAndPreviewControls() {
+    @Test fun humanAndAgentShareContentRendererInsideDistinctBubbles() {
         val context = test.targetContext
         val conversation = "owned-multimodal-items/native"
         fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -139,7 +139,13 @@ class WorkspaceRefinementPresentationTest {
             }) {
                 waitFor("Both native images load") { find(description = "human-photo.png") != null && find(description = "agent-photo.png") != null }
                 val human = bounds("human-photo.png"); val agent = bounds("agent-photo.png")
-                assertEquals(human.left, agent.left); assertEquals(human.width(), agent.width()); assertEquals(human.height(), agent.height())
+                assertTrue("User bubble stays right of the agent bubble", human.left > agent.left)
+                assertTrue("Sender padding remains distinct around the same renderer", human.width() > agent.width())
+                test.uiAutomation.takeScreenshot().let { capture ->
+                    assertEquals(KiteColors.UserBubble.toArgb(), capture.getPixel(human.left - 8, human.centerY()))
+                    assertEquals(KiteColors.Surface.toArgb(), capture.getPixel(agent.left - 8, agent.centerY()))
+                    capture.recycle()
+                }
                 main {
                     val views = mutableListOf<MarkdownTextView>()
                     fun walk(view: View) {
@@ -153,7 +159,7 @@ class WorkspaceRefinementPresentationTest {
                     assertEquals(views[0].textSize, views[1].textSize)
                     assertFalse(views[0].text.contains("**"))
                 }
-                screenshot("unified-human-and-agent-items.png")
+                screenshot("shared-renderer-distinct-bubbles.png")
                 files.forEach { file ->
                     val node = requireNotNull(find(description = file.name))
                     assertTrue(actionNode(node, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
