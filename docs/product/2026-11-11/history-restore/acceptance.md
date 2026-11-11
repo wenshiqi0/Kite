@@ -28,4 +28,23 @@ Validation:
   The live catalog contains 111 saved references, and the current conversation's
   provider history file exists and is nonempty. No model turn was sent.
 
-Publication and compatible live host upgrade verification are recorded below.
+Published [Alpha 96](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.96)
+/ versionCode 98 from `cedfd13a425bbd828b60a556e7e26cd8cb019c25`.
+Both [tagged CI jobs](https://github.com/wenshiqi0/Kite/actions/runs/43014500645)
+passed. Independent public downloads passed checksum, stable-certificate,
+signature, application-payload and 16 KiB alignment checks.
+
+Live recovery verification:
+
+- wen-h255 and wen-mini run the exact public Alpha 96 Node binary and advertise
+  history projection support. Both hosts are ready.
+- Node identities, all 111 / seven saved session references, and the running
+  Herdr/Sunshine process IDs were preserved.
+- The original Alpha 94/95 phone history request now succeeds on both hosts.
+- A cache-free read of the current conversation on wen-h255 traversed all three
+  history pages and retrieved 44 message rows, including two substantive
+  assistant answers. No model turn or user-message replay was performed.
+
+Existing Alpha 94/95 clients can retry synchronization after the host fix;
+another app uninstall is unnecessary. Alpha 96 also makes the Codex client
+request compatible with hosts that still use the original history interface.
