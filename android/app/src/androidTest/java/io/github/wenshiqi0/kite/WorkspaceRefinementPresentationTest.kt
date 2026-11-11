@@ -59,9 +59,12 @@ class WorkspaceRefinementPresentationTest {
             overlay({
                 val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
-                Column(Modifier.fillMaxWidth().padding(16.dp)) { MessageAttachments(vm, files, {}, {}, conversation) }
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp)) { MessageAttachments(vm, files, {}, {}, conversation) }
             }) {
-                fun click(label: String) = assertTrue(actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                fun click(label: String) {
+                    waitFor("Control appears: $label") { find(text = label) != null }
+                    assertTrue(actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                }
                 click("owned-audio.wav")
                 waitFor("Audio prepares") { find(text = "0:00 / 0:02") != null && find(text = context.getString(R.string.attachment_audio_play)) != null }
                 click(context.getString(R.string.attachment_audio_play))
@@ -117,7 +120,7 @@ class WorkspaceRefinementPresentationTest {
                 val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 nativeRoot = activity.window.decorView
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     files.forEachIndexed { index, file ->
                         val message = ItemInfo("owned-$index", if (index == 0) ItemRole.USER else ItemRole.ASSISTANT,
                             listOf(BlockInfo.Text("**统一排版** · `相同内容块`"), BlockInfo.Attachment(file)), false, null)
