@@ -253,7 +253,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
                 );
                 Ok(0)
             }
@@ -831,7 +831,7 @@ impl Node {
                 } else {
                     "degraded"
                 };
-                let mut status = json!({"api":API,"backendProtocol":5,"harnessApi":2,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services});
+                let mut status = json!({"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services});
                 status["machine"] = machine.into();
                 status["configurationApi"] = 1.into();
                 status["configuration"] = config.public_configuration()?;
@@ -1055,9 +1055,16 @@ fn validate_args(config: &Config, request: &NodeRequest) -> Result<()> {
                     | "--name"
                     | "--size"
                     | "--sha256"
+                    | "--provider"
             ) || i + 1 >= request.args.len()
             {
                 return Err(Error::Protocol("backend option denied"));
+            }
+            if flag == "--provider"
+                && (request.args.first().map(String::as_str) != Some("history")
+                    || !matches!(request.args[i + 1].as_str(), "codex" | "claude"))
+            {
+                return Err(Error::Protocol("invalid history provider"));
             }
             if flag == "--herdr"
                 && fs::canonicalize(&request.args[i + 1])? != fs::canonicalize(&config.herdr)?
@@ -1109,6 +1116,9 @@ async fn bounded_output_with_timeout(mut command: Command, timeout: Duration) ->
     .await
     .map_err(|_| Error::Protocol("process timed out"))?
 }
+
+#[cfg(test)]
+mod history_ssh;
 
 #[cfg(test)]
 mod tests {
@@ -1206,6 +1216,46 @@ mod tests {
             params: json!({}),
         };
         validate_args(&c, &request).unwrap();
+    }
+    #[test]
+    fn history_provider_is_allowed_only_for_the_known_history_readers() {
+        let root = tempfile::tempdir().unwrap();
+        let c = config(root.path());
+        for provider in ["codex", "claude"] {
+            validate_args(
+                &c,
+                &NodeRequest {
+                    method: "backend".into(),
+                    args: vec![
+                        "history".into(),
+                        "--provider".into(),
+                        provider.into(),
+                        "--file".into(),
+                        "/owned.jsonl".into(),
+                        "--compressed".into(),
+                    ],
+                    params: json!({}),
+                },
+            )
+            .unwrap();
+        }
+        for args in [
+            vec!["history", "--provider", "unknown"],
+            vec!["upload", "--provider", "claude"],
+            vec!["history", "--provider"],
+        ] {
+            assert!(
+                validate_args(
+                    &c,
+                    &NodeRequest {
+                        method: "backend".into(),
+                        args: args.into_iter().map(str::to_owned).collect(),
+                        params: json!({}),
+                    }
+                )
+                .is_err()
+            );
+        }
     }
     #[test]
     fn session_deletion_facts_and_image_downloads_are_allowed_through_the_host_bridge() {
