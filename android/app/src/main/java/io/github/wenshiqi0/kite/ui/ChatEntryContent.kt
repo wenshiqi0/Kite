@@ -21,7 +21,7 @@ internal fun ChatEntryContent(
     inspect: () -> Unit = {},
     desktop: () -> Unit = {},
     desktopEnabled: Boolean = true,
-    attachment: @Composable (AttachmentInfo) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>) -> Unit,
 ) {
     when (entry) {
         is ChatEntry.Work -> ToolGroupCard(entry, working, inspect, desktop, desktopEnabled)
@@ -36,7 +36,7 @@ private fun ChatMessageCard(
     inspect: () -> Unit,
     desktop: () -> Unit,
     desktopEnabled: Boolean,
-    attachment: @Composable (AttachmentInfo) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>) -> Unit,
 ) {
     if (message.isSkillContextOnly) {
         ItemContent(message, attachment = attachment)
@@ -48,6 +48,13 @@ private fun ChatMessageCard(
     }
     if (message.role == ItemRole.ERROR) {
         TurnFailureMessage(message.text)
+        return
+    }
+    // A tool result with media keeps the same work-card width as its neighbors.
+    if (message.role == ItemRole.TOOL) {
+        Column(Modifier.fillMaxWidth()) {
+            ItemContent(message, streaming, inspect, desktop, desktopEnabled, attachment)
+        }
         return
     }
     val user = message.role == ItemRole.USER

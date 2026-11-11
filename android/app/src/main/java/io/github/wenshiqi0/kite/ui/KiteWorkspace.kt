@@ -377,8 +377,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             entry, working = agent?.status == "working",
                             streaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId,
                             inspect = ::pauseHistory, desktop = vm::openDesktop,
-                        ) { file ->
-                            MessageAttachments(vm, listOf(file), updatePip, ::pauseHistory)
+                        ) { files ->
+                            MessageAttachments(vm, files, updatePip, ::pauseHistory)
                         }
                     }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="attachment_long_image">长图 · 点击查看完整图片</string>
     <string name="connection_reconnecting">正在自动重连…</string>
     <string name="history_older">加载更早的消息</string>
     <string name="history_newer">加载更新的消息</string>

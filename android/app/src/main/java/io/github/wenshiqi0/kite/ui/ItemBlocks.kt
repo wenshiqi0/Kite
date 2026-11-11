@@ -14,3 +14,31 @@ val ItemInfo.isSkillContextOnly: Boolean
 val ItemInfo.tool:ToolInfo? get()=(blocks.singleOrNull() as? BlockInfo.Tool)?.tool
 val ItemInfo.attachments:List<AttachmentInfo> get()=blocks.filterIsInstance<BlockInfo.Attachment>().map{it.file}
 val ItemInfo.questionReplies:List<QuestionReplyInfo> get()=blocks.filterIsInstance<BlockInfo.QuestionReply>().map{it.reply}
+
+internal data class ItemContentRun(val start: Int, val blocks: List<BlockInfo>)
+
+/** Adjacent attachments form one album; meaningful content keeps its position. */
+internal fun itemContentRuns(blocks: List<BlockInfo>): List<ItemContentRun> = buildList {
+    var index = 0
+    while (index < blocks.size) {
+        val start = index
+        if (blocks[index] !is BlockInfo.Attachment) {
+            add(ItemContentRun(index, listOf(blocks[index])))
+            index++
+            continue
+        }
+        val files = mutableListOf(blocks[index++])
+        while (index < blocks.size) {
+            when {
+                blocks[index] is BlockInfo.Attachment -> files.add(blocks[index++])
+                blocks[index] is BlockInfo.Text && (blocks[index] as BlockInfo.Text).text.isBlank() -> {
+                    var next = index
+                    while (blocks.getOrNull(next) is BlockInfo.Text && (blocks[next] as BlockInfo.Text).text.isBlank()) next++
+                    if (blocks.getOrNull(next) is BlockInfo.Attachment) index = next else break
+                }
+                else -> break
+            }
+        }
+        add(ItemContentRun(start, files))
+    }
+}

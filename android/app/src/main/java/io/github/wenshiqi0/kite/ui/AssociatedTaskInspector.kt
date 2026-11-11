@@ -103,8 +103,8 @@ internal fun AssociatedTaskInspector(
                 val historyLabel = stringResource(R.string.associated_task_readonly_history)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = historyLabel }, state = scroll, contentPadding = PaddingValues(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(entries, key = { it.key }) { entry ->
-                        ChatEntryContent(entry, working = connected && task.status == "working", desktopEnabled = false) { file ->
-                            Text(file.name, fontSize = 13.sp, color = KiteColors.Muted)
+                        ChatEntryContent(entry, working = connected && task.status == "working", desktopEnabled = false) { files ->
+                            files.forEach { file -> Text(file.name, fontSize = 13.sp, color = KiteColors.Muted) }
                         }
                     }
                 }

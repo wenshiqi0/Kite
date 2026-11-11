@@ -19,16 +19,18 @@ internal fun ItemContent(
     inspect: () -> Unit = {},
     desktop: () -> Unit = {},
     desktopEnabled: Boolean = true,
-    attachment: @Composable (AttachmentInfo) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>) -> Unit,
 ) {
     Column {
-        message.blocks.forEachIndexed { index, block ->
+        itemContentRuns(message.blocks).forEach { run ->
+            val index = run.start
+            val block = run.blocks.first()
             key(index) {
                 when (block) {
                     is BlockInfo.Text -> if (block.text.isNotBlank()) {
                         MarkdownMessage(block.text, streaming = streaming)
                     }
-                    is BlockInfo.Attachment -> attachment(block.file)
+                    is BlockInfo.Attachment -> attachment(run.blocks.filterIsInstance<BlockInfo.Attachment>().map { it.file })
                     is BlockInfo.SkillContext -> SkillContextCard(block)
                     is BlockInfo.QuestionReply -> AnsweredQuestions(listOf(block.reply))
                     is BlockInfo.Tool -> ToolGroupCard(

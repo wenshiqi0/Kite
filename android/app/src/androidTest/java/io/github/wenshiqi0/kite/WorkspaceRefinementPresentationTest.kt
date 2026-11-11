@@ -38,6 +38,77 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun toolMediaUsesFullWidthAndImagesFormCompactAlbums() {
+        val context = test.targetContext
+        val conversation = "owned-chat-album-layout"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val directory = File(context.filesDir, "message-attachments/${sha(conversation.toByteArray())}").apply { mkdirs() }
+        val orange = android.graphics.Color.rgb(220, 130, 40)
+        fun image(id: String, name: String, width: Int, height: Int, color: Int): AttachmentInfo {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+            if (height > width * 2) android.graphics.Canvas(bitmap).drawRect(0f, height * .8f, width.toFloat(), height.toFloat(), android.graphics.Paint().apply { this.color = orange })
+            val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bitmap.recycle()
+            File(directory, id).writeBytes(bytes)
+            File(directory, "$id.sha256").writeText(sha(bytes))
+            return AttachmentInfo(id, name, "image/png", bytes.size.toULong(), false)
+        }
+        val long = image("d".repeat(32), "owned-long.png", 360, 1200, android.graphics.Color.rgb(45, 110, 190))
+        val photos = listOf(
+            image("e".repeat(32), "owned-red.png", 400, 400, android.graphics.Color.rgb(180, 70, 70)),
+            image("f".repeat(32), "owned-green.png", 400, 400, android.graphics.Color.rgb(50, 150, 100)),
+            image("9".repeat(32), "owned-blue.png", 400, 400, android.graphics.Color.rgb(50, 100, 180)),
+        )
+        fun tool(id: String) = ItemInfo(id, ItemRole.TOOL, listOf(BlockInfo.Tool(ToolInfo("Bash", "Owned tool result", "exec_command", "{}", "ok", true, false, false))), false, null)
+        val pure = tool("owned-pure")
+        val mixed = tool("owned-mixed").let { it.copy(blocks = it.blocks + BlockInfo.Attachment(long)) }
+        val album = ItemInfo("owned-album", ItemRole.ASSISTANT,
+            listOf(BlockInfo.Attachment(photos[0]), BlockInfo.Text("\n\n"), BlockInfo.Attachment(photos[1]), BlockInfo.Text("\n"), BlockInfo.Attachment(photos[2])), false, null)
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ChatEntryContent(ChatEntry.Work(listOf(pure))) {}
+                    ChatEntryContent(ChatEntry.Message(mixed)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
+                    ChatEntryContent(ChatEntry.Message(album)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
+                }
+            }) {
+                waitFor("Long thumbnail and album load") { (listOf(long) + photos).all { find(description = it.name) != null } }
+                val longBounds = bounds(long.name)
+                val cards = mutableListOf<Rect>()
+                val label = context.getString(R.string.expand_tool_group, 1)
+                fun collect(node: AccessibilityNodeInfo?) {
+                    node ?: return
+                    if (node.contentDescription?.toString() == label) cards.add(Rect().also { node.getBoundsInScreen(it) })
+                    for (index in 0 until node.childCount) collect(node.getChild(index))
+                }
+                collect(test.uiAutomation.rootInActiveWindow)
+                assertEquals(2, cards.size)
+                assertEquals(cards[0].left, cards[1].left)
+                assertEquals(cards[0].width(), cards[1].width())
+                assertEquals(cards[1].left, longBounds.left)
+                assertEquals(cards[1].width(), longBounds.width())
+                assertTrue(longBounds.height() <= 241 * context.resources.displayMetrics.density)
+                val tiles = photos.map { bounds(it.name) }
+                assertEquals(tiles[0].top, tiles[1].top)
+                assertEquals(tiles[0].top, tiles[2].top)
+                assertTrue(kotlin.math.abs(tiles[0].width() - tiles[1].width()) <= 1)
+                assertTrue(kotlin.math.abs(tiles[0].width() - tiles[0].height()) <= 1)
+                (listOf(long) + photos).forEach { assertNull(find(text = it.name)) }
+                screenshot("compact-tool-image-and-album.png")
+                assertTrue(actionNode(requireNotNull(find(description = long.name)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Full image preview opens") { find(text = context.getString(R.string.attachment_save)) != null }
+                test.uiAutomation.takeScreenshot().let { capture ->
+                    val pixels = IntArray(capture.width * capture.height)
+                    capture.getPixels(pixels, 0, capture.width, 0, 0, capture.width, capture.height)
+                    assertTrue("The original image bottom is visible in full preview", pixels.count { it == orange } > 1000)
+                    capture.recycle()
+                }
+                screenshot("long-image-full-preview.png")
+            }
+        } finally { directory.deleteRecursively() }
+    }
     @Test fun nativeAudioVideoAndTextAttachmentsOpenWithoutAutoplay() {
         // MediaController is a separate native window above the Compose dialog.
         val service = test.uiAutomation.serviceInfo
@@ -133,7 +204,7 @@ class WorkspaceRefinementPresentationTest {
                     files.forEachIndexed { index, file ->
                         val message = ItemInfo("owned-$index", if (index == 0) ItemRole.USER else ItemRole.ASSISTANT,
                             listOf(BlockInfo.Text("**统一排版** · `相同内容块`"), BlockInfo.Attachment(file)), false, null)
-                        ChatEntryContent(ChatEntry.Message(message)) { attachment -> MessageAttachments(vm, listOf(attachment), {}, {}, conversation) }
+                        ChatEntryContent(ChatEntry.Message(message)) { attachments -> MessageAttachments(vm, attachments, {}, {}, conversation) }
                     }
                 }
             }) {
@@ -700,7 +771,7 @@ class WorkspaceRefinementPresentationTest {
             BlockInfo.Text("owned-after"), tool("owned-tool-one"),
             BlockInfo.Text("owned-end"), tool("owned-tool-two"),
         ), false, null)
-        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
+        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { files -> files.forEach { attachment -> androidx.compose.material3.Text(attachment.name) } } } }) {
             val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
             waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
             val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
