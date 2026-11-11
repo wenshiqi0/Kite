@@ -360,13 +360,22 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
         else {
             continue;
         };
+        if matches!(value["type"].as_str(), Some("user" | "assistant")) {
+            for (rank, item) in parse_history("claude", value.to_string().as_bytes())
+                .into_iter()
+                .enumerate()
+            {
+                result
+                    .entry(item.id)
+                    .and_modify(|old| *old = std::cmp::min(*old, (offset, rank as u32)))
+                    .or_insert((offset, rank as u32));
+            }
+            continue;
+        }
         let p = &value["payload"];
         let id = if let Some(id) = crate::turn_error_id(&value) {
             id
-        } else if p["type"] == "message"
-            || p["type"] == "image_generation_call"
-            || matches!(value["type"].as_str(), Some("user" | "assistant"))
-        {
+        } else if p["type"] == "message" || p["type"] == "image_generation_call" {
             p["id"]
                 .as_str()
                 .or_else(|| value["uuid"].as_str())
@@ -408,6 +417,14 @@ mod tests {
                 Some(&(42, 0))
             );
         }
+    }
+    #[test]
+    fn claude_tool_positions_follow_their_text_within_the_original_record() {
+        let row = serde_json::json!({"uuid":"assistant-row", "type":"assistant", "_kite_offset":42,
+            "message":{"content":[{"type":"text", "text":"Before"}, {"type":"tool_use", "id":"call", "name":"create_image", "input":{}}]}});
+        let positions = record_positions(row.to_string().as_bytes());
+        assert_eq!(positions.get("assistant-row"), Some(&(42, 0)));
+        assert_eq!(positions.get("call"), Some(&(42, 1)));
     }
     #[test]
     fn pending_source_is_distinct_from_failed_transport_or_invalid_output() {
