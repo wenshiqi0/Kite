@@ -6,10 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.content.Context
-import android.net.Uri
 import android.widget.Toast
-import android.widget.VideoView
-import android.widget.MediaController
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -39,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -85,7 +81,7 @@ fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onEx
             val file = files[index++]
             key(conversation, start, file.id) {
                 Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProductIcon(attachmentMark(file.mime), KiteColors.Accent, Modifier.size(20.dp))
+                    ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
@@ -225,30 +221,6 @@ internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, att
             }
         }
     }
-}
-
-@Composable
-private fun PreviewVideo(file: File) {
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val view = remember(context, file.path) { VideoView(context) }
-    var failed by remember(file.path) { mutableStateOf(false) }
-    DisposableEffect(lifecycle, view) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) view.pause() }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); view.stopPlayback() }
-    }
-    if (failed) Text(stringResource(R.string.attachment_preview_failed))
-    else AndroidView(factory = { context ->
-        view.apply {
-            val controls = MediaController(context)
-            controls.setAnchorView(this)
-            setMediaController(controls)
-            setOnPreparedListener { seekTo(1); controls.show(0) }
-            setOnErrorListener { _, _, _ -> failed = true; true }
-            setVideoURI(Uri.fromFile(file))
-        }
-    }, modifier = Modifier.fillMaxWidth().height(300.dp))
 }
 
 @Composable

@@ -98,7 +98,7 @@ fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, select: (Strin
             files.forEach { upload ->
                 Surface(color = KiteColors.Surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.widthIn(max = 235.dp)) {
                     Row(Modifier.clickable(enabled = upload.localPath.isNotBlank() && !vm.sending) { inspect(); preview = upload }.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ProductIcon(attachmentMark(upload.file.mime), KiteColors.Muted, Modifier.size(20.dp))
+                        ProductIcon(attachmentMark(upload.file.mime, upload.file.name), KiteColors.Muted, Modifier.size(20.dp))
                         Column(Modifier.widthIn(max = 154.dp).padding(start = 9.dp, top = 9.dp, bottom = 9.dp)) {
                             Text(upload.file.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (upload.failed) TextButton(onClick = { vm.retryAttachment(upload) }, enabled = !vm.sending, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) { Text(stringResource(R.string.attachment_retry), fontSize = 11.sp, color = MaterialTheme.colorScheme.error) }
@@ -116,4 +116,9 @@ fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, select: (Strin
 
 }
 
-fun attachmentMark(mime: String) = when { mime.startsWith("image/") -> Mark.Image; mime.startsWith("audio/") -> Mark.Audio; else -> Mark.File }
+fun attachmentMark(mime: String, name: String = "") = when (attachmentPreviewKind(mime, name)) {
+    AttachmentPreviewKind.Image -> Mark.Image
+    AttachmentPreviewKind.Audio -> Mark.Audio
+    AttachmentPreviewKind.Video -> Mark.Video
+    else -> Mark.File
+}

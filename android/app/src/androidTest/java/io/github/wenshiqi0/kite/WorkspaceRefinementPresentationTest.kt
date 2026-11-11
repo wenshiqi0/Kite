@@ -128,7 +128,7 @@ class WorkspaceRefinementPresentationTest {
             for (index in 0 until 16000) putShort((kotlin.math.sin(index * 2.0 * Math.PI * 220.0 / 8000) * 1500).toInt().toShort())
         }.array()
         val video = test.context.assets.open("multimodal-owned.mp4").use { it.readBytes() }
-        val sources = listOf(Triple("owned-audio.wav", "audio/wav", wave), Triple("owned-video.mp4", "video/mp4", video), Triple("owned-notes.txt", "text/plain", "Owned text attachment\n第二行".toByteArray()))
+        val sources = listOf(Triple("owned-audio.wav", "audio/wav", wave), Triple("owned-video.mp4", "video/mp4", video), Triple("owned-notes.md", "text/markdown", "# Owned Markdown attachment\n\n**中文内容**\n\n- First item\n- 第二行".toByteArray()))
         val files = sources.mapIndexed { index, (name, mime, bytes) ->
             val id = (index + 1).toString().repeat(32)
             File(directory, id).writeBytes(bytes); File(directory, "$id.sha256").writeText(sha(bytes))
@@ -153,25 +153,19 @@ class WorkspaceRefinementPresentationTest {
                 click(context.getString(R.string.dismiss))
                 waitFor("Audio closes") { find(text = context.getString(R.string.attachment_save)) == null }
                 click("owned-video.mp4")
-                var player: android.widget.VideoView? = null
-                waitFor("Video prepares") {
-                    main {
-                        fun walk(view: View) {
-                            if (view is android.widget.VideoView) player = view
-                            if (view is android.view.ViewGroup) for (index in 0 until view.childCount) walk(view.getChildAt(index))
-                        }
-                        android.view.inspector.WindowInspector.getGlobalWindowViews().forEach(::walk)
-                    }
-                    var ready = false; main { ready = (player?.duration ?: 0) > 0 }; ready
+                waitFor("Video has visible controls") {
+                    find(text = context.getString(R.string.attachment_video_play)) != null && find(text = "0:00 / 0:04") != null
                 }
-                main { assertFalse(requireNotNull(player).isPlaying); requireNotNull(player).start() }
-                waitFor("Native video plays") { var playing = false; main { playing = player?.isPlaying == true }; playing }
+                assertNull(find(text = context.getString(R.string.attachment_video_pause)))
+                click(context.getString(R.string.attachment_video_play))
+                waitFor("Video plays through the visible button") { find(text = context.getString(R.string.attachment_video_pause)) != null }
+                waitFor("Video playback advances") { find(text = "0:01 / 0:04") != null || find(text = "0:02 / 0:04") != null }
                 screenshot("unified-native-video.png")
-                main { player?.pause() }
+                click(context.getString(R.string.attachment_video_pause))
                 click(context.getString(R.string.dismiss))
                 waitFor("Video closes") { find(text = context.getString(R.string.attachment_save)) == null }
-                click("owned-notes.txt")
-                waitFor("Text preview opens") { find(text = "Owned text attachment") != null }
+                click("owned-notes.md")
+                waitFor("Text preview opens") { find(text = "Owned Markdown attachment") != null }
                 screenshot("unified-native-file.png")
             }
         } finally {
