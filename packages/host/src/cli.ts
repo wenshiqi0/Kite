@@ -40,6 +40,7 @@ import {
   lifecycleReap,
   notificationFacts,
 } from "@kite/providers/lifecycle";
+import { nativeHistoryFile } from "@kite/providers/native-history";
 import { serveOwner } from "@kite/providers/owner";
 import { attachmentRead, readGeneratedImage, upload } from "@kite/providers/uploads";
 import { exec, input, lines } from "@kite/runtime";
@@ -198,6 +199,29 @@ export async function main(argv: string[]): Promise<void> {
       break;
     }
     case "history": {
+      if (typeof values.thread === "string") {
+        check(!values.file, "choose a file or native thread history");
+        check(
+          !values.provider || values.provider === "codex",
+          "native thread history requires Codex",
+        );
+        const file = await nativeHistoryFile(values.thread);
+        if (!file) {
+          process.stdout.write("kite-history-pending-v1\n");
+          break;
+        }
+        const stamp = historyStamp(file);
+        process.stdout.write(`kite-history-v1\n${stamp}\n`);
+        if (stamp !== values.name) {
+          const body = await historyProjection(
+            file,
+            typeof values.before === "string" ? values.before : undefined,
+            typeof values.after === "string" ? values.after : undefined,
+          );
+          process.stdout.write(values.compressed ? gzipSync(body, { level: 1 }) : body);
+        }
+        break;
+      }
       const body = await historyProjection(
         arg("file"),
         typeof values.before === "string" ? values.before : undefined,

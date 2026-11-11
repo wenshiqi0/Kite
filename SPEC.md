@@ -37,6 +37,8 @@ Android 输入区不提供语音识别入口。空草稿时，正在工作的 ag
 
 会话图谱按 [RFC 0027](docs/rfcs/0027-conversation-items-and-threads.md) 组织：Conversation 是持久记录，LiveSession 是一个会话的运行态，Item 由类型化 Block 组成，Thread 是有序、可不连续的 Item 编组，Reference 分活引用与快照，Origin 记录分叉来源，Subscription 是本机阅读状态。硬性规则：所有会话作用域的键必须从 `ConversationKey` 派生，不得另拼字符串；切换会话是替换运行态对象，不得逐字段清零；消息正文必须是类型化块，provider 历史中的 Kite 自有结构只能经统一 envelope 模块编解码；活引用只存在于 Kite 目录叠加层，进入 provider 的引用必须是带来源的快照；分叉能力按 provider 真实公布（Codex 按轮、Claude 整会话、ACP 快照拷贝），无能力时不显示入口；阅读状态、置顶与静音属于本机 Subscription，不写主机目录；原始 provider 历史仍不移动。分阶段实施顺序见该 RFC。
 
+会话浏览先切换本机运行态，远端目录、模型设置、额度和终端读取不得阻塞后续浏览。历史使用独立的会话作用域读取任务；冷启动先展示已读到的最新页，后台继续回填完整历史。Codex 原生分页会话没有 JSONL 时，经主机能力 `historyNativeApi` 读取原生历史数据库中的公开条目，只读原库，在 Kite 私有目录维护投影；推理条目不进入聊天正文，不迁移 provider 上下文或改写会话引用。
+
 模型 Markdown 的原生富文本展示及视频测量按 [RFC 0008](docs/rfcs/0008-native-markdown-and-video-layout.md) 实现：Android 使用 Markwon 绘制 assistant 回复与公开进度，保存的原文和后端协议不变；视频子平面在 measure/layout 中同步定尺寸，显示与输入继续共用源桌面坐标系。Codex 全局 `AGENTS.md` 注入消息在 Android 仅显示一行“已加载全局指令”；首次加载及重新加载使用相同展示。识别仅限完整的全局指令信封及其可选环境上下文，普通消息、仓库级指令和信封后的用户请求保持正文展示；原始对话数据不变。
 
 聊天记录中的完整 Skill 指令信封由 Rust 投影为只读 `SkillContext` 块；Android 与 macOS 默认折叠为独立的“Skill 指令”卡片，展开显示来源路径和 Markdown 正文，不使用用户消息样式或“你”的署名。多个 Skill 分别展示，混合消息保留原有块顺序。普通 `$name`、标签示例和不完整信封仍是原文；历史和缓存保留原始正文，展示投影不作为发送输入。

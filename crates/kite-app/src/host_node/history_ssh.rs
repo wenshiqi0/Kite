@@ -117,6 +117,31 @@ impl Drop for Fixture {
     }
 }
 impl Fixture {
+    async fn seed_native(&self, text: &str, id: &str, ordinal: u32) {
+        let directory = self.root.path().join(".codex");
+        fs::create_dir_all(&directory).unwrap();
+        let script = r#"import {Database} from 'bun:sqlite';
+const db=new Database(process.argv[1]);
+db.exec('CREATE TABLE IF NOT EXISTS thread_items(thread_id TEXT,item_id TEXT,item_type TEXT,item_json TEXT,rollout_ordinal INTEGER,updated_at_ordinal INTEGER,created_at_ms INTEGER); CREATE TABLE IF NOT EXISTS thread_turns(thread_id TEXT,turn_id TEXT,status TEXT,error_json TEXT,rollout_ordinal INTEGER,rollout_end_ordinal INTEGER)');
+const item=JSON.parse(process.argv[2]);const ordinal=Number(process.argv[3]);
+db.query('INSERT INTO thread_items VALUES(?,?,?,?,?,?,?)').run('12345678-1234-1234-1234-123456789abc',item.id,item.type,JSON.stringify(item),ordinal,ordinal,ordinal);db.close();"#;
+        let output = Command::new(std::env::var("KITE_BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", script])
+            .arg(directory.join("thread_history_1.sqlite"))
+            .arg(
+                json!({"id": id, "type": "agentMessage", "text": text, "phase": "final_answer"})
+                    .to_string(),
+            )
+            .arg(ordinal.to_string())
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     async fn new(legacy: bool) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::Builder::new()
@@ -157,7 +182,9 @@ if not reply.get('ok'):
     sys.stderr.write(reply.get('error','bridge rejected'));sys.exit(1)
 if method=='status':
     result=reply['result']
-    if legacy: result.pop('historyProjectionApi',None)
+    if legacy:
+        result.pop('historyProjectionApi',None)
+        result.pop('historyNativeApi',None)
     print(json.dumps(result));sys.exit(0)
 s.sendall(b'\x04\0\0\0\0')
 def read(n):
@@ -252,6 +279,43 @@ while True:
             path,
         )
     }
+}
+
+#[tokio::test]
+async fn native_paginated_history_with_no_rollout_reaches_the_real_client_and_updates_after_append()
+{
+    let fixture = Fixture::new(false).await;
+    fixture
+        .seed_native("Existing paginated substantive answer", "native-first", 1)
+        .await;
+    assert!(!fixture.root.path().join(".codex/sessions").exists());
+    let reference = AgentSession {
+        source: "herdr:codex".into(),
+        agent: "codex".into(),
+        kind: "id".into(),
+        value: "12345678-1234-1234-1234-123456789abc".into(),
+    };
+    let first = history::read(&fixture.ssh, &reference, None).await;
+    assert!(first.available, "{}", first.problem);
+    assert_eq!(
+        first.items.last().unwrap().text(),
+        "Existing paginated substantive answer"
+    );
+    let unchanged = history::read(&fixture.ssh, &reference, Some(first.clone())).await;
+    assert!(Arc::ptr_eq(&first, &unchanged));
+    fixture
+        .seed_native("New paginated substantive answer", "native-second", 2)
+        .await;
+    let second = history::read(&fixture.ssh, &reference, Some(first)).await;
+    assert!(second.available, "{}", second.problem);
+    assert_eq!(second.items.len(), 2);
+    assert_eq!(
+        second.items.last().unwrap().text(),
+        "New paginated substantive answer"
+    );
+    let reinstalled = history::read(&fixture.ssh, &reference, None).await;
+    assert_eq!(second.items, reinstalled.items);
+    fixture.ssh.close().await.unwrap();
 }
 fn codex_message(id: &str, text: &str) -> Value {
     json!({"type":"response_item","payload":{"id":id,"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":text}]}})

@@ -384,17 +384,20 @@ impl ClientCore {
         self.runtime(&host)?.open_session(id).await
     }
     pub async fn open_workspace_session(&self, host: String, id: String) -> Result<(), AppError> {
-        let _guard = self.operations.lock().await;
-        let runtime = self.runtime(&host)?;
-        if !runtime
-            .snapshot()
-            .sessions
-            .iter()
-            .any(|session| session.id == id)
-        {
-            return Err(AppError::State("session unavailable".into()));
-        }
-        self.select_inner(&host).await?;
+        let runtime = {
+            let _guard = self.operations.lock().await;
+            let runtime = self.runtime(&host)?;
+            if !runtime
+                .snapshot()
+                .sessions
+                .iter()
+                .any(|session| session.id == id)
+            {
+                return Err(AppError::State("session unavailable".into()));
+            }
+            self.select_inner(&host).await?;
+            runtime
+        };
         runtime.open_session(id).await
     }
     pub async fn resume_session(&self, host: String, id: String) -> Result<(), AppError> {

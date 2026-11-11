@@ -715,7 +715,10 @@ async fn a_slow_resume_binds_the_returned_pane_until_it_reports_the_same_thread(
         .unwrap();
     let starting = core.snapshot();
     assert_eq!(starting.selected_agent.as_deref(), Some("slow"));
-    assert!(starting.history_status.waiting && !starting.history_status.failed);
+    assert!(
+        (starting.history_status.loading || starting.history_status.waiting)
+            && !starting.history_status.failed
+    );
 
     core.update_live(&key, |live| {
         live.response_activity = ResponseActivity::Sending;

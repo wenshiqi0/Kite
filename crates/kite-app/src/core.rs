@@ -1098,18 +1098,16 @@ impl AppCore {
         let Some(key) = self.selected() else {
             return Ok(());
         };
-        match self
+        self.ensure_history_source(generation);
+        if let Some(agent) = self
             .read_live(&key, |live| live.active_agent().cloned())
             .flatten()
         {
-            Some(agent) => {
-                self.refresh_agent(c, &key, &agent.terminal, generation)
-                    .await;
-                if record {
-                    self.record_history(c, &key).await?;
-                }
+            self.refresh_agent(c, &key, &agent.terminal, generation)
+                .await;
+            if record {
+                self.record_history(c, &key).await?;
             }
-            None => self.refresh_saved_session(c, &key, generation).await?,
         }
         Ok(())
     }
@@ -1161,17 +1159,10 @@ impl AppCore {
             };
             text
         };
-        let cached = self.read_live(key, |live| live.history.clone()).flatten();
-        // A resumed pane keeps showing its saved thread until it reports one itself.
-        let reference = agent.agent_session.clone().or_else(|| {
-            self.session_record(&key.host, &key.conversation)
-                .and_then(|record| record.reference)
-        });
-        let history = if let Some(reference) = &reference {
-            history::read(&c.ssh, reference, cached).await
-        } else {
-            Arc::new(history::History::default())
-        };
+        let history = self
+            .read_live(key, |live| live.history.clone())
+            .flatten()
+            .unwrap_or_else(|| Arc::new(history::History::default()));
         if history.available
             && let Some(client) = &client
         {
@@ -1247,7 +1238,6 @@ impl AppCore {
         if self.generation.load(Ordering::SeqCst) != generation || current != Some(true) {
             return;
         }
-        self.present_history(key, &history);
         self.update_live(key, |live| {
             live.agent_output = text;
             live.approval = approval;

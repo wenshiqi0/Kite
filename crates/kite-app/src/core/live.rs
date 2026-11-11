@@ -60,6 +60,7 @@ pub(super) struct LiveSession {
     pub(super) history: Option<Arc<history::History>>,
     pub(super) transcript: conversation::Transcript,
     pub(super) sync_job: Option<JoinHandle<()>>,
+    pub(super) source_job: Option<JoinHandle<()>>,
     pub(super) pending: Vec<PendingItem>,
     pub(super) composer: Composer,
     pub(super) approval: Option<Approval>,
@@ -85,6 +86,7 @@ impl LiveSession {
             history: None,
             transcript: conversation::Transcript::default(),
             sync_job: None,
+            source_job: None,
             pending: Vec::new(),
             composer: Composer::default(),
             approval: None,
@@ -109,6 +111,9 @@ impl LiveSession {
     }
     fn cancel_sync(&mut self) {
         if let Some(job) = self.sync_job.take() {
+            job.abort();
+        }
+        if let Some(job) = self.source_job.take() {
             job.abort();
         }
         self.transcript.cancel_sync();
@@ -196,6 +201,9 @@ impl LiveSession {
 impl Drop for LiveSession {
     fn drop(&mut self) {
         if let Some(job) = self.sync_job.take() {
+            job.abort();
+        }
+        if let Some(job) = self.source_job.take() {
             job.abort();
         }
     }

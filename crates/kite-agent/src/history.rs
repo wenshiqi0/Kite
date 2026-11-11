@@ -12,6 +12,12 @@ pub struct Page {
     pub has_newer: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HistoryCapabilities {
+    pub claude_projection: bool,
+    pub native_codex: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct History {
     pub key: String,
@@ -23,6 +29,7 @@ pub struct History {
     pub async_input: crate::async_input::History,
     pub page: Option<Page>,
     pub positions: std::collections::BTreeMap<String, (u64, u32)>,
+    pub capabilities: Option<HistoryCapabilities>,
 }
 
 pub fn key(reference: &AgentSession) -> String {
@@ -127,11 +134,21 @@ async fn request(
         .unwrap_or_default();
     // Codex uses the existing history command. Claude projection is optional:
     // an older host still supplies its original JSONL history without new flags.
-    let claude_projection = reference.agent == "claude"
-        && matches!(
-            tokio::time::timeout(Duration::from_secs(5), crate::composer::require_node(ssh)).await,
-            Ok(Ok(info)) if info["historyProjectionApi"] == 1
-        );
+    let capabilities = if let Some(value) =
+        previous.as_ref().and_then(|history| history.capabilities)
+    {
+        value
+    } else {
+        match tokio::time::timeout(Duration::from_secs(5), crate::composer::require_node(ssh)).await
+        {
+            Ok(Ok(info)) => HistoryCapabilities {
+                claude_projection: info["historyProjectionApi"] == 1,
+                native_codex: info["historyNativeApi"] == 1,
+            },
+            _ => HistoryCapabilities::default(),
+        }
+    };
+    let claude_projection = reference.agent == "claude" && capabilities.claude_projection;
     let script = format!(
         r#"set -eu
 provider={provider}
@@ -139,6 +156,13 @@ kind={kind}
 value={value}
 cached={cached}
 archive=
+pending_or_native() {{
+  if test "$provider" = codex && test "$kind" = id && test "{native_codex}" = true; then
+    "$HOME/.local/bin/kite-node" backend history --thread "$value" --name "$cached" --compressed{page_args}
+  else
+    printf 'kite-history-pending-v1\n'
+  fi
+}}
 if test "$provider" = claude; then
   root="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/projects"
   pattern="$value.jsonl"
@@ -148,7 +172,7 @@ else
   archive="$codex_home/archived_sessions"
   pattern="rollout-*-$value.jsonl"
 fi
-if ! test -d "$root" && ! test -d "$archive"; then printf 'kite-history-pending-v1\n'; exit 0; fi
+if ! test -d "$root" && ! test -d "$archive"; then pending_or_native; exit 0; fi
 if test -d "$root"; then root=$(readlink -f "$root"); fi
 if test -d "$archive"; then archive=$(readlink -f "$archive"); fi
 if test "$kind" = path; then
@@ -159,7 +183,7 @@ else
     if test -d "$dir"; then find "$dir" -maxdepth 6 -type f -name "$pattern" -print; fi
   done | head -n 2)
   count=$(printf '%s\n' "$files" | grep -c . || true)
-  if test "$count" = 0; then printf 'kite-history-pending-v1\n'; exit 0; fi
+  if test "$count" = 0; then pending_or_native; exit 0; fi
   test "$count" = 1
   file=$files
 fi
@@ -181,6 +205,7 @@ fi
         cached = quote(previous.as_ref().map(|p| p.stamp.as_str()).unwrap_or("")),
         page_args = page_args,
         claude_projection = claude_projection,
+        native_codex = capabilities.native_codex,
     );
     let output = match tokio::time::timeout(
         Duration::from_secs(30),
@@ -192,7 +217,11 @@ fi
         Ok(Err(error)) => return unavailable(&cache_key, format!("history transport: {error}")),
         Err(_) => return unavailable(&cache_key, "history request timed out".into()),
     };
-    response(reference, previous, output)
+    let mut result = response(reference, previous, output);
+    if result.capabilities != Some(capabilities) {
+        Arc::make_mut(&mut result).capabilities = Some(capabilities);
+    }
+    result
 }
 
 fn unavailable(key: &str, problem: String) -> Arc<History> {
@@ -281,6 +310,7 @@ fn response(
         },
         positions: record_positions(bytes),
         page,
+        capabilities: None,
     })
 }
 

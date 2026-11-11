@@ -253,7 +253,7 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
             "version" | "--version" => {
                 println!(
                     "{}",
-                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
+                    json!({"version":version(),"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"historyNativeApi":1,"liveUpgrade":if cfg!(target_os = "linux") {1} else {0},"generationLaunch":if cfg!(target_os = "linux") {1} else {0},"docsApi":1,"desktopApi":if cfg!(target_os = "linux") {1} else {0},"resourceApi":if cfg!(target_os = "linux") {1} else {0}})
                 );
                 Ok(0)
             }
@@ -831,7 +831,7 @@ impl Node {
                 } else {
                     "degraded"
                 };
-                let mut status = json!({"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services});
+                let mut status = json!({"api":API,"backendProtocol":5,"harnessApi":2,"historyProjectionApi":1,"historyNativeApi":1,"version":version(),"health":health,"nodeId":self.config.node_id,"machine":self.config.machine,"pid":std::process::id(),"uptimeSeconds":self.started.elapsed().as_secs(),"requests":self.requests.load(Ordering::Relaxed),"backendCalls":self.backend_calls.load(Ordering::Relaxed),"liveUpgrade":self.upgrade.is_some(),"resourceApi":if cfg!(target_os = "linux") {1} else {0},"sessionLifecycle":{"archivedOnly":true,"scanIntervalSeconds":30,"lastScanMs":self.lifecycle_last_scan.load(Ordering::Relaxed),"reclaimed":self.lifecycle_reclaimed.load(Ordering::Relaxed)},"notificationApi":1,"notificationLastScanMs":self.notifications.as_ref().map(|journal|journal.last_scan.load(Ordering::Relaxed)),"notificationProblem":self.notification_problem,"push":self.push.as_ref().map(|push|push.status(self.config.push_service_account.is_some())),"pushProblem":self.push_problem,"services":services});
                 status["machine"] = machine.into();
                 status["configurationApi"] = 1.into();
                 status["configuration"] = config.public_configuration()?;
