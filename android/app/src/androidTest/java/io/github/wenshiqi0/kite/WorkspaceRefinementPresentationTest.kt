@@ -154,7 +154,8 @@ class WorkspaceRefinementPresentationTest {
                 waitFor("Audio closes") { find(text = context.getString(R.string.attachment_save)) == null }
                 click("owned-video.mp4")
                 waitFor("Video has visible controls") {
-                    find(text = context.getString(R.string.attachment_video_play)) != null && find(text = "0:00 / 0:04") != null
+                    val button = find(text = context.getString(R.string.attachment_video_play))
+                    button != null && runCatching { actionNode(button, AccessibilityNodeInfo.ACTION_CLICK).isEnabled }.getOrDefault(false) && find(text = "0:00 / 0:04") != null
                 }
                 assertNull(find(text = context.getString(R.string.attachment_video_pause)))
                 click(context.getString(R.string.attachment_video_play))
