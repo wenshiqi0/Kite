@@ -17,3 +17,9 @@ The reported `AGENTS.md` loading error was reproduced with the installed host's 
 The emulator uses owned fixtures without user profiles or credentials. Physical-phone playback and installation remain user acceptance. Screenshots show [playing video](video-playing.png) and [opened Markdown](markdown-open.png).
 
 The previous user/assistant bubble styles, image album layout and selectable text remain in place.
+
+## Published delivery
+
+[Alpha 102](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.102), Android versionCode 104, was published from `5de9b425cb0821e0feef9cfd515cd54eeac0a93e`. Tagged CI passed on attempt two: the first attempt exceeded the existing five-second native Linux screenshot wait, and the unchanged source passed on rerun. Independent downloads verified all checksums, the stable certificate, primary v1/v2/v3 and compatibility v1/v2 signatures, equal application payloads and 16 KiB alignment.
+
+Both wen-h255 and wen-mini now run the matching public host package. Their 111 and 8 existing session references, node identities, configuration/trust hashes and external Herdr/Sunshine PIDs were preserved. The installed host also retained the Markdown web link and original message identity while transporting the local Markdown file unchanged, without sending a model turn. Exact public asset and host evidence is in [published-release.json](published-release.json).

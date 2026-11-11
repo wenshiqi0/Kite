@@ -1,0 +1,72 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.102",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/43062545514",
+  "sourceCommit": "5de9b425cb0821e0feef9cfd515cd54eeac0a93e",
+  "versionName": "0.2.0-alpha.102",
+  "versionCode": 104,
+  "assets": [
+    {
+      "asset": "kite-0.2.0-alpha.102-arm64-v8a.apk",
+      "sha256": "91188ef3e229cadcfbccb7598b9f3096c5605a9ab8e6a27a633d6cd7f4fcd32b",
+      "bytes": 26094688
+    },
+    {
+      "asset": "kite-0.2.0-alpha.102-arm64-v8a-compat-v2.apk",
+      "sha256": "a83e7beac69691e5cd611d503d1410ac0e7c096134985e7151d534a54a26088f",
+      "bytes": 26094688
+    },
+    {
+      "asset": "kite-host-0.2.0-alpha.102-linux-x86_64.tar.gz",
+      "sha256": "744f761b06bc08757d1788dce300f80a151f86df8a292bfd4354dd9fa61a52b0",
+      "bytes": 3702549
+    },
+    {
+      "asset": "release-manifest.json",
+      "sha256": "9f348b1fb82cbc38cff80581a9fc9e2fa90295b5ef297d6780d285c9519a81b9",
+      "bytes": 1364
+    }
+  ],
+  "independentChecks": [
+    "downloaded bytes match every SHA256SUMS entry",
+    "stable certificate matches Alpha 96",
+    "primary v1/v2/v3 and compatibility v1/v2 signatures",
+    "same primary/compatibility application payload",
+    "16 KiB native ZIP alignment",
+    "public tagged CI succeeded"
+  ],
+  "physicalHandsetTested": false,
+  "nativeEmulatorTestsPassed": 2,
+  "ciAttempt": 2,
+  "initialCiFailure": "Owned native Linux panel screenshot exceeded its five-second wait; unchanged source passed on rerun.",
+  "hosts": [
+    {
+      "host": "wen-h255",
+      "version": "0.2.0-alpha.102",
+      "health": "ready",
+      "nodeIdentityPreserved": true,
+      "configurationAndTrustPreserved": true,
+      "catalogReferencesBefore": 111,
+      "catalogReferencesAfter": 111,
+      "catalogReferencesPreserved": true,
+      "externalServicePidsPreserved": true
+    },
+    {
+      "host": "wen-mini :10",
+      "version": "0.2.0-alpha.102",
+      "health": "ready",
+      "nodeIdentityPreserved": true,
+      "configurationAndTrustPreserved": true,
+      "catalogReferencesBefore": 8,
+      "catalogReferencesAfter": 8,
+      "catalogReferencesPreserved": true,
+      "externalServicePidsPreserved": true
+    }
+  ],
+  "installedHostProjection": {
+    "version": "0.2.0-alpha.102",
+    "webMarkdownStaysLink": true,
+    "localMarkdownReadMatches": true,
+    "messageIdentityPreserved": true,
+    "modelTurnSent": false
+  }
+}

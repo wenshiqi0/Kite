@@ -13,6 +13,10 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
+## Verified delivery — 2026-11-12
+
+[0.2.0-alpha.102](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.102) / versionCode **104** adds visible video posters, persistent playback/seek controls and a distinct video icon. Markdown web links remain navigable instead of being misclassified as downloadable files; local and explicit file resources remain previewable. 87 Android JVM tests, Release lint, two native multimedia/layout tests, 116 package tests and 22 Rust history tests passed. Tagged CI and independent public artifact checks passed. Both matching Linux hosts were updated with 111 and 8 session references, identity/configuration and external service PIDs retained. [Evidence](product/2026-11-12/attachment-preview/acceptance.md).
+
 ## Verified delivery — 2026-11-11
 
 [0.2.0-alpha.101](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.101) / versionCode **103** adds compact rounded image previews, bounded long-image thumbnails and consecutive-image albums, removes image filename buttons and aligns mixed tool/media cards with neighboring tool groups. The redundant message-copy footer remains removed, and sender bubble styling stays distinct. 87 Android JVM tests, Release lint and three native layout/playback regressions passed, including original-image preservation and H.264/AAC playback. Tagged CI and independent public checksum, stable-certificate, signature, payload and alignment checks passed. [Evidence](product/2026-11-11/chat-image-layout/acceptance.md).
