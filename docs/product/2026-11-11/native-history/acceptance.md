@@ -6,7 +6,7 @@ JSONL rollout. The old client stopped at the missing file. Conversation browsing
 also awaited a remote catalog and full source/composer refresh under selection
 operation locks, so slow reads prevented further session changes.
 
-Alpha 98 adds a read-only native-store adapter. Public native UI items are
+Alpha 99 adds a read-only native-store adapter. Public native UI items are
 projected to the existing history protocol in a private, append-only Kite cache.
 Provider databases, thread identities and model context remain unchanged.
 Reasoning items are excluded, source ordinals and terminal errors retain their
@@ -54,3 +54,8 @@ QA dependencies because the hosted image could not resolve its Azure mirror.
 Alpha 98 retains the same functional implementation and validation, changes
 only version metadata and the workflow to use signed official Ubuntu sources
 with bounded acquisition timeouts/retries, and keeps all checks enabled.
+Its runner also failed to resolve the official mirror, so Alpha 98 was not
+published. Alpha 99 resolves the official mirrors to public IPv4 addresses
+before apt, using authenticated HTTPS DNS if the runner's resolver fails.
+Only the disposable CI runner's hosts file is updated; HTTPS certificate
+verification, package signatures and all release checks remain enabled.
