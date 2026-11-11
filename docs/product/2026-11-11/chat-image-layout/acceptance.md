@@ -25,4 +25,10 @@ Validation:
 - The previous copy-button removal and H.264/AAC media sample remain included.
 
 All native data is synthetic. No user screenshot is committed as a fixture.
-Publication and public artifact verification are recorded below.
+Published [Alpha 101](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.101)
+/ versionCode 103 from `601abf7701012819ef99cc0e216fff55762f8d34`.
+Both [tagged CI jobs](https://github.com/wenshiqi0/Kite/actions/runs/43049125593)
+passed. Independent downloaded-byte checks matched every SHA256SUMS entry and
+the established signing certificate. SDK checks verified primary v1/v2/v3 and
+compatibility v1/v2 signatures, matching application payloads and 16 KiB ZIP
+alignment. [Public artifact metadata](published-release.json) records the assets.
