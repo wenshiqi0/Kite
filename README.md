@@ -6,6 +6,8 @@ A native workspace for local and remote coding agents, built around [herdr](http
 
 [Build the macOS client](docs/macos.md) — native SwiftUI workspace, shared Rust Core and Apple desktop decoding.
 
+[Windows client and Linux cross-build](docs/windows.md) — native WPF client with remote host management, shared Rust Core and Windows desktop decoding. Windows does not run a local host node.
+
 ## What you can do
 
 - Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.

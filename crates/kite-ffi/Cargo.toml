@@ -9,11 +9,18 @@ license.workspace = true
 name = "kite_ffi"
 crate-type = ["cdylib", "lib"]
 
+[features]
+windows-client = ["dep:serde", "dep:serde_json", "dep:pollster", "dep:base64"]
+
 [dependencies]
 kite-app.workspace = true
 uniffi.workspace = true
 thiserror.workspace = true
 log.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger.workspace = true

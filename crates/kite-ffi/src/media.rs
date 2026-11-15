@@ -1,4 +1,4 @@
-//! Apple media ABI. Native code owns decoders; handles own callback lifetimes.
+//! Native media ABI for Apple and Windows. Native code owns decoders; handles own callback lifetimes.
 use kite_app::{AudioFormat, FrameInfo, Input, InputSender, MediaSink, VideoFormat};
 use std::{
     collections::BTreeMap,
@@ -38,7 +38,7 @@ struct InputState {
     sender: Option<Arc<dyn InputSender>>,
     enabled: bool,
 }
-struct AppleSink {
+struct NativeSink {
     // The native owner is retained at registration and released in Drop. Native
     // callbacks are thread safe and must never synchronously wait on the UI.
     context: usize,
@@ -48,7 +48,7 @@ struct AppleSink {
     rendered: AtomicU64,
     error: AtomicI32,
 }
-impl AppleSink {
+impl NativeSink {
     fn context(&self) -> *mut c_void {
         self.context as *mut c_void
     }
@@ -67,14 +67,14 @@ impl AppleSink {
         }
     }
 }
-impl Drop for AppleSink {
+impl Drop for NativeSink {
     fn drop(&mut self) {
         self.release_input();
         // SAFETY: registration requires a valid retained context and callback.
         unsafe { (self.callbacks.release.unwrap())(self.context()) }
     }
 }
-impl MediaSink for AppleSink {
+impl MediaSink for NativeSink {
     fn supports(&self, f: VideoFormat) -> bool {
         unsafe { (self.callbacks.supports.unwrap())(self.context(), f.width, f.height, f.fps) != 0 }
     }
@@ -161,11 +161,11 @@ impl MediaSink for AppleSink {
 }
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
-fn targets() -> &'static Mutex<BTreeMap<u64, Arc<AppleSink>>> {
-    static TARGETS: OnceLock<Mutex<BTreeMap<u64, Arc<AppleSink>>>> = OnceLock::new();
+fn targets() -> &'static Mutex<BTreeMap<u64, Arc<NativeSink>>> {
+    static TARGETS: OnceLock<Mutex<BTreeMap<u64, Arc<NativeSink>>>> = OnceLock::new();
     TARGETS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
-fn get(id: u64) -> Option<Arc<AppleSink>> {
+fn get(id: u64) -> Option<Arc<NativeSink>> {
     targets().lock().ok()?.get(&id).cloned()
 }
 pub(crate) fn media_sink(id: u64) -> Option<Arc<dyn MediaSink>> {
@@ -174,7 +174,13 @@ pub(crate) fn media_sink(id: u64) -> Option<Arc<dyn MediaSink>> {
 
 /// On success takes ownership of one native retain; on failure takes none.
 /// The callbacks may outlive detach while a stream still holds the sink.
-#[unsafe(no_mangle)]
+/// # Safety
+/// Context and callbacks must remain valid until the final native release callback.
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_register")
+)]
 pub unsafe extern "C" fn kite_apple_media_register(
     context: *mut c_void,
     callbacks: *const Callbacks,
@@ -192,7 +198,7 @@ pub unsafe extern "C" fn kite_apple_media_register(
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     map.insert(
         id,
-        Arc::new(AppleSink {
+        Arc::new(NativeSink {
             context: context as usize,
             callbacks,
             input: Mutex::new(InputState::default()),
@@ -203,7 +209,11 @@ pub unsafe extern "C" fn kite_apple_media_register(
     );
     id
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_detach")
+)]
 pub extern "C" fn kite_apple_media_detach(id: u64) {
     // Never run native release under the registry lock.
     let sink = targets().lock().ok().and_then(|mut map| map.remove(&id));
@@ -211,7 +221,11 @@ pub extern "C" fn kite_apple_media_detach(id: u64) {
         sink.set_takeover(false);
     }
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_frame_rendered")
+)]
 pub extern "C" fn kite_apple_media_frame_rendered(id: u64, generation: u64) {
     if let Some(sink) = get(id)
         && sink.generation.load(Ordering::Acquire) == generation
@@ -219,7 +233,11 @@ pub extern "C" fn kite_apple_media_frame_rendered(id: u64, generation: u64) {
         sink.rendered.fetch_add(1, Ordering::Relaxed);
     }
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_decoder_failed")
+)]
 pub extern "C" fn kite_apple_media_decoder_failed(id: u64, generation: u64, error: i32) {
     if let Some(sink) = get(id)
         && sink.generation.load(Ordering::Acquire) == generation
@@ -228,7 +246,11 @@ pub extern "C" fn kite_apple_media_decoder_failed(id: u64, generation: u64, erro
             .store(if error == 0 { 1 } else { error }, Ordering::Relaxed);
     }
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_mouse_position")
+)]
 pub extern "C" fn kite_apple_media_mouse_position(
     id: u64,
     x: i16,
@@ -249,7 +271,11 @@ pub extern "C" fn kite_apple_media_mouse_position(
             }),
     )
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_mouse_button")
+)]
 pub extern "C" fn kite_apple_media_mouse_button(id: u64, button: u8, down: u8) -> u8 {
     u8::from(
         (1..=5).contains(&button)
@@ -261,7 +287,11 @@ pub extern "C" fn kite_apple_media_mouse_button(id: u64, button: u8, down: u8) -
             }),
     )
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_scroll")
+)]
 pub extern "C" fn kite_apple_media_scroll(id: u64, horizontal: i16, vertical: i16) -> u8 {
     u8::from(get(id).is_some_and(|s| {
         s.input(Input::Scroll {
@@ -270,7 +300,8 @@ pub extern "C" fn kite_apple_media_scroll(id: u64, horizontal: i16, vertical: i1
         })
     }))
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(target_os = "windows", unsafe(export_name = "kite_windows_media_key"))]
 pub extern "C" fn kite_apple_media_key(id: u64, key: i16, down: u8, modifiers: u8) -> u8 {
     u8::from(get(id).is_some_and(|s| {
         s.input(Input::Key {
@@ -280,7 +311,10 @@ pub extern "C" fn kite_apple_media_key(id: u64, key: i16, down: u8, modifiers: u
         })
     }))
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(target_os = "windows", unsafe(export_name = "kite_windows_media_text"))]
+/// # Safety
+/// text must reference length readable bytes until this call returns.
 pub unsafe extern "C" fn kite_apple_media_text(id: u64, text: *const u8, length: u32) -> u8 {
     if text.is_null() || length == 0 || length > 4096 {
         return 0;
@@ -291,13 +325,21 @@ pub unsafe extern "C" fn kite_apple_media_text(id: u64, text: *const u8, length:
     };
     u8::from(get(id).is_some_and(|s| s.input(Input::Text(text.to_owned()))))
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_release_input")
+)]
 pub extern "C" fn kite_apple_media_release_input(id: u64) {
     if let Some(sink) = get(id) {
         sink.release_input();
     }
 }
-#[unsafe(no_mangle)]
+#[cfg_attr(not(target_os = "windows"), unsafe(no_mangle))]
+#[cfg_attr(
+    target_os = "windows",
+    unsafe(export_name = "kite_windows_media_request_idr")
+)]
 pub extern "C" fn kite_apple_media_request_idr(id: u64) {
     if let Some(sink) = get(id)
         && let Ok(state) = sink.input.lock()

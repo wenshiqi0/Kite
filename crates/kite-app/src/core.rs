@@ -1278,9 +1278,9 @@ impl AppCore {
             clients.remove(&key);
         }
         if !clients.contains_key(&key)
-            && !lock(&self.chat_failures)
+            && lock(&self.chat_failures)
                 .get(&key)
-                .is_some_and(|retry| Instant::now() < *retry)
+                .is_none_or(|retry| Instant::now() >= *retry)
         {
             self.update_live(conversation, |live| {
                 if bound(live) {
@@ -1441,11 +1441,11 @@ impl AppCore {
                 .iter()
                 .find(|m| m.model == model)
                 .ok_or_else(|| AppError::State("model unavailable".into()))?;
-            if !(candidate.supported_reasoning_efforts.is_empty() && effort.is_empty())
-                && !candidate
-                    .supported_reasoning_efforts
-                    .iter()
-                    .any(|e| e.reasoning_effort == effort)
+            if !(candidate
+                .supported_reasoning_efforts
+                .iter()
+                .any(|e| e.reasoning_effort == effort)
+                || candidate.supported_reasoning_efforts.is_empty() && effort.is_empty())
             {
                 return Err(AppError::State("reasoning effort unavailable".into()));
             }

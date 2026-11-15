@@ -12,21 +12,35 @@ fn main() {
         .warnings(false)
         .define("NDEBUG", None)
         .define("_DEFAULT_SOURCE", None)
-        .define("HAS_SOCKLEN_T", "1")
-        .define("HAS_FCNTL", "1")
-        .define("HAS_IOCTL", "1")
-        .define("HAS_POLL", "1")
         .define("HAS_GETADDRINFO", "1")
         .define("HAS_GETNAMEINFO", "1")
         .define("HAS_INET_PTON", "1")
         .define("HAS_INET_NTOP", "1")
-        .define("HAS_MSGHDR_FLAGS", "1")
         .include(root.join("src"))
         .include(root.join("enet/include"))
         .include(root.join("nanors"))
         .include(root.join("nanors/deps"))
         .include(root.join("nanors/deps/obl"))
         .include("native");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        build
+            .define("_WIN32_WINNT", "0x0601")
+            // MinGW's qos2.h already declares these (enet's CMake detects them).
+            .define("HAS_QOS_FLOWID", "1")
+            .define("HAS_PQOS_FLOWID", "1");
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=winmm");
+    } else {
+        for name in [
+            "HAS_SOCKLEN_T",
+            "HAS_FCNTL",
+            "HAS_IOCTL",
+            "HAS_POLL",
+            "HAS_MSGHDR_FLAGS",
+        ] {
+            build.define(name, "1");
+        }
+    }
     let includes =
         env::var_os("DEP_OPENSSL_INCLUDE").expect("openssl-sys must provide its target headers");
     for include in env::split_paths(&includes) {

@@ -1,11 +1,23 @@
 //! Atomic public application storage. Private keys never belong in this file.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs;
+#[cfg(unix)]
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+// Windows cannot open a directory with File::open or FlushFileBuffers it.
+// NamedTempFile::persist already atomically replaces the destination there.
+fn sync_directory(directory: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    File::open(directory)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = directory;
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
@@ -131,14 +143,14 @@ impl Store {
         file.flush()?;
         file.as_file().sync_all()?;
         file.persist(&path).map_err(|e| e.error)?;
-        File::open(directory)?.sync_all()?;
+        sync_directory(directory)?;
         Ok(())
     }
 
     pub fn remove_document(&self, name: &str) -> Result<(), StoreError> {
         let path = self.document_path(name)?;
         match fs::remove_file(&path) {
-            Ok(()) => File::open(path.parent().expect("document parent"))?.sync_all()?,
+            Ok(()) => sync_directory(path.parent().expect("document parent"))?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
@@ -153,7 +165,7 @@ impl Store {
         file.flush()?;
         file.as_file().sync_all()?;
         file.persist(&self.path).map_err(|e| e.error)?;
-        File::open(directory)?.sync_all()?;
+        sync_directory(directory)?;
         self.data = data;
         Ok(())
     }

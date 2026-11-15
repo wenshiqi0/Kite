@@ -1,0 +1,402 @@
+using System.Collections.ObjectModel;
+using System.Net.NetworkInformation;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using Microsoft.Win32;
+
+namespace Kite;
+
+internal sealed class MainWindow : Window
+{
+    private NativeClient? client;
+    private MediaReceiver? media;
+    private RemoteInput? input;
+    private readonly DispatcherTimer timer, clipboardTimer;
+    private JsonElement state;
+    private bool rendering, refreshing, clipboardBusy, closing;
+    private string context = "", hostSignature = "", sessionSignature = "", interactionSignature = "", modelSignature = "";
+    private readonly Dictionary<string, string> drafts = [];
+    private readonly ConversationMirror conversation = new();
+    private readonly ObservableCollection<ChatRow> messages = [];
+    private readonly ListBox hosts = new(), sessions = new(), chat = new();
+    private readonly TextBlock title = Ui.Label("欢迎使用 Kite", 22), status = Ui.Label("添加主机，开始远程工作。", 12, Ui.Muted), history = Ui.Label("", 12, Ui.Muted);
+    private readonly TextBox draft = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly ComboBox models = new() { MinWidth = 150, MaxWidth = 250, DisplayMemberPath = "Label", SelectedValuePath = "Id" }, efforts = new() { MinWidth = 85, Margin = new Thickness(6, 0, 6, 0) };
+    private readonly StackPanel interactions = new(), uploadPanel = new();
+    private readonly CheckBox archived = new() { Content = "显示归档", Foreground = Ui.Muted, Margin = new Thickness(0, 10, 0, 4) };
+    private readonly ComboBox sort = new() { ItemsSource = new[] { "最新创建", "最早创建", "最近活动", "标题" }, SelectedIndex = 0, Margin = new Thickness(0, 4, 0, 8) };
+    private readonly Image screen = new() { Stretch = Stretch.Uniform };
+    private readonly TextBox inputSurface = new() { Background = Brushes.Transparent, Foreground = Brushes.Transparent, CaretBrush = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand, IsReadOnly = false, AcceptsReturn = true, Padding = new Thickness(0), IsUndoEnabled = false };
+    private readonly Border desktopPanel = new() { Background = Brushes.Black, Visibility = Visibility.Collapsed };
+    private readonly Grid desktopRoot = new();
+    private readonly TextBlock desktopStatus = Ui.Label("只看", 12, Ui.Muted);
+    private readonly CheckBox clipboard = new() { Content = "共享文本剪贴板", Foreground = Ui.Muted, Margin = new Thickness(8, 8, 0, 4) }, mute = new() { Content = "静音", Foreground = Ui.Muted, Margin = new Thickness(8, 8, 0, 4) };
+    private Window? fullscreen;
+    private Button send = null!, connect = null!, operate = null!, pair = null!;
+    private string HostId => state.Text("selected_host");
+    private string AgentId => state.Text("selected_agent");
+    private NativeClient Core => client ?? throw new InvalidOperationException("客户端尚未就绪。");
+    private readonly string dataDirectory;
+    private readonly bool restoreConnections;
+    internal bool IsCoreInitialized => state.Flag("initialized");
+    private sealed record Selection(string Id, string Label);
+
+    public MainWindow(string? dataDirectory = null, bool restoreConnections = true)
+    {
+        this.dataDirectory = dataDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Kite", "Windows");
+        this.restoreConnections = restoreConnections;
+        Background = Ui.Background; Foreground = Ui.Foreground; FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
+        Title = "Kite · Windows"; Width = 1280; Height = 850; MinWidth = 900; MinHeight = 620;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Content = Build();
+        timer = new DispatcherTimer(TimeSpan.FromMilliseconds(150), DispatcherPriority.Background, async (_, _) => await Refresh(), Dispatcher);
+        clipboardTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, async (_, _) => await SynchronizeClipboard(), Dispatcher);
+        Loaded += async (_, _) => await Initialize();
+        Deactivated += (_, _) => LoseInput();
+        Activated += async (_, _) => { if (client is not null) await Safe(new { op = "network_changed", available = NetworkInterface.GetIsNetworkAvailable() }); };
+        Closing += OnClosing;
+        NetworkChange.NetworkAvailabilityChanged += NetworkChanged;
+    }
+    private Grid Build()
+    {
+        var root = new Grid(); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(255) }); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var sidebar = new DockPanel { Background = Ui.Panel, Margin = new Thickness(0, 0, 1, 0) };
+        var brand = new StackPanel { Margin = new Thickness(18, 18, 12, 8) };
+        brand.Children.Add(Ui.Label("Kite", 30)); brand.Children.Add(Ui.Label("远程工作区", 12, Ui.Muted));
+        brand.Children.Add(Ui.Row(Ui.Button("＋ 主机", () => { new HostEditor(this, Core, null).ShowDialog(); return Task.CompletedTask; }), Ui.Button("设备公钥", ShowKey)));
+        brand.Children.Add(Ui.Label("主机", 12, Ui.Muted));
+        hosts.MaxHeight = 215; brand.Children.Add(hosts);
+        brand.Children.Add(Ui.Row(Ui.Button("设置", EditHost), Ui.Button("移除", ForgetHost)));
+        brand.Children.Add(Ui.Label("会话", 12, Ui.Muted));
+        brand.Children.Add(Ui.Row(Ui.Button("＋ 新建", CreateSession), Ui.Button("管理", SessionMenu)));
+        brand.Children.Add(archived); brand.Children.Add(sort);
+        DockPanel.SetDock(brand, Dock.Top); sidebar.Children.Add(brand);
+        var footer = Ui.Label("Windows 客户端 · Alpha", 11, Ui.Muted); footer.Margin = new Thickness(18, 12, 0, 12); DockPanel.SetDock(footer, Dock.Bottom); sidebar.Children.Add(footer);
+        sessions.Margin = new Thickness(10, 0, 8, 0); sidebar.Children.Add(sessions); root.Children.Add(sidebar);
+        hosts.SelectionChanged += async (_, _) => { if (!rendering && hosts.SelectedItem is ListBoxItem item && item.Tag is Host host) { LoseInput(); await Safe(new { op = "select_host", host_id = host.id }); } };
+        sessions.SelectionChanged += async (_, _) => { if (!rendering && sessions.SelectedItem is ListBoxItem item && item.Tag is JsonElement session) await Safe(new { op = "open_session", host_id = HostId, session_id = session.Text("id") }); };
+        archived.Checked += (_, _) => { sessionSignature = ""; RenderSessions(); }; archived.Unchecked += (_, _) => { sessionSignature = ""; RenderSessions(); };
+        sort.SelectionChanged += async (_, _) => { if (!rendering && HostId.Length > 0) await Safe(new { op = "set_session_sort", host_id = HostId, order = new[] { "Newest", "Oldest", "RecentActivity", "Title" }[sort.SelectedIndex] }); };
+
+        var workspace = new DockPanel { Margin = new Thickness(22, 16, 22, 16) }; Grid.SetColumn(workspace, 1); root.Children.Add(workspace);
+        var header = new StackPanel(); header.Children.Add(title); header.Children.Add(status);
+        connect = Ui.Button("连接", async () => { string host = HostId; await Core.Call(new { op = state.Text("connection") is "Connected" or "Connecting" or "Reconnecting" or "AwaitingTrust" ? "disconnect_host" : "connect", host_id = host }); });
+        header.Children.Add(Ui.Row(connect, Ui.Button("主机详情", HostResources), Ui.Button("远程桌面", OpenDesktop), Ui.Button("断开全部", async () => { LoseInput(); await Core.Call(new { op = "disconnect_all" }); })));
+        DockPanel.SetDock(header, Dock.Top); workspace.Children.Add(header);
+        var composer = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
+        composer.Children.Add(interactions); composer.Children.Add(uploadPanel);
+        composer.Children.Add(Ui.Row(models, efforts, Ui.Button("设置", ComposerSettings), Ui.Button("附件", Upload), Ui.Button("Skills", Skills)));
+        composer.Children.Add(draft);
+        send = Ui.Button("发送  Ctrl+Enter", Send);
+        composer.Children.Add(Ui.Row(send, Ui.Button("中断", async () => await Core.Call(new { op = "interrupt_agent", host_id = HostId, agent_id = AgentId })), Ui.Button("暂停 / 继续 Agent", async () => await Core.Call(new { op = "set_agent_paused", host_id = HostId, agent_id = AgentId, paused = state.Text("agent_pause") != "Paused" })), Ui.Button("重试历史", async () => await Core.Call(new { op = "retry_history" }))));
+        composer.Children.Add(history); DockPanel.SetDock(composer, Dock.Bottom); workspace.Children.Add(composer);
+        draft.TextChanged += (_, _) => { if (!rendering) drafts[context] = draft.Text; };
+        draft.PreviewKeyDown += async (_, e) => { if (e.Key == Key.Enter && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { e.Handled = true; await SendGuarded(); } };
+        models.SelectionChanged += async (_, _) => { if (rendering) return; UpdateEfforts(); await SetModel(); };
+        efforts.SelectionChanged += async (_, _) => { if (!rendering) await SetModel(); };
+        var body = new Grid(); body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        chat.ItemsSource = messages;
+        VirtualizingPanel.SetIsVirtualizing(chat, true); VirtualizingPanel.SetVirtualizationMode(chat, VirtualizationMode.Recycling); ScrollViewer.SetCanContentScroll(chat, true);
+        var factory = new FrameworkElementFactory(typeof(ChatItemControl));
+        chat.ItemTemplate = new DataTemplate { VisualTree = factory };
+        chat.ItemContainerStyle = new Style(typeof(ListBoxItem)) { Setters = { new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch), new Setter(Control.PaddingProperty, new Thickness(0)), new Setter(UIElement.FocusableProperty, false) } };
+        body.Children.Add(chat);
+        var splitter = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Ui.Panel, ResizeDirection = GridResizeDirection.Rows }; Grid.SetRow(splitter, 1); body.Children.Add(splitter);
+        BuildDesktop(); desktopPanel.Child = desktopRoot; desktopPanel.Height = 270; Grid.SetRow(desktopPanel, 2); body.Children.Add(desktopPanel);
+        workspace.Children.Add(body); return root;
+    }
+    private void BuildDesktop()
+    {
+        desktopRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); desktopRoot.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        operate = Ui.Button("进入操作", async () => { string host = HostId; await Core.Call(new { op = "set_takeover", host_id = host, enabled = !state.Field("desktop").Flag("takeover") }); });
+        pair = Ui.Button("确认配对", async () => await Core.Call(new { op = "approve_pairing", host_id = HostId, pin = state.Field("desktop").Text("pin") }));
+        var toolbar = Ui.Row(desktopStatus, pair, operate, Ui.Button("全屏", () => { ToggleFullscreen(); return Task.CompletedTask; }), Ui.Button("关闭桌面", CloseDesktop), mute, clipboard);
+        toolbar.Background = Ui.Panel; desktopRoot.Children.Add(toolbar);
+        var surface = new Grid { ClipToBounds = true }; surface.Children.Add(screen); surface.Children.Add(inputSurface); Grid.SetRow(surface, 1); desktopRoot.Children.Add(surface);
+        mute.Checked += (_, _) => media?.Mute(true); mute.Unchecked += (_, _) => media?.Mute(false);
+        inputSurface.LostKeyboardFocus += (_, _) => LoseInput();
+    }
+    private async Task Initialize()
+    {
+        try
+        {
+            client = new NativeClient(dataDirectory);
+            await client.Call(new { op = "initialize", data_directory = client.DirectoryPath, device_name = Environment.MachineName });
+            await Refresh(true);
+            await client.Call(new { op = "network_changed", available = NetworkInterface.GetIsNetworkAvailable() });
+            if (restoreConnections) await client.Call(new { op = "restore_connection" });
+        }
+        catch (Exception error) { status.Text = "初始化失败：" + error.Message; }
+    }
+    private async Task Safe(object command)
+    {
+        try { await Core.Call(command); } catch (Exception error) { if (!closing) status.Text = error.Message; }
+    }
+    private async Task Refresh(bool force = false)
+    {
+        if (client is null || refreshing || closing || (!force && !client.TakeDirty())) return;
+        refreshing = true;
+        try
+        {
+            var next = await client.Call(new { op = "snapshot", after_revision = force ? (long?)null : state.ValueKind == JsonValueKind.Object ? state.Number("revision") : null });
+            if (next.ValueKind != JsonValueKind.Object) return;
+            state = next;
+            RenderState();
+            if (state.Text("conversation_context") != conversation.Context || state.Number("conversation_revision") != conversation.Revision)
+            {
+                var delta = await client.Call(new { op = "conversation", context = conversation.Context, revision = conversation.Revision });
+                // Reject a response if a target selection changed while it was in flight.
+                if (delta.Text("context") != state.Text("conversation_context")) { client.MarkDirty(); return; }
+                conversation.Apply(delta); RenderMessages();
+            }
+        }
+        catch (Exception error) { status.Text = error.Message; client.MarkDirty(); }
+        finally { refreshing = false; }
+    }
+    private void RenderState()
+    {
+        rendering = true;
+        try
+        {
+            string nextContext = state.Text("conversation_context");
+            if (context != nextContext) { drafts[context] = draft.Text; context = nextContext; draft.Text = drafts.GetValueOrDefault(context, ""); messages.Clear(); }
+            var host = state.Array("hosts").FirstOrDefault(h => h.Text("id") == HostId);
+            title.Text = HostId.Length > 0 ? $"{host.Text("username")}@{host.Text("host")}" : "欢迎使用 Kite";
+            string connection = state.Text("connection");
+            string phase = connection switch { "Connected" => "已连接", "Connecting" => "连接中", "Reconnecting" => "自动重连中", "AwaitingTrust" => "等待确认主机指纹", "Failed" => "连接失败", _ => "未连接" };
+            var failure = state.Field("failure");
+            status.Text = phase + (failure.ValueKind == JsonValueKind.Object ? " · " + failure.Text("details") : " · " + state.Text("response_phase"));
+            connect.Content = connection is "Connected" or "Connecting" or "Reconnecting" or "AwaitingTrust" ? "断开" : "连接"; connect.IsEnabled = HostId.Length > 0;
+            send.IsEnabled = connection == "Connected" && AgentId.Length > 0;
+            RenderHosts(); RenderSessions(); RenderComposer(); RenderInteractions();
+            var desktop = state.Field("desktop"); bool active = desktop.Text("status") == "Streaming";
+            if (input is not null) { input.Width = (int)desktop.Number("source_width"); input.Height = (int)desktop.Number("source_height"); input.SetEnabled(active && desktop.Flag("takeover")); }
+            desktopStatus.Text = desktop.Text("status") switch { "Pairing" => "配对 PIN：" + desktop.Text("pin"), "Starting" => "连接桌面中…", "Streaming" => $"{desktop.Number("width")}×{desktop.Number("height")} · " + (desktop.Flag("takeover") ? "操作" : "只看"), "Failed" => "桌面连接失败", _ => "桌面未连接" };
+            pair.Visibility = desktop.Text("status") == "Pairing" ? Visibility.Visible : Visibility.Collapsed;
+            operate.Content = desktop.Flag("takeover") ? "返回只看" : "进入操作"; operate.IsEnabled = active;
+            var h = state.Field("history"); history.Text = h.Flag("loading") ? "正在同步聊天历史…" : h.Flag("waiting") ? "等待首条对话…" : h.Flag("failed") ? "历史同步失败：" + h.Text("details") : state.Field("composer").Text("details");
+        }
+        finally { rendering = false; }
+    }
+    private void RenderHosts()
+    {
+        string signature = state.Field("hosts").GetRawText() + state.Text("selected_host") + string.Join(";", state.Array("host_connections").Select(h => h.Text("host_id") + h.Text("connection")));
+        if (signature == hostSignature) return; hostSignature = signature; hosts.Items.Clear();
+        foreach (var h in state.Array("hosts"))
+        {
+            var host = Host.From(h); var connection = state.Array("host_connections").FirstOrDefault(c => c.Text("host_id") == host.id).Text("connection");
+            var item = new ListBoxItem { Content = new TextBlock { Text = (connection == "Connected" ? "● " : "○ ") + host.Title, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 8, 2, 8) }, Tag = host, ToolTip = host.Title };
+            hosts.Items.Add(item); if (host.id == HostId) hosts.SelectedItem = item;
+        }
+    }
+    private void RenderSessions()
+    {
+        if (state.ValueKind != JsonValueKind.Object) return;
+        string signature = state.Field("sessions").GetRawText() + state.Text("selected_session") + archived.IsChecked;
+        if (signature == sessionSignature) return; sessionSignature = signature;
+        bool before = rendering; rendering = true;
+        sessions.Items.Clear();
+        foreach (var session in state.Array("sessions").Where(s => archived.IsChecked == true || !s.Flag("archived")))
+        {
+            var item = new ListBoxItem { Content = new TextBlock { Text = (session.Flag("archived") ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : session.Text("provider")) + "\n" + session.Text("provider") + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 7, 2, 7) }, Tag = session };
+            string host = HostId, id = session.Text("id"); bool isArchived = session.Flag("archived");
+            item.ContextMenu = new ContextMenu();
+            var archive = new MenuItem { Header = isArchived ? "取消归档" : "归档" }; archive.Click += async (_, _) => await Safe(new { op = "archive_session", host_id = host, session_id = id, archived = !isArchived }); item.ContextMenu.Items.Add(archive);
+            var resume = new MenuItem { Header = "继续此会话" }; resume.Click += async (_, _) => await Safe(new { op = "resume_session", host_id = host, session_id = id }); item.ContextMenu.Items.Add(resume);
+            var delete = new MenuItem { Header = "删除会话…" }; delete.Click += async (_, _) => { if (MessageBox.Show(this, "删除会话将终止此会话正在执行的任务。继续？", "删除会话", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Safe(new { op = "delete_session", host_id = host, session_id = id }); }; item.ContextMenu.Items.Add(delete);
+            sessions.Items.Add(item); if (session.Text("id") == state.Text("selected_session")) sessions.SelectedItem = item;
+        }
+        sort.SelectedIndex = state.Text("session_sort") switch { "Oldest" => 1, "RecentActivity" => 2, "Title" => 3, _ => 0 }; rendering = before;
+    }
+    private void RenderComposer()
+    {
+        var composer = state.Field("composer"); string signature = composer.Field("models").GetRawText() + composer.Text("model") + composer.Text("effort");
+        if (signature != modelSignature) { modelSignature = signature; models.ItemsSource = composer.Array("models").Select(m => new Selection(m.Text("model"), m.Text("name"))).ToList(); models.SelectedValue = composer.Text("model"); UpdateEfforts(); efforts.SelectedItem = composer.Text("effort"); }
+        uploadPanel.Children.Clear();
+        foreach (var upload in composer.Array("uploads"))
+        {
+            string id = upload.Field("file").Text("id"), host = HostId, agent = AgentId;
+            uploadPanel.Children.Add(Ui.Button((upload.Flag("failed") ? "上传失败 · " : upload.Flag("ready") ? "✓ " : "上传中 · ") + upload.Field("file").Text("name") + "  ×", async () => await Core.Call(new { op = "remove_attachment", host_id = host, agent_id = agent, upload_id = id })));
+        }
+    }
+    private void UpdateEfforts()
+    {
+        bool before = rendering; rendering = true;
+        var model = state.Field("composer").Array("models").FirstOrDefault(m => m.Text("model") == models.SelectedValue as string);
+        efforts.ItemsSource = model.Array("efforts").Select(e => e.Text()).ToList(); efforts.SelectedItem = model.Text("default_effort"); rendering = before;
+    }
+    private async Task SetModel() { if (models.SelectedValue is string model && AgentId.Length > 0) await Safe(new { op = "set_chat_model", host_id = HostId, agent_id = AgentId, model, effort = efforts.SelectedItem as string ?? "" }); }
+    private void RenderMessages()
+    {
+        // Preserve unchanged rows and the reader's scroll position. The ListBox virtualizes controls.
+        int prefix = 0;
+        while (prefix < messages.Count && prefix < conversation.Items.Count && messages[prefix].Item.GetRawText() == conversation.Items[prefix].GetRawText()) ++prefix;
+        int oldCount = messages.Count;
+        bool follow = oldCount == 0 || FindScroll(chat) is { } scroll && scroll.VerticalOffset >= scroll.ScrollableHeight - 2;
+        while (messages.Count > prefix) messages.RemoveAt(messages.Count - 1);
+        foreach (var item in conversation.Items.Skip(prefix)) { string origin = conversation.Context; messages.Add(new ChatRow(item, (id, name) => SaveAttachment(origin, id, name), origin)); }
+        if (follow && messages.Count > 0) chat.ScrollIntoView(messages[^1]);
+    }
+    private static ScrollViewer? FindScroll(DependencyObject parent) { for (int n = 0; n < VisualTreeHelper.GetChildrenCount(parent); n++) { var child = VisualTreeHelper.GetChild(parent, n); if (child is ScrollViewer scroll) return scroll; if (FindScroll(child) is { } found) return found; } return null; }
+    private void RenderInteractions()
+    {
+        var approval = state.Field("approval"); var question = state.Field("question"); var trust = state.Field("pending_host_key");
+        string signature = context + approval.GetRawText() + question.GetRawText() + trust.GetRawText(); if (signature == interactionSignature) return; interactionSignature = signature; interactions.Children.Clear();
+        string host = HostId, agent = AgentId;
+        if (trust.ValueKind == JsonValueKind.Object) { string id = trust.Text("host_id"), fingerprint = trust.Text("fingerprint"); interactions.Children.Add(Ui.Label("确认 SSH 主机指纹 · " + trust.Text("address"), 16)); interactions.Children.Add(new TextBox { Text = fingerprint, IsReadOnly = true }); interactions.Children.Add(Ui.Row(Ui.Button("信任并连接", async () => await Core.Call(new { op = "trust_host", host_id = id, fingerprint })), Ui.Button("取消连接", async () => await Core.Call(new { op = "disconnect_host", host_id = id })))); }
+        if (approval.ValueKind == JsonValueKind.Object)
+        {
+            string request = approval.Text("id"); interactions.Children.Add(Ui.Label(approval.Text("prompt"), 16));
+            var details = new TextBox { Text = approval.Text("explanation") + "\n" + approval.Text("command") + "\n" + approval.Text("working_directory") + "\n" + string.Join("\n", approval.Array("details").Select(d => d.Text("name") + ": " + d.Text("value"))), IsReadOnly = true, MaxHeight = 180, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.Wrap }; interactions.Children.Add(details);
+            var choices = new WrapPanel(); int n = 0; foreach (var choice in approval.Array("choices")) { int selected = n++; choices.Children.Add(Ui.Button(choice.Text("label"), async () => await Core.Call(new { op = "respond_approval", host_id = host, agent_id = agent, request_id = request, choice = selected }))); }
+            interactions.Children.Add(choices);
+        }
+        if (question.ValueKind == JsonValueKind.Object)
+        {
+            string request = question.Text("id"); var answers = new List<(string Id, Func<string> Value)>();
+            foreach (var field in question.Array("fields"))
+            {
+                interactions.Children.Add(Ui.Label(field.Text("text")));
+                if (field.Flag("secret")) { var secret = new PasswordBox(); interactions.Children.Add(secret); answers.Add((field.Text("id"), () => secret.Password)); }
+                else if (field.Array("options").Any()) { var choice = new ComboBox { ItemsSource = field.Array("options").Select(o => new Selection(o.Text("label"), o.Text("label") + "  " + o.Text("description"))).ToList(), DisplayMemberPath = "Label", SelectedValuePath = "Id", IsEditable = field.Flag("allow_other"), Margin = new Thickness(0, 0, 0, 8) }; interactions.Children.Add(choice); answers.Add((field.Text("id"), () => choice.SelectedValue as string ?? choice.Text)); }
+                else { var text = new TextBox(); interactions.Children.Add(text); answers.Add((field.Text("id"), () => text.Text)); }
+            }
+            interactions.Children.Add(Ui.Button("提交回答", async () => { var values = answers.Select(a => new { question_id = a.Id, value = a.Value() }).ToArray(); if (values.Any(v => string.IsNullOrWhiteSpace(v.value))) throw new InvalidOperationException("请完成所有问题。"); await Core.Call(new { op = "answer_question", host_id = host, agent_id = agent, request_id = request, answers = values }); }));
+        }
+    }
+    private async Task SendGuarded() { try { await Send(); } catch (Exception error) { status.Text = error.Message; } }
+    private async Task Send()
+    {
+        string host = HostId, agent = AgentId, origin = context, text = draft.Text;
+        if (agent.Length == 0 || (!state.Field("composer").Array("uploads").Any() && string.IsNullOrWhiteSpace(text) && !state.Field("composer").Field("skills").Array("selected").Any())) return;
+        drafts[origin] = text; await Core.Call(new { op = "prompt_agent", host_id = host, agent_id = agent, text });
+        if (drafts.GetValueOrDefault(origin) == text) drafts.Remove(origin);
+        if (context == origin && draft.Text == text) draft.Clear();
+    }
+    private Task ShowKey()
+    {
+        var panel = new StackPanel { Margin = new Thickness(20) }; panel.Children.Add(Ui.Label("设备 SSH 公钥", 22)); panel.Children.Add(Ui.Label("将公钥加入远程主机的 ~/.ssh/authorized_keys。首次连接时请核对主机指纹。", 13, Ui.Muted));
+        string key = state.Field("device_key").Text("public_key_openssh"); panel.Children.Add(new TextBox { Text = key, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 110 }); panel.Children.Add(Ui.Button("复制公钥", () => { Clipboard.SetText(key); return Task.CompletedTask; }));
+        new Window { Title = "Kite · 设备身份", Owner = this, Content = panel, Width = 620, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner }.ShowDialog(); return Task.CompletedTask;
+    }
+    private Task EditHost() { var host = state.Array("hosts").FirstOrDefault(h => h.Text("id") == HostId); if (host.ValueKind == JsonValueKind.Object) new HostEditor(this, Core, Host.From(host)).ShowDialog(); return Task.CompletedTask; }
+    private async Task ForgetHost() { string host = HostId; if (host.Length > 0 && MessageBox.Show(this, "移除此主机及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "forget_host", host_id = host }); }
+    private Task SessionMenu() { if (sessions.SelectedItem is ListBoxItem item && item.ContextMenu is { } menu) { menu.PlacementTarget = item; menu.IsOpen = true; } return Task.CompletedTask; }
+    private Task CreateSession()
+    {
+        string host = HostId; if (host.Length == 0) return Task.CompletedTask;
+        var panel = new StackPanel { Margin = new Thickness(24) }; var name = Ui.Field(panel, "会话名称"); var cwd = Ui.Field(panel, "远程工作目录（绝对路径）");
+        var providers = new ComboBox { ItemsSource = state.Array("providers").Select(p => p.Text("id")).ToList() }; providers.SelectedIndex = 0; panel.Children.Add(Ui.Label("Harness", 12, Ui.Muted)); panel.Children.Add(providers);
+        var window = new Window { Title = "新建会话", Owner = this, Width = 460, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        panel.Children.Add(Ui.Button("创建", async () => { if (providers.SelectedItem is not string provider || !cwd.Text.StartsWith('/')) throw new InvalidOperationException("请选择 Harness 并填写远程绝对路径。"); await Core.Call(new { op = "create_session", host_id = host, provider, cwd = cwd.Text, title = name.Text }); window.Close(); })); window.ShowDialog(); return Task.CompletedTask;
+    }
+    private async Task Upload()
+    {
+        string host = HostId, agent = AgentId; var dialog = new OpenFileDialog { Multiselect = true, Title = "添加附件" }; if (dialog.ShowDialog(this) != true) return;
+        foreach (string path in dialog.FileNames) { string mime = Path.GetExtension(path).ToLowerInvariant() switch { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".webp" => "image/webp", ".wav" => "audio/wav", ".mp3" => "audio/mpeg", ".txt" or ".md" => "text/plain", _ => "application/octet-stream" }; await Core.Call(new { op = "upload_attachment", host_id = host, agent_id = agent, local_path = path, name = Path.GetFileName(path), mime, retry_id = (string?)null }); }
+    }
+    private async Task SaveAttachment(string origin, string id, string name)
+    {
+        var dialog = new SaveFileDialog { FileName = Path.GetFileName(name), Title = "保存附件" }; if (dialog.ShowDialog(this) != true) return;
+        string path = dialog.FileName; var value = await Core.Call(new { op = "attachment", context = origin, id }); await File.WriteAllBytesAsync(path, Convert.FromBase64String(value.Text()));
+    }
+    private Task ComposerSettings()
+    {
+        string host = HostId, agent = AgentId; var panel = new StackPanel { Margin = new Thickness(24) }; var window = new Window { Title = "模型与会话设置", Owner = this, Width = 500, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        foreach (var setting in state.Field("composer").Array("settings"))
+        {
+            string id = setting.Text("id"); panel.Children.Add(Ui.Label(setting.Text("name")));
+            var select = new ComboBox { ItemsSource = setting.Array("options").Select(o => new Selection(o.Text("value"), o.Text("name"))).ToList(), DisplayMemberPath = "Label", SelectedValuePath = "Id", SelectedValue = setting.Text("current_value"), Margin = new Thickness(0, 0, 0, 12) };
+            select.SelectionChanged += async (_, _) => { if (select.SelectedValue is string value) await Safe(new { op = "set_chat_setting", host_id = host, agent_id = agent, setting = id, value }); }; panel.Children.Add(select);
+        }
+        var usage = state.Field("composer").Field("usage"); panel.Children.Add(Ui.Label("套餐额度 · " + usage.Text("status"), 16));
+        foreach (var bucket in usage.Array("buckets"))
+        {
+            panel.Children.Add(Ui.Label(bucket.Text("name"), 14));
+            foreach (var key in new[] { "primary", "secondary" })
+            {
+                var windowInfo = bucket.Field(key);
+                if (windowInfo.ValueKind != JsonValueKind.Object) continue;
+                string remaining = windowInfo.Field("remaining_percent").ValueKind == JsonValueKind.Number ? windowInfo.Field("remaining_percent").ToString() + "%" : "未知";
+                panel.Children.Add(Ui.Label($"{windowInfo.Number("duration_mins")} 分钟窗口 · 剩余 {remaining}", 12, Ui.Muted));
+            }
+        }
+        panel.Children.Add(Ui.Button("刷新额度", async () => await Core.Call(new { op = "refresh_account_usage" }))); window.ShowDialog(); return Task.CompletedTask;
+    }
+    private async Task Skills()
+    {
+        string host = HostId, agent = AgentId; await Core.Call(new { op = "refresh_skills", agent_id = agent }); await Refresh(true);
+        var panel = new StackPanel { Margin = new Thickness(20) }; var selected = state.Field("composer").Field("skills").Array("selected").Select(s => s.Text("path")).ToHashSet();
+        foreach (var skill in state.Field("composer").Field("skills").Array("available"))
+        {
+            string path = skill.Text("path"); var check = new CheckBox { Content = skill.Text("name") + "\n" + skill.Text("description"), Foreground = Ui.Foreground, IsChecked = selected.Contains(path), Margin = new Thickness(0, 0, 0, 12) };
+            check.Checked += async (_, _) => await Safe(new { op = "select_skill", host_id = host, agent_id = agent, path, selected = true }); check.Unchecked += async (_, _) => await Safe(new { op = "select_skill", host_id = host, agent_id = agent, path, selected = false }); panel.Children.Add(check);
+        }
+        new Window { Title = "选择 Skills", Owner = this, Width = 600, Height = 560, Content = new ScrollViewer { Content = panel }, WindowStartupLocation = WindowStartupLocation.CenterOwner }.ShowDialog();
+    }
+    private async Task HostResources()
+    {
+        string host = HostId; await Core.Call(new { op = "refresh_host_resources", host_id = host }); await Refresh(true); var resources = state.Field("host_resources");
+        var panel = new StackPanel { Margin = new Thickness(24) }; panel.Children.Add(Ui.Label("远程主机详情", 22));
+        if (!resources.Flag("available")) panel.Children.Add(Ui.Label(resources.Text("problem").Length > 0 ? resources.Text("problem") : "此主机尚未提供资源信息。"));
+        else
+        {
+            const double gb = 1073741824d; panel.Children.Add(Ui.Label($"CPU：{resources.Field("cpu_percent")} % · {resources.Number("cpu_cores")} 核\n可用内存：{resources.Number("memory_available_bytes") / gb:F1} / {resources.Number("memory_total_bytes") / gb:F1} GiB\nAgent 用量：{resources.Number("agent_memory_used_bytes") / gb:F1} GiB\n运行进程：{resources.Number("agent_process_count")}"));
+            var limit = Ui.Field(panel, "Agent 共享内存预算（GiB）", (resources.Number("agent_memory_limit_bytes") / gb).ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+            panel.Children.Add(Ui.Button("保存远程预算", async () => { if (!double.TryParse(limit.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double n) || !double.IsFinite(n) || n <= 0 || n > 1048576) throw new InvalidOperationException("请输入有效预算。"); await Core.Call(new { op = "set_agent_memory_limit", host_id = host, bytes = checked((ulong)(n * gb)) }); }));
+        }
+        panel.Children.Add(Ui.Label("SSH 指纹：" + state.Text("host_key_fingerprint"), 12, Ui.Muted));
+        new Window { Title = "主机详情", Owner = this, Width = 560, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner }.ShowDialog();
+    }
+    private async Task OpenDesktop()
+    {
+        if (media is null) { media = new MediaReceiver(screen); input = new RemoteInput(inputSurface, media.Target); }
+        desktopPanel.Visibility = Visibility.Visible;
+        var desktop = state.Field("desktop").Text("status"); if (desktop is "Idle" or "Failed") await Core.Call(new { op = "start_desktop", host_id = HostId, media_target = media.Target });
+        await Refresh(true);
+        if (state.Field("desktop").Text("status") == "Pairing")
+        {
+            string host = HostId, pin = state.Field("desktop").Text("pin");
+            if (MessageBox.Show(this, "配对 PIN：" + pin + "\n允许 Kite 与此主机配对？", "桌面配对", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "approve_pairing", host_id = host, pin });
+        }
+    }
+    private async Task CloseDesktop() { LoseInput(); if (fullscreen is not null) fullscreen.Close(); string host = HostId; await Core.Call(new { op = "stop_desktop", host_id = host }); desktopPanel.Visibility = Visibility.Collapsed; }
+    private void LoseInput()
+    {
+        bool wasEnabled = input?.Enabled == true; input?.Release();
+        if (wasEnabled && client is not null) { string host = HostId; _ = Safe(new { op = "set_takeover", host_id = host, enabled = false }); }
+    }
+    private void ToggleFullscreen()
+    {
+        if (fullscreen is not null) { fullscreen.Close(); return; }
+        LoseInput(); desktopPanel.Child = null;
+        fullscreen = new Window { Title = "Kite · 远程桌面", Content = desktopRoot, WindowState = WindowState.Maximized, WindowStyle = WindowStyle.None, Background = Brushes.Black };
+        fullscreen.Deactivated += (_, _) => LoseInput(); fullscreen.Closed += (_, _) => { LoseInput(); if (fullscreen is { } window) window.Content = null; fullscreen = null; desktopPanel.Child = desktopRoot; };
+        fullscreen.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { e.Handled = true; fullscreen?.Close(); } };
+        fullscreen.Show();
+    }
+    private async Task SynchronizeClipboard()
+    {
+        if (clipboardBusy || clipboard.IsChecked != true || input?.Enabled != true || client is null || closing || (!IsActive && fullscreen?.IsActive != true)) return;
+        clipboardBusy = true; string host = HostId; string? local = null;
+        try
+        {
+            if (Clipboard.ContainsText()) { local = Clipboard.GetText(); if (local.Length > 262144) return; }
+            var remote = await Core.Call(new { op = "synchronize_clipboard", host_id = host, local });
+            if (host == HostId && input.Enabled && clipboard.IsChecked == true && remote.ValueKind == JsonValueKind.String && (!Clipboard.ContainsText() ? local is null : Clipboard.GetText() == local)) Clipboard.SetText(remote.Text());
+        }
+        catch (Exception error) { status.Text = "剪贴板：" + error.Message; }
+        finally { clipboardBusy = false; }
+    }
+    private void NetworkChanged(object? sender, NetworkAvailabilityEventArgs e) { Dispatcher.BeginInvoke(async () => { if (client is not null && !closing) await Safe(new { op = "network_changed", available = e.IsAvailable }); }); }
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        closing = true; timer.Stop(); clipboardTimer.Stop(); NetworkChange.NetworkAvailabilityChanged -= NetworkChanged;
+        input?.Dispose(); fullscreen?.Close(); media?.Dispose(); client?.Dispose();
+    }
+}

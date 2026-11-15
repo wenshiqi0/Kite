@@ -2,6 +2,10 @@ use crate::KiteError;
 use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ClipboardPlatformInfo {
     Linux,
     Macos,
@@ -15,12 +19,20 @@ impl From<kite_app::ClipboardPlatform> for ClipboardPlatformInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct RemoteClipboardInfo {
     pub text: String,
     pub platform: ClipboardPlatformInfo,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SessionCleanupInfo {
     pub reclaimed: u32,
     pub retained: u32,
@@ -28,6 +40,10 @@ pub struct SessionCleanupInfo {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct HostRecord {
     pub id: String,
     pub host: String,
@@ -39,6 +55,10 @@ pub struct HostRecord {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct HostConnectionInfo {
     pub host_id: String,
     pub connection: ConnectionStatus,
@@ -63,6 +83,10 @@ impl From<kite_app::ConnectionPhase> for ConnectionStatus {
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum SessionSortOrder {
     Newest,
     Oldest,
@@ -91,6 +115,10 @@ impl From<kite_app::SessionSort> for SessionSortOrder {
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum HostMemoryPressure {
     Unknown,
     Normal,
@@ -99,6 +127,10 @@ pub enum HostMemoryPressure {
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum MemoryWarningReason {
     None,
     HostMemory,
@@ -110,6 +142,10 @@ pub enum MemoryWarningReason {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ResourceProcessInfo {
     pub pid: u32,
     pub name: String,
@@ -119,6 +155,10 @@ pub struct ResourceProcessInfo {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct HostResourcesInfo {
     pub available: bool,
     pub problem: Option<String>,
@@ -235,28 +275,48 @@ impl From<kite_app::SavedHost> for HostRecord {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct TrustedHostRecord {
     pub address: String,
     pub public_key: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct LegacyData {
     pub source: String,
     pub host: Option<HostRecord>,
     pub trusted_keys: Vec<TrustedHostRecord>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct DeviceKeyInfo {
     pub public_key_openssh: String,
     pub fingerprint: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct HostKeyConfirmation {
     pub host_id: String,
     pub address: String,
     pub fingerprint: String,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ConnectionStatus {
     Disconnected,
     Connecting,
@@ -266,6 +326,10 @@ pub enum ConnectionStatus {
     Failed,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ConnectionStep {
     Idle,
     Ssh,
@@ -275,6 +339,10 @@ pub enum ConnectionStep {
     Ready,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum DesktopStatus {
     Idle,
     Pairing,
@@ -284,6 +352,10 @@ pub enum DesktopStatus {
     Failed,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum FailureKind {
     Connection,
     HostNode,
@@ -299,6 +371,10 @@ pub enum FailureKind {
     AgentStart,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct FailureInfo {
     pub kind: FailureKind,
     pub details: String,
@@ -307,6 +383,10 @@ pub struct FailureInfo {
     pub presented_fingerprint: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ProviderInfo {
     pub id: String,
     pub managed_chat: bool,
@@ -335,6 +415,10 @@ impl From<kite_app::Provider> for ProviderInfo {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct AgentInfo {
     pub id: String,
     pub name: Option<String>,
@@ -348,6 +432,10 @@ pub struct AgentInfo {
     pub managed_ready: bool,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ItemRole {
     User,
     Assistant,
@@ -355,12 +443,20 @@ pub enum ItemRole {
     Error,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum AgentPauseStatus {
     Running,
     Paused,
     Unknown,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ToolInfo {
     pub label: String,
     pub summary: String,
@@ -372,6 +468,10 @@ pub struct ToolInfo {
     pub computer: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ChatModelInfo {
     pub model: String,
     pub name: String,
@@ -381,6 +481,10 @@ pub struct ChatModelInfo {
     pub modalities: Vec<String>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct AttachmentInfo {
     pub id: String,
     pub name: String,
@@ -401,6 +505,10 @@ impl From<kite_app::ChatAttachment> for AttachmentInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct UploadInfo {
     pub file: AttachmentInfo,
     pub sent: u64,
@@ -409,18 +517,30 @@ pub struct UploadInfo {
     pub local_path: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct UsageWindowInfo {
     pub remaining_percent: u32,
     pub duration_mins: Option<u64>,
     pub resets_at: Option<i64>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct UsageCreditsInfo {
     pub has_credits: bool,
     pub unlimited: bool,
     pub balance: Option<String>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct UsageBucketInfo {
     pub id: String,
     pub name: Option<String>,
@@ -431,6 +551,10 @@ pub struct UsageBucketInfo {
     pub spend_control_reached: bool,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum UsageStatus {
     NotLoaded,
     Ready,
@@ -438,6 +562,10 @@ pub enum UsageStatus {
     Failed,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum UsageUnavailable {
     None,
     NoAccount,
@@ -445,12 +573,20 @@ pub enum UsageUnavailable {
     NoData,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct UsageResetCreditsInfo {
     pub available_count: u64,
     pub earliest_expires_at: Option<i64>,
     pub expiry_complete: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct AccountUsageInfo {
     pub status: UsageStatus,
     pub unavailable: UsageUnavailable,
@@ -517,6 +653,10 @@ impl From<kite_app::AccountUsage> for AccountUsageInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ChatSkillInfo {
     pub name: String,
     pub description: String,
@@ -536,6 +676,10 @@ impl From<kite_app::ChatSkill> for ChatSkillInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SkillDraftInfo {
     pub available: Vec<ChatSkillInfo>,
     pub selected: Vec<ChatSkillInfo>,
@@ -555,6 +699,10 @@ impl From<kite_app::SkillDraft> for SkillDraftInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ComposerInfo {
     pub ready: bool,
     pub loading: bool,
@@ -568,11 +716,19 @@ pub struct ComposerInfo {
     pub settings: Vec<SessionSettingInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SettingChoiceInfo {
     pub value: String,
     pub name: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SessionSettingInfo {
     pub id: String,
     pub name: String,
@@ -637,12 +793,20 @@ impl From<kite_app::Composer> for ComposerInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct QuestionReplyInfo {
     pub id: String,
     pub question: String,
     pub answer: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ItemOriginInfo {
     pub conversation: String,
     pub item: String,
@@ -656,6 +820,10 @@ impl From<&kite_app::ChatItemOrigin> for ItemOriginInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ReferenceInfo {
     Live {
         conversation: String,
@@ -668,6 +836,10 @@ pub enum ReferenceInfo {
     },
 }
 #[derive(Clone, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum BlockInfo {
     Text { text: String },
     Attachment { file: AttachmentInfo },
@@ -723,6 +895,10 @@ impl From<&kite_app::ChatBlock> for BlockInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ItemInfo {
     pub id: String,
     pub role: ItemRole,
@@ -748,10 +924,18 @@ impl From<&kite_app::ChatItem> for ItemInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ApprovalChoice {
     pub label: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ApprovalInfo {
     pub id: String,
     pub prompt: String,
@@ -763,11 +947,19 @@ pub struct ApprovalInfo {
     pub details: Vec<ApprovalDetailInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ApprovalDetailInfo {
     pub name: String,
     pub value: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct DesktopInfo {
     pub status: DesktopStatus,
     pub pin: Option<String>,
@@ -783,6 +975,10 @@ pub struct DesktopInfo {
     pub fps: u32,
 }
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum ResponsePhase {
     Idle,
     Sending,
@@ -807,11 +1003,19 @@ impl From<kite_app::ResponseActivity> for ResponsePhase {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct QuestionOptionInfo {
     pub label: String,
     pub description: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct QuestionFieldInfo {
     pub id: String,
     pub header: String,
@@ -821,6 +1025,10 @@ pub struct QuestionFieldInfo {
     pub options: Vec<QuestionOptionInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct QuestionInfo {
     pub id: String,
     pub blocking: bool,
@@ -855,11 +1063,19 @@ impl From<kite_app::QuestionPrompt> for QuestionInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct QuestionAnswerInfo {
     pub question_id: String,
     pub value: String,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SessionInfo {
     pub id: String,
     pub provider: String,
@@ -875,6 +1091,10 @@ pub struct SessionInfo {
     pub subagents_error: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct SubagentInfo {
     pub id: String,
     pub parent_id: String,
@@ -914,6 +1134,10 @@ impl From<kite_app::ConversationSession> for SessionInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct HistoryInfo {
     pub loading: bool,
     pub complete: bool,
@@ -923,6 +1147,10 @@ pub struct HistoryInfo {
 }
 
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub enum AgentNoticeKind {
     Completed,
     Attention,
@@ -930,6 +1158,10 @@ pub enum AgentNoticeKind {
     Failed,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct AgentNoticeInfo {
     pub id: String,
     pub host_id: String,
@@ -971,12 +1203,20 @@ impl From<kite_app::HistoryStatus> for HistoryInfo {
     }
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ConversationEditInfo {
     pub at: u64,
     pub remove: u64,
     pub items: Vec<ItemInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct ConversationDeltaInfo {
     pub context: String,
     pub revision: u64,
@@ -984,6 +1224,10 @@ pub struct ConversationDeltaInfo {
     pub edits: Vec<ConversationEditInfo>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct CoreSnapshot {
     pub notification_revision: u64,
     pub notification_problem: Option<String>,
@@ -1698,11 +1942,16 @@ fn media_sink(id: u64) -> Result<Arc<dyn kite_app::MediaSink>, KiteError> {
     {
         crate::android::media_sink(id).ok_or(KiteError::MediaUnavailable)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", feature = "windows-client"))]
     {
-        crate::apple::media_sink(id).ok_or(KiteError::MediaUnavailable)
+        crate::media::media_sink(id).ok_or(KiteError::MediaUnavailable)
     }
-    #[cfg(not(any(target_os = "android", target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        feature = "windows-client"
+    )))]
     {
         let _ = id;
         Err(KiteError::MediaUnavailable)
