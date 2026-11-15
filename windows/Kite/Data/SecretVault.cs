@@ -17,6 +17,7 @@ internal sealed class SecretVault(string directory)
             // Only absence creates a new identity. Corruption/decryption failures propagate.
             try { return Transform(File.ReadAllBytes(path), false); }
             catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) { return null; }
         }
     }
     public void Write(string name, byte[] value)

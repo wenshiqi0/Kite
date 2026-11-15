@@ -2,6 +2,8 @@ using System.Text.Json;
 using Kite;
 
 var mirror = new ConversationMirror();
+var vault = new SecretVault(Path.Combine(Path.GetTempPath(), "kite-missing-secrets-" + Guid.NewGuid().ToString("N")));
+if(vault.Read("ssh-ed25519") is not null)throw new InvalidOperationException("missing secret directory must represent first launch");
 void Apply(string json) { using var document = JsonDocument.Parse(json); mirror.Apply(document.RootElement); }
 void Check(bool condition, string message) { if(!condition)throw new InvalidOperationException(message); }
 Apply("""{"context":"host-one/session-one","revision":3,"reset":true,"edits":[{"at":0,"remove":0,"items":[{"id":"one"},{"id":"two"}]}]}""");

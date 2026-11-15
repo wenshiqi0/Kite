@@ -40,8 +40,6 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 
 ## 什么时候写 RFC
 
-- [0031 — Windows 纯客户端与 Linux 交叉构建](0031-windows-client.md)
-
 - [0030 — 网络 ACP 与跨机器会话工作区](0030-network-acp-and-shared-workspaces.md)（已采纳，实施中）
 
 下面这些改动，先写 RFC：
@@ -84,3 +82,5 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 - [0027 — macOS 原生远程客户端](0027-macos-client.md)
 - [0028 — Mac 开发版的持久密钥访问身份](0028-macos-keychain-access.md)
 - [0029 — Mac 客户端内的本机主机角色](0029-macos-host.md)
+
+- [0031 — Windows 纯客户端与 Linux 交叉构建](0031-windows-client.md)

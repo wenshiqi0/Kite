@@ -71,7 +71,12 @@ internal sealed class MediaReceiver : IDisposable
         {
             Release = context => { MediaNative.kite_decoder_destroy(decoder); GCHandle.FromIntPtr(context).Free(); },
             Supports = (_, w, h, fps) => (byte)(w > 0 && h > 0 && w <= 8192 && h <= 4320 && (ulong)w * h <= 16777216 && fps is > 0 and <= 120 ? 1 : 0),
-            Configure = (_, w, h, fps, gen) => { lock (gate) { generation = gen; latest = []; } return MediaNative.kite_decoder_configure(decoder, w, h, fps, gen); },
+            Configure = (_, w, h, fps, gen) =>
+            {
+                lock (gate) { generation = gen; latest = []; }
+                dispatcher.BeginInvoke(() => { lock (gate) if (generation == gen) { image.Source = null; bitmap = null; } });
+                return MediaNative.kite_decoder_configure(decoder, w, h, fps, gen);
+            },
             Frame = (_, bytes, length, pts, flags, gen) => MediaNative.kite_decoder_frame(decoder, bytes, length, pts, flags, gen),
             AudioConfigure = (_, rate, channels, samples, gen) => MediaNative.kite_decoder_audio_configure(decoder, rate, channels, samples, gen),
             AudioFrame = (_, bytes, length, gen) => MediaNative.kite_decoder_audio(decoder, bytes, length, gen),
