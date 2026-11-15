@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.404'
       - name: Install cross toolchain
         run: |
           sudo apt-get update
@@ -73,17 +73,22 @@ jobs:
           $expected = (Get-Content "$($archive.FullName).sha256").Split(' ')[0]
           if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'ZIP checksum mismatch' }
           Expand-Archive $archive.FullName -DestinationPath smoke
-          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--self-test' -Wait -PassThru
+          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--self-test' -RedirectStandardOutput self-test.log -RedirectStandardError self-test-errors.log -Wait -PassThru
+          Get-Content self-test.log, self-test-errors.log
           if ($process.ExitCode -ne 0) { throw "Client self-test failed: $($process.ExitCode)" }
           $nativeTest = Get-ChildItem cross-built -Recurse -Filter kite_media_test.exe | Select-Object -First 1
           Copy-Item $nativeTest.FullName smoke/Kite/
           & smoke/Kite/kite_media_test.exe macos/Tests/Fixtures/frame.h264
           if ($LASTEXITCODE -ne 0) { throw 'Media Foundation decode test failed' }
-          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--ui-smoke', "$PWD/windows-client.png" -Wait -PassThru
+          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--ui-smoke', "$PWD/windows-client.png" -RedirectStandardOutput ui-smoke.log -RedirectStandardError ui-smoke-errors.log -Wait -PassThru
+          Get-Content ui-smoke.log, ui-smoke-errors.log
           if ($process.ExitCode -ne 0) { throw 'WPF startup smoke test failed' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: Windows-client-runtime-evidence
-          path: windows-client.png
+          path: |
+            windows-client.png
+            *test*.log
+            ui-smoke*.log
           if-no-files-found: ignore

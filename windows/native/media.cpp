@@ -65,7 +65,7 @@ struct Decoder {
                 if (FAILED(hr)) return hr;
                 UINT32 width=0,height=0,s=0;
                 hr=MFGetAttributeSize(type.value,MF_MT_FRAME_SIZE,&width,&height);
-                if (FAILED(hr) || !width || !height || width>8192 || height>8192) return E_INVALIDARG;
+                if (FAILED(hr) || !width || !height || width>8192 || height>4320 || static_cast<uint64_t>(width)*height>16777216) return E_INVALIDARG;
                 w=width;h=height;
                 stride=SUCCEEDED(type->GetUINT32(MF_MT_DEFAULT_STRIDE,&s)) ? static_cast<int32_t>(s) : static_cast<int32_t>(w);
                 return stride>=static_cast<int32_t>(w) ? S_OK : E_INVALIDARG;

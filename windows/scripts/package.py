@@ -2,7 +2,9 @@
 """Verify PE architecture, exports and loader dependencies before making a ZIP."""
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import sys
@@ -52,6 +54,19 @@ def pe(path):
 
 def main():
     directory = Path(sys.argv[1]).resolve()
+    # Retain the notices from the exact runtime packs used by dotnet publish.
+    repo = Path(__file__).resolve().parents[2]
+    assets = json.loads((repo/'windows/Kite/obj/project.assets.json').read_text())
+    package_roots = [Path(os.environ['NUGET_PACKAGES'])] if 'NUGET_PACKAGES' in os.environ else [Path(path) for path in assets['packageFolders']]
+    config = json.loads((directory/'Kite.runtimeconfig.json').read_text())
+    for framework in config['runtimeOptions']['includedFrameworks']:
+        package = framework['name'].lower()+'.runtime.win-x64'
+        root = next((root/package/framework['version'] for root in package_roots if (root/package/framework['version']).is_dir()), None)
+        if root is None:
+            raise ValueError(f'runtime license source not found: {package}')
+        for file in root.iterdir():
+            if file.name.upper() in {'LICENSE','LICENSE.TXT','THIRD-PARTY-NOTICES.TXT'}:
+                shutil.copyfile(file, directory/(framework['name']+'-'+file.name))
     exe = directory/'Kite.exe'
     data, optional, _, _ = pe(exe)
     # Cross-targeted .NET apphosts can retain the console subsystem. This is a GUI.

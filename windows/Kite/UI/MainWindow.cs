@@ -21,6 +21,7 @@ internal sealed class MainWindow : Window
     private bool rendering, refreshing, clipboardBusy, closing;
     private string context = "", hostSignature = "", sessionSignature = "", interactionSignature = "", modelSignature = "";
     private readonly Dictionary<string, string> drafts = [];
+    private readonly HashSet<string> sending = [];
     private readonly ConversationMirror conversation = new();
     private readonly ObservableCollection<ChatRow> messages = [];
     private readonly ListBox hosts = new(), sessions = new(), chat = new();
@@ -274,9 +275,14 @@ internal sealed class MainWindow : Window
     {
         string host = HostId, agent = AgentId, origin = context, text = draft.Text;
         if (agent.Length == 0 || (!state.Field("composer").Array("uploads").Any() && string.IsNullOrWhiteSpace(text) && !state.Field("composer").Field("skills").Array("selected").Any())) return;
-        drafts[origin] = text; await Core.Call(new { op = "prompt_agent", host_id = host, agent_id = agent, text });
-        if (drafts.GetValueOrDefault(origin) == text) drafts.Remove(origin);
-        if (context == origin && draft.Text == text) draft.Clear();
+        if (!sending.Add(origin)) return;
+        try
+        {
+            drafts[origin] = text; await Core.Call(new { op = "prompt_agent", host_id = host, agent_id = agent, text });
+            if (drafts.GetValueOrDefault(origin) == text) drafts.Remove(origin);
+            if (context == origin && draft.Text == text) draft.Clear();
+        }
+        finally { sending.Remove(origin); }
     }
     private Task ShowKey()
     {
