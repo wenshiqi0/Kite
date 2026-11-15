@@ -22,7 +22,7 @@ permissions:
   actions: read
 concurrency:
   group: windows-client-${{ github.ref }}-${{ inputs.artifact_run_id || 'build' }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   cross-build:
     if: ${{ !inputs.artifact_run_id }}

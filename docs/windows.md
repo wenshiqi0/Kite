@@ -53,3 +53,5 @@ dotnet build windows/Kite/Kite.csproj -c Release -p:TreatWarningsAsErrors=true
 `Windows Client` CI 在 Linux 构建 ZIP，再将该 ZIP 原封不动送到 Windows runner，验证 DPAPI、身份持久化、主机增删改、加载与快照、Media Foundation 实际 H.264 解码及 WPF 启动渲染。`Kite.exe --self-test` 使用临时目录，不连接真实主机；`--ui-smoke <PNG路径>` 渲染空工作区并退出。两种测试均不读取用户数据。
 
 离线测试和 Linux 编译不等于 Windows 实机跨机聊天、IME、键鼠、音频设备或公网媒体验收。已完成范围记录在[验收记录](product/2026-11-15/windows-client/acceptance.md)。
+
+`Windows Native Media` 工作流可独立交叉编译并验证系统解码器。`Windows Client` 的手动触发还可用 `artifact_run_id` 只复测已有 Linux 包；它不会重建当前源码，验证记录应以该包的 build-manifest 为准。
