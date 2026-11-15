@@ -72,7 +72,7 @@ internal sealed class MainWindow : Window
         brand.Children.Add(Ui.Row(Ui.Button("＋ 主机", () => { new HostEditor(this, Core, null).ShowDialog(); return Task.CompletedTask; }), Ui.Button("设备公钥", ShowKey)));
         brand.Children.Add(Ui.Label("主机", 12, Ui.Muted));
         hosts.MaxHeight = 215; brand.Children.Add(hosts);
-        brand.Children.Add(Ui.Row(Ui.Button("设置", EditHost), Ui.Button("移除", ForgetHost)));
+        brand.Children.Add(Ui.Row(Ui.Button("设置", EditHost), Ui.Button("移除", RemoveHost)));
         brand.Children.Add(Ui.Label("会话", 12, Ui.Muted));
         brand.Children.Add(Ui.Row(Ui.Button("＋ 新建", CreateSession), Ui.Button("管理", SessionMenu)));
         brand.Children.Add(archived); brand.Children.Add(sort);
@@ -291,7 +291,7 @@ internal sealed class MainWindow : Window
         new Window { Title = "Kite · 设备身份", Owner = this, Content = panel, Width = 620, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner }.ShowDialog(); return Task.CompletedTask;
     }
     private Task EditHost() { var host = state.Array("hosts").FirstOrDefault(h => h.Text("id") == HostId); if (host.ValueKind == JsonValueKind.Object) new HostEditor(this, Core, Host.From(host)).ShowDialog(); return Task.CompletedTask; }
-    private async Task ForgetHost() { string host = HostId; if (host.Length > 0 && MessageBox.Show(this, "移除此主机及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "forget_host", host_id = host }); }
+    private async Task RemoveHost() { string host = HostId; if (host.Length > 0 && MessageBox.Show(this, "移除此主机及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "remove_host", host_id = host }); }
     private Task SessionMenu() { if (sessions.SelectedItem is ListBoxItem item && item.ContextMenu is { } menu) { menu.PlacementTarget = item; menu.IsOpen = true; } return Task.CompletedTask; }
     private Task CreateSession()
     {

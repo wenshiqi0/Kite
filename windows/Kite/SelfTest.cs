@@ -84,7 +84,7 @@ internal static class SelfTest
         {
             await core.Call(new { op = "initialize", data_directory = directory, device_name = "fixture" });
             var snapshot = await core.Call(new { op = "snapshot", after_revision = (long?)null }); Check(snapshot.Field("device_key").Text("fingerprint") == key, "device identity changed"); Check(snapshot.Array("hosts").Count() == 2, "host persistence after restart");
-            await core.Call(new { op = "forget_host", host_id = snapshot.Array("hosts").First().Text("id") });
+            await core.Call(new { op = "remove_host", host_id = snapshot.Array("hosts").First().Text("id") });
             snapshot = await core.Call(new { op = "snapshot", after_revision = (long?)null }); Check(snapshot.Array("hosts").Count() == 1, "forget host");
         }
     }

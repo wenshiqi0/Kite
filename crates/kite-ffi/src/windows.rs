@@ -203,6 +203,9 @@ enum Command {
     ForgetHost {
         host_id: String,
     },
+    RemoveHost {
+        host_id: String,
+    },
     RefreshHostResources {
         host_id: String,
     },
@@ -374,6 +377,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
             fingerprint,
         } => core.trust_host(host_id, fingerprint).await?,
         ForgetHost { host_id } => core.forget_host(host_id).await?,
+        RemoveHost { host_id } => core.remove_host(host_id).await?,
         RefreshHostResources { host_id } => core.refresh_host_resources(host_id).await?,
         SetAgentMemoryLimit { host_id, bytes } => {
             core.set_agent_memory_limit(host_id, bytes).await?

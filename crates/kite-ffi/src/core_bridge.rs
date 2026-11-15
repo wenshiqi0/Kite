@@ -1618,6 +1618,9 @@ impl KiteCore {
     pub async fn forget_host(&self, host_id: String) -> Result<(), KiteError> {
         self.inner.forget_host(host_id).await.map_err(Into::into)
     }
+    pub async fn remove_host(&self, host_id: String) -> Result<(), KiteError> {
+        self.inner.remove_host(host_id).await.map_err(Into::into)
+    }
     pub async fn disconnect(&self) -> Result<(), KiteError> {
         self.inner.disconnect().await.map_err(Into::into)
     }

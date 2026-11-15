@@ -34,6 +34,8 @@ internal static class Ui
         app.Resources[typeof(Window)] = new Style(typeof(Window)) { Setters = { new Setter(Control.BackgroundProperty, Background), new Setter(Control.ForegroundProperty, Foreground), new Setter(Control.FontFamilyProperty, new FontFamily("Segoe UI")), new Setter(Control.FontSizeProperty, 14d) } };
         app.Resources[typeof(TextBox)] = new Style(typeof(TextBox)) { Setters = { new Setter(Control.BackgroundProperty, Panel), new Setter(Control.ForegroundProperty, Foreground), new Setter(Control.BorderBrushProperty, Brush("#334155")), new Setter(Control.PaddingProperty, new Thickness(8)), new Setter(TextBoxBase.CaretBrushProperty, Foreground) } };
         app.Resources[typeof(ListBox)] = new Style(typeof(ListBox)) { Setters = { new Setter(Control.BackgroundProperty, Brushes.Transparent), new Setter(Control.ForegroundProperty, Foreground), new Setter(Control.BorderThicknessProperty, new Thickness(0)), new Setter(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled) } };
+        app.Resources[typeof(ComboBox)] = new Style(typeof(ComboBox)) { Setters = { new Setter(Control.ForegroundProperty, Brushes.Black), new Setter(Control.BackgroundProperty, Brushes.White) } };
+        app.Resources[typeof(ComboBoxItem)] = new Style(typeof(ComboBoxItem)) { Setters = { new Setter(Control.ForegroundProperty, Brushes.Black), new Setter(Control.BackgroundProperty, Brushes.White) } };
         var border = new FrameworkElementFactory(typeof(Border));
         border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
