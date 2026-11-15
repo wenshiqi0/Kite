@@ -73,7 +73,7 @@ struct Decoder {
         }
     }
     HRESULT drain(IMFTransform* transform,uint32_t& w,uint32_t& h,int32_t& stride,
-                  uint64_t gen,std::vector<uint8_t>& bgra) {
+                  uint64_t gen,uint32_t display_width,uint32_t display_height,std::vector<uint8_t>& bgra) {
         for (;;) {
             MFT_OUTPUT_STREAM_INFO info{};
             HRESULT hr=transform->GetOutputStreamInfo(0,&info); if (FAILED(hr)) return hr;
@@ -102,13 +102,14 @@ struct Decoder {
             BYTE* data=nullptr; DWORD length=0;
             hr=image->Lock(&data,nullptr,&length); if (FAILED(hr)) return hr;
             if (length < static_cast<uint64_t>(stride)*h*3/2) { image->Unlock(); return E_INVALIDARG; }
-            bgra.resize(static_cast<size_t>(w)*h*4);
+            const uint32_t visible_width=std::min(w,display_width),visible_height=std::min(h,display_height);
+            bgra.resize(static_cast<size_t>(visible_width)*visible_height*4);
             // Sunshine sends limited-range Rec.709. NV12 padding never becomes visible pixels.
-            for (uint32_t y=0;y<h;++y) {
+            for (uint32_t y=0;y<visible_height;++y) {
                 const auto* yy=data+static_cast<size_t>(y)*stride;
                 const auto* uv=data+static_cast<size_t>(h+y/2)*stride;
-                auto* dst=bgra.data()+static_cast<size_t>(y)*w*4;
-                for (uint32_t x=0;x<w;++x) {
+                auto* dst=bgra.data()+static_cast<size_t>(y)*visible_width*4;
+                for (uint32_t x=0;x<visible_width;++x) {
                     const int c=std::max(0,int(yy[x])-16),d=int(uv[x&~1u])-128,e=int(uv[(x&~1u)+1])-128;
                     dst[x*4]=static_cast<uint8_t>(std::clamp((298*c+541*d+128)>>8,0,255));
                     dst[x*4+1]=static_cast<uint8_t>(std::clamp((298*c-55*d-136*e+128)>>8,0,255));
@@ -116,7 +117,7 @@ struct Decoder {
                 }
             }
             image->Unlock();
-            if (gen==generation.load()) pixels(context,bgra.data(),w,h,w*4,gen);
+            if (gen==generation.load()) pixels(context,bgra.data(),visible_width,visible_height,visible_width*4,gen);
         }
     }
     void video() {
@@ -128,7 +129,7 @@ struct Decoder {
             Com<IMFTransform> transform;
             std::vector<uint8_t> bgra,config;
             Frame frame; frame.bytes.reserve(MAX_FRAME);
-            uint32_t w=0,h=0,f=0; int32_t stride=0; uint64_t gen=0;
+            uint32_t w=0,h=0,f=0,display_width=0,display_height=0; int32_t stride=0; uint64_t gen=0;
             while (!exiting) {
                 bool configure=false,stop=false,has_frame=false;
                 {
@@ -137,7 +138,7 @@ struct Decoder {
                     if (exiting) break;
                     stop=stop_pending;stop_pending=false;
                     configure=configure_pending;configure_pending=false;
-                    if (configure) { w=width;h=height;f=fps;gen=generation.load(); }
+                    if (configure) { w=width;h=height;f=fps;display_width=w;display_height=h;gen=generation.load(); }
                     if (count) { std::swap(frame,frames[read]); read=(read+1)%frames.size();--count;has_frame=true; }
                 }
                 if (stop) {transform.reset();config.clear();}
@@ -182,11 +183,11 @@ struct Decoder {
                 if (SUCCEEDED(hr)) {
                     hr=transform->ProcessInput(0,sample.value,0);
                     if (hr==MF_E_NOTACCEPTING) {
-                        hr=drain(transform.value,w,h,stride,gen,bgra);
+                        hr=drain(transform.value,w,h,stride,gen,display_width,display_height,bgra);
                         if (SUCCEEDED(hr)) hr=transform->ProcessInput(0,sample.value,0);
                     }
                 }
-                if (SUCCEEDED(hr)) hr=drain(transform.value,w,h,stride,gen,bgra);
+                if (SUCCEEDED(hr)) hr=drain(transform.value,w,h,stride,gen,display_width,display_height,bgra);
                 if (FAILED(hr)) fail(hr,gen);
             }
         }

@@ -1,0 +1,47 @@
+name: Windows Native Media
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feat/windows-media-validation]
+    paths: ['windows/native/**', '.github/workflows/windows-media.yml']
+  pull_request:
+    branches: [main]
+    paths: ['windows/native/**', '.github/workflows/windows-media.yml']
+permissions:
+  contents: read
+jobs:
+  cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix cmake ninja-build
+          cmake -S windows/native -B windows/build/native -G Ninja -DCMAKE_TOOLCHAIN_FILE=mingw.cmake -DCMAKE_BUILD_TYPE=Release
+          cmake --build windows/build/native --parallel 4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: Windows-native-media
+          path: |
+            windows/build/native/kite_windows_media.dll
+            windows/build/native/kite_media_test.exe
+  decode:
+    needs: cross-build
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: Windows-native-media
+          path: native
+      - name: Decode the owned H.264 fixture with Windows Media Foundation
+        shell: pwsh
+        run: |
+          & native/kite_media_test.exe macos/Tests/Fixtures/frame.h264
+          if ($LASTEXITCODE -ne 0) { throw 'Native H.264 decode failed' }
