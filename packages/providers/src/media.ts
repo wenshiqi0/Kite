@@ -188,8 +188,9 @@ function markdown(text: string, cwd: string): ObjectValue[] {
   if (text.includes("<kite_attachments>") || text.includes("<skill>"))
     return [{ type: "text", text }];
   const result: ObjectValue[] = [];
+  // A label cannot consume another opening bracket: vec![ must not capture a later link.
   const pattern =
-    /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`+[^`\n]*`+)|(!?)\[([^\]\n]*)\]\((<[^>\n]+>|[^\s()]+(?:\([^\n()]*\)[^\s()]*)*)(?:\s+"[^"\n]*")?\)/g;
+    /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`+[^`\n]*`+)|(!?)\[([^[\]\n]*)\]\((<[^>\n]+>|[^\s()]+(?:\([^\n()]*\)[^\s()]*)*)(?:\s+"[^"\n]*")?\)/g;
   let start = 0;
   for (const match of text.matchAll(pattern)) {
     if (match[1]) continue;

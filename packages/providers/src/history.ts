@@ -468,7 +468,7 @@ export async function historyProjection(
 }
 export function historyStamp(file: string): string {
   const s = statSync(file, { bigint: true });
-  return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:media-v2`;
+  return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:media-v3`;
 }
 export function historyFiles(root: string, id: string): string[] {
   return Array.from(

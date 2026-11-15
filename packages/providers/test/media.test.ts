@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { object, parse, string } from "@kite/protocol";
 import { sha256 } from "@kite/runtime";
+import { stateDir } from "../src/catalog";
 import { historyProjection } from "../src/history";
 import { appendContent, projectContent } from "../src/media";
 import { Dsh } from "../src/native/dsh";
@@ -110,6 +111,25 @@ test("Markdown images and file links render in position while code and web links
   const doc = join(home, "report.pdf");
   writeFileSync(doc, "%PDF-owned");
   expect(object(projectContent(`[Report](${doc})`)[0]?.file).mime).toBe("application/pdf");
+});
+test("Rust macro brackets cannot turn an ordinary web link into an image attachment", () => {
+  const source = 'vec![ChatBlock::Text("[查看 CI](https://example.test/ci)")]';
+  for (const text of [source, JSON.stringify({ output: source })]) {
+    const content = [{ type: "text", text }];
+    expect(projectContent(text)).toEqual(content);
+    expect(projectContent(content)).toEqual(content);
+    const result = { type: "tool_result", tool_use_id: "read-source", content };
+    expect(projectContent([result])).toEqual([result]);
+  }
+  expect(existsSync(join(stateDir(), "media-sources"))).toBe(false);
+});
+test("a real image after Rust source is projected without consuming any source text", () => {
+  const source = '{"output":"vec![ChatBlock::Text(\\"[查看 CI](https://example.test/ci)\\")]"}';
+  const projected = projectContent(`${source}\n![preview](https://example.test/preview)`);
+  expect(projected.map((row) => row.type)).toEqual(["text", "kite_attachment"]);
+  expect(projected[0]?.text).toBe(`${source}\n`);
+  expect(object(projected[1]?.file).name).toBe("preview");
+  expect(object(projected[1]?.file).mime).toBe("image/*");
 });
 test("embedded resources and tool results retain media without exposing their binary encoding", () => {
   const result = projectContent([{ type: "tool_result", tool_use_id: "call", content: [inline] }]);
