@@ -1,0 +1,23 @@
+{
+  "sourceCommit": "a4f2992094b8844db4de32d89b4dfe261c81d66e",
+  "workflowRun": 43666201827,
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/43666201827",
+  "artifactUrl": "https://github.com/wenshiqi0/Kite/actions/runs/43666201827/artifacts/14142293272",
+  "zipSha256": "3e9775ff0822dbb7b3e8b99d9f3141e900a8ebc32f97c623025999a2e158100a",
+  "zipBytes": 70454047,
+  "packageFileHashesVerified": 252,
+  "linuxCrossBuild": "PASS",
+  "windowsHost": "windows-2025",
+  "dpapiIdentityAndHostManagement": "PASS",
+  "wpfStartupAndRender": "PASS",
+  "nativeH264": {
+    "frames": 3,
+    "width": 320,
+    "height": 180,
+    "error": 0
+  },
+  "rustTests": 111,
+  "clippy": "PASS",
+  "realHostEndToEnd": "NOT_RUN",
+  "physicalAudio": "NOT_RUN"
+}

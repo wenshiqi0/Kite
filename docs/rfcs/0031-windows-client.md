@@ -1,6 +1,6 @@
 # RFC 0031：Windows 纯客户端与 Linux 交叉构建
 
-> 状态：已采纳 · 2026-11-15
+> 状态：已实现（Linux 交叉构建和 Windows 离线验收；真实主机联调独立） · 2026-11-15
 
 Windows x64 客户端提供远程主机管理、独立多主机连接、会话、结构化聊天、审批、问题、模型设置、附件和远程桌面。主机管理指客户端管理远程目标；Windows 本机不安装、运行或管理 Kite Node、Herdr、Sunshine 或 provider 服务。不增加 Windows 主机端。
 
