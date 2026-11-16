@@ -55,3 +55,7 @@ dotnet build windows/Kite/Kite.csproj -c Release -p:TreatWarningsAsErrors=true
 离线测试和 Linux 编译不等于 Windows 实机跨机聊天、IME、键鼠、音频设备或公网媒体验收。已完成范围记录在[验收记录](product/2026-11-15/windows-client/acceptance.md)。
 
 `Windows Native Media` 工作流可独立交叉编译并验证系统解码器。`Windows Client` 的手动触发还可用 `artifact_run_id` 只复测已有 Linux 包；它不会重建当前源码，验证记录应以该包的 build-manifest 为准。
+
+## GitHub Release
+
+Windows 版本沿用 `android/version.properties` 中的统一 Alpha 序号。源码合并到 `main` 后，通过 `python3 android/scripts/release-alpha.py --windows --notes-file <发布说明>` 发布；注解标签明确选择 Windows。只有该标签的 Linux 构建和 Windows 运行检查都通过，CI 才发布 Windows ZIP、逐文件摘要清单及 `SHA256SUMS-windows.txt`。完整流程见[发布文档](releases.md#windows-only-alpha)。

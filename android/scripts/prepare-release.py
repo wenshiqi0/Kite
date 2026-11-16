@@ -39,6 +39,12 @@ def prepare(root, version, notes):
         f"# Kite {version}\n\n"
         "Android 安装包、Linux 主机包和 Windows 客户端由同一源码标签的 GitHub CI 构建并验证。\n"
     )
+    marker = "<!-- Kite-Release-Targets: all -->"
+    markers = [line.strip() for line in body.splitlines() if "Kite-Release-Targets:" in line]
+    if markers and markers != [marker]:
+        raise RuntimeError("Publish Release builds all platforms; omit platform markers from the notes.")
+    if not markers:
+        body = marker + "\n\n" + body
     properties.write_text(f"versionName={version}\nversionCode={code}\n")
     notes_file.parent.mkdir(parents=True, exist_ok=True)
     notes_file.write_text(body + "\n")

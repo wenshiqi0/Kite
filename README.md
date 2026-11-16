@@ -8,6 +8,8 @@ A native workspace for local and remote coding agents, built around [herdr](http
 
 [Windows client and Linux cross-build](docs/windows.md) — native WPF client with remote host management, shared Rust Core and Windows desktop decoding. Windows does not run a local host node.
 
+[Download Windows x64 Alpha 104](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.104/kite-0.2.0-alpha.104-windows-x64.zip) — unzip the full folder and run `Kite/Kite.exe`.
+
 ## What you can do
 
 - Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.

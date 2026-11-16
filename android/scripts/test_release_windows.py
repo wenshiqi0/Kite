@@ -26,6 +26,7 @@ class WindowsPublicationTests(unittest.TestCase):
 
     def package(self, metadata=None, extra=False, tampered=False):
         files = {name: name.encode() for name in ("Kite.exe", "kite_ffi.dll", "kite_windows_media.dll")}
+        files["Kite.deps.json"] = json.dumps({"libraries": {"Kite/" + self.version: {}}}).encode()
         manifest = {"source_commit": self.head, "version": self.version, "dirty": False,
                     "target": "win-x64", "built_on": "linux", "host_role": False,
                     "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}

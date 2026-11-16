@@ -66,6 +66,7 @@ class PublicationTests(unittest.TestCase):
                 artifact = output.parent / "windows-artifact"
                 artifact.mkdir()
                 files = {name: name.encode() for name in ("Kite.exe", "kite_ffi.dll", "kite_windows_media.dll")}
+                files["Kite.deps.json"] = json.dumps({"libraries": {"Kite/" + version: {}}}).encode()
                 windows_manifest = {"source_commit": head, "version": version, "dirty": False,
                     "target": "win-x64", "built_on": "linux", "host_role": False,
                     "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}}

@@ -10,7 +10,25 @@ Stable `X.Y.Z` versions publish as normal GitHub Releases and become latest. `X.
 
 Release Build waits for both the signed Android/Linux build and the Linux-built Windows package's Windows runtime checks. It then verifies the same source commit and version, publishes all six assets together, downloads them to check the bytes, and makes the release public. Assets include both APK signing variants, the Linux host archive, a versioned Windows ZIP, `release-manifest.json` and `SHA256SUMS`. Existing Windows build/test commands and the standalone Windows CI remain available.
 
+The GitHub entry adds `<!-- Kite-Release-Targets: all -->` to the annotated notes. The existing Windows-only marker and CLI remain supported; legacy tags without a marker retain Android/Linux-only routing. The bundled Windows workflow validates its package without starting a second publisher.
+
 The entry workflow is [Publish Release](../.github/workflows/release.yml), and the tagged build/publisher is [Release Build](../.github/workflows/android-release.yml).
+
+## Windows-only Alpha
+
+[Windows 0.2.0-alpha.104](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.104) is published from `main`. Its Linux-built x64 ZIP passed Windows runtime checks and independent public-download checks. [Publication evidence](product/2026-11-16/windows-alpha104/acceptance.md).
+
+Windows releases use the same Alpha sequence and `android/version.properties` version source. Advance both the Alpha number and `versionCode` beyond published releases. The Windows WPF project reads this version directly; the ZIP manifest and embedded dependency metadata must match it.
+
+After committing the complete source on `main`, put `<!-- Kite-Release-Targets: windows -->` in the release notes and run:
+
+```sh
+python3 android/scripts/release-alpha.py --windows --notes-file docs/release-notes/<version>.md
+```
+
+The command atomically pushes `main` and its annotated Alpha tag. The [Windows Client workflow](../.github/workflows/windows-client.yml) cross-builds on Linux, checks the original ZIP on Windows, and only then publishes a prerelease targeting `main`. Its assets are the versioned Windows ZIP, a provenance/file-hash manifest, and `SHA256SUMS-windows.txt`. The publisher downloads every uploaded asset before publishing the draft and refuses replacement of existing bytes. Resume an interrupted publication by rerunning its publish job with the original build artifact.
+
+The annotation selects Windows-only delivery: Android and Docker tag-publication jobs are skipped. Ordinary `main` and PR checks still run; existing Alpha tags without this marker retain Android/Linux delivery. Unknown or duplicate target markers fail instead of silently selecting a platform. Windows publication does not receive Android signing secrets.
 
 ## What runs
 

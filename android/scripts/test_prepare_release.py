@@ -40,7 +40,8 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD^"), before)
         self.assertEqual(self.git("rev-parse", "v0.2.1^{commit}"), result["commit"])
         self.assertEqual(self.git("cat-file", "-t", "v0.2.1"), "tag")
-        self.assertEqual(self.git("for-each-ref", "--format=%(contents)", "refs/tags/v0.2.1"), notes.strip())
+        self.assertEqual(self.git("for-each-ref", "--format=%(contents)", "refs/tags/v0.2.1"),
+                         "<!-- Kite-Release-Targets: all -->\n\n" + notes.strip())
         self.assertEqual(self.git("status", "--porcelain"), "")
 
     def test_alpha_to_stable_order_and_future_alphas(self):

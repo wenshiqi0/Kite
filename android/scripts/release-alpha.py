@@ -121,6 +121,9 @@ def include_windows(artifact_dir, output, version, head):
                 "Windows client contains an unexpected executable or path.")
             require(hashlib.sha256(bundle.read(f"Kite/{name}")).hexdigest() == expected,
                     "Windows client file checksum does not match.")
+        deps = json.loads(bundle.read("Kite/Kite.deps.json"))
+        require(f"Kite/{version}" in deps["libraries"],
+                "Windows application version does not match the release.")
     destination = output / f"kite-{version}-windows-x64.zip"
     shutil.copyfile(archive, destination)
     return destination, {"asset": destination.name, "bytes": destination.stat().st_size,
@@ -167,7 +170,7 @@ def inspect_apk(apk, tools, version, code, *, v3=True):
     return abis, certificate[1]
 
 
-def launch_ci(repo, tag, head, branch, notes, existing_tag):
+def launch_ci(repo, tag, head, branch, notes, existing_tag, *, workflow="android-release.yml"):
     import time
     require(branch, "Use a source branch when launching a release.")
     require(notes.is_file(), "Provide release notes with --notes-file.")
@@ -176,7 +179,7 @@ def launch_ci(repo, tag, head, branch, notes, existing_tag):
     run("git", "push", "--atomic", "origin", f"HEAD:refs/heads/{branch}", f"refs/tags/{tag}", capture=False)
     print(f"Waiting for the tagged build: https://github.com/{repo}/actions", flush=True)
     for _ in range(30):
-        runs = json.loads(run("gh", "run", "list", "--repo", repo, "--workflow", "android-release.yml",
+        runs = json.loads(run("gh", "run", "list", "--repo", repo, "--workflow", workflow,
                               "--event", "push", "--commit", head, "--limit", "30",
                               "--json", "databaseId,headBranch"))
         matches = [r for r in runs if r["headBranch"] == tag]
@@ -196,6 +199,7 @@ def main():
     parser.add_argument("--notes-file", type=Path)
     parser.add_argument("--windows-artifact-dir", type=Path,
                         help="include the Windows package after its CI runtime checks pass")
+    parser.add_argument("--windows", action="store_true", help="publish the Windows-only client from main")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check-only", action="store_true")
     mode.add_argument("--build-only", action="store_true", help="build and verify assets without publishing")
@@ -226,6 +230,21 @@ def main():
                           "prerelease": is_prerelease}, indent=2))
         return
     notes = (args.notes_file or ROOT / "docs/release-notes" / f"{version}.md").resolve()
+    if args.windows:
+        import runpy
+        require(not args.build_only, "Use windows/scripts/build-linux.sh for local Windows builds")
+        require(notes.is_file(), "Provide Windows release notes with --notes-file")
+        targets = runpy.run_path(str(ROOT / "scripts/release-targets.py"))
+        require(targets["select_targets"]("tag", notes.read_text()) == {"android": False, "windows": True},
+                "Windows releases require the Windows-only release-target marker")
+        if args.publish_only:
+            publisher = runpy.run_path(str(ROOT / "windows/scripts/release.py"))
+            publisher["publish"](repo, tag, version, head, notes, ROOT / "windows/dist/release" / tag,
+                run=run, require=require, release_info=release_info, wait_for_created_release=wait_for_created_release)
+        else:
+            require(branch == "main", "Publish the Windows client from main")
+            launch_ci(repo, tag, head, branch, notes, existing_tag, workflow="windows-client.yml")
+        return
     if not args.build_only and not args.publish_only:
         launch_ci(repo, tag, head, branch, notes, existing_tag)
         return
