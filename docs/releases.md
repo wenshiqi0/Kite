@@ -16,11 +16,15 @@ The entry workflow is [Publish Release](../.github/workflows/release.yml), and t
 
 If all platform builds and Windows runtime checks passed but publication failed, run **Publish Release** on `main` with the same version and its **build_run_id**. Recovery checks the immutable tag against that completed run, downloads its existing verified packages and publishes those exact bytes. It does not create a version or move a tag. The manifest records the original build run and the recovery tooling commit. A failed platform build cannot use this path.
 
-## Windows-only Alpha
+## Verified delivery — 2026-11-16
+
+[0.2.1](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.1), Android versionCode **107**, is a stable release and GitHub's latest release. It provides both Android APK signing variants, the matching Linux host and the Windows x64 client from source `98ef549dacfa88db7cd8818618066a93a7762e6b`. Platform builds and Windows runtime checks passed; publication recovered the same verified artifacts after a temporary-directory check failed. Independent public downloads passed checksums, existing Android signing identity and signature/API/alignment checks, Linux binary/source checks and Windows file/version checks. [Evidence](product/2026-11-16/stable-0.2.1/acceptance.md).
+
+## Windows-only releases
 
 [Windows 0.2.0-alpha.104](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.104) is published from `main`. Its Linux-built x64 ZIP passed Windows runtime checks and independent public-download checks. [Publication evidence](product/2026-11-16/windows-alpha104/acceptance.md).
 
-Windows releases use the same Alpha sequence and `android/version.properties` version source. Advance both the Alpha number and `versionCode` beyond published releases. The Windows WPF project reads this version directly; the ZIP manifest and embedded dependency metadata must match it.
+Windows releases use the same stable/Alpha version sequence and `android/version.properties` version source. Advance both the version and `versionCode` beyond published releases. The Windows WPF project reads this version directly; the ZIP manifest and embedded dependency metadata must match it.
 
 After committing the complete source on `main`, put `<!-- Kite-Release-Targets: windows -->` in the release notes and run:
 
@@ -28,7 +32,7 @@ After committing the complete source on `main`, put `<!-- Kite-Release-Targets: 
 python3 android/scripts/release-alpha.py --windows --notes-file docs/release-notes/<version>.md
 ```
 
-The command atomically pushes `main` and its annotated Alpha tag. The [Windows Client workflow](../.github/workflows/windows-client.yml) cross-builds on Linux, checks the original ZIP on Windows, and only then publishes a prerelease targeting `main`. Its assets are the versioned Windows ZIP, a provenance/file-hash manifest, and `SHA256SUMS-windows.txt`. The publisher downloads every uploaded asset before publishing the draft and refuses replacement of existing bytes. Resume an interrupted publication by rerunning its publish job with the original build artifact.
+The command atomically pushes `main` and its annotated version tag. The [Windows Client workflow](../.github/workflows/windows-client.yml) cross-builds on Linux, checks the original ZIP on Windows, and only then publishes a stable release or Alpha prerelease targeting `main`. Its assets are the versioned Windows ZIP, a provenance/file-hash manifest, and `SHA256SUMS-windows.txt`. The publisher downloads every uploaded asset before publishing the draft and refuses replacement of existing bytes. Resume an interrupted publication by rerunning its publish job with the original build artifact.
 
 The annotation selects Windows-only delivery: Android and Docker tag-publication jobs are skipped. Ordinary `main` and PR checks still run; existing Alpha tags without this marker retain Android/Linux delivery. Unknown or duplicate target markers fail instead of silently selecting a platform. Windows publication does not receive Android signing secrets.
 

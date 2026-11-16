@@ -58,4 +58,4 @@ dotnet build windows/Kite/Kite.csproj -c Release -p:TreatWarningsAsErrors=true
 
 ## GitHub Release
 
-Windows 版本沿用 `android/version.properties` 中的统一 Alpha 序号。源码合并到 `main` 后，通过 `python3 android/scripts/release-alpha.py --windows --notes-file <发布说明>` 发布；注解标签明确选择 Windows。只有该标签的 Linux 构建和 Windows 运行检查都通过，CI 才发布 Windows ZIP、逐文件摘要清单及 `SHA256SUMS-windows.txt`。完整流程见[发布文档](releases.md#windows-only-alpha)。
+Windows 版本沿用 `android/version.properties` 中的统一正式版或 Alpha 版本号。常规发版使用 GitHub 的 `Publish Release` 入口；以下 Windows-only CLI 保留用于独立发布。源码合并到 `main` 后，通过 `python3 android/scripts/release-alpha.py --windows --notes-file <发布说明>` 发布；注解标签明确选择 Windows。只有该标签的 Linux 构建和 Windows 运行检查都通过，CI 才发布 Windows ZIP、逐文件摘要清单及 `SHA256SUMS-windows.txt`。完整流程见[发布文档](releases.md#windows-only-releases)。

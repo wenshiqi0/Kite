@@ -2,13 +2,13 @@
 
 A native workspace for local and remote coding agents, built around [herdr](https://github.com/herdrdev/herdr). Follow conversations, open a machine's desktop, and operate it when needed.
 
-[Download Alpha packages](https://github.com/wenshiqi0/Kite/releases) · [Set up your host](docs/backend-setup.md) · [Linux desktop host](docs/linux-desktop.md)
+[Download the latest release](https://github.com/wenshiqi0/Kite/releases/latest) · [Set up your host](docs/backend-setup.md) · [Linux desktop host](docs/linux-desktop.md)
 
 [Build the macOS client](docs/macos.md) — native SwiftUI workspace, shared Rust Core and Apple desktop decoding.
 
 [Windows client and Linux cross-build](docs/windows.md) — native WPF client with remote host management, shared Rust Core and Windows desktop decoding. Windows does not run a local host node.
 
-[Download Windows x64 Alpha 104](https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.104/kite-0.2.0-alpha.104-windows-x64.zip) — unzip the full folder and run `Kite/Kite.exe`.
+[Download Windows x64 0.2.1](https://github.com/wenshiqi0/Kite/releases/download/v0.2.1/kite-0.2.1-windows-x64.zip) — unzip the full folder and run `Kite/Kite.exe`.
 
 ## What you can do
 
@@ -33,13 +33,13 @@ A native workspace for local and remote coding agents, built around [herdr](http
 3. Add Kite's public key to your host, verify the host fingerprint, and connect. Kite reconnects to the host agent automatically, preparing a default Codex session when needed. Additional project sessions are optional.
 4. Open the desktop and pair with Sunshine when prompted. Use the fullscreen orientation button even when phone auto-rotation is off.
 
-The Android app is in Alpha and currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Android supports remote desktop sound; host local playback stays enabled. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
+The Android app currently uses a Chinese interface. Codex is connected and validated; Claude sessions can be saved as pending connections. iOS supports the host connection flow; desktop viewing on iOS is still in progress. Android supports remote desktop sound; host local playback stays enabled. Structured history requires herdr session integration; unsupported transcripts remain available as terminal output. Operate keeps the agent running unless you pause it explicitly.
 
-The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS. The Linux Alpha delivers the host node and management panel. The [Mac app](docs/macos.md) provides a native remote workspace and independent local host management. See the [Mac host acceptance boundaries](docs/product/2026-11-03/macos-host/acceptance.md); desktop privacy setup and physical media validation remain separate. Linux client UI is a later stage.
+The [desktop product](docs/desktop.md) targets both client and host roles on Linux and macOS. The Linux package delivers the host node and management panel. The [Mac app](docs/macos.md) provides a native remote workspace and independent local host management. See the [Mac host acceptance boundaries](docs/product/2026-11-03/macos-host/acceptance.md); desktop privacy setup and physical media validation remain separate. Linux client UI is a later stage.
 
 ## Documentation
 
-Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite docs` for the short index. CLI, standard MCP and a shared lightweight Skill bundle use the same versioned guides; see [agent integration](docs/agent/harnesses.md). These source features do not imply every published Alpha already contains them.
+Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite docs` for the short index. CLI, standard MCP and a shared lightweight Skill bundle use the same versioned guides; see [agent integration](docs/agent/harnesses.md). These source features do not imply every published version already contains them.
 
 - [Host setup and troubleshooting](docs/backend-setup.md)
 - [Docker server deployment](docs/docker-host.md)
@@ -48,7 +48,7 @@ Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite do
 - [Implementation status and next stages](docs/implementation-plan.md)
 - [Build and development](docs/development.md)
 - [Testing](docs/testing.md)
-- [Alpha releases and CI](docs/releases.md)
+- [Releases and CI](docs/releases.md)
 - [Architecture and engineering specification](SPEC.md)
 
 ## License
