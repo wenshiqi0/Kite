@@ -12,6 +12,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 targets = runpy.run_path(str(ROOT / "scripts/release-targets.py"))
 publisher = runpy.run_path(str(ROOT / "windows/scripts/release.py"))
+packager = runpy.run_path(str(ROOT / "windows/scripts/package.py"))
 VERSION = "0.2.0-alpha.104"
 COMMIT = "a" * 40
 
@@ -35,6 +36,17 @@ def package(directory, *, version=VERSION, commit=COMMIT, dirty=False, tamper=Fa
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_packager_accepts_stable_and_alpha_versions_from_the_shared_version_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            (repo / "android").mkdir()
+            for version in ("0.2.1", "0.2.2-alpha.1"):
+                (repo / "android/version.properties").write_text(f"versionName={version}\nversionCode=107\n")
+                self.assertEqual(packager["package_version"](repo), version)
+            (repo / "android/version.properties").write_text("versionName=invalid\nversionCode=107\n")
+            with self.assertRaises(RuntimeError):
+                packager["package_version"](repo)
+
     def test_windows_tag_excludes_android_and_host_publication(self):
         self.assertEqual(targets["select_targets"]("tag", targets["WINDOWS_MARKER"]),
                          {"android": False, "windows": True})

@@ -3,13 +3,19 @@
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 import shutil
 import struct
 import subprocess
 import sys
 import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'android/scripts'))
+from release_version import read_version
+
+
+def package_version(repo):
+    return read_version(repo / 'android/version.properties')[0]
 
 
 def pe(path):
@@ -57,10 +63,7 @@ def main():
     directory = Path(sys.argv[1]).resolve()
     # Retain the notices from the exact runtime packs used by dotnet publish.
     repo = Path(__file__).resolve().parents[2]
-    properties = dict(line.split('=', 1) for line in (repo/'android/version.properties').read_text().splitlines() if line and not line.startswith('#'))
-    version = properties['versionName']
-    if not re.fullmatch(r'\d+\.\d+\.\d+-alpha\.[1-9]\d*', version):
-        raise ValueError('Only Alpha versions may be packaged')
+    version = package_version(repo)
     deps = json.loads((directory/'Kite.deps.json').read_text())
     if 'Kite/'+version not in deps['libraries']:
         raise ValueError('Windows application version differs from version.properties')
