@@ -1,0 +1,32 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.90",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/42739248877",
+  "sourceCommit": "d20e30d204704a62d2aef314b2a6b560f6704bbb",
+  "versionName": "0.2.0-alpha.90",
+  "versionCode": 92,
+  "certificateMatchesAlpha89": true,
+  "primaryAndCompatibilityApplicationPayloadsMatch": true,
+  "checks": [
+    "public SHA256SUMS and manifest",
+    "Release variant and version",
+    "arm64-v8a ABI",
+    "v1 signature on API 23",
+    "primary v3 and compatibility v2 signatures on API 36",
+    "16 KiB ZIP alignment"
+  ],
+  "files": [
+    {
+      "asset": "kite-0.2.0-alpha.90-arm64-v8a.apk",
+      "sha256": "ee0dbdfe6f86bab5ac38ce533e8dd7b613688b653076ec583a52aeac6a480465",
+      "bytes": 26008672,
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273"
+    },
+    {
+      "asset": "kite-0.2.0-alpha.90-arm64-v8a-compat-v2.apk",
+      "sha256": "6a3d6d4ab833dae878ecd699388c63e3842247a5b73da132e468d09af65e75f2",
+      "bytes": 26008672,
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273"
+    }
+  ],
+  "physicalHandsetVerification": "Not performed; no handset connected to the local ADB server."
+}

@@ -6,4 +6,6 @@ The initialization indicator is already conditional and contributes no layout no
 
 Alpha 90 removes that wrapper and passes the padding as a `Modifier` to `ResourceWarning`. The modifier is applied to the warning surface after its visibility check. Missing/healthy warnings therefore add zero height, while visible warning spacing and actions are preserved. The initialization fix from Alpha 89 remains included.
 
-Validation: review the visibility and padding ownership and run the existing required release checks. Tagged CI and public-package verification are recorded after publication. Physical-handset layout execution remains separate.
+Validation: visibility and padding ownership were reviewed. [Alpha 90](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.90), versionCode 92, is published from source `d20e30d204704a62d2aef314b2a6b560f6704bbb`. Both jobs in [tagged CI](https://github.com/wenshiqi0/Kite/actions/runs/42739248877) pass, including the existing Release JVM tests, lint, native test-source compilation and package checks.
+
+Fresh public downloads of both APKs match SHA256SUMS and the manifest. Independent SDK checks confirm the previous certificate, Release variant/version, arm64 ABI, API-23 v1 signatures, API-36 primary v3 and compatibility v2 signatures, matching application payloads and 16 KiB alignment. See [published package evidence](spacing-release.json). Physical-handset layout execution remains separate.
