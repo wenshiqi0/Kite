@@ -120,6 +120,8 @@ class PublicationTests(unittest.TestCase):
         create = next(call for call in calls if call[1:3] == ("release", "create"))
         edit = next(call for call in calls if call[1:3] == ("release", "edit"))
         self.assertIn("--prerelease=false", create)
+        self.assertIn("--verify-tag", create)
+        self.assertNotIn("--target", create)
         self.assertNotIn("(Alpha)", create[create.index("--title") + 1])
         self.assertIn("--prerelease=false", edit)
         self.assertIn("--latest=true", edit)

@@ -376,7 +376,9 @@ def main():
         sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in checksummed))
     release = release_info(repo, tag)
     if release is None:
-        run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--target", head,
+        # The existing tag already pins the source. An older target SHA can hit
+        # GitHub's workflow-file permission guard as main's CI evolves.
+        run("gh", "release", "create", tag, "--repo", repo, "--verify-tag",
             "--title", f"Kite {version}" + (" (Alpha)" if is_prerelease else ""), "--notes-file", str(notes),
             "--draft", f"--prerelease={str(is_prerelease).lower()}", "--latest=false")
         release = wait_for_created_release(repo, tag)
