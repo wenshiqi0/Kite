@@ -55,6 +55,10 @@ impl ClientCore {
     fn accept(&self, host: Option<String>, snapshot: Snapshot) {
         {
             let mut state = lock(&self.state);
+            // A canceled workspace can still finish an observer call after removal.
+            if host.as_ref().is_some_and(|id| self.base.host(id).is_err()) {
+                return;
+            }
             let previous = host
                 .as_ref()
                 .and_then(|id| state.workspaces.get(id))
@@ -313,6 +317,38 @@ impl ClientCore {
 
     pub async fn forget_host(&self, host: String) -> Result<(), AppError> {
         self.runtime(&host)?.forget_host(host).await
+    }
+
+    /// Remove a saved target. Forgetting only its trust/pairing remains a separate command.
+    pub async fn remove_host(&self, host: String) -> Result<(), AppError> {
+        let _guard = self.operations.lock().await;
+        self.runtime(&host)?.forget_host(host.clone()).await?;
+        let selected = {
+            let mut store = lock(&self.base.store);
+            let store = store
+                .as_mut()
+                .ok_or_else(|| AppError::State("core is not initialized".into()))?;
+            let mut next = store.data().clone();
+            next.hosts.retain(|saved| saved.id != host);
+            if next.selected_host.as_deref() == Some(&host) {
+                next.selected_host = next.hosts.first().map(|saved| saved.id.clone());
+            }
+            let selected = next.selected_host.clone();
+            store.commit(next)?;
+            selected
+        };
+        let removed = lock(&self.runtimes).remove(&host);
+        {
+            let mut state = lock(&self.state);
+            state.workspaces.remove(&host);
+            if state.selected.as_deref() == Some(&host) {
+                state.selected = selected;
+            }
+        }
+        drop(removed);
+        self.base.sync_store();
+        self.publish();
+        Ok(())
     }
 
     pub fn notifications(&self) -> Vec<AgentNotice> {
@@ -674,6 +710,81 @@ impl ClientCore {
 mod tests {
     use super::super::recovery_tests::Fixture;
     use super::*;
+
+    #[tokio::test]
+    async fn removing_saved_hosts_is_distinct_from_forgetting_trust_and_persists() {
+        let fixture = Fixture::new(false).await;
+        let directory = tempfile::tempdir().unwrap();
+        let client = ClientCore::new(fixture.core.secrets.clone(), fixture.core.observer.clone());
+        let host = fixture.core.host("host").unwrap();
+        client
+            .initialize(
+                directory.path().into(),
+                "host-removal".into(),
+                LegacyImport {
+                    source: "host-removal".into(),
+                    host: Some(host.clone()),
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        client
+            .save_host(Host {
+                id: "other".into(),
+                host: "other.invalid".into(),
+                ..host
+            })
+            .await
+            .unwrap();
+        client.select_host("host".into()).await.unwrap();
+        client.forget_host("host".into()).await.unwrap();
+        assert_eq!(
+            client.snapshot().hosts.len(),
+            2,
+            "forgetting trust preserves the saved target"
+        );
+        let original = client.runtime("host").unwrap();
+        let other = client.runtime("other").unwrap();
+        other.set_connection_intent(Some("other".into())).unwrap();
+        client.remove_host("host".into()).await.unwrap();
+        let snapshot = client.snapshot();
+        assert_eq!(snapshot.hosts.len(), 1);
+        assert_eq!(snapshot.selected_host.as_deref(), Some("other"));
+        assert!(Arc::ptr_eq(&other, &client.runtime("other").unwrap()));
+        assert!(lock(&client.base.connection_intents).contains("other"));
+        let mut late = original.snapshot();
+        late.revision = u64::MAX;
+        client.accept(Some("host".into()), late);
+        assert!(
+            client
+                .snapshot()
+                .host_connections
+                .iter()
+                .all(|workspace| workspace.host_id != "host")
+        );
+        drop(client);
+        let reopened = ClientCore::new(fixture.core.secrets.clone(), fixture.core.observer.clone());
+        reopened
+            .initialize(
+                directory.path().into(),
+                "host-removal".into(),
+                LegacyImport {
+                    source: "host-removal".into(),
+                    host: None,
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(reopened.snapshot().hosts.len(), 1);
+        reopened.remove_host("other".into()).await.unwrap();
+        assert!(reopened.snapshot().hosts.is_empty());
+        assert!(reopened.snapshot().selected_host.is_none());
+        assert!(reopened.snapshot().host_connections.is_empty());
+        assert!(lock(&reopened.base.connection_intents).is_empty());
+        fixture.stop().await;
+    }
 
     async fn until(mut condition: impl FnMut() -> bool) {
         tokio::time::timeout(Duration::from_secs(12), async {

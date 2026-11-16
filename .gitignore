@@ -37,4 +37,12 @@ __pycache__/
 # Bun workspace dependencies and generated host bundles
 node_modules/
 coverage/
+
+# Windows client and cross-build output
+/windows/build/
+/windows/dist/
+/windows/Kite/bin/
+/windows/Kite/obj/
+/windows/Tests/bin/
+/windows/Tests/obj/
 /deploy/docker/.env

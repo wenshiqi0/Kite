@@ -12,21 +12,59 @@ fn main() {
         .warnings(false)
         .define("NDEBUG", None)
         .define("_DEFAULT_SOURCE", None)
-        .define("HAS_SOCKLEN_T", "1")
-        .define("HAS_FCNTL", "1")
-        .define("HAS_IOCTL", "1")
-        .define("HAS_POLL", "1")
         .define("HAS_GETADDRINFO", "1")
         .define("HAS_GETNAMEINFO", "1")
         .define("HAS_INET_PTON", "1")
         .define("HAS_INET_NTOP", "1")
-        .define("HAS_MSGHDR_FLAGS", "1")
         .include(root.join("src"))
         .include(root.join("enet/include"))
         .include(root.join("nanors"))
         .include(root.join("nanors/deps"))
         .include(root.join("nanors/deps/obl"))
         .include("native");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        build.define("_WIN32_WINNT", "0x0601");
+        // Match enet's CMake checks: old MinGW headers require its typedefs,
+        // while current MinGW/Windows SDK headers already declare both types.
+        let out = std::path::PathBuf::from(env::var_os("OUT_DIR").unwrap());
+        let probe = out.join("qos-types.c");
+        fs::write(
+            &probe,
+            "#include <winsock2.h>\n#include <qos2.h>\nQOS_FLOWID flow; PQOS_FLOWID pointer;\n",
+        )
+        .expect("write QoS header probe");
+        let compiler = build.get_compiler();
+        let mut command = compiler.to_command();
+        if compiler.is_like_msvc() {
+            command
+                .arg("/c")
+                .arg(&probe)
+                .arg(format!("/Fo{}", out.join("qos-types.obj").display()));
+        } else {
+            command
+                .arg("-c")
+                .arg(&probe)
+                .arg("-o")
+                .arg(out.join("qos-types.o"));
+        }
+        if command.output().is_ok_and(|result| result.status.success()) {
+            build
+                .define("HAS_QOS_FLOWID", "1")
+                .define("HAS_PQOS_FLOWID", "1");
+        }
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=winmm");
+    } else {
+        for name in [
+            "HAS_SOCKLEN_T",
+            "HAS_FCNTL",
+            "HAS_IOCTL",
+            "HAS_POLL",
+            "HAS_MSGHDR_FLAGS",
+        ] {
+            build.define(name, "1");
+        }
+    }
     let includes =
         env::var_os("DEP_OPENSSL_INCLUDE").expect("openssl-sys must provide its target headers");
     for include in env::split_paths(&includes) {

@@ -52,3 +52,12 @@ No Herdr server binary is bundled.
 OpenSSL is built from the openssl-src version recorded in Cargo.lock,
 under Apache-2.0. Other Rust/JVM dependency versions and their source
 license metadata are recorded by Cargo.lock and Gradle dependency metadata.
+
+Windows client media uses libopus 1.5.2 (BSD-3-Clause), statically linked.
+Its full copyright and license text is distributed as OPUS-LICENSE.txt.
+https://opus-codec.org/
+
+The self-contained Windows client includes Microsoft .NET and Windows Desktop
+runtime packs. Their exact versions are recorded in Kite.runtimeconfig.json;
+their LICENSE and third-party notices are retained alongside the application.
+MinGW-w64 and GCC runtime support are used for the Linux cross-build.

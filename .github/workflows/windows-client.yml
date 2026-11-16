@@ -1,0 +1,125 @@
+name: Windows Client
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, feat/windows-client]
+    paths:
+      - 'windows/**'
+      - 'crates/**'
+      - 'packages/**'
+      - 'Cargo.*'
+      - 'bun.lock'
+      - '.github/workflows/windows-client.yml'
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: 'Retest an existing Linux-built artifact (empty builds current source)'
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: windows-client-${{ github.ref }}-${{ inputs.artifact_run_id || 'build' }}
+  cancel-in-progress: false
+jobs:
+  cross-build:
+    if: ${{ !inputs.artifact_run_id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.404'
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix cmake ninja-build
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            windows/build/native
+          key: windows-client-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'windows/native/CMakeLists.txt') }}
+      - name: Check shared client behavior
+        run: |
+          bun install --frozen-lockfile
+          cargo test --locked -p kite-ffi --features windows-client -p kite-app -p kite-store -p kite-stream
+          cargo fmt --all --check
+          cargo clippy --locked -p kite-ffi --features windows-client -- -D warnings
+      - name: Cross-build Windows client on Linux
+        run: windows/scripts/build-linux.sh
+      - name: Upload portable client and native test
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: Kite-windows-x64
+          path: |
+            windows/dist/Kite-windows-x64.zip
+            windows/dist/Kite-windows-x64.zip.sha256
+            windows/build/native/kite_media_test.exe
+          if-no-files-found: error
+  windows-runtime:
+    needs: cross-build
+    if: ${{ !cancelled() && (needs.cross-build.result == 'success' || inputs.artifact_run_id != '') }}
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: Kite-windows-x64
+          path: cross-built
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Unpack and verify the Linux-built Windows package
+        id: unpack
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem cross-built -Recurse -Filter Kite-windows-x64.zip | Select-Object -First 1
+          $expected = (Get-Content "$($archive.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'ZIP checksum mismatch' }
+          Expand-Archive $archive.FullName -DestinationPath smoke
+          $nativeTest = Get-ChildItem cross-built -Recurse -Filter kite_media_test.exe | Select-Object -First 1
+          Copy-Item $nativeTest.FullName smoke/Kite/
+      - name: Test DPAPI, device identity and host management
+        if: ${{ !cancelled() && steps.unpack.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--self-test' -RedirectStandardOutput self-test.log -RedirectStandardError self-test-errors.log -Wait -PassThru
+          Get-Content self-test.log, self-test-errors.log
+          if ($process.ExitCode -ne 0) { throw "Client self-test failed: $($process.ExitCode)" }
+      - name: Test system H.264 decoding
+        if: ${{ !cancelled() && steps.unpack.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          & smoke/Kite/kite_media_test.exe macos/Tests/Fixtures/frame.h264
+          if ($LASTEXITCODE -ne 0) { throw 'Media Foundation decode test failed' }
+      - name: Test WPF startup and rendering
+        if: ${{ !cancelled() && steps.unpack.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "$PWD/smoke/Kite/Kite.exe" -ArgumentList '--ui-smoke', "$PWD/windows-client.png" -RedirectStandardOutput ui-smoke.log -RedirectStandardError ui-smoke-errors.log -Wait -PassThru
+          Get-Content ui-smoke.log, ui-smoke-errors.log
+          if ($process.ExitCode -ne 0) { throw 'WPF startup smoke test failed' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: Windows-client-runtime-evidence
+          path: |
+            windows-client.png
+            *test*.log
+            ui-smoke*.log
+          if-no-files-found: ignore

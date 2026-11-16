@@ -1,0 +1,18 @@
+Kite Windows 客户端 · Alpha
+
+1. 将整个 ZIP 解压到一个文件夹，运行 Kite.exe。请保留同目录的 DLL 和运行时文件。
+2. 点击“设备公钥”，将公钥加入已有 Kite 主机的 ~/.ssh/authorized_keys。
+3. “＋ 主机”中填写地址、SSH 用户名和端口，然后连接。首次连接请核对 SSH 主机指纹。
+4. 在侧栏选择会话或新建会话，聊天、上传附件并处理审批和提问。
+5. 点击“远程桌面”观看目标桌面；配对后选择“进入操作”发送键鼠。
+   全屏时 Ctrl+Escape 返回普通窗口。声音可以静音，文本剪贴板默认关闭。
+
+Windows x64，建议 Windows 11 或仍受支持的 Windows 10。无需另外安装 .NET。
+Windows N 版本需要微软 Media Feature Pack 才能使用远程桌面视频。
+客户端保存远程主机配置，不安装或启动本机 Kite Node、Herdr、Sunshine、Bun。
+密钥使用当前 Windows 用户的 DPAPI 加密；请勿将 secrets 目录复制给其他用户。
+本机数据：%LOCALAPPDATA%\Kite\Windows
+
+本包为 Linux 交叉构建的开发 Alpha，未签名。验证范围以源码中的验收记录为准。
+源码、GPL-3.0-only 许可证和第三方声明见同目录 LICENSE、NOTICE.txt。
+项目源码：https://github.com/wenshiqi0/Kite

@@ -1,7 +1,7 @@
 # kite 工程规范（SPEC）
 
 > 状态：生效 · 2026-10-28
-> 适用范围：`packages/` 下的 TypeScript 服务端代码、`crates/` 下的全部 Rust 代码，以及 `android/`、`ios/` 与 `desktop/` 下的原生代码。
+> 适用范围：`packages/` 下的 TypeScript 服务端代码、`crates/` 下的全部 Rust 代码，以及 `android/`、`ios/`、`macos/`、`windows/` 与 `desktop/` 下的原生代码。
 > 本文汇总当前生效的硬性规则。每条规则的来龙去脉记录在 [docs/rfcs/](docs/rfcs/README.md) 里，整体设计见 [RFC 0001](docs/rfcs/0001-architecture.md)。要调整 crate 划分，或者调整 Rust 与原生界面的分界，按第 7 节的流程先写 RFC、改这份规范，再改代码。
 
 文中"必须""不得"是硬性要求，"应当"是默认做法，有充分理由时可以例外，但要在代码或提交说明里写明理由。
@@ -94,6 +94,7 @@ target/                  构建输出，不提交
 android/                 Android 应用（Gradle 工程）
 ios/                     iOS 应用（XcodeGen 工程，描述文件是 ios/project.yml）
 macos/                   macOS 原生客户端（XcodeGen 工程，描述文件是 macos/project.yml）
+windows/                 Windows x64 原生 WPF 纯客户端、媒体适配和 Linux 交叉构建
 docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ```
 
@@ -110,8 +111,8 @@ docs/rfcs/               设计提案（RFC），见 docs/rfcs/README.md
 ### 3.1 分层
 
 ```
-原生应用（Kotlin / Swift）
-        │  UniFFI · 媒体通道
+原生应用（Kotlin / Swift / C#）
+        │  UniFFI / Windows C ABI · 独立媒体通道
 边界层   kite-ffi        唯一对外的库：Android 用 cdylib，iOS 用 staticlib
         │
 应用层   kite-app
@@ -195,9 +196,9 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 
 | 通道 | 方向 | 用途 | 机制 |
 |---|---|---|---|
-| 命令 | 原生 → Rust | 用户操作：连接、发消息、确认、接管、配对 | UniFFI 导出的方法，耗时的都是 async |
-| 状态 | Rust → 原生 | 视图模型快照和事件 | UniFFI 回调接口，由原生实现 |
-| 媒体 | 双向 | 视频帧（Rust → 原生）、串流输入（原生 → Rust） | Android 用 JNI 加 direct ByteBuffer，iOS 用 C ABI |
+| 命令 | 原生 → Rust | 用户操作：连接、发消息、确认、接管、配对 | UniFFI async 方法；Windows 进程内 C ABI 在原生工作线程调用同一命令 |
+| 状态 | Rust → 原生 | 视图模型快照和事件 | UniFFI 回调；Windows 回调通知修订号，由原生读取最新快照和增量 |
+| 媒体 | 双向 | 视频帧（Rust → 原生）、串流输入（原生 → Rust） | Android 用 JNI 加 direct ByteBuffer，Apple/Windows 用 C ABI |
 
 ### 4.3 UniFFI 接口约定
 
@@ -274,9 +275,13 @@ Linux 主机端按 [RFC 0014](docs/rfcs/0014-linux-host-node.md) 使用 `kite-ap
 
 按 [RFC 0027](docs/rfcs/0027-macos-client.md) 实现 macOS 14+ 原生客户端，按 [RFC 0029](docs/rfcs/0029-macos-host.md) 集成本机主机角色。SwiftUI/AppKit 面板通过随应用交付的结构化 Node CLI 管理 launchd 用户服务；关闭客户端不停止后台节点或 agent。Mac 沿用 SSH、私有 IPC 和既有会话协议；进程机制使用 Darwin API。Mac 不声明 Linux 内存硬限额、进程暂停或 X11 桌面 MCP 能力。客户端有独立本机 Keychain 身份和应用支持目录，不迁移其他设备私钥。XcodeGen 维护 `macos/project.yml`，生成的工程、绑定和构建目录不提交。界面更新使用 MainActor，文案使用平台字符串资源。
 
-Apple 媒体在 FFI 的 `apple` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
+Apple 媒体在 FFI 的共享 `media` 模块使用 C ABI 回调和不透明整数 handle，注册/在途串流持有上下文，最后一个所有者释放时执行原生 release。H.264 由 VideoToolbox 解码、Metal 展示，音频原生播放；高频输入不走 UniFFI，Rust 再次检查操作状态。失焦或目标退出释放输入并取消待发事件，异步命令与剪贴板始终绑定明确的目标上下文。客户端退出只释放外连资源，不管理本机主机服务生命周期。
 
 Mac 本机开发版按 [RFC 0028](docs/rfcs/0028-macos-keychain-access.md) 固定应用签名，使用只安装一次、按需启动的原生钥匙串组件保持读取身份。组件只接受指定证书和 Kite bundle ID 的父进程，只处理两个既有条目，秘密仅通过私有管道传递。普通读写不弹授权 UI，禁止悄悄回退或重新生成身份；显式设置更新访问控制并保留原数据，正常构建不覆盖组件。
+
+### 5.6 Windows
+
+Windows 客户端按 [RFC 0031](docs/rfcs/0031-windows-client.md) 使用 C# / WPF。`kite-ffi/windows-client` 的进程内 C ABI 序列化既有命令、快照和聊天增量，媒体继续使用独立 C 通道。Windows 提供远程主机管理，不提供本机主机角色；不包含 Node、Herdr、Sunshine 或 Bun 运行时。设备秘密以当前用户 DPAPI 保存。C ABI 同次构建、持有明确生命周期、捕获 panic；原生工作线程执行命令，界面线程只呈现。Linux MinGW 交叉出包与 Windows 实机验收分开记录。
 
 ## 6. 当前实现与 M1 升级
 
@@ -307,4 +312,4 @@ Android 使用 MediaCodec 与 SurfaceView，编码帧通过预分配 direct Byte
 
 按 [RFC 0024](docs/rfcs/0024-bun-server-monorepo.md)，仓库同时使用 Cargo workspace (`crates/*`) 与 Bun workspace (`packages/*`)。服务端平台及 provider 适配器使用 TypeScript strict 校验与 Bun 运行时，取代原 `backend/` Python 运行路径；原生 GTK 面板、安装与发布工具不属于服务端 TS 运行边界。Rust 继续持有客户端领域状态、SSH/IPC 与主机策略。packages 依赖从 host 到 providers/platform、runtime、protocol 单向流动。所有外部 JSON 必须从 unknown 验证；不得通过 any、关闭 strict 或忽略类型错误绕过检查。构建 bundle 进入 Cargo OUT_DIR，按摘要释放；生成物不提交。
 
-客户端内容必须使用原生语言：Android Kotlin，iOS/macOS Swift，Linux Rust/GTK。`kite-desktop` 为原生展示可执行入口，使用结构化 CLI 调用 `kite-node`；不得将 UI 迁入 Bun/TypeScript，也不得保留 Python GUI。该 crate 不引入 provider 或服务策略。
+客户端内容必须使用原生语言：Android Kotlin，iOS/macOS Swift，Linux Rust/GTK，Windows C#/WPF。`kite-desktop` 为原生展示可执行入口，使用结构化 CLI 调用 `kite-node`；不得将 UI 迁入 Bun/TypeScript，也不得保留 Python GUI。该 crate 不引入 provider 或服务策略。
