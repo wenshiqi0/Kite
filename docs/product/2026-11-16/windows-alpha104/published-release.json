@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0-alpha.104",
+  "sourceCommit": "16f99960ae8b7289581aa8896628845d5f49a6ea",
+  "zipSha256": "15203aa3847ace1dd89d1a97b5336b1c7f78253c82b8badf0dfce595ae1db449",
+  "filesVerified": 252,
+  "publicDownloadVerified": true,
+  "workflowRun": 43780567975,
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.104",
+  "targetBranch": "main",
+  "prerelease": true,
+  "draft": false,
+  "publishedAt": "2026-11-16T00:33:10Z",
+  "assets": [
+    {
+      "name": "kite-0.2.0-alpha.104-windows-x64-manifest.json",
+      "bytes": 26613,
+      "downloadUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.104/kite-0.2.0-alpha.104-windows-x64-manifest.json"
+    },
+    {
+      "name": "kite-0.2.0-alpha.104-windows-x64.zip",
+      "bytes": 70523625,
+      "downloadUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.104/kite-0.2.0-alpha.104-windows-x64.zip"
+    },
+    {
+      "name": "SHA256SUMS-windows.txt",
+      "bytes": 216,
+      "downloadUrl": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.104/SHA256SUMS-windows.txt"
+    }
+  ],
+  "taggedWindowsCI": {
+    "run": 43780567975,
+    "conclusion": "success"
+  },
+  "mainWindowsCI": {
+    "run": 43780568287,
+    "conclusion": "success"
+  },
+  "localChecks": {
+    "rustTests": 118,
+    "typescriptTests": 123,
+    "typescriptSkipped": 1,
+    "releaseTests": 15,
+    "clippy": "passed",
+    "workflowLint": "passed"
+  },
+  "limits": [
+    "Real host end-to-end interaction and physical audio are not validated"
+  ],
+  "androidMainCI": {
+    "run": 43780568416,
+    "firstAttempt": "Linux native panel screenshot missing",
+    "retryRequested": true
+  }
+}

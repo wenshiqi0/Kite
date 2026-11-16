@@ -4,6 +4,8 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 
 ## Windows-only Alpha
 
+[Windows 0.2.0-alpha.104](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.104) is published from `main`. Its Linux-built x64 ZIP passed Windows runtime checks and independent public-download checks. [Publication evidence](product/2026-11-16/windows-alpha104/acceptance.md).
+
 Windows releases use the same Alpha sequence and `android/version.properties` version source. Advance both the Alpha number and `versionCode` beyond published releases. The Windows WPF project reads this version directly; the ZIP manifest and embedded dependency metadata must match it.
 
 After committing the complete source on `main`, put `<!-- Kite-Release-Targets: windows -->` in the release notes and run:
