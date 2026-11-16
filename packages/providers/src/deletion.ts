@@ -20,6 +20,7 @@ import {
   type Reference,
   type SessionRecord,
   string,
+  UUID,
 } from "@kite/protocol";
 import { live, locked, pgid, processArgv, readJson, same, sleep, startTicks } from "@kite/runtime";
 import { listening } from "@kite/runtime/socket";
@@ -37,7 +38,40 @@ import { harnessDirectory, harnessInfo } from "./harness";
 export interface SessionTerminator {
   ownerLock(record: SessionRecord): string;
   sharesOwner(record: SessionRecord, other: SessionRecord): boolean;
+  isDetached?(record: SessionRecord, peers: SessionRecord[]): Promise<boolean>;
   terminate(record: SessionRecord, peers: SessionRecord[]): Promise<Reference | undefined>;
+}
+function codexThread(record: SessionRecord): string | undefined {
+  const ref = record.reference;
+  return record.provider === "codex" &&
+    ref?.source === "herdr:codex" &&
+    ref.agent === "codex" &&
+    ref.kind === "id" &&
+    UUID.test(ref.value)
+    ? ref.value
+    : undefined;
+}
+async function detachedCodex(record: SessionRecord, peers: SessionRecord[]): Promise<boolean> {
+  const thread = codexThread(record);
+  if (!thread) return false;
+  const pane = string(record.pane_id),
+    owner = readRegistry(pane),
+    loaded = array(object(await backendRpc(pane, "thread/loaded/list", {}, 2000)).data).map(string);
+  // A reused pane is not evidence that this saved thread still owns its backend.
+  // Only leave the backend running when every loaded thread belongs to a shared peer.
+  if (
+    !loaded.length ||
+    loaded.length > 64 ||
+    loaded.includes(thread) ||
+    !loaded.every((id) => peers.some((peer) => codexThread(peer) === id))
+  )
+    return false;
+  const current = object(
+    object(await backendRpc(pane, "thread/read", { threadId: thread, includeTurns: false }, 2000))
+      .thread,
+  );
+  check(same(readRegistry(pane), owner), "session backend identity changed");
+  return current.id === thread && object(current.status).type === "notLoaded";
 }
 function savedOwner(pane: string): OwnerIdentity | undefined {
   if (!existsSync(registryPath(pane))) return;
@@ -161,6 +195,7 @@ async function terminateTerminal(
 export function sessionTerminators(binary: string): Record<Provider, SessionTerminator> {
   const terminal: SessionTerminator = {
     ownerLock: (record) => ownerLock(string(record.pane_id)),
+    isDetached: detachedCodex,
     sharesOwner: (record, other) => {
       if (!record.pane_id || !other.pane_id || other.provider !== "codex") return false;
       const a = savedOwner(record.pane_id),
@@ -291,24 +326,22 @@ export async function sessionDelete(
     const remove = () =>
       locked(join(catalogRoot(), "sessions.lock"), async () => {
         const catalog = catalogUnlocked(),
-          current = catalog.sessions.find((r) => r.id === id);
+          current = catalog.sessions.find((r) => r.id === id),
+          peers = catalog.sessions.filter((r) => r.id !== id);
         check(same(record, current), "session changed during deletion");
         check(
-          !catalog.sessions.some(
-            (r) =>
-              r.id !== id &&
-              ((record.reference && same(record.reference, r.reference)) ||
-                (record.pane_id && r.pane_id === record.pane_id) ||
-                adapter?.sharesOwner(record, r)),
-          ),
+          !peers.some((r) => record.reference && same(record.reference, r.reference)),
           "session owner is shared",
         );
-        if (record.pane_id) {
+        const shared = peers.filter(
+            (r) =>
+              (record.pane_id && r.pane_id === record.pane_id) || adapter?.sharesOwner(record, r),
+          ),
+          detached = shared.length > 0 && (await adapter?.isDetached?.(record, shared));
+        check(!shared.length || detached, "session owner is shared");
+        if (record.pane_id && !detached) {
           check(adapter, "session termination is unavailable");
-          const reference = await adapter.terminate(
-            record,
-            catalog.sessions.filter((r) => r.id !== id),
-          );
+          const reference = await adapter.terminate(record, peers);
           if (reference) markSessionDeleted({ ...record, reference });
         }
         markSessionDeleted(record);
