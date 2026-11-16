@@ -499,20 +499,22 @@ impl App {
         }
     }
     unsafe fn capture(&mut self) {
-        let Some(path) = self.snapshot.take() else {
+        let Some(path) = self.snapshot.clone() else {
             return;
         };
         if !self.visible() {
             return;
         }
-        let image = (self.gtk.gdk_pixbuf_get_from_window)(
-            (self.gtk.gtk_widget_get_window)(self.window),
-            0,
-            0,
-            (self.gtk.gtk_widget_get_allocated_width)(self.window),
-            (self.gtk.gtk_widget_get_allocated_height)(self.window),
-        );
+        let window = (self.gtk.gtk_widget_get_window)(self.window);
+        let width = (self.gtk.gtk_widget_get_allocated_width)(self.window);
+        let height = (self.gtk.gtk_widget_get_allocated_height)(self.window);
+        if window.is_null() || width <= 0 || height <= 0 {
+            return;
+        }
+        let image = (self.gtk.gdk_pixbuf_get_from_window)(window, 0, 0, width, height);
         if !image.is_null() {
+            // Keep a request pending until GTK has an actual frame to capture.
+            self.snapshot = None;
             let pending = path.with_extension(format!("{}.pending", std::process::id()));
             let saved = (self.gtk.gdk_pixbuf_savev)(
                 image,

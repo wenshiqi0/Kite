@@ -1,6 +1,16 @@
-# Android and Linux Alpha releases
+# GitHub releases
 
-The GitHub Actions workflow is [Android Release](../.github/workflows/android-release.yml).
+Formal delivery uses GitHub-built, verified Release attachments. Local tests and test builds remain part of each development stage.
+
+## Publish from GitHub
+
+Open **Actions → Publish Release → Run workflow**, select `main`, enter a new version (for example `0.2.1`) and optional Markdown release notes. The workflow increments Android versionCode, commits `android/version.properties` and the notes, creates an annotated `v<version>` tag, and explicitly starts **Release Build** for that tag. No local release packaging is required.
+
+Stable `X.Y.Z` versions publish as normal GitHub Releases and become latest. `X.Y.Z-alpha.N` versions remain prereleases and never become latest. Versions and existing tags cannot be reused or overwritten. If main changes during preparation, the atomic push fails without publishing the tag. If a build fails after the tag was pushed, rerun that tag's failed **Release Build** jobs; do not prepare the same version again.
+
+Release Build waits for both the signed Android/Linux build and the Linux-built Windows package's Windows runtime checks. It then verifies the same source commit and version, publishes all six assets together, downloads them to check the bytes, and makes the release public. Assets include both APK signing variants, the Linux host archive, a versioned Windows ZIP, `release-manifest.json` and `SHA256SUMS`. Existing Windows build/test commands and the standalone Windows CI remain available.
+
+The entry workflow is [Publish Release](../.github/workflows/release.yml), and the tagged build/publisher is [Release Build](../.github/workflows/android-release.yml).
 
 ## What runs
 
@@ -8,10 +18,12 @@ The GitHub Actions workflow is [Android Release](../.github/workflows/android-re
 | --- | --- | --- |
 | Relevant changes on `main` | Signed APK and Linux host archive, Rust/native UI checks and Android lint | Verified workflow artifact |
 | Pull request to `main` | Unsigned APK, Rust/native UI checks and Android lint | Unsigned PR artifact; no signing secrets |
-| Annotated `vX.Y.Z-alpha.N` tag | Signed APK and Linux host archive from the tag's source commit | GitHub prerelease with APK, Linux host archive, checksums and manifest |
-| Manual workflow dispatch | Signed Release APK | Verified workflow artifact |
+| Annotated `vX.Y.Z` or `vX.Y.Z-alpha.N` tag | Android/Linux and runtime-tested Windows packages from the same source commit | GitHub Release with APKs, Linux host, Windows ZIP, checksums and manifest |
+| Publish Release workflow dispatch on main | Prepare a new version and start its tagged build | Stable Release or Alpha prerelease |
+| Release Build workflow dispatch on an existing tag | Build/recover that immutable source tag | Stable Release or Alpha prerelease |
+| Release Build workflow dispatch on a branch | Signed Release APK | Verified workflow artifact |
 
-Only tagged builds publish a user-facing GitHub Release. They are always prereleases and are never marked as the latest stable release. Workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
+Only tagged builds publish a user-facing GitHub Release. Workflow artifacts are validation/build-transfer storage, rather than the delivery channel. Android workflow artifacts are retained for 14 days, or 7 days for unsigned PR builds.
 
 ## Verified delivery — 2026-11-12
 
@@ -99,7 +111,7 @@ Each signed release also includes `kite-X.Y.Z-alpha.N-arm64-v8a-compat-v2.apk`. 
 
 ## Version and signing identity
 
-`android/version.properties` is the Android version source. Increment both the Alpha suffix and `versionCode` for each new delivery. The initial CI release is `0.2.0-alpha.1` / `3`. APK metadata must match the tag exactly.
+`android/version.properties` is the version source for Android and Windows packages. Increase the stable/Alpha version and `versionCode` for each new delivery. The initial CI release is `0.2.0-alpha.1` / `3`. Package metadata must match the tag exactly.
 
 Alpha uses the same signing identity as the earlier test APKs so existing installations can upgrade without replacing their device SSH key, hosts or trust records. The keystore remains outside Git. CI receives it through an encrypted Actions secret; it is never an artifact.
 
@@ -121,7 +133,7 @@ Configure these repository settings before the first signed build:
 
 These settings have been configured for `wenshiqi0/Kite`. Keep the signing identity stable. Alpha's existing test certificate is for GitHub distribution, not an app-store production signing identity.
 
-## Publish a version
+## Existing CLI entry
 
 1. Update `android/version.properties`, finish validation, and commit the complete source.
 2. Write release notes describing behavior, validation and current limitations. The notes become the annotated tag body.
@@ -131,7 +143,7 @@ These settings have been configured for `wenshiqi0/Kite`. Keep the signing ident
 python3 android/scripts/release-alpha.py --notes-file /absolute/path/release-notes.md
 ```
 
-The command pushes the source branch and annotated tag, waits for the tag workflow, and reports the published Release URL. The tagged CI build is the publication authority; local builds do not race it to upload a different APK.
+The existing CLI remains supported. It pushes the source branch and annotated tag, waits for the tag workflow, and reports the published Release URL. The tagged CI build is the publication authority; local builds do not race it to upload a different APK. Use the GitHub entry above for routine formal releases.
 
 Alpha 27+ also runs a final explicit SDK `apksigner` pass using the same certificate after alignment, with environment-only passwords and a non-signing-payload equality guard. No APK mutation is permitted after this final signing step. This is an installer diagnostic change, not a new signing identity or a confirmed fix for a specific handset failure.
 

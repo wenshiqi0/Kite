@@ -1,10 +1,10 @@
-name: Android Release
-run-name: Android Release · ${{ github.ref_name }}
+name: Release Build
+run-name: Release Build · ${{ github.ref_name }}
 
 on:
   push:
     branches: [main]
-    tags: ['v*-alpha.*']
+    tags: ['v*.*.*']
     paths:
       - 'android/**'
       - 'crates/**'
@@ -32,6 +32,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows:
+    name: Build and verify Windows client
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/windows-client.yml
+
   build:
     name: Build Release APK
     runs-on: ubuntu-24.04
@@ -226,9 +234,9 @@ jobs:
         run: rm -f "$RUNNER_TEMP/kite-alpha.keystore"
 
   publish:
-    name: Publish Alpha Release
-    needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    name: Publish Release
+    needs: [build, windows]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -244,6 +252,11 @@ jobs:
           name: kite-release-${{ github.sha }}
           path: android/release-output/v${{ needs.build.outputs.version }}
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: Kite-windows-x64
+          path: windows-release-artifact
+
       - name: Read annotated release notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -251,7 +264,7 @@ jobs:
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
 
-      - name: Publish and verify GitHub prerelease
+      - name: Publish and verify GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 android/scripts/release-alpha.py --publish-only --notes-file "$RUNNER_TEMP/release-notes.md"
+        run: python3 android/scripts/release-alpha.py --publish-only --notes-file "$RUNNER_TEMP/release-notes.md" --windows-artifact-dir windows-release-artifact

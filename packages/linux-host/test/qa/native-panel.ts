@@ -29,14 +29,16 @@ const env = {
 };
 const { mkdirSync } = await import("node:fs");
 mkdirSync(join(root, "runtime"), { mode: 0o700 });
-const app = Bun.spawn([binary, "--snapshot", shot, "--close-after", "12"], {
+const app = Bun.spawn([binary, "--snapshot", shot, "--close-after", "30"], {
   env,
   stdin: "ignore",
   stdout: "pipe",
   stderr: "pipe",
 });
 try {
-  for (let i = 0; i < 200 && !existsSync(shot); i++) {
+  // Hosted runners can take longer than five seconds to map the first GTK frame.
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && !existsSync(shot)) {
     check(app.exitCode === null, "native panel exited before screenshot");
     await sleep(25);
   }

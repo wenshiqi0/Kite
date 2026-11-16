@@ -23,8 +23,10 @@ cmake -S windows/native -B windows/build/native -G Ninja \
 cmake --build windows/build/native --parallel "$CARGO_BUILD_JOBS"
 package_dir="$repo_dir/windows/dist/Kite-windows-x64"
 mkdir -p "$package_dir"
+kite_release_version=$(sed -n 's/^versionName=//p' android/version.properties)
 dotnet publish windows/Kite/Kite.csproj -c Release -r win-x64 --self-contained true \
-  -p:PublishReadyToRun=false -p:UseAppHost=true -p:TreatWarningsAsErrors=true -o "$package_dir"
+  -p:PublishReadyToRun=false -p:UseAppHost=true -p:TreatWarningsAsErrors=true \
+  "-p:Version=$kite_release_version" -o "$package_dir"
 cp "${CARGO_TARGET_DIR:-target}/x86_64-pc-windows-gnu/release/kite_ffi.dll" "$package_dir/"
 cp windows/build/native/kite_windows_media.dll "$package_dir/"
 cp LICENSE NOTICE.txt "$package_dir/"

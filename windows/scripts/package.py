@@ -100,8 +100,9 @@ def main():
         dirty = bool(subprocess.check_output(['git','status','--porcelain'], text=True).strip())
     except subprocess.CalledProcessError:
         source, dirty = 'unknown', True
+    version = dict(line.split('=', 1) for line in (repo/'android/version.properties').read_text().splitlines() if line and not line.startswith('#'))['versionName']
     files = {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(directory.iterdir()) if file.is_file() and file.name != 'build-manifest.json'}
-    (directory/'build-manifest.json').write_text(json.dumps({'source_commit':source,'dirty':dirty,'target':'win-x64','built_on':'linux','host_role':False,'native_imports':{'core':core_imports,'media':media_imports},'sha256':files},indent=2)+'\n')
+    (directory/'build-manifest.json').write_text(json.dumps({'source_commit':source,'version':version,'dirty':dirty,'target':'win-x64','built_on':'linux','host_role':False,'native_imports':{'core':core_imports,'media':media_imports},'sha256':files},indent=2)+'\n')
     archive = directory.parent/'Kite-windows-x64.zip'
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as bundle:
         for file in sorted(directory.iterdir()):

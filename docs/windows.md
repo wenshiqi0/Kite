@@ -6,7 +6,7 @@ Windows x64 原生客户端使用 C# / .NET 10 WPF 与共享 Rust Core。支持�
 
 ## 使用
 
-完整解压 `Kite-windows-x64.zip` 后运行 `Kite/Kite.exe`，保留旁边的 DLL 和运行时文件。包自带 .NET 运行时，无需安装开发工具或以管理员运行。建议 Windows 11 或仍受支持的 Windows 10 x64；Windows N 需要系统 Media Feature Pack 才能解码 H.264。
+正式交付包从 [GitHub Releases](https://github.com/wenshiqi0/Kite/releases) 下载版本化的 `kite-X.Y.Z-windows-x64.zip`；本地测试包仍叫 `Kite-windows-x64.zip`。完整解压后运行 `Kite/Kite.exe`，保留旁边的 DLL 和运行时文件。包自带 .NET 运行时，无需安装开发工具或以管理员运行。建议 Windows 11 或仍受支持的 Windows 10 x64；Windows N 需要系统 Media Feature Pack 才能解码 H.264。
 
 点击“设备公钥”，把公钥加入主机的 `~/.ssh/authorized_keys`，然后添加并连接主机。首次连接明确确认指纹，变化的指纹不自动通过。各主机独立连接和恢复，切换主机保留连接，桌面媒体随目标切换关闭。
 
@@ -38,7 +38,7 @@ windows/scripts/build-linux.sh
 
 输出为 `windows/dist/Kite-windows-x64.zip` 及 `.zip.sha256`。脚本先运行聊天增量与视口测试，交叉编译 Rust DLL 和 Windows 媒体 DLL，再使用 .NET [Windows targeting](https://learn.microsoft.com/en-us/dotnet/core/project-sdk/msbuild-props#enablewindowstargeting) 发布 self-contained win-x64 程序。压缩前检查程序和原生 DLL 的 PE 架构、导出、依赖和客户端包边界，清单记录每个文件的 SHA-256 与源码提交。交叉生成的 apphost 显式设置 GUI 子系统，避免启动控制台窗口。
 
-依赖固定在 Cargo.lock、Moonlight submodule 和 libopus 1.5.2 发布包摘要中。`KITE_WINDOWS_TOOLS_DIR` 改变工具缓存位置，`CARGO_BUILD_JOBS` 控制编译并发。产物是未签名的开发 Alpha。
+依赖固定在 Cargo.lock、Moonlight submodule 和 libopus 1.5.2 发布包摘要中。`KITE_WINDOWS_TOOLS_DIR` 改变工具缓存位置，`CARGO_BUILD_JOBS` 控制编译并发。Windows 包目前不带 Authenticode 代码签名；版本和来源记录在包内清单中。正式发版通过 [GitHub 发布流程](releases.md) 构建并验证，同一 Release 同时提供 Android 和 Linux 产物。
 
 ## 验证
 

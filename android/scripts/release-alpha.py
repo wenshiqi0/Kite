@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, sign, push and publish an immutable Android Alpha to GitHub."""
+"""Build, sign, push and publish immutable stable or Alpha releases to GitHub."""
 import argparse
 import hashlib
 import json
@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import sys
 import zipfile
+from release_version import prerelease, read_version
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -89,7 +91,41 @@ def wait_for_created_release(repo, tag):
         release = release_info(repo, tag)
         if release is not None:
             return release
-    raise RuntimeError("Created Alpha draft is not visible yet; rerun the publish job to recover it.")
+    raise RuntimeError("Created release draft is not visible yet; rerun the publish job to recover it.")
+
+
+def include_windows(artifact_dir, output, version, head):
+    """Verify the runtime-tested Linux-built Windows ZIP before staging release bytes."""
+    candidates = list(artifact_dir.rglob("Kite-windows-x64.zip"))
+    require(len(candidates) == 1, "Expected exactly one Windows client ZIP.")
+    archive = candidates[0]
+    checksum = archive.with_suffix(".zip.sha256")
+    require(checksum.is_file() and checksum.read_text().strip() == f"{digest(archive)}  {archive.name}",
+            "Windows ZIP checksum does not match.")
+    with zipfile.ZipFile(archive) as bundle:
+        names = bundle.namelist()
+        require(len(names) == len(set(names)) and bundle.testzip() is None, "Invalid Windows ZIP.")
+        manifest = json.loads(bundle.read("Kite/build-manifest.json"))
+        require(manifest["source_commit"] == head and manifest["dirty"] is False
+                and manifest["version"] == version and manifest["target"] == "win-x64"
+                and manifest["built_on"] == "linux" and manifest["host_role"] is False,
+                "Windows package provenance does not match this source tag.")
+        files = manifest["sha256"]
+        require({"Kite.exe", "kite_ffi.dll", "kite_windows_media.dll"} <= files.keys(),
+                "Windows client files are incomplete.")
+        require(set(names) == {"Kite/build-manifest.json"} | {f"Kite/{name}" for name in files},
+                "Windows ZIP has unverified files.")
+        for name, expected in files.items():
+            require(Path(name).name == name and name.lower() not in {
+                "kite-node.exe", "herdr.exe", "sunshine.exe", "bun.exe"},
+                "Windows client contains an unexpected executable or path.")
+            require(hashlib.sha256(bundle.read(f"Kite/{name}")).hexdigest() == expected,
+                    "Windows client file checksum does not match.")
+    destination = output / f"kite-{version}-windows-x64.zip"
+    shutil.copyfile(archive, destination)
+    return destination, {"asset": destination.name, "bytes": destination.stat().st_size,
+                         "sha256": digest(destination), "target": "win-x64",
+                         "builtOn": "linux", "runtimeValidation": "passed"}
 
 
 def inspect_apk(apk, tools, version, code, *, v3=True):
@@ -136,7 +172,7 @@ def launch_ci(repo, tag, head, branch, notes, existing_tag):
     require(branch, "Use a source branch when launching a release.")
     require(notes.is_file(), "Provide release notes with --notes-file.")
     if existing_tag.returncode != 0:
-        run("git", "tag", "-a", tag, "-F", str(notes))
+        run("git", "tag", "-a", tag, "--cleanup=verbatim", "-F", str(notes))
     run("git", "push", "--atomic", "origin", f"HEAD:refs/heads/{branch}", f"refs/tags/{tag}", capture=False)
     print(f"Waiting for the tagged build: https://github.com/{repo}/actions", flush=True)
     for _ in range(30):
@@ -147,7 +183,8 @@ def launch_ci(repo, tag, head, branch, notes, existing_tag):
         if matches:
             run("gh", "run", "watch", str(matches[0]["databaseId"]), "--repo", repo, "--exit-status", capture=False)
             release = release_info(repo, tag)
-            require(release and release["prerelease"] and not release["draft"], "CI did not publish the Alpha.")
+            require(release and release["prerelease"] == prerelease(tag[1:]) and not release["draft"],
+                    "CI did not publish the release.")
             print(release["html_url"], flush=True)
             return
         time.sleep(2)
@@ -157,16 +194,15 @@ def launch_ci(repo, tag, head, branch, notes, existing_tag):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--notes-file", type=Path)
+    parser.add_argument("--windows-artifact-dir", type=Path,
+                        help="include the Windows package after its CI runtime checks pass")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check-only", action="store_true")
     mode.add_argument("--build-only", action="store_true", help="build and verify assets without publishing")
     mode.add_argument("--publish-only", action="store_true", help="publish the verified assets from the tagged CI build")
     args = parser.parse_args()
-    props = dict(line.split("=", 1) for line in (ROOT / "android/version.properties").read_text().splitlines()
-                 if line and not line.startswith("#"))
-    version, code = props["versionName"], int(props["versionCode"])
-    require(re.fullmatch(r"\d+\.\d+\.\d+-alpha\.[1-9]\d*", version) and code > 0,
-            "Only X.Y.Z-alpha.N versions with a positive versionCode may be published.")
+    version, code = read_version(ROOT / "android/version.properties")
+    is_prerelease = prerelease(version)
     clean_tree()
     head = run("git", "rev-parse", "HEAD")
     ref = subprocess.run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=ROOT, text=True, capture_output=True)
@@ -181,12 +217,13 @@ def main():
     # The source/tag binding remains mandatory when launching or publishing CI.
     if not (args.check_only or args.build_only):
         require(existing_tag.returncode != 0 or existing_tag.stdout.strip() == head,
-                "This tag belongs to another commit; increment the Alpha version.")
+                "This tag belongs to another commit; increment the release version.")
     if os.environ.get("GITHUB_REF_TYPE") == "tag":
         require(os.environ.get("GITHUB_REF_NAME") == tag, "Git tag must match the APK version.")
     if args.check_only:
         print(json.dumps({"version": version, "versionCode": code, "commit": head,
-                          "branch": branch or "detached", "repository": repo, "tag": tag}, indent=2))
+                          "branch": branch or "detached", "repository": repo, "tag": tag,
+                          "prerelease": is_prerelease}, indent=2))
         return
     notes = (args.notes_file or ROOT / "docs/release-notes" / f"{version}.md").resolve()
     if not args.build_only and not args.publish_only:
@@ -278,13 +315,21 @@ def main():
             "Linux host artifact provenance does not match this source tag.")
     require(sums.read_text() == "".join(f"{digest(p)}  {p.name}\n" for p in checksummed),
             "Artifact checksums do not match.")
+    if args.windows_artifact_dir:
+        windows, windows_manifest = include_windows(args.windows_artifact_dir, output, version, head)
+        assets.append(windows)
+        checksummed.append(windows)
+        manifest["windowsClient"] = windows_manifest
+        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
+        sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in checksummed))
     release = release_info(repo, tag)
     if release is None:
         run("gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--target", head,
-            "--title", f"Kite {version} (Alpha)", "--notes-file", str(notes),
-            "--draft", "--prerelease", "--latest=false")
+            "--title", f"Kite {version}" + (" (Alpha)" if is_prerelease else ""), "--notes-file", str(notes),
+            "--draft", f"--prerelease={str(is_prerelease).lower()}", "--latest=false")
         release = wait_for_created_release(repo, tag)
-    require(release and release["prerelease"], "Existing release is not an Alpha prerelease.")
+    require(release and release["prerelease"] == is_prerelease,
+            "Existing release has a different stable/prerelease designation.")
     names = {a["name"] for a in release["assets"]}
     missing = [p for p in assets if p.name not in names]
     require(release["draft"] or not missing, "Do not mutate an incomplete published release.")
@@ -296,9 +341,11 @@ def main():
             require(digest(Path(scratch) / asset.name) == digest(asset),
                     f"Remote {asset.name} differs; refuse to replace an existing asset.")
     if release["draft"]:
-        run("gh", "release", "edit", tag, "--repo", repo, "--draft=false", "--prerelease", "--latest=false")
+        run("gh", "release", "edit", tag, "--repo", repo, "--draft=false",
+            f"--prerelease={str(is_prerelease).lower()}", f"--latest={str(not is_prerelease).lower()}")
     published = release_info(repo, tag)
-    require(published and published["prerelease"] and not published["draft"], "Alpha publication was not completed.")
+    require(published and published["prerelease"] == is_prerelease and not published["draft"],
+            "Release publication was not completed.")
     print(published["html_url"], flush=True)
 
 

@@ -1,0 +1,57 @@
+name: Publish Release
+run-name: Publish Release · ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version, for example 0.2.1 (stable) or 0.2.2-alpha.1'
+        required: true
+        type: string
+      notes:
+        description: 'Release notes (Markdown; optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare version, source commit and annotated tag
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          python3 android/scripts/prepare-release.py --version "$RELEASE_VERSION"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/v$RELEASE_VERSION"
+      - name: Start the build for the immutable source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # GITHUB_TOKEN pushes do not trigger push workflows. Dispatch explicitly.
+          gh workflow run android-release.yml --ref "$RELEASE_TAG"
+          printf '## Release build started\n\nTag: `%s`\n\n[Build progress](https://github.com/%s/actions/workflows/android-release.yml)\n' \
+            "$RELEASE_TAG" "$GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
