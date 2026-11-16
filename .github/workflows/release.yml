@@ -12,6 +12,10 @@ on:
         description: 'Release notes (Markdown; optional)'
         required: false
         type: string
+      build_run_id:
+        description: 'Recovery only: existing Release Build run with all builds and Windows tests passed'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,7 +26,7 @@ concurrency:
 
 jobs:
   prepare:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !inputs.build_run_id
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -55,3 +59,60 @@ jobs:
           gh workflow run android-release.yml --ref "$RELEASE_TAG"
           printf '## Release build started\n\nTag: `%s`\n\n[Build progress](https://github.com/%s/actions/workflows/android-release.yml)\n' \
             "$RELEASE_TAG" "$GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
+
+  recover:
+    name: Publish existing verified build
+    if: github.ref == 'refs/heads/main' && inputs.build_run_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate requested version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          PYTHONPATH=android/scripts python3 - <<'PY'
+          import os
+          from release_version import version_key
+          version_key(os.environ['RELEASE_VERSION'])
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: v${{ inputs.version }}
+          path: release-source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read the original source and release notes
+        id: source
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(sed -n 's/^versionName=//p' release-source/android/version.properties)" = "$RELEASE_VERSION"
+          printf 'sha=%s\n' "$(git -C release-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git -C release-source for-each-ref --format='%(contents)' "refs/tags/v$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: kite-release-${{ steps.source.outputs.sha }}
+          path: release-source/android/release-output/v${{ inputs.version }}
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: Kite-windows-x64
+          path: ${{ runner.temp }}/windows-release-artifact
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify build provenance and publish the original package bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          python3 android/scripts/release-alpha.py --publish-only \
+            --source-dir release-source --verified-run-id "$BUILD_RUN_ID" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --windows-artifact-dir "$RUNNER_TEMP/windows-release-artifact"

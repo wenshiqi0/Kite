@@ -131,6 +131,23 @@ def include_windows(artifact_dir, output, version, head):
                          "builtOn": "linux", "runtimeValidation": "passed"}
 
 
+def verify_build_run(repo, run_id, tag, head):
+    """Publication recovery can reuse only successful builds of this exact source tag."""
+    require(re.fullmatch(r"[1-9]\d*", str(run_id)), "Invalid verified build run ID.")
+    metadata = json.loads(run("gh", "api", f"repos/{repo}/actions/runs/{run_id}"))
+    require(metadata["head_sha"] == head and metadata["head_branch"] == tag
+            and metadata["path"] == ".github/workflows/android-release.yml"
+            and metadata["event"] in {"push", "workflow_dispatch"}
+            and metadata["status"] == "completed", "Build run does not match this source tag.")
+    jobs = json.loads(run("gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"))["jobs"]
+    completed = {job["name"]: job["conclusion"] for job in jobs}
+    required = ("Build Release APK", "Build and verify Windows client / cross-build",
+                "Build and verify Windows client / windows-runtime")
+    require(all(completed.get(name) == "success" for name in required),
+            "Android/Linux builds and Windows runtime validation must pass before recovery.")
+    return metadata
+
+
 def inspect_apk(apk, tools, version, code, *, v3=True):
     badging = run(str(tools / "aapt2"), "dump", "badging", str(apk))
     package = next(line for line in badging.splitlines() if line.startswith("package:"))
@@ -195,16 +212,25 @@ def launch_ci(repo, tag, head, branch, notes, existing_tag, *, workflow="android
 
 
 def main():
+    global ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--notes-file", type=Path)
     parser.add_argument("--windows-artifact-dir", type=Path,
                         help="include the Windows package after its CI runtime checks pass")
     parser.add_argument("--windows", action="store_true", help="publish the Windows-only client from main")
+    parser.add_argument("--source-dir", type=Path, help="immutable source checkout for publication recovery")
+    parser.add_argument("--verified-run-id", help="completed tagged build whose verified artifacts are being recovered")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check-only", action="store_true")
     mode.add_argument("--build-only", action="store_true", help="build and verify assets without publishing")
     mode.add_argument("--publish-only", action="store_true", help="publish the verified assets from the tagged CI build")
     args = parser.parse_args()
+    if args.source_dir or args.verified_run_id:
+        require(args.source_dir and args.verified_run_id and args.publish_only
+                and args.windows_artifact_dir and not args.windows
+                and os.environ.get("GITHUB_ACTIONS") == "true",
+                "Recovery requires GitHub Actions, a source checkout and verified bundled build artifacts.")
+        ROOT = args.source_dir.resolve()
     version, code = read_version(ROOT / "android/version.properties")
     is_prerelease = prerelease(version)
     clean_tree()
@@ -215,6 +241,8 @@ def main():
     match = re.fullmatch(r"(?:git@github\.com:|https://github\.com/)([\w.-]+/[\w.-]+?)(?:\.git)?", remote)
     require(match is not None, "origin must identify the intended github.com repository.")
     repo, tag = match[1], "v" + version
+    if args.verified_run_id:
+        verify_build_run(repo, args.verified_run_id, tag, head)
     existing_tag = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"],
                                   cwd=ROOT, text=True, capture_output=True)
     # PR merge commits and main build artifacts are validation, not publication.
@@ -313,7 +341,8 @@ def main():
         sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in checksummed))
         print(str(output), flush=True)
         return
-    require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF_TYPE") == "tag",
+    require(os.environ.get("GITHUB_ACTIONS") == "true"
+            and (os.environ.get("GITHUB_REF_TYPE") == "tag" or args.verified_run_id),
             "Publication must use the verified tagged GitHub Actions build.")
     require(existing_tag.returncode == 0 and notes.is_file(), "An existing source tag and release notes are required.")
     require(all(p.is_file() for p in assets), "The verified build artifacts are incomplete.")
@@ -339,6 +368,10 @@ def main():
         assets.append(windows)
         checksummed.append(windows)
         manifest["windowsClient"] = windows_manifest
+    if args.verified_run_id:
+        manifest["publicationRecovery"] = {"buildRun": int(args.verified_run_id),
+                                           "toolsCommit": os.environ.get("GITHUB_SHA", "")}
+    if args.windows_artifact_dir or args.verified_run_id:
         manifest_file.write_text(json.dumps(manifest, indent=2) + "\n")
         sums.write_text("".join(f"{digest(p)}  {p.name}\n" for p in checksummed))
     release = release_info(repo, tag)

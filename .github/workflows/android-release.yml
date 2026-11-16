@@ -273,7 +273,7 @@ jobs:
         if: needs.release-target.outputs.windows == 'true'
         with:
           name: Kite-windows-x64
-          path: windows-release-artifact
+          path: ${{ runner.temp }}/windows-release-artifact
 
       - name: Read annotated release notes
         env:
@@ -286,9 +286,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INCLUDE_WINDOWS: ${{ needs.release-target.outputs.windows }}
+          WINDOWS_ARTIFACT_DIR: ${{ runner.temp }}/windows-release-artifact
         run: |
           windows_args=()
           if [ "$INCLUDE_WINDOWS" = true ]; then
-            windows_args=(--windows-artifact-dir windows-release-artifact)
+            windows_args=(--windows-artifact-dir "$WINDOWS_ARTIFACT_DIR")
           fi
           python3 android/scripts/release-alpha.py --publish-only --notes-file "$RUNNER_TEMP/release-notes.md" "${windows_args[@]}"

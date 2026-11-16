@@ -14,6 +14,8 @@ The GitHub entry adds `<!-- Kite-Release-Targets: all -->` to the annotated note
 
 The entry workflow is [Publish Release](../.github/workflows/release.yml), and the tagged build/publisher is [Release Build](../.github/workflows/android-release.yml).
 
+If all platform builds and Windows runtime checks passed but publication failed, run **Publish Release** on `main` with the same version and its **build_run_id**. Recovery checks the immutable tag against that completed run, downloads its existing verified packages and publishes those exact bytes. It does not create a version or move a tag. The manifest records the original build run and the recovery tooling commit. A failed platform build cannot use this path.
+
 ## Windows-only Alpha
 
 [Windows 0.2.0-alpha.104](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.104) is published from `main`. Its Linux-built x64 ZIP passed Windows runtime checks and independent public-download checks. [Publication evidence](product/2026-11-16/windows-alpha104/acceptance.md).

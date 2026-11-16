@@ -18,7 +18,7 @@ spec.loader.exec_module(publisher)
 
 
 class PublicationTests(unittest.TestCase):
-    def publish(self, version, expected_prerelease, existing=None, windows=False):
+    def publish(self, version, expected_prerelease, existing=None, windows=False, recovery=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             def git(*args):
@@ -62,6 +62,8 @@ class PublicationTests(unittest.TestCase):
             sums.write_text("".join(f"{publisher.digest(file)}  {file.name}\n"
                                     for file in (primary, compatible, host, manifest_file)))
             arguments = ["release-alpha.py", "--publish-only"]
+            if recovery:
+                arguments += ["--source-dir", str(root), "--verified-run-id", "17"]
             if windows:
                 artifact = output.parent / "windows-artifact"
                 artifact.mkdir()
@@ -86,18 +88,31 @@ class PublicationTests(unittest.TestCase):
                 if args[0] != "gh":
                     return original(*args, **kwargs)
                 calls.append(args)
+                if args[1] == "api":
+                    if "/jobs?" in args[2]:
+                        return json.dumps({"jobs": [{"name": name, "conclusion": "success"} for name in (
+                            "Build Release APK", "Build and verify Windows client / cross-build",
+                            "Build and verify Windows client / windows-runtime")]})
+                    return json.dumps({"head_sha": head, "head_branch": "v" + version,
+                        "path": ".github/workflows/android-release.yml", "event": "push", "status": "completed"})
                 if args[1:3] == ("release", "download"):
                     name = args[args.index("--pattern") + 1]
                     shutil.copyfile(output / name, Path(args[args.index("--dir") + 1]) / name)
                 return ""
             environment = {"GITHUB_ACTIONS": "true", "GITHUB_REF_TYPE": "tag",
                            "GITHUB_REF_NAME": "v" + version}
+            if recovery:
+                environment.update({"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "main", "GITHUB_SHA": "c" * 40})
             with patch.object(publisher, "ROOT", root), patch.object(publisher, "run", side_effect=run), \
                  patch.object(publisher, "release_info", side_effect=[existing, public]), \
                  patch.object(publisher, "wait_for_created_release", return_value=draft), \
                  patch.dict(os.environ, environment), \
                  patch.object(sys, "argv", arguments):
                 publisher.main()
+            if recovery:
+                manifest = json.loads(manifest_file.read_text())
+                self.assertEqual(manifest["sourceCommit"], head)
+                self.assertEqual(manifest["publicationRecovery"], {"buildRun": 17, "toolsCommit": "c" * 40})
             return calls
 
     def test_stable_release_is_public_and_latest_only_after_download_verification(self):
@@ -123,6 +138,31 @@ class PublicationTests(unittest.TestCase):
         downloads = [call for call in calls if call[1:3] == ("release", "download")]
         self.assertEqual(len(downloads), 6)
         self.assertIn("kite-0.2.1-windows-x64.zip", [call[call.index("--pattern") + 1] for call in downloads])
+
+    def test_recovery_can_publish_the_original_tag_bytes_from_verified_builds(self):
+        calls = self.publish("0.2.1", False, windows=True, recovery=True)
+        downloads = [call for call in calls if call[1:3] == ("release", "download")]
+        self.assertEqual(len(downloads), 6)
+        self.assertTrue(any(call[1] == "api" and "/actions/runs/17/jobs?" in call[2] for call in calls))
+
+    def test_recovery_rejects_unrelated_sources_and_failed_platform_checks(self):
+        head, tag = "a" * 40, "v0.2.1"
+        metadata = {"head_sha": head, "head_branch": tag, "path": ".github/workflows/android-release.yml",
+                    "event": "push", "status": "completed"}
+        jobs = {"jobs": [{"name": name, "conclusion": "success"} for name in (
+            "Build Release APK", "Build and verify Windows client / cross-build",
+            "Build and verify Windows client / windows-runtime")]}
+        with patch.object(publisher, "run", side_effect=[json.dumps(metadata), json.dumps(jobs)]):
+            self.assertEqual(publisher.verify_build_run("fixture/kite", "17", tag, head), metadata)
+        for wrong in ({"head_sha": "b" * 40}, {"head_branch": "v0.2.2"}, {"status": "in_progress"},
+                      {"path": ".github/workflows/other.yml"}):
+            with patch.object(publisher, "run", return_value=json.dumps(metadata | wrong)):
+                with self.subTest(wrong=wrong), self.assertRaisesRegex(RuntimeError, "does not match"):
+                    publisher.verify_build_run("fixture/kite", "17", tag, head)
+        jobs["jobs"][-1]["conclusion"] = "failure"
+        with patch.object(publisher, "run", side_effect=[json.dumps(metadata), json.dumps(jobs)]):
+            with self.assertRaisesRegex(RuntimeError, "runtime validation must pass"):
+                publisher.verify_build_run("fixture/kite", "17", tag, head)
 
     def test_an_existing_release_cannot_change_its_stability(self):
         with self.assertRaisesRegex(RuntimeError, "different stable/prerelease"):
