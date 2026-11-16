@@ -2,6 +2,20 @@
 
 The GitHub Actions workflow is [Android Release](../.github/workflows/android-release.yml).
 
+## Windows-only Alpha
+
+Windows releases use the same Alpha sequence and `android/version.properties` version source. Advance both the Alpha number and `versionCode` beyond published releases. The Windows WPF project reads this version directly; the ZIP manifest and embedded dependency metadata must match it.
+
+After committing the complete source on `main`, put `<!-- Kite-Release-Targets: windows -->` in the release notes and run:
+
+```sh
+python3 android/scripts/release-alpha.py --windows --notes-file docs/release-notes/<version>.md
+```
+
+The command atomically pushes `main` and its annotated Alpha tag. The [Windows Client workflow](../.github/workflows/windows-client.yml) cross-builds on Linux, checks the original ZIP on Windows, and only then publishes a prerelease targeting `main`. Its assets are the versioned Windows ZIP, a provenance/file-hash manifest, and `SHA256SUMS-windows.txt`. The publisher downloads every uploaded asset before publishing the draft and refuses replacement of existing bytes. Resume an interrupted publication by rerunning its publish job with the original build artifact.
+
+The annotation selects Windows-only delivery: Android and Docker tag-publication jobs are skipped. Ordinary `main` and PR checks still run; existing Alpha tags without this marker retain Android/Linux delivery. Unknown or duplicate target markers fail instead of silently selecting a platform. Windows publication does not receive Android signing secrets.
+
 ## What runs
 
 | Event | Build | Delivery |

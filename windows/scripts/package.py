@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -56,6 +57,13 @@ def main():
     directory = Path(sys.argv[1]).resolve()
     # Retain the notices from the exact runtime packs used by dotnet publish.
     repo = Path(__file__).resolve().parents[2]
+    properties = dict(line.split('=', 1) for line in (repo/'android/version.properties').read_text().splitlines() if line and not line.startswith('#'))
+    version = properties['versionName']
+    if not re.fullmatch(r'\d+\.\d+\.\d+-alpha\.[1-9]\d*', version):
+        raise ValueError('Only Alpha versions may be packaged')
+    deps = json.loads((directory/'Kite.deps.json').read_text())
+    if 'Kite/'+version not in deps['libraries']:
+        raise ValueError('Windows application version differs from version.properties')
     assets = json.loads((repo/'windows/Kite/obj/project.assets.json').read_text())
     package_roots = [Path(os.environ['NUGET_PACKAGES'])] if 'NUGET_PACKAGES' in os.environ else [Path(path) for path in assets['packageFolders']]
     config = json.loads((directory/'Kite.runtimeconfig.json').read_text())
@@ -101,7 +109,7 @@ def main():
     except subprocess.CalledProcessError:
         source, dirty = 'unknown', True
     files = {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in sorted(directory.iterdir()) if file.is_file() and file.name != 'build-manifest.json'}
-    (directory/'build-manifest.json').write_text(json.dumps({'source_commit':source,'dirty':dirty,'target':'win-x64','built_on':'linux','host_role':False,'native_imports':{'core':core_imports,'media':media_imports},'sha256':files},indent=2)+'\n')
+    (directory/'build-manifest.json').write_text(json.dumps({'source_commit':source,'dirty':dirty,'version':version,'target':'win-x64','built_on':'linux','host_role':False,'native_imports':{'core':core_imports,'media':media_imports},'sha256':files},indent=2)+'\n')
     archive = directory.parent/'Kite-windows-x64.zip'
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as bundle:
         for file in sorted(directory.iterdir()):

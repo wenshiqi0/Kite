@@ -4,6 +4,7 @@ on:
     branches: [main]
   push:
     branches: [main, feat/windows-client]
+    tags: ['v*-alpha.*']
     paths:
       - 'windows/**'
       - 'crates/**'
@@ -11,6 +12,9 @@ on:
       - 'Cargo.*'
       - 'bun.lock'
       - '.github/workflows/windows-client.yml'
+      - 'scripts/release-targets.py'
+      - 'android/scripts/release-alpha.py'
+      - 'android/version.properties'
   workflow_dispatch:
     inputs:
       artifact_run_id:
@@ -24,8 +28,20 @@ concurrency:
   group: windows-client-${{ github.ref }}-${{ inputs.artifact_run_id || 'build' }}
   cancel-in-progress: false
 jobs:
+  release-target:
+    runs-on: ubuntu-24.04
+    outputs:
+      windows: ${{ steps.targets.outputs.windows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: targets
+        run: python3 scripts/release-targets.py
   cross-build:
-    if: ${{ !inputs.artifact_run_id }}
+    needs: release-target
+    if: ${{ !inputs.artifact_run_id && needs.release-target.outputs.windows == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -54,6 +70,8 @@ jobs:
           key: windows-client-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'windows/native/CMakeLists.txt') }}
       - name: Check shared client behavior
         run: |
+          python3 -m unittest discover -s windows/Tests -p 'test_*.py'
+          python3 -m unittest discover -s android/scripts -p 'test_*.py'
           bun install --frozen-lockfile
           cargo test --locked -p kite-ffi --features windows-client -p kite-app -p kite-store -p kite-stream
           cargo fmt --all --check
@@ -123,3 +141,27 @@ jobs:
             *test*.log
             ui-smoke*.log
           if-no-files-found: ignore
+  publish:
+    name: Publish Windows Alpha
+    needs: [release-target, cross-build, windows-runtime]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.release-target.outputs.windows == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read annotated release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          git for-each-ref --format='%(contents)' "refs/tags/$RELEASE_TAG" > "$RUNNER_TEMP/windows-release-notes.md"
+      - name: Publish and verify Windows-only prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 android/scripts/release-alpha.py --windows --publish-only --notes-file "$RUNNER_TEMP/windows-release-notes.md"
