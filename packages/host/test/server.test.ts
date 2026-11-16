@@ -235,28 +235,59 @@ describe("catalog and owned upload CLI", () => {
 });
 
 describe("explicit owner termination", () => {
-  for (const mode of ["bound", "unbound", "shared", "foreign-terminal"])
+  for (const mode of [
+    "bound",
+    "unbound",
+    "shared",
+    "foreign-terminal",
+    "detached",
+    "detached-alias",
+    "shared-pane",
+    "unknown-thread",
+    "reloaded-thread",
+  ])
     test(mode === "foreign-terminal"
       ? "an unrelated terminal foreground is never signalled"
       : mode === "shared"
         ? "a shared loaded backend and its tools are retained"
-        : `deletion stops a real ${mode} owner and its stubborn tool before removing the record`, async () => {
+        : [
+              "detached",
+              "detached-alias",
+              "shared-pane",
+              "unknown-thread",
+              "reloaded-thread",
+            ].includes(mode)
+          ? `deletion of a reused pane verifies native thread ownership: ${mode}`
+          : `deletion stops a real ${mode} owner and its stubborn tool before removing the record`, async () => {
       const shared = mode === "shared",
-        retained = shared || mode === "foreign-terminal";
+        detached = mode === "detached" || mode === "detached-alias",
+        reused = detached || ["shared-pane", "unknown-thread", "reloaded-thread"].includes(mode),
+        retained = shared || mode === "foreign-terminal" || reused,
+        rejected = retained && !detached;
       const home = fresh(),
         path = privateDir(join(home, "owner")),
         socket = join(path, "backend.sock"),
         thread = crypto.randomUUID(),
+        peerThread = crypto.randomUUID(),
         pane = "owned:p1";
       const owner = Bun.spawn(
         [
           process.execPath,
           resolve("packages/host/test/fixtures/deletion-owner.ts"),
           socket,
-          JSON.stringify(shared ? [thread, crypto.randomUUID()] : [thread]),
+          JSON.stringify(
+            shared || mode === "shared-pane"
+              ? [thread, peerThread]
+              : mode === "unknown-thread"
+                ? [crypto.randomUUID()]
+                : reused
+                  ? [peerThread]
+                  : [thread],
+          ),
           path,
           "app-server",
           `unix://${socket}`,
+          mode === "reloaded-thread" ? "idle" : "",
         ],
         { detached: true, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
       );
@@ -275,6 +306,17 @@ describe("explicit owner termination", () => {
           join(registry, `${sha256(pane).slice(0, 20)}.json`),
           JSON.stringify({ protocol: 1, pane, pid: owner.pid, start_ticks: ticks, socket }),
         );
+        if (mode === "detached-alias")
+          writeFileSync(
+            join(registry, `${sha256("other:p1").slice(0, 20)}.json`),
+            JSON.stringify({
+              protocol: 1,
+              pane: "other:p1",
+              pid: owner.pid,
+              start_ticks: ticks,
+              socket,
+            }),
+          );
         const herdr = join(home, "herdr.ts");
         writeFileSync(
           herdr,
@@ -292,21 +334,42 @@ else throw new Error("unexpected mutation");console.log(JSON.stringify({id:r.id,
               ? null
               : { source: "herdr:codex", agent: "codex", kind: "id", value: thread },
         };
+        const peers = reused
+          ? [
+              {
+                ...row("b".repeat(32), "codex"),
+                archived: true,
+                pane_id: mode === "detached-alias" ? "other:p1" : pane,
+                reference: { source: "herdr:codex", agent: "codex", kind: "id", value: peerThread },
+              },
+            ]
+          : [];
         expect(
           (
             await command(
               home,
               ["catalog-write"],
-              JSON.stringify({ revision: 0, sessions: [saved] }),
+              JSON.stringify({ revision: 0, sessions: [saved, ...peers] }),
             )
           ).code,
         ).toBe(0);
         const deleted = await command(home, ["session-delete", "--id", saved.id, "--herdr", herdr]);
-        expect(deleted.code).toBe(retained ? 1 : 0);
+        expect(deleted.code).toBe(rejected ? 1 : 0);
         expect(live(owner.pid, ticks)).toBe(retained);
         expect(live(toolPid, toolTicks)).toBe(retained);
         const catalog = object(parse((await command(home, ["catalog-read"])).stdout.toString()));
-        expect(array(catalog.sessions)).toHaveLength(retained ? 1 : 0);
+        expect(array(catalog.sessions)).toEqual(rejected ? [saved, ...peers] : peers);
+        if (detached) {
+          const stale = await command(
+            home,
+            ["catalog-write"],
+            JSON.stringify({
+              revision: catalog.revision,
+              sessions: [saved, ...peers],
+            }),
+          );
+          expect(object(parse(stale.stdout.toString())).sessions).toEqual(peers);
+        }
         if (mode === "unbound") {
           const rediscovery = {
             ...saved,
