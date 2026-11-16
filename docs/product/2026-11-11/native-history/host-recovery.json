@@ -1,0 +1,96 @@
+[
+  {
+    "host": "wen-h255",
+    "version": "0.2.0-alpha.99",
+    "nativeHistoryApi": 1,
+    "nodeIdentityPreserved": true,
+    "preservedSessionReferences": 111,
+    "currentSessions": 111,
+    "externalServicePidsPreserved": true,
+    "liveUpgrade": true,
+    "historyProbes": {
+      "legacy": [
+        {
+          "historyRecords": 239,
+          "substantiveAssistantReplies": 24,
+          "milliseconds": 773,
+          "previousClientRequestAccepted": true
+        },
+        {
+          "historyRecords": 342,
+          "substantiveAssistantReplies": 28,
+          "milliseconds": 188,
+          "previousClientRequestAccepted": true
+        },
+        {
+          "historyRecords": 41,
+          "substantiveAssistantReplies": 3,
+          "milliseconds": 85,
+          "previousClientRequestAccepted": true
+        }
+      ],
+      "native": [
+        {
+          "historyRecords": 358,
+          "substantiveAssistantReplies": 34,
+          "millisecondsIncludingUnchangedPoll": 178,
+          "noJsonlSource": true,
+          "unchangedPollHasNoBody": true
+        },
+        {
+          "historyRecords": 318,
+          "substantiveAssistantReplies": 14,
+          "millisecondsIncludingUnchangedPoll": 232,
+          "noJsonlSource": true,
+          "unchangedPollHasNoBody": true
+        },
+        {
+          "historyRecords": 47,
+          "substantiveAssistantReplies": 4,
+          "millisecondsIncludingUnchangedPoll": 90,
+          "noJsonlSource": true,
+          "unchangedPollHasNoBody": true
+        }
+      ],
+      "nativeSavedReferencesWithPublicReplies": 64,
+      "modelTurnsSent": 0,
+      "messageBodiesReported": false
+    }
+  },
+  {
+    "host": "wen-mini",
+    "version": "0.2.0-alpha.99",
+    "nativeHistoryApi": 1,
+    "nodeIdentityPreserved": true,
+    "preservedSessionReferences": 7,
+    "currentSessions": 7,
+    "externalServicePidsPreserved": true,
+    "liveUpgrade": true,
+    "historyProbes": {
+      "legacy": [
+        {
+          "historyRecords": 285,
+          "substantiveAssistantReplies": 20,
+          "milliseconds": 483,
+          "previousClientRequestAccepted": true
+        },
+        {
+          "historyRecords": 12,
+          "substantiveAssistantReplies": 2,
+          "milliseconds": 58,
+          "previousClientRequestAccepted": true
+        },
+        {
+          "historyRecords": 29,
+          "substantiveAssistantReplies": 3,
+          "milliseconds": 61,
+          "previousClientRequestAccepted": true
+        }
+      ],
+      "native": [],
+      "nativeSavedReferencesWithPublicReplies": 0,
+      "modelTurnsSent": 0,
+      "messageBodiesReported": false
+    }
+  }
+]

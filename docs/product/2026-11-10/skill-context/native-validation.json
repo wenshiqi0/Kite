@@ -1,0 +1,139 @@
+{
+  "platform": "Android 16 / API 36",
+  "abi": "x86_64",
+  "fixture": "isolated emulator in a network-disabled container; synthetic display data; matching Rust/UniFFI",
+  "versionName": "0.2.0-alpha.91",
+  "versionCode": 93,
+  "uniqueNativeChecksPassed": 18,
+  "releaseJvmTestsPassed": 85,
+  "rustTestsPassed": 179,
+  "rustOptInReportTestsSkipped": 1,
+  "releaseLint": "passed",
+  "rustFmt": "passed",
+  "rustClippy": "passed",
+  "runs": [
+    {
+      "flags": {},
+      "passed": 15,
+      "skipped": 3,
+      "tests": [
+        {
+          "class": "io.github.wenshiqi0.kite.SkillPickerPresentationTest",
+          "test": "transcriptSkillCardsFoldIndependentlyAndKeepTheUsersOwnTextVisible",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.SkillPickerPresentationTest",
+          "test": "descriptionsSearchMultiSelectAndChipRemoval",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.SkillPickerPresentationTest",
+          "test": "emptyLoadingAndFailureAreDistinct",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.SkillPickerPresentationTest",
+          "test": "pluginSkillsUseFriendlyNamesAndShortSummaries",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "expandingRelatedTasksKeepsTheReaderInHistory",
+          "status": -4
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "fastUpwardFlingAtTheHistoryEndSettlesWithoutMovingTheSheetAgain",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "realWorkspaceTailFollowingSettlesAfterFastFlings",
+          "status": -4
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "expandingRelatedTasksKeepsTheChatTailInPlaceOnEveryDraw",
+          "status": -4
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "fastFlingThroughAnExpandedToolListAlsoSettlesAtTheSheetBoundary",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "refreshingDoesNotPullAReaderBackToTheLatestMessage",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "downwardHandleFlingStillDismissesTheDetails",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "relatedTasksStayFlatCompactAndKeepTheirOriginalReadTargets",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "readonlyDetailsExposeMessagesToolsAndResultsWithoutChangingTheConversation",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest",
+          "test": "commentaryIsVisibleWhileToolDetailsStayCollapsed",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest",
+          "test": "mixedItemBlocksRenderInOrderWithoutHidingTextOrTools",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest",
+          "test": "completedSubagentOpensReadonlyRecordsAndRefreshDoesNotChangeItsParent",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest",
+          "test": "subagentHistorySharesGlobalInstructionsSkillCardsAndMessageBubblesWithMainChat",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest",
+          "test": "historicalTurnErrorsShowTheCauseAndRecoveryHint",
+          "status": 0
+        }
+      ]
+    },
+    {
+      "flags": {
+        "qa_native_history": true
+      },
+      "passed": 3,
+      "skipped": 0,
+      "tests": [
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "expandingRelatedTasksKeepsTheReaderInHistory",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "realWorkspaceTailFollowingSettlesAfterFastFlings",
+          "status": 0
+        },
+        {
+          "class": "io.github.wenshiqi0.kite.AssociatedTaskPresentationTest",
+          "test": "expandingRelatedTasksKeepsTheChatTailInPlaceOnEveryDraw",
+          "status": 0
+        }
+      ]
+    }
+  ],
+  "physicalHandsetTested": false,
+  "macOSNativeBuildTested": false
+}

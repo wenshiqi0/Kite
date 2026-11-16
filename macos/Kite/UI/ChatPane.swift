@@ -172,12 +172,18 @@ struct ChatPane: View {
 struct MessageRow: View {
     let model: ClientModel
     let message: ItemInfo
+    private var skillContextOnly: Bool {
+        !message.blocks.isEmpty && message.blocks.allSatisfy {
+            if case .skillContext = $0 { return true }
+            return false
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if message.role == .error {
                 Label(tr("phase_failed"), systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.orange)
-            } else if message.role != .tool {
+            } else if message.role != .tool && !skillContextOnly {
                 Text(tr(message.role == .user ? "you" : "agent"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(message.role == .user ? Color.secondary : Color.cyan)
@@ -205,6 +211,20 @@ struct MessageRow: View {
                     }.font(.callout).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 case .attachment(let file):
                     AttachmentRow(model: model, file: file, context: model.snapshot?.conversationContext ?? "")
+                case .skillContext(let name, let path, let content):
+                    DisclosureGroup {
+                        Text(String(format: tr("skill_context_source"), path))
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text((try? AttributedString(markdown: content, options: .init(interpretedSyntax: .full))) ?? AttributedString(content))
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(tr("skill_context_title")).font(.caption).foregroundStyle(.secondary)
+                                Text(name).font(.callout)
+                            }
+                        } icon: { Image(systemName: "book.closed") }
+                    }.padding(12).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
                 case .embed:
                     Text(tr("chat_reference_pending")).font(.callout).foregroundStyle(.secondary)
                 }

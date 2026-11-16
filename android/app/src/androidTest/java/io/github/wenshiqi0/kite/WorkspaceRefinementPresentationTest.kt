@@ -38,28 +38,341 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
-    @Test fun subagentTreeShowsParentsAndStatusesAndCollapsesOnlyTheSelectedBranch() {
-        val agents = listOf(
-            SubagentInfo("worker", "parent", "Worker", "research", "working", 0),
-            SubagentInfo("verifier", "worker", "Verifier", "research/verify", "done", 0),
-            SubagentInfo("auditor", "parent", "Auditor", "audit", "failed", 0),
+    @Test fun toolMediaUsesFullWidthAndImagesFormCompactAlbums() {
+        val context = test.targetContext
+        val conversation = "owned-chat-album-layout"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val directory = File(context.filesDir, "message-attachments/${sha(conversation.toByteArray())}").apply { mkdirs() }
+        val orange = android.graphics.Color.rgb(220, 130, 40)
+        fun image(id: String, name: String, width: Int, height: Int, color: Int): AttachmentInfo {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+            if (height > width * 2) android.graphics.Canvas(bitmap).drawRect(0f, height * .8f, width.toFloat(), height.toFloat(), android.graphics.Paint().apply { this.color = orange })
+            val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bitmap.recycle()
+            File(directory, id).writeBytes(bytes)
+            File(directory, "$id.sha256").writeText(sha(bytes))
+            return AttachmentInfo(id, name, "image/png", bytes.size.toULong(), false)
+        }
+        val long = image("d".repeat(32), "owned-long.png", 360, 1200, android.graphics.Color.rgb(45, 110, 190))
+        val photos = listOf(
+            image("e".repeat(32), "owned-red.png", 400, 400, android.graphics.Color.rgb(180, 70, 70)),
+            image("f".repeat(32), "owned-green.png", 400, 400, android.graphics.Color.rgb(50, 150, 100)),
+            image("9".repeat(32), "owned-blue.png", 400, 400, android.graphics.Color.rgb(50, 100, 180)),
         )
+        fun tool(id: String) = ItemInfo(id, ItemRole.TOOL, listOf(BlockInfo.Tool(ToolInfo("Bash", "Owned tool result", "exec_command", "{}", "ok", true, false, false))), false, null)
+        val pure = tool("owned-pure")
+        val mixed = tool("owned-mixed").let { it.copy(blocks = it.blocks + BlockInfo.Attachment(long)) }
+        val album = ItemInfo("owned-album", ItemRole.ASSISTANT,
+            listOf(BlockInfo.Attachment(photos[0]), BlockInfo.Text("\n\n"), BlockInfo.Attachment(photos[1]), BlockInfo.Text("\n"), BlockInfo.Attachment(photos[2])), false, null)
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ChatEntryContent(ChatEntry.Work(listOf(pure))) {}
+                    ChatEntryContent(ChatEntry.Message(mixed)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
+                    ChatEntryContent(ChatEntry.Message(album)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
+                }
+            }) {
+                waitFor("Long thumbnail and album load") { (listOf(long) + photos).all { find(description = it.name) != null } }
+                val longBounds = bounds(long.name)
+                val cards = mutableListOf<Rect>()
+                val label = context.getString(R.string.expand_tool_group, 1)
+                fun collect(node: AccessibilityNodeInfo?) {
+                    node ?: return
+                    if (node.contentDescription?.toString() == label) cards.add(Rect().also { node.getBoundsInScreen(it) })
+                    for (index in 0 until node.childCount) collect(node.getChild(index))
+                }
+                collect(test.uiAutomation.rootInActiveWindow)
+                assertEquals(2, cards.size)
+                assertEquals(cards[0].left, cards[1].left)
+                assertEquals(cards[0].width(), cards[1].width())
+                assertEquals(cards[1].left, longBounds.left)
+                assertEquals(cards[1].width(), longBounds.width())
+                assertTrue(longBounds.height() <= 241 * context.resources.displayMetrics.density)
+                val tiles = photos.map { bounds(it.name) }
+                assertEquals(tiles[0].top, tiles[1].top)
+                assertEquals(tiles[0].top, tiles[2].top)
+                assertTrue(kotlin.math.abs(tiles[0].width() - tiles[1].width()) <= 1)
+                assertTrue(kotlin.math.abs(tiles[0].width() - tiles[0].height()) <= 1)
+                (listOf(long) + photos).forEach { assertNull(find(text = it.name)) }
+                screenshot("compact-tool-image-and-album.png")
+                assertTrue(actionNode(requireNotNull(find(description = long.name)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("Full image preview opens") { find(text = context.getString(R.string.attachment_save)) != null }
+                waitFor("The original image bottom is visible in full preview") {
+                    test.uiAutomation.takeScreenshot().let { capture ->
+                        val pixels = IntArray(capture.width * capture.height)
+                        capture.getPixels(pixels, 0, capture.width, 0, 0, capture.width, capture.height)
+                        val visible = pixels.count { it == orange } > 1000
+                        capture.recycle()
+                        visible
+                    }
+                }
+                screenshot("long-image-full-preview.png")
+            }
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun nativeAudioVideoAndTextAttachmentsOpenWithoutAutoplay() {
+        // MediaController is a separate native window above the Compose dialog.
+        val service = test.uiAutomation.serviceInfo
+        val originalFlags = service.flags
+        service.flags = service.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        test.uiAutomation.serviceInfo = service
+        val context = test.targetContext
+        val conversation = "owned-multimodal-items/playback"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val directory = File(context.filesDir, "message-attachments/${sha(conversation.toByteArray())}").apply { mkdirs() }
+        val wave = java.nio.ByteBuffer.allocate(44 + 32000).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+            put("RIFF".toByteArray()); putInt(32036); put("WAVEfmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
+            putInt(8000); putInt(16000); putShort(2); putShort(16); put("data".toByteArray()); putInt(32000)
+            for (index in 0 until 16000) putShort((kotlin.math.sin(index * 2.0 * Math.PI * 220.0 / 8000) * 1500).toInt().toShort())
+        }.array()
+        val video = test.context.assets.open("multimodal-owned.mp4").use { it.readBytes() }
+        val sources = listOf(Triple("owned-audio.wav", "audio/wav", wave), Triple("owned-video.mp4", "video/mp4", video), Triple("owned-notes.md", "text/markdown", "# Owned Markdown attachment\n\n**中文内容**\n\n- First item\n- 第二行".toByteArray()))
+        val files = sources.mapIndexed { index, (name, mime, bytes) ->
+            val id = (index + 1).toString().repeat(32)
+            File(directory, id).writeBytes(bytes); File(directory, "$id.sha256").writeText(sha(bytes))
+            AttachmentInfo(id, name, mime, bytes.size.toULong(), false)
+        }
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp)) { MessageAttachments(vm, files, {}, {}, conversation) }
+            }) {
+                fun click(label: String) {
+                    waitFor("Control appears: $label") { find(text = label) != null }
+                    assertTrue(actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                }
+                click("owned-audio.wav")
+                waitFor("Audio prepares") { find(text = "0:00 / 0:02") != null && find(text = context.getString(R.string.attachment_audio_play)) != null }
+                click(context.getString(R.string.attachment_audio_play))
+                waitFor("Audio plays after a tap") { find(text = context.getString(R.string.attachment_audio_pause)) != null }
+                click(context.getString(R.string.attachment_audio_pause))
+                screenshot("unified-native-audio.png")
+                click(context.getString(R.string.dismiss))
+                waitFor("Audio closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                click("owned-video.mp4")
+                waitFor("Video has visible controls") {
+                    val button = find(text = context.getString(R.string.attachment_video_play))
+                    button != null && runCatching { actionNode(button, AccessibilityNodeInfo.ACTION_CLICK).isEnabled }.getOrDefault(false) && find(text = "0:00 / 0:04") != null
+                }
+                assertNull(find(text = context.getString(R.string.attachment_video_pause)))
+                click(context.getString(R.string.attachment_video_play))
+                waitFor("Video plays through the visible button") { find(text = context.getString(R.string.attachment_video_pause)) != null }
+                waitFor("Video playback advances") { find(text = "0:01 / 0:04") != null || find(text = "0:02 / 0:04") != null }
+                screenshot("unified-native-video.png")
+                click(context.getString(R.string.attachment_video_pause))
+                click(context.getString(R.string.dismiss))
+                waitFor("Video closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                click("owned-notes.md")
+                waitFor("Text preview opens") { find(text = "Owned Markdown attachment") != null }
+                screenshot("unified-native-file.png")
+            }
+        } finally {
+            directory.deleteRecursively()
+            service.flags = originalFlags
+            test.uiAutomation.serviceInfo = service
+        }
+    }
+    @Test fun humanAndAgentShareContentRendererInsideDistinctBubbles() {
+        val context = test.targetContext
+        val conversation = "owned-multimodal-items/native"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val bitmap = Bitmap.createBitmap(480, 96, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.rgb(45, 110, 190)) }
+        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        bitmap.recycle()
+        val namespace = sha(conversation.toByteArray())
+        val uploadedId = "1234567890abcdef1234567890abcdef"
+        val generatedId = sha(bytes)
+        val uploads = File(context.filesDir, "message-attachments/$namespace").apply { mkdirs() }
+        val generated = File(context.filesDir, "generated-images/$namespace").apply { mkdirs() }
+        File(uploads, uploadedId).writeBytes(bytes)
+        File(uploads, "$uploadedId.sha256").writeText(generatedId)
+        File(generated, generatedId).writeBytes(bytes)
+        val files = listOf(AttachmentInfo(uploadedId, "human-photo.png", "image/png", bytes.size.toULong(), false),
+            AttachmentInfo(generatedId, "agent-photo.png", "image/png", bytes.size.toULong(), true))
+        lateinit var nativeRoot: View
+        try {
+            overlay({
+                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                nativeRoot = activity.window.decorView
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    files.forEachIndexed { index, file ->
+                        val message = ItemInfo("owned-$index", if (index == 0) ItemRole.USER else ItemRole.ASSISTANT,
+                            listOf(BlockInfo.Text("**统一排版** · `相同内容块`"), BlockInfo.Attachment(file)), false, null)
+                        ChatEntryContent(ChatEntry.Message(message)) { attachments -> MessageAttachments(vm, attachments, {}, {}, conversation) }
+                    }
+                }
+            }) {
+                waitFor("Both native images load") { find(description = "human-photo.png") != null && find(description = "agent-photo.png") != null }
+                val human = bounds("human-photo.png"); val agent = bounds("agent-photo.png")
+                assertTrue("User bubble stays right of the agent bubble", human.left > agent.left)
+                assertTrue("Sender padding remains distinct around the same renderer", human.width() > agent.width())
+                test.uiAutomation.takeScreenshot().let { capture ->
+                    assertEquals(KiteColors.UserBubble.toArgb(), capture.getPixel(human.left - 8, human.centerY()))
+                    assertEquals(KiteColors.Surface.toArgb(), capture.getPixel(agent.left - 8, agent.centerY()))
+                    capture.recycle()
+                }
+                main {
+                    val views = mutableListOf<MarkdownTextView>()
+                    fun walk(view: View) {
+                        if (view is MarkdownTextView && view.isShown) views.add(view)
+                        if (view is android.view.ViewGroup) for (index in 0 until view.childCount) walk(view.getChildAt(index))
+                    }
+                    walk(nativeRoot)
+                    assertEquals(2, views.size)
+                    assertEquals(views[0].text.toString(), views[1].text.toString())
+                    assertEquals(views[0].currentTextColor, views[1].currentTextColor)
+                    assertEquals(views[0].textSize, views[1].textSize)
+                    assertFalse(views[0].text.contains("**"))
+                }
+                screenshot("shared-renderer-distinct-bubbles.png")
+                files.forEach { file ->
+                    val node = requireNotNull(find(description = file.name))
+                    assertTrue(actionNode(node, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("Shared preview controls") { find(text = context.getString(R.string.attachment_save)) != null && find(text = context.getString(R.string.dismiss)) != null }
+                    screenshot("unified-preview-${file.name}.png")
+                    assertTrue(actionNode(requireNotNull(find(text = context.getString(R.string.dismiss))), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    waitFor("Preview closes") { find(text = context.getString(R.string.attachment_save)) == null }
+                }
+            }
+        } finally { uploads.deleteRecursively(); generated.deleteRecursively() }
+    }
+    @Test fun questionsCanCloseMidFormKeepDraftsAndLeaveTheWorkspaceComposerEnabled() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("qa_native_history") == "true")
+        val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        lateinit var vm: HostCheckViewModel
+        main { vm = ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+        waitFor("Core initialized") { vm.engine.state.value?.initialized == true }
+        val saved = requireNotNull(vm.engine.state.value)
+        assumeTrue("Only an empty isolated app may use this fixture", saved.hosts.isEmpty())
+        @Suppress("UNCHECKED_CAST")
+        val display = vm.engine.javaClass.getDeclaredField("current").apply { isAccessible = true }.get(vm.engine) as kotlinx.coroutines.flow.MutableStateFlow<CoreSnapshot?>
+        val agent = AgentInfo("owned-question-agent", null, "codex", "Owned questions", "blocked", "%owned", null, false, false, true)
+        val base = saved.copy(connection = ConnectionStatus.CONNECTED, selectedHost = "owned-question-host",
+            selectedSession = "owned-question-session", selectedAgent = agent.id, agents = listOf(agent),
+            providers = listOf(ProviderInfo("codex", true, false, false, false, false, false, false, false)),
+            agentPause = AgentPauseStatus.RUNNING, responsePhase = ResponsePhase.WAITING,
+            composer = saved.composer.copy(ready = true, loading = false, details = ""),
+            sessions = listOf(SessionInfo("owned-question-session", "codex", "Owned questions", "", null, false, 0, agent.id, "question", true, emptyList(), false)))
+        fun clickText(text: String) = assertTrue(actionNode(requireNotNull(find(text = text)), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        try {
+            for (blocking in listOf(false, true)) {
+                val question = QuestionInfo("owned-question-$blocking", blocking, listOf(
+                    QuestionFieldInfo("colour", "颜色", "Owned colour question", true, false, listOf(QuestionOptionInfo("蓝色", ""))),
+                    QuestionFieldInfo("note", "说明", "Owned note question", true, false, emptyList()),
+                ))
+                main { vm.settingsVisible = false; vm.draft = "继续，先按默认方案处理"; display.value = base.copy(question = question) }
+                waitFor("The real workspace displays the question") { find(text = "Owned colour question") != null }
+                clickText("蓝色"); clickText("下一个")
+                waitFor("Second question opens") { find(text = "Owned note question") != null }
+                val answer = actionNode(requireNotNull(find(description = "回答：说明")), AccessibilityNodeInfo.ACTION_SET_TEXT)
+                assertTrue(answer.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "保留未提交草稿")
+                }))
+                clickText("稍后回答")
+                waitFor("Closing hides the unfinished form") { find(text = "Owned note question") == null }
+                assertEquals("蓝色", vm.questionValues(question.id)["colour"])
+                assertEquals("保留未提交草稿", vm.questionValues(question.id)["note"])
+                val send = actionNode(requireNotNull(find(description = "发送消息")), AccessibilityNodeInfo.ACTION_CLICK)
+                assertTrue("A pending question must allow a normal follow-up", send.isEnabled)
+                screenshot("question-closed-$blocking.png")
+                clickText("回答问题")
+                waitFor("Reopening restores the same page and draft") { find(text = "Owned note question") != null && find(text = "保留未提交草稿") != null }
+                assertNotNull(find(text = "2 / 2"))
+                // The closed form did not submit any answer or mutate the provider snapshot.
+                assertEquals(question.id, display.value?.question?.id)
+                screenshot("question-reopened-$blocking.png")
+                clickText("回答问题")
+                waitFor("The answer sheet opens independently") { find(text = "Owned colour question") != null }
+                screenshot("question-sheet-$blocking.png")
+                clickText("稍后回答")
+                waitFor("Closing the sheet returns to the composer") { find(text = "Owned note question") != null && find(description = "发送消息") != null }
+                assertEquals("保留未提交草稿", vm.questionValues(question.id)["note"])
+                main { display.value = base.copy(question = null) }
+                waitFor("Resolved question leaves the workspace") { find(text = "Owned note question") == null }
+            }
+        } finally { main { display.value = saved; activity.finish() } }
+    }
+
+    @Test fun subagentHistorySharesGlobalInstructionsSkillCardsAndMessageBubblesWithMainChat() {
+        val global = "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nGlobal instruction fixture body\n</INSTRUCTIONS>"
+        val messages = listOf(
+            ItemInfo("global", ItemRole.USER, listOf(BlockInfo.Text(global)), false, null),
+            ItemInfo("skill", ItemRole.USER, listOf(BlockInfo.SkillContext("report", "/skills/report/SKILL.md", "使用同一套消息渲染。")), false, null),
+            ItemInfo("user", ItemRole.USER, listOf(BlockInfo.Text("保留用户的补充要求。")), false, null),
+            ItemInfo("reply", ItemRole.ASSISTANT, listOf(BlockInfo.Text("Inspection result is ready")), false, null),
+        )
+        val child = SubagentInfo("child", "parent", "Worker", "research", "done", 0)
+        val inspecting = androidx.compose.runtime.mutableStateOf(false)
+        fun checkSharedMessages() {
+            waitFor("global instruction notice") { find(text = "已加载全局指令") != null }
+            assertNull(find(text = "# AGENTS.md instructions"))
+            assertNull(find(text = "Global instruction fixture body"))
+            assertNotNull(find(text = "Skill 指令"))
+            assertNotNull(find(text = "保留用户的补充要求。"))
+            assertNotNull(find(text = "Inspection result is ready"))
+            assertNull(find(text = "使用同一套消息渲染。"))
+        }
+        overlay({
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                messages.forEach { ChatEntryContent(ChatEntry.Message(it)) {} }
+                androidx.compose.material3.TextButton(onClick = { inspecting.value = true }) {
+                    androidx.compose.material3.Text("Inspect shared history fixture")
+                }
+            }
+            if (inspecting.value) AssociatedTaskInspector(child, true, load = {
+                SubagentInspectionInfo(messages, false)
+            }, dismiss = { inspecting.value = false })
+        }) {
+            checkSharedMessages()
+            screenshot("main-shared-message-rendering.png")
+            actionNode(requireNotNull(find(text = "Inspect shared history fixture")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("child history opens") { find(text = "只读记录") != null }
+            checkSharedMessages()
+            actionNode(requireNotNull(find(description = "展开 report 的 Skill 指令")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("child Skill expands") { find(text = "使用同一套消息渲染。") != null }
+            assertNotNull(find(text = "来源：/skills/report/SKILL.md"))
+            assertNull(find(text = "Global instruction fixture body"))
+            screenshot("subagent-shared-message-rendering.png")
+        }
+    }
+
+    @Test fun completedSubagentOpensReadonlyRecordsAndRefreshDoesNotChangeItsParent() {
+        val child = SubagentInfo("child", "parent", "Worker", "research", "done", 0)
+        val selected = androidx.compose.runtime.mutableStateOf<SubagentInfo?>(null)
+        val reads = java.util.concurrent.atomic.AtomicInteger()
         overlay({
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                androidx.compose.material3.Text("父 agent · 项目检查")
-                SubagentTree("tree-fixture", agents, false, true, initiallyExpanded = true)
+                androidx.compose.material3.Text("Parent remains selected")
+                AssociatedTasks("inspection-fixture", listOf(child), false, true, inspect = { selected.value = it })
+                selected.value?.let { target ->
+                    AssociatedTaskInspector(target, true, load = {
+                        reads.incrementAndGet()
+                        SubagentInspectionInfo(listOf(ItemInfo("reply", ItemRole.ASSISTANT,
+                            listOf(BlockInfo.Text("Inspection result is ready")), false, null)), true)
+                    }, dismiss = { selected.value = null })
+                }
             }
         }) {
-            waitFor("nested worker is visible") { find(text = "Verifier") != null }
-            assertNotNull(find(text = "运行中"))
-            assertNotNull(find(text = "已完成"))
-            assertNotNull(find(text = "运行失败"))
-            screenshot("subagent-tree-expanded.png")
-            assertTrue(actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitFor("only the worker branch collapses") { find(text = "Verifier") == null }
-            assertNotNull(find(text = "Auditor"))
-            assertNotNull(find(text = "运行失败"))
-            screenshot("subagent-tree-collapsed.png")
+            waitFor("folded tree states completion") { find(text = "1 个已完成") != null }
+            assertNull(find(text = "Worker"))
+            actionNode(requireNotNull(find(text = "关联任务 · 1")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("worker row is visible") { find(text = "Worker") != null }
+            actionNode(requireNotNull(find(text = "Worker")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("the leaf opens its readonly history") { find(text = "Inspection result is ready") != null }
+            assertEquals(1, reads.get())
+            assertNotNull(find(text = "只读 · 最近记录"))
+            screenshot("subagent-readonly-inspection.png")
+            actionNode(requireNotNull(find(text = "刷新记录")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("refresh reads the same history") { reads.get() == 2 }
+            assertEquals("child", selected.value?.id)
+            actionNode(requireNotNull(find(description = "关闭")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            waitFor("closing returns to the parent") { selected.value == null && find(text = "Parent remains selected") != null }
         }
     }
 
@@ -74,7 +387,7 @@ class WorkspaceRefinementPresentationTest {
             return null
         }
         if(Build.VERSION.SDK_INT>=33)test.uiAutomation.clearCache()
-        return walk(test.uiAutomation.rootInActiveWindow)
+        return walk(test.uiAutomation.rootInActiveWindow) ?: test.uiAutomation.windows.firstNotNullOfOrNull { walk(it.root) }
     }
     private fun bounds(description:String)=Rect().also{requireNotNull(find(description=description)).getBoundsInScreen(it)}
     private fun actionNode(node:AccessibilityNodeInfo,action:Int):AccessibilityNodeInfo {
@@ -456,7 +769,7 @@ class WorkspaceRefinementPresentationTest {
             BlockInfo.Text("owned-after"), tool("owned-tool-one"),
             BlockInfo.Text("owned-end"), tool("owned-tool-two"),
         ), false, null)
-        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { attachment -> androidx.compose.material3.Text(attachment.name) } } }) {
+        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { files -> files.forEach { attachment -> androidx.compose.material3.Text(attachment.name) } } } }) {
             val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
             waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
             val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }

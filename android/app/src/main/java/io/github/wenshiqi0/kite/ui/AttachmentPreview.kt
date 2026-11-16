@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -48,7 +49,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-internal enum class AttachmentPreviewKind { Image, Audio, Text, Other }
+internal enum class AttachmentPreviewKind { Image, Audio, Video, Text, Other }
 internal fun attachmentPreviewKind(mime: String, name: String): AttachmentPreviewKind {
     val type=mime.substringBefore(';').lowercase()
     val extension=name.substringAfterLast('.', "").lowercase()
@@ -56,6 +57,7 @@ internal fun attachmentPreviewKind(mime: String, name: String): AttachmentPrevie
     return when {
         type.startsWith("image/") || generic && extension in setOf("png","jpg","jpeg","webp","gif","bmp","heic","heif","avif") -> AttachmentPreviewKind.Image
         type.startsWith("audio/") || generic && extension in setOf("mp3","m4a","aac","wav","ogg","opus","flac","amr") -> AttachmentPreviewKind.Audio
+        type.startsWith("video/") || generic && extension in setOf("mp4","webm","mov","mkv","m4v","3gp") -> AttachmentPreviewKind.Video
         type.startsWith("text/") || type in listOf("application/json", "application/xml", "application/yaml") || extension in setOf("txt","md","log","json","yaml","yml","csv","tsv","xml","html","css","js","ts","py","rs","kt","sh","toml","ini","conf") -> AttachmentPreviewKind.Text
         else -> AttachmentPreviewKind.Other
     }
@@ -64,19 +66,93 @@ internal fun attachmentPreviewKind(mime: String, name: String): AttachmentPrevie
 internal fun previewTime(ms: Int): String = "%d:%02d".format(ms.coerceAtLeast(0)/60000, ms.coerceAtLeast(0)/1000%60)
 
 @Composable
-fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit) {
-    val conversation = vm.engine.timeline.context
+fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit, conversation: String = vm.engine.timeline.context) {
     var selected by remember(conversation) { mutableStateOf<AttachmentInfo?>(null) }
-    files.forEach { file ->
-        Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProductIcon(attachmentMark(file.mime), KiteColors.Accent, Modifier.size(20.dp))
-            Column(Modifier.weight(1f).padding(start=8.dp)) {
-                Text(file.name,fontSize=13.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
-                Text(stringResource(R.string.attachment_open_preview),fontSize=11.sp,color=KiteColors.Muted)
+    var index = 0
+    while (index < files.size) {
+        val start = index
+        if (attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) {
+            while (index < files.size && attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) index++
+            val images = files.subList(start, index)
+            key(conversation, start) {
+                AttachmentImageGrid(vm, conversation, images) { file -> inspect(); selected = file }
+            }
+        } else {
+            val file = files[index++]
+            key(conversation, start, file.id) {
+                Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
+                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
+                    }
+                }
             }
         }
     }
     selected?.let { AttachmentPreview(vm, conversation, it, onExternalActivityChanged) { selected = null } }
+}
+
+@Composable
+private fun AttachmentImageGrid(vm: HostCheckViewModel, conversation: String, files: List<AttachmentInfo>, preview: (AttachmentInfo) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (files.size == 1) {
+            InlineAttachmentImage(vm, conversation, files.single(), preview = { preview(files.single()) })
+        } else {
+            val columns = if (files.size == 2 || files.size == 4) 2 else 3
+            files.chunked(columns).forEachIndexed { row, images ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    images.forEachIndexed { column, image ->
+                        key(row, column, image.id) {
+                            InlineAttachmentImage(vm, conversation, image, Modifier.weight(1f).aspectRatio(1f), albumCell = true) { preview(image) }
+                        }
+                    }
+                    repeat(columns - images.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineAttachmentImage(vm: HostCheckViewModel, conversation: String, attachment: AttachmentInfo, modifier: Modifier = Modifier, albumCell: Boolean = false, preview: () -> Unit) {
+    var bitmap by remember(conversation, attachment.id) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(conversation, attachment.id) { mutableStateOf(false) }
+    var attempt by remember(conversation, attachment.id) { mutableIntStateOf(0) }
+    LaunchedEffect(conversation, attachment.id, attempt) {
+        failed = false
+        try {
+            val file = vm.engine.messageAttachment(conversation, attachment)
+            bitmap = withContext(Dispatchers.IO) { decodeAttachmentImage(file) }
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { failed = true }
+    }
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val image = bitmap
+        val naturalHeight = image?.let { maxWidth / (it.width.toFloat() / it.height) }
+        val height = if (albumCell) maxWidth else (naturalHeight ?: 160.dp).coerceAtMost(240.dp)
+        val cropped = albumCell || naturalHeight != null && naturalHeight > height
+        val longImage = image != null && image.height.toLong() > image.width.toLong() * 2
+        Box(Modifier.fillMaxWidth().height(height).clip(androidx.compose.foundation.shape.RoundedCornerShape(if (albumCell) 8.dp else 12.dp))
+            .background(KiteColors.Raised).clickable(enabled = image != null, onClick = preview), contentAlignment = Alignment.Center) {
+            when {
+                image != null -> {
+                    Image(image.asImageBitmap(), attachment.name,
+                        contentScale = if (cropped) ContentScale.Crop else ContentScale.Fit,
+                        alignment = if (longImage && !albumCell) Alignment.TopCenter else Alignment.Center, modifier = Modifier.fillMaxSize())
+                    if (longImage && cropped && !albumCell) Surface(color = androidx.compose.ui.graphics.Color.Black.copy(alpha = .55f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+                        Text(stringResource(R.string.attachment_long_image), color = androidx.compose.ui.graphics.Color.White, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                    }
+                }
+                failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.attachment_preview_failed), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.retry)) }
+                }
+                else -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+            }
+        }
+    }
 }
 
 @Composable
@@ -95,7 +171,7 @@ internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, att
         try {
             val file=localFile?.takeIf { it.isFile } ?: vm.engine.messageAttachment(conversation,attachment)
             withContext(Dispatchers.IO) {
-                if(kind==AttachmentPreviewKind.Image) bitmap=decodeGeneratedImage(file)
+                if(kind==AttachmentPreviewKind.Image) bitmap=decodeAttachmentImage(file)
                 if(kind==AttachmentPreviewKind.Text) {
                     val preview=readAttachmentText(file)
                     truncated=preview.truncated;text=preview.text
@@ -131,6 +207,7 @@ internal fun AttachmentPreview(vm: HostCheckViewModel, conversation: String, att
                         local==null -> CircularProgressIndicator()
                         kind==AttachmentPreviewKind.Image && bitmap!=null -> PreviewImage(requireNotNull(bitmap),attachment.name)
                         kind==AttachmentPreviewKind.Audio -> PreviewAudio(requireNotNull(local))
+                        kind==AttachmentPreviewKind.Video -> PreviewVideo(requireNotNull(local))
                         kind==AttachmentPreviewKind.Text -> {
                             val chunks=remember(text){literalChunks(text.orEmpty())}
                             Column(Modifier.fillMaxSize().padding(horizontal=12.dp)) {

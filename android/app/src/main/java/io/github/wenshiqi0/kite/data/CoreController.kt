@@ -132,7 +132,7 @@ class CoreController(private val context: Context) {
             val root = File(context.filesDir, "message-attachments/" + hash(conversation.toByteArray())).apply { mkdirs() }
             val file = File(root, attachment.id)
             val checksum = File(root, attachment.id + ".sha256")
-            val valid = file.isFile && file.length() == attachment.size.toLong() && file.length() in 1..(25L*1024*1024) && checksum.isFile && hash(file.readBytes()) == checksum.readText()
+            val valid = file.isFile && (attachment.size == 0uL || file.length() == attachment.size.toLong()) && file.length() in 1..(25L*1024*1024) && checksum.isFile && hash(file.readBytes()) == checksum.readText()
             if (!valid) {
                 val bytes = core.chatAttachment(conversation, attachment.id)
                 val temporary = File.createTempFile("attachment-", ".tmp", root)

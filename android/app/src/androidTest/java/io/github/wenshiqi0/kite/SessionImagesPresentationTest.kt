@@ -63,7 +63,7 @@ class SessionImagesPresentationTest {
         val file = File(directory, id).apply { writeBytes(bytes) }
         val engine = (context.applicationContext as KiteApplication).engine
         assertEquals(file, runBlocking { engine.generatedImage(conversation, id) })
-        val decoded = decodeGeneratedImage(file)
+        val decoded = decodeAttachmentImage(file)
         assertEquals(512, decoded.width); assertEquals(320, decoded.height); decoded.recycle()
         val activity = test.startActivitySync(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         val root = activity.findViewById<FrameLayout>(android.R.id.content)
@@ -76,7 +76,7 @@ class SessionImagesPresentationTest {
                 panel = ComposeView(activity).apply { setContent {
                     KiteTheme { Column(Modifier.fillMaxWidth()) {
                         listOf(SessionStatus.Running, SessionStatus.Question, SessionStatus.Attention, SessionStatus.Disconnected).forEach { SessionStatusBadge(it) }
-                        GeneratedImages(vm, listOf(AttachmentInfo(id, "generated-test.png", "image/png", bytes.size.toULong(), true)), conversation)
+                        MessageAttachments(vm, listOf(AttachmentInfo(id, "generated-test.png", "image/png", bytes.size.toULong(), true)), {}, {}, conversation)
                     } }
                 } }
                 root.addView(panel, FrameLayout.LayoutParams(-1, -1))
@@ -84,11 +84,10 @@ class SessionImagesPresentationTest {
             for (label in listOf(R.string.session_running, R.string.session_question, R.string.session_attention, R.string.session_disconnected)) {
                 waitFor(context.getString(label)) { find(text = context.getString(label)) != null }
             }
-            val preview = context.getString(R.string.generated_image_preview)
+            val preview = "generated-test.png"
             waitFor("image preview") { find(description = preview) != null }
-            assertNotNull(find(text = context.getString(R.string.generated_image_save)))
             click(requireNotNull(find(description = preview)))
-            waitFor("expanded image") { find(description = "generated-test.png") != null }
+            waitFor("expanded image") { find(text = context.getString(R.string.attachment_save)) != null }
             click(requireNotNull(find(text = context.getString(R.string.dismiss))))
             waitFor("preview dismissed") { find(description = preview) != null }
         } finally {

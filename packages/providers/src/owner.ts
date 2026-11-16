@@ -33,6 +33,7 @@ import {
   migrationContext,
   modelIds,
 } from "./harness";
+import { contentFingerprint, projectContent } from "./media";
 import { connectNative } from "./native";
 import { approvalFields, permissionValues } from "./permissions";
 import { nativeInput } from "./uploads";
@@ -178,9 +179,16 @@ export class Owner {
       closeSync(fd);
     }
   }
-  private message(role: string, text: string, id = crypto.randomUUID()): void {
-    if (!text.trim()) return;
-    this.record(id, { type: "message", role, content: [{ type: "text", text }] });
+  private message(role: string, value: Json | undefined, id = crypto.randomUUID()): void {
+    const content = projectContent(value, this.info.cwd);
+    if (!content.length) return;
+    const text = textContent(content);
+    this.record(id, {
+      type: "message",
+      role,
+      content,
+      _kite_content_fingerprint: contentFingerprint(value),
+    });
     if (role === "assistant")
       this.notify("item/completed", {
         turnId: this.turn,
@@ -192,7 +200,7 @@ export class Owner {
     if (value.type === "assistant/message")
       this.message(
         "assistant",
-        textContent(optionalObject(data.message).content),
+        optionalObject(data.message).content,
         `${this.epoch}:${value.seq ?? crypto.randomUUID()}`,
       );
     else if (value.type === "tool/call") {
@@ -217,7 +225,7 @@ export class Owner {
       this.record(`${id}:result`, {
         type: "function_call_output",
         call_id: id,
-        output,
+        output: projectContent(m.content, this.info.cwd),
         failed: Boolean(m.isError),
       });
       this.notify("item/completed", {

@@ -12,6 +12,12 @@ pub struct Page {
     pub has_newer: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HistoryCapabilities {
+    pub claude_projection: bool,
+    pub native_codex: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct History {
     pub key: String,
@@ -23,6 +29,7 @@ pub struct History {
     pub async_input: crate::async_input::History,
     pub page: Option<Page>,
     pub positions: std::collections::BTreeMap<String, (u64, u32)>,
+    pub capabilities: Option<HistoryCapabilities>,
 }
 
 pub fn key(reference: &AgentSession) -> String {
@@ -46,7 +53,7 @@ pub async fn page(
     cursor: &str,
     newer: bool,
 ) -> Arc<History> {
-    if !crate::providers::managed(&reference.agent)
+    if !matches!(reference.agent.as_str(), "codex" | "claude" | "dsh" | "ply")
         || cursor.len() > 128
         || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
     {
@@ -125,6 +132,23 @@ async fn request(
             )
         })
         .unwrap_or_default();
+    // Codex uses the existing history command. Claude projection is optional:
+    // an older host still supplies its original JSONL history without new flags.
+    let capabilities = if let Some(value) =
+        previous.as_ref().and_then(|history| history.capabilities)
+    {
+        value
+    } else {
+        match tokio::time::timeout(Duration::from_secs(5), crate::composer::require_node(ssh)).await
+        {
+            Ok(Ok(info)) => HistoryCapabilities {
+                claude_projection: info["historyProjectionApi"] == 1,
+                native_codex: info["historyNativeApi"] == 1,
+            },
+            _ => HistoryCapabilities::default(),
+        }
+    };
+    let claude_projection = reference.agent == "claude" && capabilities.claude_projection;
     let script = format!(
         r#"set -eu
 provider={provider}
@@ -132,6 +156,13 @@ kind={kind}
 value={value}
 cached={cached}
 archive=
+pending_or_native() {{
+  if test "$provider" = codex && test "$kind" = id && test "{native_codex}" = true; then
+    "$HOME/.local/bin/kite-node" backend history --thread "$value" --name "$cached" --compressed{page_args}
+  else
+    printf 'kite-history-pending-v1\n'
+  fi
+}}
 if test "$provider" = claude; then
   root="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/projects"
   pattern="$value.jsonl"
@@ -141,7 +172,7 @@ else
   archive="$codex_home/archived_sessions"
   pattern="rollout-*-$value.jsonl"
 fi
-if ! test -d "$root" && ! test -d "$archive"; then printf 'kite-history-pending-v1\n'; exit 0; fi
+if ! test -d "$root" && ! test -d "$archive"; then pending_or_native; exit 0; fi
 if test -d "$root"; then root=$(readlink -f "$root"); fi
 if test -d "$archive"; then archive=$(readlink -f "$archive"); fi
 if test "$kind" = path; then
@@ -152,16 +183,18 @@ else
     if test -d "$dir"; then find "$dir" -maxdepth 6 -type f -name "$pattern" -print; fi
   done | head -n 2)
   count=$(printf '%s\n' "$files" | grep -c . || true)
-  if test "$count" = 0; then printf 'kite-history-pending-v1\n'; exit 0; fi
+  if test "$count" = 0; then pending_or_native; exit 0; fi
   test "$count" = 1
   file=$files
 fi
 if ! test -f "$file"; then printf 'kite-history-pending-v1\n'; exit 0; fi
-stamp=$(stat -c '%d:%i:%s:%y' "$file")
+stamp="$(stat -c '%d:%i:%s:%y' "$file"):media-v4:{claude_projection}"
 printf 'kite-history-v1\n%s\n' "$stamp"
 if test "$stamp" = "$cached"; then exit 0; fi
 if test "$provider" = codex; then
   "$HOME/.local/bin/kite-node" backend history --compressed --file "$file"{page_args}
+elif test "{claude_projection}" = true; then
+  "$HOME/.local/bin/kite-node" backend history --compressed --provider claude --file "$file"{page_args}
 else
   tail -c 2097152 "$file"
 fi
@@ -171,6 +204,8 @@ fi
         value = quote(value),
         cached = quote(previous.as_ref().map(|p| p.stamp.as_str()).unwrap_or("")),
         page_args = page_args,
+        claude_projection = claude_projection,
+        native_codex = capabilities.native_codex,
     );
     let output = match tokio::time::timeout(
         Duration::from_secs(30),
@@ -182,7 +217,11 @@ fi
         Ok(Err(error)) => return unavailable(&cache_key, format!("history transport: {error}")),
         Err(_) => return unavailable(&cache_key, "history request timed out".into()),
     };
-    response(reference, previous, output)
+    let mut result = response(reference, previous, output);
+    if result.capabilities != Some(capabilities) {
+        Arc::make_mut(&mut result).capabilities = Some(capabilities);
+    }
+    result
 }
 
 fn unavailable(key: &str, problem: String) -> Arc<History> {
@@ -200,12 +239,17 @@ fn response(
 ) -> Arc<History> {
     let cache_key = key(reference);
     if output.exit_status != Some(0) || output.stdout.len() > 4 * 1024 * 1024 {
+        let reason: String = String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(512)
+            .collect();
         return unavailable(
             &cache_key,
             format!(
-                "history source read failed (exit {:?}, {} bytes)",
+                "history source read failed (exit {:?}, {} bytes): {}",
                 output.exit_status,
-                output.stdout.len()
+                output.stdout.len(),
+                reason.trim()
             ),
         );
     }
@@ -229,8 +273,10 @@ fn response(
         return previous;
     }
     let bytes = lines.next().unwrap_or_default();
+    let projected = crate::providers::managed(&reference.agent)
+        || reference.agent == "claude" && bytes.starts_with(&[0x1f, 0x8b]);
     let decoded;
-    let bytes = if crate::providers::managed(&reference.agent) {
+    let bytes = if projected {
         let Some(value) = decode_history(bytes) else {
             return unavailable(&cache_key, "invalid compressed history response".into());
         };
@@ -239,7 +285,7 @@ fn response(
     } else {
         bytes
     };
-    let (controls, bytes, page) = if crate::providers::managed(&reference.agent) {
+    let (controls, bytes, page) = if projected {
         let Some(parts) = codex_projection(bytes) else {
             return unavailable(&cache_key, "invalid provider history projection".into());
         };
@@ -264,6 +310,7 @@ fn response(
         },
         positions: record_positions(bytes),
         page,
+        capabilities: None,
     })
 }
 
@@ -363,6 +410,18 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
         else {
             continue;
         };
+        if matches!(value["type"].as_str(), Some("user" | "assistant")) {
+            for (rank, item) in parse_history("claude", value.to_string().as_bytes())
+                .into_iter()
+                .enumerate()
+            {
+                result
+                    .entry(item.id)
+                    .and_modify(|old| *old = std::cmp::min(*old, (offset, rank as u32)))
+                    .or_insert((offset, rank as u32));
+            }
+            continue;
+        }
         let p = &value["payload"];
         let id = if let Some(id) = crate::turn_error_id(&value) {
             id
@@ -371,6 +430,7 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
                 .as_str()
                 .or_else(|| value["uuid"].as_str())
                 .or_else(|| value["id"].as_str())
+                .or_else(|| value["_kite_record_id"].as_str())
                 .map(str::to_owned)
                 .unwrap_or_else(|| crate::fingerprint(&value.to_string()))
         } else if let Some(id) = p["call_id"].as_str() {
@@ -392,6 +452,53 @@ fn record_positions(bytes: &[u8]) -> std::collections::BTreeMap<String, (u64, u3
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_history_keeps_the_bounded_remote_cause_for_diagnostics() {
+        let reference = AgentSession {
+            source: "owned".into(),
+            agent: "codex".into(),
+            kind: "id".into(),
+            value: "thread".into(),
+        };
+        let value = response(
+            &reference,
+            None,
+            kite_ssh::ExecOutput {
+                stdout: b"kite-history-v1\nstamp\n".to_vec(),
+                stderr: format!("node protocol: backend option denied{}", "x".repeat(2000))
+                    .into_bytes(),
+                exit_status: Some(1),
+            },
+        );
+        assert!(!value.available);
+        assert!(value.problem.contains("backend option denied"));
+        assert!(value.problem.len() < 640);
+        assert!(value.items.is_empty());
+    }
+    #[test]
+    fn projected_positions_use_the_same_identity_as_codex_and_claude_items() {
+        for provider in ["codex", "claude"] {
+            let record = if provider == "claude" {
+                serde_json::json!({"type":"assistant", "_kite_record_id":"original", "_kite_offset":42, "message":{"content":[{"type":"text", "text":"kept"}]}})
+            } else {
+                serde_json::json!({"type":"response_item", "_kite_record_id":"original", "_kite_offset":42, "payload":{"type":"message", "role":"assistant", "content":[{"type":"text", "text":"kept"}]}})
+            };
+            let bytes = record.to_string();
+            let items = parse_history(provider, bytes.as_bytes());
+            assert_eq!(
+                record_positions(bytes.as_bytes()).get(&items[0].id),
+                Some(&(42, 0))
+            );
+        }
+    }
+    #[test]
+    fn claude_tool_positions_follow_their_text_within_the_original_record() {
+        let row = serde_json::json!({"uuid":"assistant-row", "type":"assistant", "_kite_offset":42,
+            "message":{"content":[{"type":"text", "text":"Before"}, {"type":"tool_use", "id":"call", "name":"create_image", "input":{}}]}});
+        let positions = record_positions(row.to_string().as_bytes());
+        assert_eq!(positions.get("assistant-row"), Some(&(42, 0)));
+        assert_eq!(positions.get("call"), Some(&(42, 1)));
+    }
     #[test]
     fn pending_source_is_distinct_from_failed_transport_or_invalid_output() {
         let reference = AgentSession {

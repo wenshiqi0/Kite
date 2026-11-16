@@ -98,6 +98,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val drawerActive = drawer.currentValue != DrawerValue.Closed || drawer.targetValue != DrawerValue.Closed
     val scope = rememberCoroutineScope()
+    var inspectedTask by remember { mutableStateOf<AssociatedTaskTarget?>(null) }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var autoFullscreen by remember { mutableStateOf(false) }
     var tools by remember { mutableStateOf(false) }
@@ -157,7 +158,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val conversationContext=timeline.context
     val streamingId=timeline.messages.lastOrNull{it.role==ItemRole.ASSISTANT}?.id
     val cacheWindow=remember{LazyLayoutCacheWindow(1f,.5f)}
-    val chatScroll=rememberLazyListState(cacheWindow=cacheWindow)
+    val chatScroll=key(conversationContext){rememberLazyListState(cacheWindow=cacheWindow)}
     var followTail by remember(conversationContext){mutableStateOf(true)}
     val tailMargin=remember(conversationContext){ChatTailMargin()}
     var latestVisible by remember(conversationContext){mutableStateOf(false)}
@@ -168,7 +169,6 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             return Offset.Zero
         }
     }}
-    var chatHeight by remember{mutableIntStateOf(0)}
     val draggingHistory by chatScroll.interactionSource.collectIsDraggedAsState()
     fun pauseHistory(){followTail=false}
     fun jumpToLatest(){tailMargin.reset();latestVisible=false;followTail=true}
@@ -192,7 +192,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }
     }
     LaunchedEffect(vm.sending,vm.answeringQuestion){if(vm.sending||vm.answeringQuestion)followTail=true}
-    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && chatHeight >= 16 && entries.isNotEmpty() }
+    ChatTailFollow(chatScroll, conversationContext) { followTail && !vm.inPip && !vm.pipTransition && entries.isNotEmpty() }
     val attachments = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.externalActivity = false
         updatePip()
@@ -245,7 +245,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
-            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } })
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } },
+                inspectSubagent = { host, parent, child -> inspectedTask = AssociatedTaskTarget(host, parent, child); scope.launch { drawer.close() } })
         }
     }) {
         BoxWithConstraints(Modifier.fillMaxSize().background(if (vm.layout == DesktopLayout.Fullscreen || vm.inPip) Paper else KiteColors.Surface).pointerInput(vm.target,bridgeActive){
@@ -307,20 +308,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                 }
                 currentSession?.takeIf { it.subagents.isNotEmpty() || it.subagentsError }?.let { session ->
-                    Box(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        SubagentTree("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
-                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp))
-                    }
+                    AssociatedTasks("${state?.selectedHost}/${session.id}", session.subagents, session.subagentsError,
+                            state?.connection == ConnectionStatus.CONNECTED, Modifier.padding(horizontal = 12.dp),
+                            inspect = { child -> state?.selectedHost?.let { host -> inspectedTask = AssociatedTaskTarget(host, session.id, child) } })
                 }
-                if (state?.connection == ConnectionStatus.RECONNECTING) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.connection_reconnecting), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = vm::disconnect) { Text(stringResource(R.string.disconnect)) }
-                }
-                if (state?.connection == ConnectionStatus.CONNECTED) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    ResourceWarning(state?.hostResources) {
-                        state?.hosts?.find { it.id == state?.selectedHost }?.let { host -> vm.chooseHost(host); vm.openMachineSettings() }
+                if (state?.connection == ConnectionStatus.CONNECTED) {
+                    ResourceWarning(state.hostResources, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        state.hosts.find { it.id == state.selectedHost }?.let { host -> vm.chooseHost(host); vm.openMachineSettings() }
                     }
                 }
                 if (split) {
@@ -339,14 +333,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     if(padVisible)TouchpadPanel(vm,padHeight,bridgeActive,vm::hideTouchpad)
                 }
                 if (state == null || !state.initialized) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Blue)
-                if (state != null && state.connection != ConnectionStatus.CONNECTED) {
-                    Column(Modifier.fillMaxWidth().background(Paper).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(connectionStepLabel(state), color = Muted)
-                        state.failure?.let { Text(it.details, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-                        TextButton(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
-                    }
-                }
-                Box(Modifier.weight(1f).fillMaxWidth().onSizeChanged{chatHeight=it.height}){
+                state?.let { WorkspaceConnectionNotice(it, {diagnostics=true}, {vm.openMachineSettings()}, vm::disconnect) }
+                ChatViewport(chatScroll,conversationContext,{followTail && !vm.inPip && !vm.pipTransition},Modifier.weight(1f).fillMaxWidth()){
                 if (showInitialization) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                     SessionInitializationMessage(failed=initializationFailed,retryEnabled=!vm.sessionBusy,onRetry={
                         if(currentSession!=null&&(agent==null||state?.failure?.kind==FailureKind.AGENT_START))vm.resumeSession(currentSession.id)
@@ -384,10 +372,15 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             } else Button(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                         }
                     }
-                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else (it as ChatEntry.Message).message.role}) { entry -> when (entry) {
-                        is ChatEntry.Message -> MessageCard(vm, updatePip, ::pauseHistory, entry.message, state?.responsePhase == ResponsePhase.RESPONDING && entry.message.id == streamingId)
-                        is ChatEntry.Work -> ToolGroupCard(entry, agent?.status == "working", ::pauseHistory, vm::openDesktop)
-                    } }
+                    items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else "item"}) { entry ->
+                        ChatEntryContent(
+                            entry, working = agent?.status == "working",
+                            streaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId,
+                            inspect = ::pauseHistory, desktop = vm::openDesktop,
+                        ) { files ->
+                            MessageAttachments(vm, files, updatePip, ::pauseHistory)
+                        }
+                    }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
                     state?.question?.let { question -> item(key = "question:${question.id}") { ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING) } }
                     if (state?.connection == ConnectionStatus.CONNECTED && presentationPhase != ResponsePhase.IDLE) item(key = "response-feedback") { ResponseFeedback(presentationPhase, vm.sending, waitingForApproval = state.question == null && state.approval != null, details = state.composer.details) }
@@ -423,18 +416,17 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     agent.launchPending -> R.string.composer_starting
                     providerInfo?.managedChat == true && !state.composer.ready -> if(state.composer.loading)R.string.composer_starting else R.string.composer_backend_unavailable
                     state.agentPause == AgentPauseStatus.PAUSED -> R.string.composer_paused
-                    state.question != null -> if (state.question?.blocking == true) R.string.awaiting_answer else R.string.question_pending_hint
                     agent.status == "blocked" && state.question == null && !responseInProgress -> R.string.composer_blocked_hint
                     state.agentPause != AgentPauseStatus.RUNNING -> R.string.composer_checking
                     else -> null
                 }
                 if (initializingSession && !showInitialization) SessionInitializationMessage(Modifier.align(Alignment.CenterHorizontally))
-                if (!initializingSession && !showInitialization && composeReason != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(composeReason), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                val composeHint = composeReason ?: state?.question?.let { R.string.question_continue_hint }
+                if (!initializingSession && !showInitialization && composeHint != null && currentSession?.archived != true) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(composeHint), color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     if (state?.question != null) TextButton(onClick = { answerRequest = state.question?.id }) { Text(stringResource(R.string.go_answer)) }
                     else if(composeReason==R.string.composer_backend_unavailable)TextButton(onClick={vm.engine.command{vm.engine.core.reloadComposer()}}){Text(stringResource(R.string.retry))}
                 }
-                if (state?.question?.blocking != true) {
                 AttachmentDrafts(vm, state?.composer?.uploads.orEmpty(), onExternalActivityChanged = updatePip, inspect = ::pauseHistory)
                 SkillDrafts(state?.composer?.skills?.selected.orEmpty(), !vm.sending && !vm.skillBusy) { skill ->
                     agent?.id?.let { vm.selectSkill(it, skill.path, false) }
@@ -465,14 +457,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     ComposerActionButton(
                         working = vm.sessionStartup == SessionStartupPhase.READY && if (providerInfo?.managedChat == true) state?.responsePhase in listOf(ResponsePhase.SENDING, ResponsePhase.THINKING, ResponsePhase.TOOL, ResponsePhase.RESPONDING, ResponsePhase.WAITING) else agent?.status in listOf("working", "blocked"),
                         hasInput = !vm.creatingAgent && (vm.draft.isNotBlank() || !state?.composer?.uploads.isNullOrEmpty() || !state?.composer?.skills?.selected.isNullOrEmpty()),
-                        canSend = !vm.submissionLocked && agent != null && !vm.sending && !vm.skillBusy && !vm.copyingAttachments && !vm.interrupting && state?.composer?.uploads?.all { it.ready } != false && composeReason == null,
+                        canSend = !vm.submissionLocked && agent != null && !vm.sending && !vm.answeringQuestion && !vm.skillBusy && !vm.copyingAttachments && !vm.interrupting && state?.composer?.uploads?.all { it.ready } != false && composeReason == null,
                         canInterrupt = !vm.submissionLocked && agent != null && state?.agentPause == AgentPauseStatus.RUNNING && (providerInfo?.managedChat == true || providerInfo?.terminal == true),
                         sending = vm.sending,
                         interrupting = vm.interrupting,
                         onSend = { agent?.id?.let(vm::sendPrompt) },
                         onInterrupt = { agent?.id?.let(vm::interruptAgent) },
                     )
-                }
                 }
                 }
             }
@@ -504,11 +495,19 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }else{chromeBounds.remove("top");chromeBounds.remove("rail");chromeBounds.remove("toolbar")}
                 }
                 Box(Modifier.absoluteOffset(frameX, frameY).size(frameW, frameH).clipToBounds().background(Paper)) {
-                    AndroidView(factory = { VideoSurface(it, vm::videoReady, {id->vm.videoGone(id);if(videoReference.value?.target==id){videoReference.value=null;vm.flushRemoteText=null}}).also { surface ->
+                    AndroidView(factory = { VideoSurface(it, vm::videoReady, vm::videoGone).also { surface ->
                         videoReference.value=surface
                         val weak=WeakReference(surface)
                         vm.flushRemoteText={weak.get()?.flushRemoteText()}
-                    } }, update = { surface ->
+                    } }, onRelease = { surface ->
+                        // SurfaceHolder may recreate its renderer while this same view
+                        // stays composed. Toolbar actions belong to the view's lifetime.
+                        surface.closeRemoteKeyboard(hide = surface.remoteKeyboardActive)
+                        if (videoReference.value === surface) {
+                            videoReference.value = null
+                            vm.flushRemoteText = null
+                        }
+                    }, update = { surface ->
                         surface.takeover = takeover && !docked
                         surface.audioEnabled=vm.engine.desktopAudioEnabled
                         surface.fullscreenInput = vm.layout == DesktopLayout.Fullscreen
@@ -609,7 +608,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     state?.question?.takeIf { it.id == answerRequest && !hideChrome }?.let { question ->
         ModalBottomSheet(onDismissRequest = { answerRequest = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .8f).dp).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp).navigationBarsPadding().imePadding()) {
-                ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING)
+                ModelQuestionCard(vm, question, state.connection == ConnectionStatus.CONNECTED && state.agentPause == AgentPauseStatus.RUNNING, onDismiss = { answerRequest = null })
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -639,6 +638,15 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         }, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) }
         }
     }, confirmButton = { TextButton(onClick = { terminal = false; diagnostics = false }) { Text(stringResource(R.string.dismiss)) } })
+    inspectedTask?.takeIf { !hideChrome }?.let { target ->
+        val workspace = state?.hostConnections?.find { it.hostId == target.host }
+        val child = workspace?.sessions?.find { it.id == target.parent }?.subagents?.find { it.id == target.task.id } ?: target.task
+        key(target.host, target.parent, target.task.id) {
+            AssociatedTaskInspector(child, workspace?.connection == ConnectionStatus.CONNECTED,
+                load = { vm.engine.core.inspectSubagent(target.host, target.parent, target.task.id) },
+                dismiss = { inspectedTask = null })
+        }
+    }
     val platformError by vm.engine.platformError.collectAsState()
     val error = warning ?: platformError
     vm.sessionToDelete?.takeIf { !hideChrome }?.let { (host, session) ->
@@ -672,26 +680,5 @@ private fun Modifier.borderTop() = border(0.5.dp, Line)
     val description = if (label == R.string.zoom_in || label == R.string.zoom_out) translated else text ?: translated
     Surface(onClick = action, color = if (active) KiteColors.AccentSurface else KiteColors.Raised, shape = RoundedCornerShape(10.dp), modifier = Modifier.height(40.dp).widthIn(min = 40.dp).semantics { contentDescription = description }) {
         Row(Modifier.padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) { if (icon != null) ProductIcon(icon, if (active) Blue else KiteColors.Muted, Modifier.size(20.dp)); if (text != null) { if (icon != null) Spacer(Modifier.width(5.dp)); Text(text, fontSize = 14.sp, color = if (active) Blue else Muted) } }
-    }
-}
-@Composable private fun MessageCard(vm: HostCheckViewModel, updatePip: () -> Unit, inspect: () -> Unit, message: ItemInfo, streaming: Boolean = false) {
-    if (remember(message) { isGlobalInstructionsMessage(message) }) {
-        GlobalInstructionsNotice()
-        return
-    }
-    if (message.role == ItemRole.ERROR) {
-        TurnFailureMessage(message.text)
-        return
-    }
-    val user = message.role == ItemRole.USER
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
-        Surface(color = if (user) KiteColors.UserBubble else Paper, shape = RoundedCornerShape(19.dp), modifier = Modifier.widthIn(max = 340.dp)) {
-            Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp)) {
-                ItemContent(message, streaming, inspect, vm::openDesktop) { file ->
-                    if (file.generatedImage) GeneratedImages(vm, listOf(file), onExternalActivityChanged = updatePip, onOpenPreview = inspect)
-                    else MessageAttachments(vm, listOf(file), updatePip, inspect)
-                }
-            }
-        }
     }
 }

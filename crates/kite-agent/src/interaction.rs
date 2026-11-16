@@ -347,6 +347,22 @@ impl RuntimeState {
         Ok(json!({"id":raw_id,"result":{"answers":values}}))
     }
 
+    /// A new user message may leave a blocking form unanswered. This is the
+    /// provider's empty response, never a made-up choice or an approval reply.
+    pub fn unanswered_question_replies(&self) -> Vec<(String, Value)> {
+        self.questions
+            .iter()
+            .filter(|q| q.prompt.blocking)
+            .filter_map(|pending| {
+                let raw_id = pending.raw_id.as_ref()?;
+                Some((
+                    pending.prompt.id.clone(),
+                    json!({"id":raw_id,"result":{"answers":{}}}),
+                ))
+            })
+            .collect()
+    }
+
     pub fn async_reply(&self, id: &str, answers: &[Answer]) -> Result<Option<String>, Error> {
         let pending = self
             .questions
@@ -489,6 +505,50 @@ mod tests {
     use super::*;
     fn request() -> Value {
         json!({"id":7,"method":"item/tool/requestUserInput","params":{"threadId":"t","turnId":"turn","isBlocking":true,"questions":[{"id":"colour","header":"Colour","question":"Which colour?","isOther":true,"options":[{"label":"Blue","description":"Blue"},{"label":"Green","description":"Green"}]}]}})
+    }
+    #[test]
+    fn continuing_without_answers_resolves_only_blocking_question_rpcs() {
+        let mut state = RuntimeState::default();
+        state.ingest(&request(), "t");
+        let mut another = request();
+        another["id"] = json!("another-request");
+        another["params"]["itemId"] = json!("another-item");
+        state.ingest(&another, "t");
+        state.ingest(&json!({"id":9,"method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"turn","command":"owned-fixture"}}), "t");
+        let replies = state.unanswered_question_replies();
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].1, json!({"id":7,"result":{"answers":{}}}));
+        assert_eq!(
+            replies[1].1,
+            json!({"id":"another-request","result":{"answers":{}}})
+        );
+        // Preparing a continuation cannot discard the form before transport succeeds.
+        assert!(state.question().is_some());
+        for (id, _) in replies {
+            state.answered(&id);
+        }
+        assert!(state.question().is_none());
+        assert!(state.approval().is_some());
+        assert_eq!(state.phase(), Activity::Waiting);
+        assert!(state.unanswered_question_replies().is_empty());
+    }
+
+    #[test]
+    fn continuation_never_answers_nonblocking_expired_or_other_thread_questions() {
+        let mut state = RuntimeState::default();
+        state.ingest(&request(), "other-thread");
+        assert!(state.unanswered_question_replies().is_empty());
+        let mut nonblocking = request();
+        nonblocking["params"]["isBlocking"] = json!(false);
+        state.ingest(&nonblocking, "t");
+        assert!(state.question().is_some());
+        assert!(state.unanswered_question_replies().is_empty());
+        state.ingest(
+            &json!({"method":"serverRequest/resolved","params":{"threadId":"t","requestId":7}}),
+            "t",
+        );
+        assert!(state.question().is_none());
+        assert!(state.unanswered_question_replies().is_empty());
     }
     #[test]
     fn submitted_display_records_preserve_question_order_and_mask_secrets() {

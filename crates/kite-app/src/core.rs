@@ -52,12 +52,14 @@ mod permissions;
 #[cfg(test)]
 mod recovery_tests;
 mod skills;
+mod subagent_history;
 use crate::{QuestionAnswer, QuestionPrompt, ResponseActivity};
 pub use key::ConversationKey;
 use key::{AgentKey, agent_source, approval_token, pane_key};
 use live::{CoreState, LiveSession, PendingItem};
 pub use notifications::AgentNotice;
 use sessions::SessionBook;
+pub use subagent_history::SubagentInspection;
 
 #[derive(Clone, Debug)]
 pub struct ConversationSession {
@@ -1096,18 +1098,16 @@ impl AppCore {
         let Some(key) = self.selected() else {
             return Ok(());
         };
-        match self
+        self.ensure_history_source(generation);
+        if let Some(agent) = self
             .read_live(&key, |live| live.active_agent().cloned())
             .flatten()
         {
-            Some(agent) => {
-                self.refresh_agent(c, &key, &agent.terminal, generation)
-                    .await;
-                if record {
-                    self.record_history(c, &key).await?;
-                }
+            self.refresh_agent(c, &key, &agent.terminal, generation)
+                .await;
+            if record {
+                self.record_history(c, &key).await?;
             }
-            None => self.refresh_saved_session(c, &key, generation).await?,
         }
         Ok(())
     }
@@ -1159,17 +1159,10 @@ impl AppCore {
             };
             text
         };
-        let cached = self.read_live(key, |live| live.history.clone()).flatten();
-        // A resumed pane keeps showing its saved thread until it reports one itself.
-        let reference = agent.agent_session.clone().or_else(|| {
-            self.session_record(&key.host, &key.conversation)
-                .and_then(|record| record.reference)
-        });
-        let history = if let Some(reference) = &reference {
-            history::read(&c.ssh, reference, cached).await
-        } else {
-            Arc::new(history::History::default())
-        };
+        let history = self
+            .read_live(key, |live| live.history.clone())
+            .flatten()
+            .unwrap_or_else(|| Arc::new(history::History::default()));
         if history.available
             && let Some(client) = &client
         {
@@ -1245,7 +1238,6 @@ impl AppCore {
         if self.generation.load(Ordering::SeqCst) != generation || current != Some(true) {
             return;
         }
-        self.present_history(key, &history);
         self.update_live(key, |live| {
             live.agent_output = text;
             live.approval = approval;
@@ -1727,9 +1719,12 @@ impl AppCore {
             if s.selected_session.is_none() {
                 state.selected = None;
             }
-            state.live.drain()
+            state.live.detach(&lock(&self.session_book))
         });
         self.retire(retired);
+        if let Err(error) = self.persist_live_histories() {
+            self.report(&error);
+        }
         lock(&self.consumed_approvals).clear();
         lock(&self.agent_starts).clear();
         self.chat_clients.lock().await.clear();
@@ -1816,14 +1811,6 @@ impl AppCore {
             }
             let attachments: Vec<_> = files.iter().map(|u| u.attachment.clone()).collect();
             let blocks = composer::prompt_blocks(&text, &attachments, &skills);
-            if core
-                .snapshot()
-                .question
-                .as_ref()
-                .is_some_and(|q| q.blocking)
-            {
-                return Err(AppError::State("answer the pending model question".into()));
-            }
             core.update_live(&conversation, |live| {
                 live.response_activity = ResponseActivity::Sending;
             });

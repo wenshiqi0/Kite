@@ -43,6 +43,18 @@ class ChatTimelineStateTest {
         timeline.apply(delta(3uL,true,items=listOf(message(3)),context="host/other"))
         assertEquals("m3",timeline.messages.single().id)
     }
+    @Test fun sameConversationResyncRetainsRowsAndExpandedToolKeys() {
+        val timeline=ChatTimelineState();timeline.prepareContext("host/thread")
+        timeline.apply(delta(1uL,true,items=listOf(message(1),tool("call-b"),message(2))))
+        val original=timeline.rows.first()
+        val group=timeline.rows[1].key
+        timeline.apply(delta(2uL,true,items=listOf(message(1),tool("call-a"),tool("call-b"),message(2))))
+        assertSame("A resync must retain unchanged native rows",original,timeline.rows.first())
+        assertEquals("Earlier tool history must not collapse the expanded group",group,timeline.rows[1].key)
+        val unchanged=timeline.rows.toList()
+        timeline.apply(delta(3uL,true,items=timeline.messages.toList()))
+        unchanged.zip(timeline.rows).forEach{(before,after)->assertSame(before,after)}
+    }
     @Test fun aVisibleCommentaryDoesNotDisappearWhenTheNextToolArrives() {
         val timeline=ChatTimelineState();timeline.prepareContext("host/thread")
         val progress=message(1).copy(blocks=textBlock("已确认问题，接下来检查配置"),intermediate=true)

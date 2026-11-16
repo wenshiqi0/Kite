@@ -28,7 +28,7 @@ internal fun ChatTailFollow(state: LazyListState, context: String, enabled: () -
             )
         }.collect { tail ->
             // A touch can pause following before the next recomposition cancels this effect.
-            if (!currentEnabled() || tail.scrolling || tail.lastIndex == null) return@collect
+            if (!currentEnabled() || tail.scrolling || tail.lastIndex == null || tail.viewportSize <= 0) return@collect
             val entering = !positioned
             positioned = true
             when {

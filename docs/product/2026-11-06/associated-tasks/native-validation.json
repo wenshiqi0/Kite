@@ -1,0 +1,60 @@
+{
+  "fixture": "Owned Android 16 / API 36 x86_64 emulator; synthetic records; no host or model turn",
+  "nativeTests": {
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0
+  },
+  "releaseJvmTests": {
+    "passed": 83,
+    "failed": 0
+  },
+  "releaseLint": "passed",
+  "rustReadAuthorizationTests": {
+    "passed": 3,
+    "failed": 0
+  },
+  "publisherTests": {
+    "passed": 9,
+    "failed": 0
+  },
+  "directFling": {
+    "gestures": 3,
+    "samples": 300,
+    "headerMinPx": 866,
+    "headerMaxPx": 866,
+    "movesPerGesture": 6,
+    "moveSpacingMs": 4,
+    "pauseBeforeLift": false
+  },
+  "nestedToolFling": {
+    "gestures": 3,
+    "samples": 100,
+    "headerMinPx": 866,
+    "headerMaxPx": 866
+  },
+  "workspaceFling": {
+    "gestures": 3,
+    "samples": 100,
+    "tailMinPx": 1369,
+    "tailMaxPx": 1369
+  },
+  "refreshPosition": {
+    "beforeTop": 941,
+    "afterTop": 941,
+    "headerBefore": 866,
+    "headerAfter": 866
+  },
+  "flatTasks": {
+    "retainsOriginalReadTarget": true,
+    "equalIndentation": true,
+    "entryTouchHeightDp": 48,
+    "expandedListMaxDp": 96,
+    "allTasksReachable": true
+  },
+  "coverageLimits": [
+    "The reported endless physical-handset oscillation was not reproduced verbatim; baseline finite rebound and a high-velocity boundary failure were observed.",
+    "Runtime uses production Kotlin and matching x86_64 Rust/UniFFI; the public ARM64 signed release is verified separately.",
+    "No physical handset, real-host conversation or macOS UI acceptance is claimed."
+  ]
+}

@@ -156,3 +156,5 @@
 "subagent_disconnected" = "已断开";
 
 "chat_reference_pending" = "引用内容暂不可用";
+"skill_context_title" = "Skill 指令";
+"skill_context_source" = "来源：%@";

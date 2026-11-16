@@ -147,13 +147,16 @@ async fn uploaded_attachment_headers_and_binary_payload_survive_authenticated_ss
         quote("notes.txt")
     ));
     let (ssh, task) = fixture_command(command, response).await;
-    let file = Attachment {
+    let mut file = Attachment {
         id,
         name: "notes.txt".into(),
         mime: "text/plain".into(),
         size: bytes.len() as u64,
         path: "unused by transport".into(),
     };
+    assert_eq!(download_attachment(&ssh, &file).await.unwrap(), bytes);
+    // Remote links have no declared size until their first bounded download.
+    file.size = 0;
     assert_eq!(download_attachment(&ssh, &file).await.unwrap(), bytes);
     ssh.close().await.unwrap();
     task.abort();

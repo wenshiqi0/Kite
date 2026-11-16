@@ -1,0 +1,66 @@
+{
+  "releaseUrl": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.91",
+  "workflowUrl": "https://github.com/wenshiqi0/Kite/actions/runs/42776536134",
+  "sourceCommit": "b53896a0aa4f77402f990072f9e9b4db3ac8e611",
+  "versionName": "0.2.0-alpha.91",
+  "versionCode": 93,
+  "certificateMatchesAlpha90": true,
+  "primaryAndCompatibilityApplicationPayloadsMatch": true,
+  "checks": [
+    "public SHA256SUMS and manifest",
+    "Release variant and version",
+    "arm64-v8a ABI",
+    "v1 signature on API 23",
+    "primary v3 and compatibility v2 signatures on API 36",
+    "16 KiB ZIP alignment"
+  ],
+  "files": [
+    {
+      "asset": "kite-0.2.0-alpha.91-arm64-v8a.apk",
+      "sha256": "218f5dc38245e69028f30121acd0c2af3df6a2655e3cdb5652e0d9878d67da7c",
+      "bytes": 26029152,
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273"
+    },
+    {
+      "asset": "kite-0.2.0-alpha.91-arm64-v8a-compat-v2.apk",
+      "sha256": "9817c52cf0a28404ef01c898ebebaf572b917a7943075399b8c9e76fad1e046d",
+      "bytes": 26029152,
+      "certificateSha256": "f0a8e6b2e38c0679b39961c3f4d04d97c171b8aba22376daeb5ebd8a7e701273"
+    }
+  ],
+  "physicalHandsetVerification": "Not performed; no handset connected to the local ADB server.",
+  "release": {
+    "assets": [
+      {
+        "name": "kite-0.2.0-alpha.91-arm64-v8a-compat-v2.apk",
+        "size": 26029152,
+        "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.91/kite-0.2.0-alpha.91-arm64-v8a-compat-v2.apk"
+      },
+      {
+        "name": "kite-0.2.0-alpha.91-arm64-v8a.apk",
+        "size": 26029152,
+        "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.91/kite-0.2.0-alpha.91-arm64-v8a.apk"
+      },
+      {
+        "name": "kite-host-0.2.0-alpha.91-linux-x86_64.tar.gz",
+        "size": 3677780,
+        "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.91/kite-host-0.2.0-alpha.91-linux-x86_64.tar.gz"
+      },
+      {
+        "name": "release-manifest.json",
+        "size": 1359,
+        "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.91/release-manifest.json"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 409,
+        "url": "https://github.com/wenshiqi0/Kite/releases/download/v0.2.0-alpha.91/SHA256SUMS"
+      }
+    ],
+    "isDraft": false,
+    "isPrerelease": true,
+    "publishedAt": "2026-11-10T07:45:59Z",
+    "tagName": "v0.2.0-alpha.91",
+    "url": "https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.91"
+  }
+}

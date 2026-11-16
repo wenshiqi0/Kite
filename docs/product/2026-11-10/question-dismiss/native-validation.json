@@ -1,0 +1,17 @@
+{
+  "platform": "Android API 36 x86_64",
+  "fixture": "isolated network-disabled emulator; empty app; synthetic CoreSnapshot; matching Rust/UniFFI",
+  "test": "WorkspaceRefinementPresentationTest.questionsCanCloseMidFormKeepDraftsAndLeaveTheWorkspaceComposerEnabled",
+  "result": "PASS",
+  "question_types": ["blocking", "nonblocking"],
+  "verified": [
+    "close the inline form while answering its second question",
+    "retain selected and typed draft values without submitting",
+    "keep the normal composer visible and its send button enabled",
+    "reopen the same inline page and draft",
+    "open and explicitly close the answer sheet",
+    "retain the pending question until resolved"
+  ],
+  "submitted_model_turns": false,
+  "physical_handset_tested": false
+}

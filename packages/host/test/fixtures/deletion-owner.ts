@@ -28,13 +28,28 @@ Bun.serve({
       const request = object(parse(String(body)));
       if (request.id === undefined) return;
       check(
-        ["initialize", "thread/loaded/list"].includes(String(request.method)),
+        ["initialize", "thread/loaded/list", "thread/read"].includes(String(request.method)),
         "unexpected mutation",
       );
+      const thread = object(request.params ?? {}).threadId;
       ws.send(
         JSON.stringify({
           id: request.id,
-          result: request.method === "initialize" ? {} : { data: threads },
+          result:
+            request.method === "initialize"
+              ? {}
+              : request.method === "thread/read"
+                ? {
+                    thread: {
+                      id: thread,
+                      status: {
+                        type:
+                          process.argv[7] ||
+                          (threads.includes(thread ?? null) ? "idle" : "notLoaded"),
+                      },
+                    },
+                  }
+                : { data: threads },
         }),
       );
     },

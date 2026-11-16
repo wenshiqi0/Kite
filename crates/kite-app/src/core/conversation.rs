@@ -361,7 +361,10 @@ impl Transcript {
             self.visible = result;
         } else if let Some(latest) = latest {
             if self.visible.is_empty() {
-                return Vec::new();
+                // A fresh installation has no established cache to retain.
+                // Show the ordered latest page while older pages backfill.
+                self.visible = latest.iter().cloned().map(Arc::new).collect();
+                return self.visible.clone();
             }
             // Initial synchronization never publishes partially ordered backfill.
             // Existing complete cache remains readable while missing data arrives.
@@ -428,7 +431,7 @@ impl AppCore {
         }
     }
     /// A conversation's provider source: its live agent's, else its saved record's.
-    fn conversation_reference(&self, key: &ConversationKey) -> Option<AgentSession> {
+    pub(super) fn conversation_reference(&self, key: &ConversationKey) -> Option<AgentSession> {
         let live = {
             let state = lock(&self.state);
             state
@@ -507,7 +510,7 @@ impl AppCore {
         let Some(reference) = self.conversation_reference(key) else {
             return;
         };
-        if !providers::managed(&reference.agent) {
+        if !providers::registered(&reference.agent) {
             return;
         }
         let scope = key.history_scope(Some(&reference));
@@ -716,7 +719,10 @@ mod tests {
         transcript.select("host/thread", &[]);
         let latest = page(9000, 10000, 10000);
         transcript.ingest(&latest, None);
-        assert!(transcript.presentation(Some(&latest.items)).is_empty());
+        let initial = transcript.presentation(Some(&latest.items));
+        assert_eq!(initial.len(), 1000);
+        assert_eq!(initial[0].id, "message-9000");
+        assert!(!transcript.status().complete);
         for start in (0..9000).step_by(1000).rev() {
             let request = transcript.next().unwrap();
             assert!(matches!(request, Request::Before(_)));

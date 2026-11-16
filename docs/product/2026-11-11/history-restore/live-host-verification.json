@@ -1,0 +1,41 @@
+{
+  "hosts": [
+    {
+      "host": "wen-h255",
+      "version": "0.2.0-alpha.96",
+      "historyProjectionApi": 1,
+      "health": "ready",
+      "nodeIdentityPreserved": true,
+      "catalogReferencesBefore": 111,
+      "catalogReferencesPreserved": 111,
+      "catalogReferencesAfter": 111,
+      "externalServicePidsPreserved": true,
+      "originalPhoneRequestAccepted": true,
+      "currentThreadHistoryRead": true,
+      "recentPageMessageRows": 31,
+      "recentPageAssistantAnswerRows": 2
+    },
+    {
+      "host": "wen-mini",
+      "version": "0.2.0-alpha.96",
+      "historyProjectionApi": 1,
+      "health": "ready",
+      "nodeIdentityPreserved": true,
+      "catalogReferencesBefore": 7,
+      "catalogReferencesPreserved": 7,
+      "catalogReferencesAfter": 7,
+      "externalServicePidsPreserved": true,
+      "originalPhoneRequestAccepted": true,
+      "publicBinaryMatches": true
+    }
+  ],
+  "coldHistoryRead": {
+    "host": "wen-h255",
+    "allHistoryPagesRead": true,
+    "pages": 3,
+    "messageRows": 44,
+    "assistantAnswerRows": 2,
+    "phoneCacheUsed": false,
+    "modelTurnSent": false
+  }
+}

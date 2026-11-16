@@ -126,6 +126,12 @@ impl ClientCore {
     }
 
     fn runtime(&self, host: &str) -> Result<Arc<AppCore>, AppError> {
+        // History readers can observe the saved host before base initialization
+        // publishes its key and readiness. Do not freeze that partial state into
+        // a workspace; conversation_since can serve the base snapshot meanwhile.
+        if !self.base.snapshot().initialized {
+            return Err(AppError::State("core is not initialized".into()));
+        }
         self.base.host(host)?;
         let mut runtimes = lock(&self.runtimes);
         Ok(runtimes
@@ -414,17 +420,20 @@ impl ClientCore {
         self.runtime(&host)?.open_session(id).await
     }
     pub async fn open_workspace_session(&self, host: String, id: String) -> Result<(), AppError> {
-        let _guard = self.operations.lock().await;
-        let runtime = self.runtime(&host)?;
-        if !runtime
-            .snapshot()
-            .sessions
-            .iter()
-            .any(|session| session.id == id)
-        {
-            return Err(AppError::State("session unavailable".into()));
-        }
-        self.select_inner(&host).await?;
+        let runtime = {
+            let _guard = self.operations.lock().await;
+            let runtime = self.runtime(&host)?;
+            if !runtime
+                .snapshot()
+                .sessions
+                .iter()
+                .any(|session| session.id == id)
+            {
+                return Err(AppError::State("session unavailable".into()));
+            }
+            self.select_inner(&host).await?;
+            runtime
+        };
         runtime.open_session(id).await
     }
     pub async fn resume_session(&self, host: String, id: String) -> Result<(), AppError> {
@@ -664,6 +673,16 @@ impl ClientCore {
     pub async fn retry_history(&self) -> Result<(), AppError> {
         self.selected()?.retry_history().await
     }
+    pub async fn inspect_subagent(
+        &self,
+        host: String,
+        parent: String,
+        child: String,
+    ) -> Result<SubagentInspection, AppError> {
+        self.runtime(&host)?
+            .inspect_subagent(host, parent, child)
+            .await
+    }
     pub async fn chat_attachment(&self, context: String, id: String) -> Result<Vec<u8>, AppError> {
         self.selected()?.chat_attachment(context, id).await
     }
@@ -775,6 +794,56 @@ mod tests {
         })
         .await
         .expect("multi-host condition timed out");
+    }
+
+    #[tokio::test]
+    async fn reading_history_during_initialization_keeps_workspace_ready() {
+        struct StartupReader {
+            client: Mutex<std::sync::Weak<ClientCore>>,
+            read: AtomicBool,
+        }
+        impl Observer for StartupReader {
+            fn changed(&self, snapshot: Snapshot) {
+                // Android requests a conversation delta for every published snapshot,
+                // including the saved host published before initialization completes.
+                if snapshot.selected_host.is_some()
+                    && !snapshot.initialized
+                    && !self.read.swap(true, Ordering::SeqCst)
+                {
+                    let client = lock(&self.client).upgrade().unwrap();
+                    client.conversation_since("", 0);
+                }
+            }
+        }
+
+        let fixture = Fixture::new(false).await;
+        let directory = tempfile::tempdir().unwrap();
+        let reader = Arc::new(StartupReader {
+            client: Mutex::new(std::sync::Weak::new()),
+            read: AtomicBool::new(false),
+        });
+        let client = ClientCore::new(fixture.core.secrets.clone(), reader.clone());
+        *lock(&reader.client) = Arc::downgrade(&client);
+        client
+            .initialize(
+                directory.path().into(),
+                "startup-reader".into(),
+                LegacyImport {
+                    source: "startup-reader".into(),
+                    host: Some(fixture.core.host("host").unwrap()),
+                    trusted_keys: vec![],
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(reader.read.load(Ordering::SeqCst));
+        let snapshot = client.snapshot();
+        assert!(snapshot.initialized);
+        assert!(snapshot.key.is_some());
+        assert_eq!(snapshot.selected_host.as_deref(), Some("host"));
+        assert!(client.runtime("host").unwrap().snapshot().initialized);
+        fixture.stop().await;
     }
 
     #[tokio::test]

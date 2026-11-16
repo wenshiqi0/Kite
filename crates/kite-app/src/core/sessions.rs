@@ -723,27 +723,69 @@ impl AppCore {
         }
         Ok(())
     }
-    pub(super) async fn refresh_saved_session(
+    pub(super) async fn refresh_conversation_history(
         &self,
         c: &Connected,
         key: &ConversationKey,
         generation: u64,
     ) -> Result<(), AppError> {
-        let Some(reference) = self
-            .session_record(&key.host, &key.conversation)
-            .and_then(|record| record.reference)
-        else {
+        let Some(reference) = self.conversation_reference(key) else {
             return Ok(());
         };
         let cached = self.read_live(key, |live| live.history.clone()).flatten();
         let history = history::read(&c.ssh, &reference, cached).await;
         if self.generation.load(Ordering::SeqCst) == generation
-            && self.read_live(key, |live| live.active_agent().is_none()) == Some(true)
+            && self.selected().as_ref() == Some(key)
         {
             self.present_history(key, &history);
             self.record_history(c, key).await?;
         }
         Ok(())
+    }
+    /// History must not wait behind model discovery, terminal reads or quota RPCs.
+    pub(super) fn ensure_history_source(&self, generation: u64) {
+        let Some(key) = self.selected() else {
+            return;
+        };
+        let expected_source = self.conversation_reference(&key).is_some();
+        let weak = self.self_weak.clone();
+        self.update_live(&key, |live| {
+            if live
+                .source_job
+                .as_ref()
+                .is_some_and(|job| !job.is_finished())
+            {
+                return;
+            }
+            if !live.available && expected_source {
+                live.history_status.loading = true;
+            }
+            let key = key.clone();
+            live.source_job = Some(tokio::spawn(async move {
+                loop {
+                    let Some(core) = weak.upgrade() else {
+                        break;
+                    };
+                    if core.generation.load(Ordering::SeqCst) != generation
+                        || core.selected().as_ref() != Some(&key)
+                    {
+                        break;
+                    }
+                    let Ok(connection) = core.connection() else {
+                        break;
+                    };
+                    if let Err(error) = core
+                        .refresh_conversation_history(&connection, &key, generation)
+                        .await
+                        && core.selected().as_ref() == Some(&key)
+                    {
+                        core.report(&error);
+                    }
+                    drop(core);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            }));
+        });
     }
     pub async fn open_session(self: &Arc<Self>, id: String) -> Result<(), AppError> {
         let core = self.clone();
@@ -753,11 +795,6 @@ impl AppCore {
                 .snapshot()
                 .selected_host
                 .ok_or_else(|| AppError::State("host unavailable".into()))?;
-            let connection = core.connection().ok();
-            if let Some(c) = &connection {
-                let catalog = Repository::new(&c.ssh).read().await?;
-                core.install_catalog(&host, &catalog)?;
-            }
             core.session_record(&host, &id)
                 .ok_or_else(|| AppError::State("session unavailable".into()))?;
             lock(&core.session_book)
@@ -766,9 +803,8 @@ impl AppCore {
             core.persist_session_book()?;
             core.select(Some(ConversationKey::new(&host, &id)), |_| {});
             drop(_guard);
-            if let Some(c) = connection {
-                core.refresh_selected(&c, core.generation.load(Ordering::SeqCst), false)
-                    .await?;
+            if core.connection().is_ok() {
+                core.ensure_history_source(core.generation.load(Ordering::SeqCst));
             }
             Ok(())
         })

@@ -47,6 +47,7 @@ struct Peer {
     seen: Arc<Mutex<Vec<String>>>,
     pending: BTreeMap<ChannelId, Vec<u8>>,
     reject_auth: bool,
+    blocked_catalog: Arc<AtomicBool>,
 }
 impl server::Handler for Peer {
     type Error = russh::Error;
@@ -94,6 +95,9 @@ impl server::Handler for Peer {
             "recovery replayed work: {command}"
         );
         session.channel_success(channel)?;
+        if command.contains("catalog-read") && self.blocked_catalog.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         if command.contains("herdr-api") {
             self.pending.insert(channel, vec![]);
             return Ok(());
@@ -150,6 +154,7 @@ pub(super) struct Fixture {
     listener: JoinHandle<()>,
     seen: Arc<Mutex<Vec<String>>>,
     connections: Arc<AtomicU64>,
+    blocked_catalog: Arc<AtomicBool>,
 }
 impl Fixture {
     pub(super) async fn new(reject_auth: bool) -> Self {
@@ -178,6 +183,8 @@ impl Fixture {
         let seen_server = seen.clone();
         let accepts = connections.clone();
         let server_catalog = catalog.clone();
+        let blocked_catalog = Arc::new(AtomicBool::new(false));
+        let server_block = blocked_catalog.clone();
         let listener = tokio::spawn(async move {
             loop {
                 let (socket, _) = listener.accept().await.unwrap();
@@ -187,6 +194,7 @@ impl Fixture {
                     seen: seen_server.clone(),
                     pending: BTreeMap::new(),
                     reject_auth,
+                    blocked_catalog: server_block.clone(),
                 };
                 let config = config.clone();
                 tokio::spawn(async move {
@@ -230,12 +238,55 @@ impl Fixture {
             listener,
             seen,
             connections,
+            blocked_catalog,
         }
     }
     pub(super) async fn stop(&self) {
         self.core.disconnect().await.unwrap();
         self.listener.abort();
     }
+}
+
+#[tokio::test]
+async fn switching_saved_conversations_does_not_wait_for_an_unresponsive_catalog() {
+    let f = Fixture::new(false).await;
+    f.core.restore_connection().await.unwrap();
+    until(|| f.core.snapshot().connection == ConnectionPhase::Connected).await;
+    f.blocked_catalog.store(true, Ordering::SeqCst);
+    let records = (0..8)
+        .map(|index| {
+            kite_agent::sessions::Record::draft(
+                format!("view-{index}"),
+                "codex".into(),
+                format!("Owned view {index}"),
+                None,
+                1,
+            )
+        })
+        .collect();
+    f.core
+        .install_catalog(
+            "host",
+            &kite_agent::sessions::Catalog {
+                revision: 5,
+                now_ms: 1,
+                sessions: records,
+            },
+        )
+        .unwrap();
+    for index in 0..8 {
+        let id = format!("view-{index}");
+        tokio::time::timeout(Duration::from_millis(500), f.core.open_session(id.clone()))
+            .await
+            .expect("view selection waited for a remote catalog/history request")
+            .unwrap();
+        assert_eq!(
+            f.core.snapshot().selected_session.as_deref(),
+            Some(id.as_str())
+        );
+    }
+    f.blocked_catalog.store(false, Ordering::SeqCst);
+    f.stop().await;
 }
 
 #[tokio::test]

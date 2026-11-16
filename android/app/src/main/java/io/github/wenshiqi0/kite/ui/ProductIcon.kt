@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
-enum class Mark { Search, Sort, Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Stop, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows, Skill }
+enum class Mark { Search, Sort, Menu, Monitor, Eye, Expand, Shrink, Split, Dock, Keyboard, Stop, Plus, Send, Close, Touchpad, Clipboard, Pan, More, Back, Terminal, Settings, Chat, Chevron, Check, Image, Audio, Video, Play, Pause, File, Pointer, Rotate, Zoom, Mouse, Wheel, Windows, Skill }
 
 @Composable
 fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier = Modifier) {
@@ -64,6 +64,9 @@ fun ProductIcon(mark: Mark, color: Color = KiteColors.Muted, modifier: Modifier 
             Mark.File -> { box(5f, 2f, 14f, 20f); line(9f, 10f, 15f, 10f); line(9f, 14f, 15f, 14f); line(9f, 18f, 13f, 18f) }
             Mark.Image -> { box(3f, 3f, 18f, 18f); drawCircle(color, 2f * unit, Offset(8f * unit, 8f * unit), style = stroke); line(3f, 17f, 9f, 12f); line(9f, 12f, 13f, 16f); line(13f, 16f, 17f, 11f); line(17f, 11f, 21f, 16f) }
             Mark.Audio -> { for ((x, h) in listOf(4f to 4f, 8f to 10f, 12f to 16f, 16f to 8f, 20f to 4f)) line(x, 12f-h/2, x, 12f+h/2) }
+            Mark.Video -> { box(3f, 5f, 18f, 14f); val p = Path().apply { moveTo(10f*unit, 9f*unit); lineTo(16f*unit, 12f*unit); lineTo(10f*unit, 15f*unit); close() }; drawPath(p, color) }
+            Mark.Play -> { val p = Path().apply { moveTo(8f*unit, 4f*unit); lineTo(20f*unit, 12f*unit); lineTo(8f*unit, 20f*unit); close() }; drawPath(p, color) }
+            Mark.Pause -> { line(8f, 5f, 8f, 19f); line(16f, 5f, 16f, 19f) }
             Mark.Pointer -> { val p = Path().apply { moveTo(5f*unit, 3f*unit); lineTo(19f*unit, 12f*unit); lineTo(12f*unit, 13f*unit); lineTo(10f*unit, 20f*unit); close() }; drawPath(p, color, style = stroke) }
             Mark.Rotate -> { box(7f, 6f, 10f, 14f, 2f); line(3f, 8f, 3f, 3f); line(3f, 3f, 8f, 3f); line(21f, 16f, 21f, 21f); line(21f, 21f, 16f, 21f) }
             Mark.Zoom -> { drawCircle(color, 6.5f*unit, Offset(10f*unit, 10f*unit), style = stroke); line(15f,15f,21f,21f); line(7f,10f,13f,10f); line(10f,7f,10f,13f) }

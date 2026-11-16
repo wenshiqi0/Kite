@@ -34,7 +34,7 @@ internal fun canStartResourceAgent(profile: HostResourcesInfo?): Boolean =
     profile?.let { it.available && it.limitEnforced && it.canStartAgents } == true
 
 @Composable
-internal fun ResourceWarning(profile: HostResourcesInfo?, onDetails: (() -> Unit)? = null) {
+internal fun ResourceWarning(profile: HostResourcesInfo?, modifier: Modifier = Modifier, onDetails: (() -> Unit)? = null) {
     if (profile == null || profile.available && profile.memoryPressure == HostMemoryPressure.NORMAL && profile.canStartAgents) return
     val critical = profile.memoryPressure == HostMemoryPressure.CRITICAL || !profile.limitEnforced
     val title = stringResource(when {
@@ -51,7 +51,7 @@ internal fun ResourceWarning(profile: HostResourcesInfo?, onDetails: (() -> Unit
         }
     })
     Surface(color = if (critical) MaterialTheme.colorScheme.errorContainer else KiteColors.WarningSurface,
-        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().semantics { contentDescription = title }) {
+        shape = MaterialTheme.shapes.medium, modifier = modifier.fillMaxWidth().semantics { contentDescription = title }) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.labelLarge)

@@ -374,7 +374,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun answerQuestion(question: QuestionInfo) {
         val host=engine.state.value?.selectedHost?:return
         val id = engine.state.value?.selectedAgent ?: return
-        if (answeringQuestion || engine.state.value?.question?.id != question.id) return
+        if (answeringQuestion || sending || interrupting || engine.state.value?.question?.id != question.id) return
         val key = questionDraftKey(question.id)
         val answers = question.fields.map { QuestionAnswerInfo(it.id, questionDrafts[key]?.get(it.id).orEmpty()) }
         answeringQuestion = true
@@ -383,7 +383,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
     fun selectAgent(id: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.selectAgent(host,id) } }
     fun sendPrompt(id: String) {
         val host=engine.state.value?.selectedHost?:return
-        if (submissionLocked || interrupting || engine.state.value?.selectedAgent != id) return
+        if (submissionLocked || answeringQuestion || interrupting || engine.state.value?.selectedAgent != id) return
         val value = draft.trim()
         val context = draftAgent
         if ((value.isEmpty() && engine.state.value?.composer?.uploads.isNullOrEmpty() && engine.state.value?.composer?.skills?.selected.isNullOrEmpty()) || sending || copyingAttachments || skillBusy) return
