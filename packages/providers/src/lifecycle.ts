@@ -63,29 +63,31 @@ async function codexLifecycleFact(
       front.length === 1 &&
       first?.name === "codex" &&
       array(first.argv).includes("--remote") &&
-      array(first.argv).includes(`unix://${owner.socket}`),
-    idle =
-      (!agent && shell) ||
-      Boolean(
-        agent &&
-          sameReference(agent, record) &&
-          ["idle", "done"].includes(String(agent.agent_status)) &&
-          agent.interactive_ready &&
-          remote &&
-          !stopped(Number(first?.pid)),
-      );
+      array(first.argv).includes(`unix://${owner.socket}`);
   const loaded = array(object(await backendRpc(pane, "thread/loaded/list", {}, 2000)).data).map(
     string,
   );
   check(loaded.length <= 64, "loaded thread capacity exceeded");
+  // Input readiness is not an activity fact. Discovery also clears the thread
+  // reference after unload; the verified owner can still be idle and restorable.
+  const idle =
+    (!agent && shell) ||
+    Boolean(
+      agent &&
+        agent.agent === "codex" &&
+        (sameReference(agent, record) || loaded.length === 0) &&
+        ["idle", "done"].includes(String(agent.agent_status)) &&
+        remote &&
+        !stopped(Number(first?.pid)),
+    );
   const statuses: string[] = [],
     histories: Json[] = [],
-    mtimes: number[] = [],
-    root = join(process.env.CODEX_HOME || join(home(), ".codex"), "sessions");
+    mtimes: number[] = [];
   const inspect = (thread: string) => {
-    const files = historyFiles(root, thread);
+    const files = [...codexHistoryFiles(thread), ...codexHistoryFiles(thread, true)];
     if (files.length === 1 && files[0]) {
       const s = statSync(files[0], { bigint: true });
+      if (!s.size) return;
       histories.push([thread, Number(s.dev), Number(s.ino), Number(s.size), Number(s.mtimeNs)]);
       mtimes.push(Number(s.mtimeNs / 1000000n));
     }
@@ -114,8 +116,8 @@ async function codexLifecycleFact(
       idle &&
       statuses.every((s) => s === "idle") &&
       (!loaded.length || loaded.includes(record.reference?.value || "")),
-    persisted: histories.length >= loaded.length,
-    activity: sha256(JSON.stringify([lastOpen, histories.sort()])),
+    persisted: histories.length === (loaded.length || 1),
+    activity: sha256(JSON.stringify([lastOpen, [...loaded].sort(), histories.sort()])),
     last_activity_ms: Math.max(lastOpen, ...mtimes),
     tui_pid: remote ? Number(first?.pid) : null,
   };
@@ -392,7 +394,13 @@ export async function lifecycleReap(
           ["archived", "reference", "provider", "pane_id"].some((k) => !same(current[k], record[k]))
         )
           return no("record_changed");
-        if (latest.some((r) => r.id !== id && adapter.sharesOwner(record, fresh.owner, r)))
+        // All loaded work was checked above. Archived aliases retain their
+        // history without pinning the runtime; any unarchived alias still does.
+        if (
+          latest.some(
+            (r) => r.id !== id && !r.archived && adapter.sharesOwner(record, fresh.owner, r),
+          )
+        )
           return no("shared_owner");
         return adapter.release(record, fresh);
       });

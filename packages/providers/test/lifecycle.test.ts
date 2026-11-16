@@ -102,7 +102,10 @@ test("working, unsaved, changed or shared owners are retained", async () => {
     ).toBe(false);
   }
   const catalog = await catalogRead();
-  await catalogWrite({ ...catalog, sessions: [r, { ...r, id: "b".repeat(32) }] });
+  await catalogWrite({
+    ...catalog,
+    sessions: [r, { ...r, id: "b".repeat(32), archived: false }],
+  });
   expect(
     await lifecycleReap(object(json({ ...fact, reason: "archived" })), "unused", {
       dsh: adapter(fact, () => {

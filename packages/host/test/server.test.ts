@@ -34,6 +34,7 @@ const env = (home: string, extra: NodeJS.ProcessEnv = {}) => ({
   ...process.env,
   KITE_HOST_BACKEND_PATH: cli,
   HOME: home,
+  CODEX_HOME: join(home, ".codex"),
   KITE_AGENT_RESOURCE_CONTROL: "0",
   KITE_ENABLE_DSH: "0",
   KITE_ENABLE_PLY: "0",
@@ -357,6 +358,199 @@ console.log(JSON.stringify({id:request.id,result}));
     owner.kill();
     await owner.exited;
   }
+});
+
+describe("archived Codex owner reclamation", () => {
+  const cases: {
+    name: string;
+    release: boolean;
+    loaded?: boolean;
+    status?: string;
+    ready?: boolean;
+    history?: boolean;
+    archivedHistory?: boolean;
+    alias?: "archived" | "active";
+    paused?: boolean;
+    foreign?: boolean;
+    background?: "idle" | "active";
+    backgroundHistory?: boolean;
+    emptyHistory?: boolean;
+  }[] = [
+    { name: "a completed TUI without an interactive readiness flag", release: true },
+    {
+      name: "only archived aliases of the same owner",
+      alias: "archived",
+      ready: true,
+      release: true,
+    },
+    { name: "an unloaded thread with saved context", loaded: false, ready: true, release: true },
+    {
+      name: "an unloaded thread with natively archived context",
+      loaded: false,
+      ready: true,
+      archivedHistory: true,
+      release: true,
+    },
+    { name: "an unarchived alias", alias: "active", release: false },
+    { name: "an active native thread", status: "active", ready: true, release: false },
+    { name: "an unknown native status", status: "notLoaded", ready: true, release: false },
+    {
+      name: "an unloaded thread without saved context",
+      loaded: false,
+      history: false,
+      release: false,
+    },
+    { name: "a paused TUI", paused: true, ready: true, release: false },
+    { name: "an unrelated foreground process", foreign: true, release: false },
+    { name: "an active background thread", background: "active", ready: true, release: false },
+    { name: "all idle, persisted native threads", background: "idle", ready: true, release: true },
+    {
+      name: "a background thread without saved context",
+      background: "idle",
+      backgroundHistory: false,
+      ready: true,
+      release: false,
+    },
+    {
+      name: "an unloaded thread with an empty history",
+      loaded: false,
+      emptyHistory: true,
+      release: false,
+    },
+  ];
+  for (const mode of cases)
+    test(`${mode.release ? "releases" : "retains"} ${mode.name}`, async () => {
+      const home = fresh(),
+        pane = "owned:p1",
+        socket = join(home, "lifecycle.sock"),
+        state = join(home, "native-state.json"),
+        thread = crypto.randomUUID(),
+        background = crypto.randomUUID(),
+        history = join(
+          privateDir(join(home, ".codex", mode.archivedHistory ? "archived_sessions" : "sessions")),
+          `rollout-2026-11-17T02-00-00-${thread}.jsonl`,
+        ),
+        context = mode.emptyHistory ? "" : "durable original provider context\n",
+        record = {
+          ...row("a".repeat(32), "codex"),
+          pane_id: pane,
+          archived: true,
+          reference: { source: "herdr:codex", agent: "codex", kind: "id", value: thread },
+        };
+      if (mode.history !== false) writeFileSync(history, context);
+      const backgroundHistory = join(home, ".codex/sessions", `rollout-owned-${background}.jsonl`);
+      if (mode.background && mode.backgroundHistory !== false)
+        writeFileSync(backgroundHistory, "durable background context\n");
+      writeFileSync(
+        state,
+        JSON.stringify({
+          threads: mode.loaded === false ? [] : mode.background ? [thread, background] : [thread],
+          status: mode.status || "idle",
+          background: mode.background ? { [background]: mode.background } : {},
+        }),
+      );
+      const owner = Bun.spawn(
+          [
+            process.execPath,
+            resolve("packages/host/test/fixtures/lifecycle-owner.ts"),
+            socket,
+            state,
+            "app-server",
+            `unix://${socket}`,
+          ],
+          { stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true },
+        ),
+        tui = Bun.spawn([process.execPath, "-e", "setInterval(()=>{},1000)"], {
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      const tuiTicks = startTicks(tui.pid),
+        ownerTicks = startTicks(owner.pid);
+      try {
+        const reader = owner.stdout.getReader();
+        expect((await reader.read()).done).toBe(false);
+        reader.releaseLock();
+        const registry = join(
+          privateDir(join(home, ".local/state/kite/codex")),
+          `${sha256(pane).slice(0, 20)}.json`,
+        );
+        writeFileSync(
+          registry,
+          JSON.stringify({ protocol: 1, pane, pid: owner.pid, start_ticks: ownerTicks, socket }),
+        );
+        const herdr = join(home, "herdr.ts");
+        writeFileSync(
+          herdr,
+          `#!${process.execPath}
+import { readFileSync } from "node:fs";
+const request = JSON.parse(await Bun.stdin.text());
+let alive = false;
+try { alive = !/\\) [ZX] /.test(readFileSync("/proc/${tui.pid}/stat", "utf8")); } catch {}
+let result;
+if (request.method === "agent.list") result = { agents: alive ? [{
+  agent: "codex", pane_id: ${JSON.stringify(pane)}, agent_status: "done",
+  ${mode.ready === undefined ? "" : `interactive_ready: ${mode.ready},`}
+  agent_session: ${JSON.stringify(record.reference)}
+}] : [] };
+else if (request.method === "pane.process_info") result = { process_info: {
+  shell_pid: 424242, foreground_process_group_id: alive ? ${tui.pid} : 424242,
+  foreground_processes: alive ? [{ pid: ${tui.pid}, name: ${JSON.stringify(mode.foreign ? "bash" : "codex")},
+    argv: ["codex", "--remote", ${JSON.stringify(`unix://${socket}`)}] }] : []
+} };
+else throw new Error("unexpected mutation: " + request.method);
+console.log(JSON.stringify({ id: request.id, result }));
+`,
+        );
+        chmodSync(herdr, 0o700);
+        const records = [record];
+        if (mode.alias)
+          records.push({
+            ...record,
+            id: "b".repeat(32),
+            archived: mode.alias === "archived",
+            reference: { ...record.reference, value: crypto.randomUUID() },
+          });
+        expect(
+          (
+            await command(
+              home,
+              ["catalog-write"],
+              JSON.stringify({ revision: 0, sessions: records }),
+            )
+          ).code,
+        ).toBe(0);
+        if (mode.paused) process.kill(tui.pid, "SIGSTOP");
+        const snapshot = await command(home, ["lifecycle-facts", "--herdr", herdr]);
+        expect(snapshot.code).toBe(0);
+        const fact = array(object(parse(snapshot.stdout.toString())).facts)
+          .map(object)
+          .find((f) => f.session_id === record.id);
+        expect(fact).toBeDefined();
+        if (mode.release) expect(fact).toMatchObject({ idle: true, persisted: true });
+        const result = await command(
+          home,
+          ["lifecycle-reap", "--herdr", herdr],
+          JSON.stringify({ ...fact, reason: "archived" }),
+        );
+        expect(result.code).toBe(0);
+        expect(object(parse(result.stdout.toString()))).toMatchObject({ reclaimed: mode.release });
+        expect(live(owner.pid, ownerTicks || "")).toBe(!mode.release);
+        expect(live(tui.pid, tuiTicks || "")).toBe(!mode.release);
+        expect(existsSync(registry)).toBe(!mode.release);
+        expect(
+          JSON.parse(readFileSync(join(home, ".local/share/kite/sessions.json"), "utf8")).sessions,
+        ).toEqual(records);
+        if (mode.history !== false) expect(readFileSync(history, "utf8")).toBe(context);
+        if (mode.background && mode.backgroundHistory !== false)
+          expect(readFileSync(backgroundHistory, "utf8")).toBe("durable background context\n");
+      } finally {
+        if (mode.paused && live(tui.pid, tuiTicks || "")) process.kill(tui.pid, "SIGCONT");
+        if (tui.exitCode === null) tui.kill();
+        if (owner.exitCode === null) owner.kill();
+        await Promise.all([owner.exited, tui.exited]);
+      }
+    });
 });
 
 describe("explicit owner termination", () => {
