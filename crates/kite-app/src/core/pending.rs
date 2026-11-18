@@ -1,6 +1,12 @@
 //! Reconcile optimistic rows and provider echoes at the serialized publication boundary.
 use super::*;
 
+fn inherit_skill_labels(current: &mut ItemRef, previous: &Item) {
+    if !previous.skill_labels.is_empty() && current.skill_labels != previous.skill_labels {
+        Arc::make_mut(current).inherit_skill_labels(previous);
+    }
+}
+
 impl LiveSession {
     /// Called under the publication lock: the conversation cannot change between
     /// the echo check and adding an optimistic row. All producers use the same path.
@@ -36,16 +42,18 @@ impl LiveSession {
             .collect();
         for p in &mut self.pending {
             if let Some(receipt) = &p.receipt {
-                if let Some(current) = messages.iter().find(|m| m.id == receipt.id) {
+                if let Some(current) = messages.iter_mut().find(|m| m.id == receipt.id) {
+                    inherit_skill_labels(current, receipt);
                     p.receipt = Some(current.clone());
                 }
-            } else if let Some(echo) = messages.iter().find(|m| {
+            } else if let Some(echo) = messages.iter_mut().find(|m| {
                 m.role == Role::User
                     && m.same_content(&p.item)
                     && !p.previous.contains(&m.id)
                     && !acknowledged.contains(&m.id)
             }) {
                 acknowledged.insert(echo.id.clone());
+                inherit_skill_labels(echo, &p.item);
                 p.receipt = Some(echo.clone());
                 p.previous.clear();
             }
@@ -149,6 +157,43 @@ mod tests {
         stage(&core, "local-prompt", &[]);
         assert_eq!(ids(&core), ["server"]);
         assert!(lock(&observed.0).iter().all(|rows| rows.len() <= 1));
+    }
+
+    #[test]
+    fn a_provider_echo_keeps_the_picker_label_across_publications() {
+        let (core, _) = core();
+        let skills = [composer::skills::Skill {
+            name: "report".into(),
+            display_name: Some("项目进展报告".into()),
+            description: String::new(),
+            short_description: None,
+            path: "/skills/report/SKILL.md".into(),
+        }];
+        let blocks = composer::prompt_blocks("检查测试。", &[], &skills);
+        let echo = Arc::new(Item::new("provider".into(), Role::User, blocks.clone()));
+        publish(&core, vec![echo.clone()]);
+        core.update_live(&key(), |live| {
+            live.stage_pending(PendingItem {
+                item: Item::new("local-picker".into(), Role::User, blocks)
+                    .with_selected_skills(&skills),
+                previous: BTreeSet::new(),
+                receipt: None,
+            });
+        });
+        publish(&core, vec![echo]);
+        let snapshot = core.snapshot();
+        assert_eq!(ids(&core), ["provider"]);
+        let item = &snapshot.conversation[0];
+        assert_eq!(item.text(), "$report\n\n检查测试。");
+        assert_eq!(
+            item.presentation().blocks,
+            [
+                Block::SkillSelection {
+                    names: vec!["项目进展报告".into()]
+                },
+                Block::Text("检查测试。".into()),
+            ]
+        );
     }
     #[test]
     fn local_first_is_replaced_once_and_a_prepared_page_cannot_resurrect_it() {

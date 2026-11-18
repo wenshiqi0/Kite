@@ -357,6 +357,7 @@ fn codex_projection(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 /// Merge chronological pages, retaining tool details split across a page boundary.
 pub fn merge_item(older: &Item, newer: &Item) -> Item {
     let mut next = newer.clone();
+    next.inherit_skill_labels(older);
     if next.question_replies().next().is_none() {
         next.blocks
             .extend(older.question_replies().cloned().map(Block::QuestionReply));

@@ -28,6 +28,9 @@ public sealed class ChatItemControl : ContentControl
         {
             var text = block.Field("Text");
             if (text.ValueKind == JsonValueKind.Object) panel.Children.Add(Markdown(text.Text("text")));
+            var skills = block.Field("SkillSelection");
+            if (skills.ValueKind == JsonValueKind.Object)
+                panel.Children.Add(Ui.Label(string.Join(" · ", skills.Array("names").Select(name => name.Text())), 12, Ui.Accent));
             var tool = block.Field("Tool").Field("tool");
             if (tool.ValueKind == JsonValueKind.Object)
             {

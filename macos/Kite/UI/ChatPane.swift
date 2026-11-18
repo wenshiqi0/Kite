@@ -197,6 +197,9 @@ struct MessageRow: View {
                         Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .full))) ?? AttributedString(text))
                             .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).lineSpacing(4)
                     }
+                case .skillSelection(let names):
+                    Label(names.joined(separator: " · "), systemImage: "sparkles")
+                        .font(.caption).foregroundStyle(.secondary)
                 case .tool(let tool):
                     DisclosureGroup {
                         if !tool.arguments.isEmpty { Text(tool.arguments).font(.caption.monospaced()).textSelection(.enabled) }

@@ -36,7 +36,8 @@ impl Snapshot {
 }
 
 impl LiveSession {
-    pub(super) fn replace_conversation(&mut self, messages: Vec<ItemRef>, available: bool) {
+    pub(super) fn replace_conversation(&mut self, mut messages: Vec<ItemRef>, available: bool) {
+        kite_agent::resolve_skill_labels(&mut messages, Arc::make_mut);
         let old = self.conversation.as_ref();
         let equal = |a: &ItemRef, b: &ItemRef| Arc::ptr_eq(a, b) || a == b;
         let mut head = 0;

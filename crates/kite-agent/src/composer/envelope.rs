@@ -29,6 +29,7 @@ pub fn encode(blocks: &[Block]) -> Result<String, Error> {
             Block::Tool(_)
             | Block::QuestionReply(_)
             | Block::Embed(_)
+            | Block::SkillSelection { .. }
             | Block::SkillContext { .. } => {
                 return Err(Error::Invalid("block has no provider encoding"));
             }

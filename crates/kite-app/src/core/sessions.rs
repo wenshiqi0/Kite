@@ -717,7 +717,7 @@ impl AppCore {
                 .find(|m| m.tool().is_none() && !m.intermediate && !m.blocks.is_empty())
         {
             let catalog = Repository::new(&c.ssh)
-                .note(&key.conversation, &message.display_text(), false)
+                .note(&key.conversation, &message.preview_text(), false)
                 .await?;
             self.install_catalog(&c.host.id, &catalog)?;
         }
@@ -1097,7 +1097,7 @@ impl AppCore {
             .and_then(|records| records.iter().find(|r| r.matches(agent)))
             .map(|r| r.id.clone());
         if let Some(id) = id {
-            let body = item.display_text();
+            let body = item.preview_text();
             let display = if body.trim().is_empty() {
                 item.attachments()
                     .map(|f| f.name.as_str())

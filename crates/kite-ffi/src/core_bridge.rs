@@ -844,6 +844,9 @@ pub enum BlockInfo {
     Text {
         text: String,
     },
+    SkillSelection {
+        names: Vec<String>,
+    },
     SkillContext {
         name: String,
         path: String,
@@ -867,6 +870,9 @@ impl From<&kite_app::ChatBlock> for BlockInfo {
         use kite_app::{ChatBlock as B, ChatReference as R};
         match block {
             B::Text(text) => Self::Text { text: text.clone() },
+            B::SkillSelection { names } => Self::SkillSelection {
+                names: names.clone(),
+            },
             B::SkillContext {
                 name,
                 path,

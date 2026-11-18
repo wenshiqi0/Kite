@@ -1876,7 +1876,8 @@ impl AppCore {
                 core.report(e);
             }
             if result.is_ok() {
-                let item = Item::new(format!("local-{}", new_device_id()?), Role::User, blocks);
+                let item = Item::new(format!("local-{}", new_device_id()?), Role::User, blocks)
+                    .with_selected_skills(&skills);
                 if let Err(error) = core.note_sent_prompt(&c, &agent, &item).await {
                     core.report(&error);
                 }

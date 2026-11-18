@@ -15,6 +15,8 @@ mod skill_context;
 pub mod subagents;
 pub mod usage;
 
+pub use skill_context::resolve_skill_labels;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
     User,
@@ -109,6 +111,10 @@ pub enum Reference {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Block {
     Text(String),
+    /// Display names of the skills attached to this message by the user.
+    SkillSelection {
+        names: Vec<String>,
+    },
     /// Read-only presentation of provider-injected skill instructions.
     SkillContext {
         name: String,
@@ -124,6 +130,7 @@ impl Block {
     fn payload_len(&self) -> usize {
         match self {
             Self::Text(text) => text.len(),
+            Self::SkillSelection { names } => names.iter().map(String::len).sum(),
             Self::SkillContext {
                 name,
                 path,
@@ -141,6 +148,12 @@ impl Block {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillLabel {
+    name: String,
+    label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "StoredItem")]
 pub struct Item {
     pub id: String,
@@ -151,6 +164,8 @@ pub struct Item {
     pub origin: Option<ItemOrigin>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skill_labels: Vec<SkillLabel>,
 }
 impl Item {
     pub fn new(id: String, role: Role, blocks: Vec<Block>) -> Self {
@@ -161,6 +176,31 @@ impl Item {
             intermediate: false,
             origin: None,
             source_fingerprint: None,
+            skill_labels: Vec::new(),
+        }
+    }
+    pub fn with_selected_skills(mut self, skills: &[composer::skills::Skill]) -> Self {
+        self.skill_labels = skills
+            .iter()
+            .map(|skill| SkillLabel {
+                name: skill.name.clone(),
+                label: skill
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| skill.name.clone()),
+            })
+            .collect();
+        self
+    }
+    /// Preserve the picker labels when a pending prompt is replaced by its provider echo.
+    pub fn inherit_skill_labels(&mut self, previous: &Self) {
+        if self
+            .skill_labels
+            .iter()
+            .all(|skill| skill.name == skill.label)
+            && skill_context::selection_body(self, &previous.skill_labels).is_some()
+        {
+            self.skill_labels.clone_from(&previous.skill_labels);
         }
     }
     pub fn text(&self) -> String {
@@ -207,6 +247,18 @@ impl Item {
             question_reply_text(&replies)
         }
     }
+    pub fn preview_text(&self) -> String {
+        match skill_context::selection_body(self, &self.skill_labels) {
+            Some(body) if !body.trim().is_empty() => body.to_owned(),
+            Some(_) => self
+                .skill_labels
+                .iter()
+                .map(|skill| skill.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            None => self.display_text(),
+        }
+    }
     /// Whether a provider echo carries what this optimistic row sent. IDs differ.
     pub fn same_content(&self, other: &Item) -> bool {
         if self.source_fingerprint.as_ref().is_some_and(|source| {
@@ -223,7 +275,12 @@ impl Item {
         self.display_text() == other.display_text() && self.attachments().eq(other.attachments())
     }
     pub fn payload_len(&self) -> usize {
-        self.blocks.iter().map(Block::payload_len).sum()
+        self.blocks.iter().map(Block::payload_len).sum::<usize>()
+            + self
+                .skill_labels
+                .iter()
+                .map(|skill| skill.name.len() + skill.label.len())
+                .sum::<usize>()
     }
 }
 
@@ -240,6 +297,8 @@ struct StoredItem {
     origin: Option<ItemOrigin>,
     #[serde(default)]
     source_fingerprint: Option<String>,
+    #[serde(default)]
+    skill_labels: Vec<SkillLabel>,
     #[serde(default)]
     text: String,
     #[serde(default)]
@@ -269,6 +328,7 @@ impl From<StoredItem> for Item {
             intermediate: stored.intermediate,
             origin: stored.origin,
             source_fingerprint: stored.source_fingerprint,
+            skill_labels: stored.skill_labels,
         }
     }
 }
@@ -278,7 +338,7 @@ impl Item {
     /// messages and report bodies to native clients instead of machine receipts.
     pub fn presentation(&self) -> std::borrow::Cow<'_, Self> {
         if self.role == Role::User
-            && let Some(blocks) = skill_context::project(&self.blocks)
+            && let Some(blocks) = skill_context::project(self)
         {
             return std::borrow::Cow::Owned(Self {
                 blocks,
@@ -779,6 +839,9 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Item> {
         }
     }
 
+    if provider == "codex" {
+        resolve_skill_labels(&mut items, |item| item);
+    }
     items
 }
 

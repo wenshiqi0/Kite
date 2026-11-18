@@ -2,15 +2,24 @@ package io.github.wenshiqi0.kite
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.wenshiqi0.kite.core.ChatSkillInfo
 import io.github.wenshiqi0.kite.core.BlockInfo
@@ -21,6 +30,7 @@ import io.github.wenshiqi0.kite.ui.ChatEntry
 import io.github.wenshiqi0.kite.ui.ChatEntryContent
 import io.github.wenshiqi0.kite.ui.SkillDrafts
 import io.github.wenshiqi0.kite.ui.SkillPicker
+import io.github.wenshiqi0.kite.ui.theme.KiteColors
 import io.github.wenshiqi0.kite.ui.theme.KiteTheme
 import org.junit.Assert.*
 import org.junit.Test
@@ -141,6 +151,55 @@ class SkillPickerPresentationTest {
         cases.forEach { (draft, label) ->
             overlay({ SkillPicker(draft, true, { _, _ -> }, {}, {}) }) {
                 waitFor(label) { find(text = label) != null }
+            }
+        }
+    }
+
+    @Test fun sentSkillSelectionsAreVisibleAsTagsAboveTheMessage() {
+        val names = listOf("mcap-add-endpoint", "mcap-lark-ssot")
+        val body = "同步文档后跑一遍回归。预算 \$100。"
+        val message = ItemInfo(
+            "selected-skills", ItemRole.USER,
+            listOf(BlockInfo.SkillSelection(names), BlockInfo.Text(body)), false, null,
+        )
+        var narrow by mutableStateOf(false)
+        overlay({
+            Column(
+                Modifier.fillMaxSize().background(KiteColors.Surface).statusBarsPadding(),
+            ) {
+                Column(
+                    (if (narrow) Modifier.width(240.dp) else Modifier.fillMaxSize()).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ChatEntryContent(ChatEntry.Message(message)) {}
+                    names.forEach { name ->
+                        val context = ItemInfo(
+                            name, ItemRole.USER,
+                            listOf(BlockInfo.SkillContext(name, "/skills/$name/SKILL.md", "检查回归。")), false, null,
+                        )
+                        ChatEntryContent(ChatEntry.Message(context)) {}
+                    }
+                }
+            }
+        }) {
+            waitFor("User's text") { find(text = body) != null }
+            fun bounds(text: String) = find(text = text)?.let { node -> Rect().also(node::getBoundsInScreen) }
+            val bodyBounds = requireNotNull(bounds(body))
+            names.forEach { name ->
+                assertTrue("Skill tag is above the message", requireNotNull(bounds(name)).bottom <= bodyBounds.top)
+                assertNull(find(text = "\$$name"))
+            }
+            val screenshot = requireNotNull(test.uiAutomation.takeScreenshot())
+            File(test.targetContext.getExternalFilesDir(null), "sent-skill-tags.png").outputStream().use {
+                screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            screenshot.recycle()
+            main { narrow = true }
+            waitFor("Skill tags wrap on a narrow screen") {
+                val first = bounds(names[0]) ?: return@waitFor false
+                val second = bounds(names[1]) ?: return@waitFor false
+                val text = bounds(body) ?: return@waitFor false
+                first.bottom <= second.top && second.bottom <= text.top
             }
         }
     }

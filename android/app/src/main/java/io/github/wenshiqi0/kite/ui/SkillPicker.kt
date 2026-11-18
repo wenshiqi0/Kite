@@ -1,8 +1,10 @@
 package io.github.wenshiqi0.kite.ui
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
@@ -102,6 +104,38 @@ fun SkillDrafts(skills: List<ChatSkillInfo>, enabled: Boolean, remove: (ChatSkil
                 trailingIcon = { ProductIcon(Mark.Close, modifier = Modifier.size(14.dp)) },
                 modifier = Modifier.semantics { contentDescription = removeDescription },
             )
+        }
+    }
+}
+
+@Composable
+internal fun MessageSkillTags(names: List<String>, modifier: Modifier = Modifier) {
+    FlowRow(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        names.forEach { name ->
+            Surface(
+                color = KiteColors.Accent.copy(alpha = .1f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, KiteColors.Accent.copy(alpha = .32f)),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    ProductIcon(Mark.Skill, color = KiteColors.Accent, modifier = Modifier.size(14.dp))
+                    Text(
+                        name,
+                        color = KiteColors.Text,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

@@ -1,10 +1,13 @@
 package io.github.wenshiqi0.kite.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.AttachmentInfo
 import io.github.wenshiqi0.kite.core.BlockInfo
@@ -30,6 +33,10 @@ internal fun ItemContent(
                     is BlockInfo.Text -> if (block.text.isNotBlank()) {
                         MarkdownMessage(block.text, streaming = streaming)
                     }
+                    is BlockInfo.SkillSelection -> MessageSkillTags(
+                        block.names,
+                        Modifier.padding(bottom = if (index < message.blocks.lastIndex) 8.dp else 0.dp),
+                    )
                     is BlockInfo.Attachment -> attachment(run.blocks.filterIsInstance<BlockInfo.Attachment>().map { it.file })
                     is BlockInfo.SkillContext -> SkillContextCard(block)
                     is BlockInfo.QuestionReply -> AnsweredQuestions(listOf(block.reply))
