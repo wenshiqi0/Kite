@@ -4,6 +4,8 @@ import { killScope, type OwnerIdentity, reclaimCache, scopeName, stopOwner } fro
 import {
   array,
   check,
+  isChatProvider,
+  isManagedProvider,
   type Json,
   json,
   type ObjectValue,
@@ -132,7 +134,7 @@ export interface HarnessLifecycle {
 export async function managedLifecycleFact(record: SessionRecord): Promise<LifecycleFact> {
   const ref = record.reference;
   check(
-    (record.provider === "dsh" || record.provider === "ply") &&
+    isManagedProvider(record.provider) &&
       ref?.source === "kite:harness" &&
       ref.agent === record.provider &&
       ref.kind === "id",
@@ -183,9 +185,13 @@ export async function managedLifecycleFact(record: SessionRecord): Promise<Lifec
     : saved && typeof saved === "object"
       ? Object.keys(saved).length > 0
       : Boolean(saved);
-  const restorable = existsSync(context)
-    ? hasContext
-    : state.status === "idle" && !existsSync(join(path, "history.jsonl"));
+  const empty = state.status === "idle" && !existsSync(join(path, "history.jsonl"));
+  const restorable =
+    record.provider === "antigravity"
+      ? empty || (hasContext && object(saved).restorable === true)
+      : existsSync(context)
+        ? hasContext
+        : empty;
   return {
     session_id: record.id,
     pane,
@@ -284,6 +290,7 @@ export function lifecycleAdapters(binary: string): Partial<Record<Provider, Harn
     },
     dsh: managed,
     ply: managed,
+    antigravity: managed,
   };
 }
 export async function lifecycleFact(
@@ -424,7 +431,7 @@ export async function notificationFacts(binary: string, includeArchived = false)
     const reference = record.reference;
     let controls = "",
       known = true;
-    if (reference?.source === "kite:harness" && ["dsh", "ply"].includes(reference.agent)) {
+    if (reference?.source === "kite:harness" && isManagedProvider(reference.agent)) {
       try {
         const state = object(readJson(join(harnessDirectory(reference.value), "state.json")));
         if (state.turn_id && ["done", "failed", "cancelled"].includes(String(state.status)))
@@ -469,7 +476,7 @@ export async function notificationFacts(binary: string, includeArchived = false)
       thread: reference?.value ?? "",
       controls,
       controls_known: known,
-      lifecycle: ["codex", "dsh", "ply"].includes(reference?.agent || ""),
+      lifecycle: isChatProvider(reference?.agent),
     });
   }
   const result = { facts };

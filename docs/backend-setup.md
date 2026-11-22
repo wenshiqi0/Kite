@@ -38,9 +38,19 @@ Use **+ → Image / File / Audio** to choose attachments with Android's system p
 
 Kite observes the existing thread on its current app-server. Recognized structured questions and approvals are answered through their correlated request IDs; terminal choices remain available for interactions owned by the TUI. Approval always requires an explicit user decision. Unknown interactions can still be handled through **Terminal output**.
 
+## Google Antigravity
+
+Use a Kite client and host node with Antigravity support. Install Antigravity CLI 1.5.0 or newer on the host, using the account that runs Kite Node. Check `agy acp --help` and sign in with `agy acp --login`. Kite uses the host's cached login. [Google Antigravity ACP guide](https://antigravity.google/docs/cli/acp).
+
+In the host's private `~/.config/kite/node.json`, add `"KITE_ENABLE_ANTIGRAVITY": "1"` to the existing `environment` object. Kite looks up `agy` on the host PATH and in `~/.local/bin`. For another location, set `KITE_ANTIGRAVITY_COMMAND` to a JSON argv string such as `["/absolute/path/to/agy","acp"]`.
+
+Refresh the host connection and choose **Antigravity** in **New session**. Kite verifies that the CLI can list sessions before showing it. Models, thinking levels and modes come from Antigravity. Kite stores the chat and tool output for sessions created through Kite and resumes the original Antigravity session when you return.
+
+For Gemini API key authentication, configure Antigravity's `modelProvider` as `gemini` and supply `GEMINI_API_KEY` to the host service. For ADC, set `AGY_ADC_AUTH` after configuring the host's application default credentials. [Google authentication guide](https://antigravity.google/docs/install?tab=cli).
+
 ## Sessions and model questions
 
-The navigation menu lists saved sessions for the selected host, with separate active and archived views. **New session** lets you choose Codex / Claude and an optional title and host project directory. A Codex session connects immediately. A Claude session is saved as a pending connection; this release does not start Claude during creation or claim live Claude validation. **Connect Claude** is a separate, explicit action for a host with that backend configured.
+The navigation menu lists saved sessions for the selected host, with separate active and archived views. **New session** shows the harnesses available on that host and accepts an optional title and host project directory. Managed chat sessions connect automatically. A Claude session is saved as a pending connection. Use **Connect Claude** when its backend is configured.
 
 Kite keeps an atomic, revisioned index in `~/.local/share/kite/sessions.json`. It retains each provider reference rather than copying a conversation into a new thread. The phone keeps complete synchronized conversations in independent private caches so they remain readable while disconnected. Opening a saved conversation can read history without starting a model turn; **Continue session** attaches a terminal when needed. Archive preserves running tasks and provider history. The host checks every 30 seconds and releases archived owners once their tasks finish and history is persisted. Unarchived idle owners expire after one hour; status polling and keepalive do not renew that timeout. Reclamation closes both the remote TUI and its app-server process group, preserving messages and the original provider thread. Restoring a session keeps its provider identity. A per-session host lock prevents two phones from launching duplicate restores.
 

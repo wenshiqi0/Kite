@@ -204,7 +204,8 @@ internal sealed class MainWindow : Window
         sessions.Items.Clear();
         foreach (var session in state.Array("sessions").Where(s => archived.IsChecked == true || !s.Flag("archived")))
         {
-            var item = new ListBoxItem { Content = new TextBlock { Text = (session.Flag("archived") ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : session.Text("provider")) + "\n" + session.Text("provider") + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 7, 2, 7) }, Tag = session };
+            string provider = ProviderLabel(session.Text("provider"));
+            var item = new ListBoxItem { Content = new TextBlock { Text = (session.Flag("archived") ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : provider) + "\n" + provider + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 7, 2, 7) }, Tag = session };
             string host = HostId, id = session.Text("id"); bool isArchived = session.Flag("archived");
             item.ContextMenu = new ContextMenu();
             var archive = new MenuItem { Header = isArchived ? "取消归档" : "归档" }; archive.Click += async (_, _) => await Safe(new { op = "archive_session", host_id = host, session_id = id, archived = !isArchived }); item.ContextMenu.Items.Add(archive);
@@ -293,13 +294,21 @@ internal sealed class MainWindow : Window
     private Task EditHost() { var host = state.Array("hosts").FirstOrDefault(h => h.Text("id") == HostId); if (host.ValueKind == JsonValueKind.Object) new HostEditor(this, Core, Host.From(host)).ShowDialog(); return Task.CompletedTask; }
     private async Task RemoveHost() { string host = HostId; if (host.Length > 0 && MessageBox.Show(this, "移除此主机及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "remove_host", host_id = host }); }
     private Task SessionMenu() { if (sessions.SelectedItem is ListBoxItem item && item.ContextMenu is { } menu) { menu.PlacementTarget = item; menu.IsOpen = true; } return Task.CompletedTask; }
+    private static string ProviderLabel(string id) => id == "antigravity" ? "Antigravity" : id;
     private Task CreateSession()
     {
         string host = HostId; if (host.Length == 0) return Task.CompletedTask;
         var panel = new StackPanel { Margin = new Thickness(24) }; var name = Ui.Field(panel, "会话名称"); var cwd = Ui.Field(panel, "远程工作目录（绝对路径）");
-        var providers = new ComboBox { ItemsSource = state.Array("providers").Select(p => p.Text("id")).ToList() }; providers.SelectedIndex = 0; panel.Children.Add(Ui.Label("Harness", 12, Ui.Muted)); panel.Children.Add(providers);
+        var providers = new ComboBox
+        {
+            ItemsSource = state.Array("providers").Select(p => p.Text("id")).Select(id => new Selection(id, ProviderLabel(id))).ToList(),
+            DisplayMemberPath = "Label",
+            SelectedValuePath = "Id",
+            SelectedIndex = 0,
+        };
+        panel.Children.Add(Ui.Label("Harness", 12, Ui.Muted)); panel.Children.Add(providers);
         var window = new Window { Title = "新建会话", Owner = this, Width = 460, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        panel.Children.Add(Ui.Button("创建", async () => { if (providers.SelectedItem is not string provider || !cwd.Text.StartsWith('/')) throw new InvalidOperationException("请选择 Harness 并填写远程绝对路径。"); await Core.Call(new { op = "create_session", host_id = host, provider, cwd = cwd.Text, title = name.Text }); window.Close(); })); window.ShowDialog(); return Task.CompletedTask;
+        panel.Children.Add(Ui.Button("创建", async () => { if (providers.SelectedValue is not string provider || !cwd.Text.StartsWith('/')) throw new InvalidOperationException("请选择 Harness 并填写远程绝对路径。"); await Core.Call(new { op = "create_session", host_id = host, provider, cwd = cwd.Text, title = name.Text }); window.Close(); })); window.ShowDialog(); return Task.CompletedTask;
     }
     private async Task Upload()
     {

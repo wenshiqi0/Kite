@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { array, check, type Json, json, object, parse, string } from "@kite/protocol";
 import { bounded, live, privateDir, sha256, sleep, startTicks, tryLock } from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
@@ -38,6 +39,7 @@ const env = (home: string, extra: NodeJS.ProcessEnv = {}) => ({
   KITE_AGENT_RESOURCE_CONTROL: "0",
   KITE_ENABLE_DSH: "0",
   KITE_ENABLE_PLY: "0",
+  KITE_ENABLE_ANTIGRAVITY: "0",
   KITE_HARNESS_STATE_DIR: join(home, "harnesses"),
   ...extra,
 });
@@ -957,6 +959,157 @@ for (const provider of ["dsh", "ply"] as const)
       }
     }, 15000);
   });
+test("Antigravity discovery uses native authentication and one owner restores the same conversation", async () => {
+  const home = fresh(),
+    id = "a".repeat(32);
+  const configured = {
+    KITE_ENABLE_ANTIGRAVITY: "1",
+    KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+      process.execPath,
+      resolve("packages/host/test/fixtures/antigravity.ts"),
+    ]),
+  };
+  const signedIn = {
+    ...configured,
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_FIXTURE_AGY_SLOW_LOGIN: "1",
+  };
+  const scan = async (extra: NodeJS.ProcessEnv) => {
+    const result = await command(home, ["harness-scan"], undefined, extra);
+    expect(result.code, result.stderr.toString()).toBe(0);
+    return array(object(parse(result.stdout.toString())).providers).map(object);
+  };
+  const provider = "antigravity";
+  expect((await scan(configured)).some((row) => row.id === provider)).toBe(false);
+  expect((await scan(signedIn)).find((row) => row.id === provider)).toMatchObject({
+    managed_chat: true,
+    models: true,
+    attachments: true,
+    release: true,
+    terminal: false,
+  });
+  const trace = join(home, "agy-fixture-methods");
+  expect(readFileSync(trace, "utf8").trim().split("\n")).toEqual([
+    "initialize",
+    "session/list",
+    "initialize",
+    "session/list",
+  ]);
+  const created = await command(
+    home,
+    ["catalog-write"],
+    JSON.stringify({ revision: 0, sessions: [row(id, provider)] }),
+  );
+  expect(created.code).toBe(0);
+  const open = () =>
+    command(home, ["session-open", "--id", id, "--herdr", "unused"], undefined, signedIn);
+  const reference = (value: Awaited<ReturnType<typeof open>>) => {
+    expect(value.code, value.stderr.toString()).toBe(0);
+    return object(object(object(parse(value.stdout.toString())).agent).agent_session);
+  };
+  const [first, second] = await Promise.all([open(), open()]);
+  const ref = reference(first);
+  expect(reference(second)).toEqual(ref);
+  expect(ref).toMatchObject({ agent: provider, source: "kite:harness", kind: "id" });
+  const thread = string(ref.value),
+    path = join(home, "harnesses", thread);
+  const currentPid = () =>
+    Number(object(parse(readFileSync(join(path, "state.json"), "utf8"))).pid);
+  let pid = currentPid();
+  let permission: import("@kite/protocol").RpcMessage | undefined;
+  const client = () =>
+    new RpcProcess(
+      [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+      home,
+      () => {},
+      (message) => {
+        permission = message;
+      },
+      env(home, signedIn),
+    );
+  let rpc = client();
+  const prompt = (text: string) =>
+    rpc.call("turn/start", {
+      threadId: thread,
+      model: "gemini-flash",
+      effort: "high",
+      sessionSettings: { mode: "plan" },
+      input: [{ type: "text", text }],
+    });
+  try {
+    await rpc.call("initialize", {});
+    const models = array(object(await rpc.call("model/list", {})).data).map(object);
+    expect(models.find((model) => model.model === "gemini-flash")).toMatchObject({
+      inputModalities: ["text", "image"],
+      supportedReasoningEfforts: [
+        { reasoningEffort: "medium", description: "medium" },
+        { reasoningEffort: "high", description: "high" },
+      ],
+    });
+    const config = object(object(await rpc.call("config/read", {})).config);
+    expect(config.session_settings).toMatchObject([{ id: "mode", currentValue: "default" }]);
+    await prompt("approve");
+    await waitStatus(path, "blocked");
+    for (let i = 0; !permission && i < 100; i++) await sleep(20);
+    check(permission, "permission not delivered");
+    expect(object(permission.params).command).toBe("printf kite-fixture");
+    const permissionId = string(permission.id);
+    rpc.write({ id: permissionId, result: { decision: "decline" } });
+    await waitStatus(path, "done");
+    const saved = object(parse(readFileSync(join(path, "native.json"), "utf8")));
+    expect(saved).toMatchObject({ hasHistory: true, restorable: true });
+    expect(saved.sessionId).toBe(readFileSync(join(home, "agy-fixture-session"), "utf8"));
+    const lifecycle = await command(
+      home,
+      ["lifecycle-facts", "--herdr", "unused"],
+      undefined,
+      signedIn,
+    );
+    expect(lifecycle.code).toBe(0);
+    expect(array(object(parse(lifecycle.stdout.toString())).facts)).toMatchObject([
+      { session_id: id, idle: true, persisted: true },
+    ]);
+    const history = await command(
+      home,
+      ["harness-history", "--thread", thread],
+      undefined,
+      signedIn,
+    );
+    expect(history.code).toBe(0);
+    const headerEnd = history.stdout.indexOf(10, history.stdout.indexOf(10) + 1);
+    const transcript = gunzipSync(history.stdout.subarray(headerEnd + 1)).toString();
+    expect(transcript).toMatch(
+      /Checking[\s\S]*"type":"function_call"[\s\S]*Denied once[\s\S]*Continued/,
+    );
+    expect(transcript).not.toContain("PRIVATE_FIXTURE_THOUGHT");
+    const turn = object(object(await prompt("cancel")).turn);
+    for (let i = 0; i < 100; i++) {
+      if (readFileSync(trace, "utf8").match(/^session\/prompt$/gm)?.length === 2) break;
+      await sleep(20);
+    }
+    await rpc.call("turn/interrupt", { threadId: thread, turnId: turn.id });
+    await waitStatus(path, "cancelled");
+    expect(readFileSync(trace, "utf8")).toContain("session/cancel");
+    rpc.close();
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 100 && startTicks(pid); i++) await sleep(20);
+    expect(reference(await open())).toEqual(ref);
+    pid = currentPid();
+    rpc = client();
+    await rpc.call("initialize", {});
+    await prompt("continue");
+    await waitStatus(path, "done");
+    expect(readFileSync(join(path, "history.jsonl"), "utf8")).toContain(
+      "Restored true gemini-flash high plan",
+    );
+    const methods = readFileSync(trace, "utf8").trim().split("\n");
+    expect(methods.filter((method) => method === "session/new")).toHaveLength(1);
+    expect(methods.filter((method) => method === "session/resume")).toHaveLength(1);
+  } finally {
+    rpc.close();
+    if (startTicks(pid)) process.kill(pid, "SIGTERM");
+  }
+}, 15000);
 async function waitStatus(path: string, status: string): Promise<void> {
   for (let i = 0; i < 300; i++) {
     if (object(parse(readFileSync(join(path, "state.json"), "utf8"))).status === status) return;

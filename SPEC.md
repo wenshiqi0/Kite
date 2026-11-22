@@ -31,6 +31,8 @@ Android 输入区不提供语音识别入口。空草稿时，正在工作的 ag
 
 新增聊天 provider 按 [RFC 0021](docs/rfcs/0021-dsh-provider.md) 使用主机验证过的可用目录和 Rust 能力快照驱动客户端选项。Ply 按 [RFC 0025](docs/rfcs/0025-ply-acp.md) 使用独立 ACP 插件的会话、配置、工具事件、权限和取消接口；恢复只保存原生 sessionId，私有快照留在 Ply。DSH/Ply 需主机环境变量显式启用并通过鉴权模型服务与原生协议探测；[RFC 0023](docs/rfcs/0023-harness-capability-parity.md) 规定原生模型、思考强度和视觉能力贯通同一客户端控件，harness 使用下拉框选择；细节仅在接入或排查时读取[内部实施规范](docs/development/harness-integration.md)。
 
+Antigravity 按 [RFC 0032](docs/rfcs/0032-antigravity-acp.md) 使用主机显式启用的 `agy acp`，以已鉴权的原生会话查询作为发现依据。Kite 通过持久化的原生 ID 继续会话，归档释放前核对原生上下文已可查询。
+
 会话权限设置按 [RFC 0026](docs/rfcs/0026-session-permissions.md) 放在模型浮层：只展示原生后端公布或本机协议及管理约束允许的参数，按主机和会话保存，随下一条消息生效。权限应答使用统一实时 agent 清单，涵盖独立 owner 托管会话；审批卡展示具体操作、完整命令、工作目录和结构化参数，允许一次不改变会话策略。
 
 显式删除会话按 RFC 0020：活动和归档列表都可直接删除，命令绑定目标主机及会话。删除授权立即终止该会话的任务；主机在会话、owner 和目录租约内验证身份、排除共享 owner，释放受管进程及其本地工具子进程，确认退出后才移除 Kite 记录。本机清除聊天缓存和选中状态，选择下一条活动会话或空列表；释放失败保留记录以供重试。私有删除标记阻止过期目录写入或发现结果复活记录，不保存对话内容；provider 原始历史文件保持原位。

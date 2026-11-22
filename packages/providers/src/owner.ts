@@ -25,16 +25,15 @@ import {
 } from "@kite/protocol";
 import { atomic, lines, locked, readJson, same, startTicks } from "@kite/runtime";
 import { RpcTimeoutError, TurnCancelled } from "@kite/runtime/rpc";
-import { nativeModelId, optionalObject } from "@kite/runtime/socket";
+import { optionalObject } from "@kite/runtime/socket";
 import {
+  connectHarness,
   type HarnessInfo,
   harnessDirectory,
   harnessInfo,
   migrationContext,
-  modelIds,
 } from "./harness";
 import { contentFingerprint, projectContent } from "./media";
-import { connectNative } from "./native";
 import { approvalFields, permissionValues } from "./permissions";
 import { nativeInput } from "./uploads";
 
@@ -94,19 +93,7 @@ export class Owner {
       },
       ...(this.saved === undefined ? {} : { saved: this.saved }),
     };
-    const native = await connectNative(this.info.provider, conf);
-    try {
-      const available = await modelIds(this.info.provider, this.info.model);
-      native.models = native.models.filter((r) => available.has(nativeModelId(r.model)));
-      check(
-        native.models.some((r) => r.model === native.currentModel),
-        "active harness model unavailable",
-      );
-      this.native = native;
-    } catch (error) {
-      native.close();
-      throw error;
-    }
+    this.native = await connectHarness(this.info.provider, conf);
   }
   private get adapter(): NativeAdapter {
     check(this.native, "native adapter unavailable");
@@ -179,7 +166,12 @@ export class Owner {
       closeSync(fd);
     }
   }
-  private message(role: string, value: Json | undefined, id = crypto.randomUUID()): void {
+  private message(
+    role: string,
+    value: Json | undefined,
+    id = crypto.randomUUID(),
+    delta?: string,
+  ): void {
     const content = projectContent(value, this.info.cwd);
     if (!content.length) return;
     const text = textContent(content);
@@ -189,7 +181,10 @@ export class Owner {
       content,
       _kite_content_fingerprint: contentFingerprint(value),
     });
-    if (role === "assistant")
+    if (role !== "assistant") return;
+    if (delta !== undefined)
+      this.notify("item/agentMessage/delta", { turnId: this.turn, itemId: id, delta });
+    else
       this.notify("item/completed", {
         turnId: this.turn,
         item: { id, type: "agentMessage", text },
@@ -202,6 +197,7 @@ export class Owner {
         "assistant",
         optionalObject(data.message).content,
         `${this.epoch}:${value.seq ?? crypto.randomUUID()}`,
+        typeof data.delta === "string" ? data.delta : undefined,
       );
     else if (value.type === "tool/call") {
       const id = `${this.turn}:${data.callId}`;

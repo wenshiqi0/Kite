@@ -83,12 +83,11 @@ final class LiveClientTests: XCTestCase {
             print("live_stage=chat_ready")
             if saved != nil { state = try await wait(core) { $0.history.complete } }
             let agent = try XCTUnwrap(state.selectedAgent), session = try XCTUnwrap(state.selectedSession)
-            if !core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items).contains(where: { $0.kind == .assistant && $0.text.contains("MAC_CLIENT_QA_OK") }) {
+            if !hasQAReply(core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items)) {
                 try await core.promptAgent(hostId: id, agentId: agent, text: "仅回复 MAC_CLIENT_QA_OK，不调用工具。")
             }
             state = try await wait(core, seconds: 90) { state in
-                core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items)
-                    .contains { $0.kind == .assistant && $0.text.contains("MAC_CLIENT_QA_OK") }
+                hasQAReply(core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items))
             }
             let context = state.conversationContext
             print("live_stage=chat_received")
@@ -137,7 +136,7 @@ final class LiveClientTests: XCTestCase {
             _ = try await wait(core) { $0.connection == .connected }
             try await core.openSession(hostId: id, sessionId: session)
             state = try await wait(core) { $0.conversationCount >= 2 && $0.history.complete }
-            XCTAssertTrue(core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items).contains { $0.text.contains("MAC_CLIENT_QA_OK") })
+            XCTAssertTrue(hasQAReply(core.conversationSince(context: state.conversationContext, revision: 0).edits.flatMap(\.items)))
             let result: [String: Any] = ["ssh": true, "codex_turn": true, "history_reconnect": true,
                 "source_width": 1920, "source_height": 1080, "display_fps": displayFPS,
                 "rendered_frames": displayedFrames, "session_id": session, "conversation_context": context,
@@ -151,6 +150,14 @@ final class LiveClientTests: XCTestCase {
         } catch {
             try? await core.stopDesktop(hostId: try core.snapshot().selectedHost ?? ""); try? await core.disconnect(); receiver.detach(); window?.close()
             throw error
+        }
+    }
+    private func hasQAReply(_ items: [ItemInfo]) -> Bool {
+        items.contains { item in
+            item.role == .assistant && item.blocks.contains { block in
+                guard case let .text(text) = block else { return false }
+                return text.contains("MAC_CLIENT_QA_OK")
+            }
         }
     }
     @MainActor

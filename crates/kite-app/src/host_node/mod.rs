@@ -156,6 +156,10 @@ impl Config {
                 "KITE_PLY_PROVIDER",
                 "KITE_PLY_MODEL",
                 "KITE_PLY_HEALTH_URL",
+                "KITE_ENABLE_ANTIGRAVITY",
+                "KITE_ANTIGRAVITY_COMMAND",
+                "GEMINI_API_KEY",
+                "AGY_ADC_AUTH",
                 "DEEPSEEK_API_KEY",
                 "MIMO_API_KEY",
                 "DSH_HOME",
@@ -1145,7 +1149,7 @@ mod tests {
         assert_eq!(args, ["status"]);
     }
     #[test]
-    fn ply_configuration_accepts_its_opt_in_environment_without_opening_other_keys() {
+    fn harness_configuration_accepts_opt_in_environment_without_opening_other_keys() {
         let root = tempfile::tempdir().unwrap();
         let mut value = config(root.path());
         for (key, content) in [
@@ -1157,6 +1161,10 @@ mod tests {
             ("KITE_PLY_PROVIDER", "xiaomi-token-plan-cn"),
             ("KITE_PLY_MODEL", "mimo-v2.6-pro"),
             ("KITE_PLY_HEALTH_URL", "https://example.test/v1/models"),
+            ("KITE_ENABLE_ANTIGRAVITY", "1"),
+            ("KITE_ANTIGRAVITY_COMMAND", r#"["/usr/bin/agy","acp"]"#),
+            ("GEMINI_API_KEY", "test-fixture"),
+            ("AGY_ADC_AUTH", "true"),
         ] {
             value.environment.insert(key.into(), content.into());
         }

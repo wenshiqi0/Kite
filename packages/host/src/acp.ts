@@ -6,7 +6,9 @@ import { parseArgs } from "node:util";
 import { proc, userManagerCgroup } from "@kite/platform/resources";
 import {
   array,
+  CHAT_PROVIDERS,
   check,
+  isChatProvider,
   type Json,
   object,
   optionalString,
@@ -27,7 +29,7 @@ interface Peer {
   sshTarget?: string;
 }
 function writeWire(stream: NodeJS.WriteStream, value: Json | RpcMessage): void {
-  const line = JSON.stringify(value) + "\n";
+  const line = `${JSON.stringify(value)}\n`;
   check(
     Buffer.byteLength(line) + stream.writableLength <= ACP_QUEUE_LIMIT,
     "ACP stdio output is backpressured",
@@ -354,7 +356,7 @@ async function mcp(file: string): Promise<void> {
     running = new Map<string | number, { cancel: AbortController; done: Promise<void> }>();
   const output = (id: string | number, result: Json) => {
     if (closed) return;
-    const line = JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n";
+    const line = `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`;
     check(
       Buffer.byteLength(line) + process.stdout.writableLength <= ACP_QUEUE_LIMIT,
       "MCP output is backpressured",
@@ -390,7 +392,7 @@ async function mcp(file: string): Promise<void> {
                 cwd: { type: "string" },
                 prompt: { type: "string" },
                 sessionId: { type: "string" },
-                provider: { type: "string", enum: ["codex", "ply", "dsh"] },
+                provider: { type: "string", enum: [...CHAT_PROVIDERS] },
                 expectedRevision: { type: "string" },
                 allowCommands: {
                   type: "array",
@@ -519,16 +521,17 @@ export async function acpMain(argv: string[]): Promise<void> {
     }
     const port = Number(values.port);
     check(Number.isInteger(port) && port >= 0 && port <= 65535, "invalid ACP port");
+    const defaultProvider = values.provider;
     check(
-      values.workspace?.length && ["codex", "ply", "dsh"].includes(values.provider),
+      values.workspace?.length && isChatProvider(defaultProvider),
       "ACP serve requires workspace roots and a supported default provider",
     );
     const newSessionProviders = (await providers())
       .map(object)
       .map((row) => optionalString(row.id))
-      .filter((id) => id === "codex" || id === "ply" || id === "dsh");
+      .filter(isChatProvider);
     check(
-      newSessionProviders.some((provider) => provider === values.provider),
+      newSessionProviders.includes(defaultProvider),
       "the default ACP provider is not verified on this host",
     );
     const server = serveAcp({
@@ -540,8 +543,7 @@ export async function acpMain(argv: string[]): Promise<void> {
             machine: hostname(),
             workspaces: values.workspace || [],
             herdr: values.herdr || process.env.KITE_ACP_HERDR || "herdr",
-            defaultProvider:
-              values.provider === "dsh" ? "dsh" : values.provider === "ply" ? "ply" : "codex",
+            defaultProvider,
             newSessionProviders,
           },
           send,

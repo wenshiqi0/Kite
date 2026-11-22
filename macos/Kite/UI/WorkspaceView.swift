@@ -108,7 +108,7 @@ struct WorkspaceView: View {
                                             Image(systemName: selected ? "bubble.left.fill" : "bubble.left").foregroundStyle(selected ? .cyan : .secondary)
                                             VStack(alignment: .leading, spacing: 3) {
                                                 Text(session.title.isEmpty ? tr("untitled_session") : session.title).font(.callout).lineLimit(1)
-                                                Text(session.preview.isEmpty ? session.provider : session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                                Text(session.preview.isEmpty ? providerLabel(session.provider) : session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                             }
                                         }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                                     }.buttonStyle(.plain)

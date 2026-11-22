@@ -1,6 +1,6 @@
 # Cross-machine sessions and tasks
 
-`kite acp` exposes existing Kite session owners through authenticated ACP v1 JSON-RPC at WebSocket `/acp`. This is the WebSocket profile of the active remote-transport RFD; HTTP/2/SSE and full history replay are not implemented. New network sessions use verified Codex/Ply/DSH providers. Existing Codex/Ply/DSH sessions can be attached with `session/resume`; check negotiated capabilities. Normal Kite history remains available through its host connection.
+`kite acp` exposes existing Kite session owners through authenticated ACP v1 JSON-RPC at WebSocket `/acp`. This is the WebSocket profile of the active remote-transport RFD; HTTP/2/SSE and full history replay are not implemented. New network sessions use verified Codex, Ply, DSH and Antigravity providers. Existing sessions from these providers can be attached with `session/resume`; check negotiated capabilities. Normal Kite history remains available through its host connection.
 
 On a Linux executing machine, run in its existing systemd user hierarchy so agent resource admission remains enforced:
 

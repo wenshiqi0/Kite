@@ -4,13 +4,15 @@ import { budgetCommand, ready, scopeName } from "@kite/platform";
 import {
   array,
   check,
+  isManagedProvider,
   type Json,
   json,
   type ManagedProvider,
-  type Model,
+  type NativeOptions,
   type ObjectValue,
   object,
   optionalString,
+  PROVIDERS,
   parse,
   type SessionRecord,
   string,
@@ -51,7 +53,7 @@ export interface HarnessInfo {
 }
 export function harnessInfo(value: unknown): HarnessInfo {
   const r = object(value);
-  check(r.provider === "dsh" || r.provider === "ply", "invalid harness provider");
+  check(isManagedProvider(r.provider), "invalid harness provider");
   return {
     id: string(r.id),
     thread: string(r.thread),
@@ -70,35 +72,45 @@ export function configuration(provider: ManagedProvider): {
 } {
   const prefix = `KITE_${provider.toUpperCase()}`;
   check(process.env[`KITE_ENABLE_${provider.toUpperCase()}`] === "1", "harness is not enabled");
-  const model = process.env[`${prefix}_MODEL`] || "deepseek-v4-flash",
-    route =
-      process.env[`${prefix}_PROVIDER`] || (provider === "dsh" ? "deepseek-official" : "deepseek");
+  const model =
+    provider === "antigravity" ? "" : process.env[`${prefix}_MODEL`] || "deepseek-v4-flash";
+  const route =
+    provider === "antigravity"
+      ? ""
+      : process.env[`${prefix}_PROVIDER`] ||
+        (provider === "dsh" ? "deepseek-official" : "deepseek");
   const override = process.env[`${prefix}_COMMAND`];
-  let command = override
+  const command = override
     ? array(parse(override)).map(string)
     : provider === "dsh"
       ? ["dsh", "--profile", "acp"]
-      : [
-          "ply",
-          "acp",
-          "--approval-mode",
-          "ask",
-          "--model",
-          model,
-          ...(process.env.KITE_PLY_PROVIDER ? ["--mimo-provider", route] : []),
-        ];
+      : provider === "antigravity"
+        ? ["agy", "acp"]
+        : [
+            "ply",
+            "acp",
+            "--approval-mode",
+            "ask",
+            "--model",
+            model,
+            ...(process.env.KITE_PLY_PROVIDER ? ["--mimo-provider", route] : []),
+          ];
   check(
     command.length > 0 &&
       command.length <= 24 &&
       command.every((s) => s.length > 0 && !s.includes("\0")),
     "invalid harness command",
   );
-  const executable = Bun.which(string(command[0]));
+  const executable =
+    Bun.which(string(command[0])) ??
+    (provider === "antigravity" && !override ? Bun.which(join(home(), ".local/bin/agy")) : null);
   check(executable, "harness executable unavailable");
-  command = [executable, ...command.slice(1)];
-  return { command, model, route };
+  return { command: [executable, ...command.slice(1)], model, route };
 }
-export async function modelIds(provider: ManagedProvider, model: string): Promise<Set<string>> {
+async function modelIds(
+  provider: Exclude<ManagedProvider, "antigravity">,
+  model: string,
+): Promise<Set<string>> {
   const prefix = `KITE_${provider.toUpperCase()}`,
     key = process.env[model.startsWith("mimo-") ? "MIMO_API_KEY" : "DEEPSEEK_API_KEY"];
   check(key, "harness model credential unavailable");
@@ -134,29 +146,48 @@ export async function modelIds(provider: ManagedProvider, model: string): Promis
   check(ids.has(model), "harness model unavailable");
   return ids;
 }
-export async function probe(provider: ManagedProvider): Promise<Model[]> {
-  const conf = configuration(provider),
-    available = await modelIds(provider, conf.model),
-    native = await connectNative(provider, {
-      ...conf,
-      cwd: home(),
-      inspect: true,
-      event: () => {},
-      permission: () => {},
-      persist: () => {},
-    });
+export async function connectHarness(provider: ManagedProvider, options: NativeOptions) {
+  const available =
+    provider === "antigravity" ? undefined : await modelIds(provider, options.model);
+  const native = await connectNative(provider, options);
   try {
-    return native.models.filter((r) => available.has(nativeModelId(r.model)));
-  } finally {
+    if (available) {
+      native.models = native.models.filter((r) => available.has(nativeModelId(r.model)));
+      check(
+        native.models.some((r) => r.model === native.currentModel),
+        "active harness model unavailable",
+      );
+    }
+    return native;
+  } catch (error) {
     native.close();
+    throw error;
   }
+}
+async function probe(provider: ManagedProvider): Promise<void> {
+  const native = await connectHarness(provider, {
+    ...configuration(provider),
+    cwd: home(),
+    inspect: true,
+    event: () => {},
+    permission: () => {},
+    persist: () => {},
+  });
+  native.close();
 }
 export async function providers(): Promise<Json[]> {
   const values = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
         key.startsWith("KITE_") ||
-        ["PATH", "DEEPSEEK_API_KEY", "MIMO_API_KEY", "DSH_HOME"].includes(key),
+        [
+          "PATH",
+          "DEEPSEEK_API_KEY",
+          "MIMO_API_KEY",
+          "DSH_HOME",
+          "GEMINI_API_KEY",
+          "AGY_ADC_AUTH",
+        ].includes(key),
     ),
   );
   const file = join(
@@ -170,11 +201,10 @@ export async function providers(): Promise<Json[]> {
     /* probe current configuration */
   }
   const rows = await Promise.all(
-    (["codex", "claude", "dsh", "ply"] as const).map(async (p) => {
+    PROVIDERS.map(async (p) => {
       try {
-        if (p === "dsh" || p === "ply") {
-          if (!(await probe(p)).length) return null;
-        } else if (!Bun.which(p)) return null;
+        if (isManagedProvider(p)) await probe(p);
+        else if (!Bun.which(p)) return null;
         if (p === "codex" && process.platform === "darwin") {
           const version = (await run(["codex", "--version"], { timeout: 10000 })).stdout.toString();
           const match = /(\d+)\.(\d+)\.(\d+)/.exec(version);
@@ -240,13 +270,33 @@ export async function harnessAgents(records: SessionRecord[]): Promise<ObjectVal
   return result;
 }
 export async function openHarness(record: SessionRecord): Promise<ObjectValue> {
-  check(record.provider === "dsh" || record.provider === "ply", "unsupported managed provider");
+  check(isManagedProvider(record.provider), "unsupported managed provider");
+  const reference = record.reference;
+  check(
+    !reference ||
+      (reference.source === "kite:harness" &&
+        reference.agent === record.provider &&
+        reference.kind === "id"),
+    "invalid managed session reference",
+  );
+  // A retry can find the same owner even if startup succeeded after its caller disconnected.
+  const digest = sha256(record.id),
+    newThread = [
+      digest.slice(0, 8),
+      digest.slice(8, 12),
+      digest.slice(12, 16),
+      digest.slice(16, 20),
+      digest.slice(20, 32),
+    ].join("-");
   const conf = configuration(record.provider),
-    thread = record.reference?.value || crypto.randomUUID(),
+    thread = reference?.value ?? newThread,
     path = privateDir(harnessDirectory(thread));
   if (await listening(join(path, "owner.sock"))) {
     const info = harnessInfo(readJson(join(path, "session.json")));
-    check(info.id === record.id && info.provider === record.provider, "harness identity mismatch");
+    check(
+      info.id === record.id && info.provider === record.provider && info.thread === thread,
+      "harness identity mismatch",
+    );
     const state = object(readJson(join(path, "state.json")));
     if (state.protocol === 2) return harnessAgent(info, state);
     check(

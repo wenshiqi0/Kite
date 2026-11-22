@@ -7,7 +7,7 @@ fn file() -> Value {
 
 #[test]
 fn all_authors_and_providers_share_ordered_content_and_cache_round_trips() {
-    for provider in ["codex", "claude", "dsh", "ply"] {
+    for provider in ["codex", "claude", "dsh", "ply", "antigravity"] {
         for (role, expected) in [("user", Role::User), ("assistant", Role::Assistant)] {
             let content = json!([
                 {"type":"text", "text":"**Before**"},

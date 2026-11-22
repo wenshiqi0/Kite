@@ -34,6 +34,7 @@ test("Ply cancels an expired ACP prompt before another turn uses the same sessio
       expect.objectContaining({
         data: {
           message: { content: [{ type: "text", text: "native-2:complete:text:policy-ask" }] },
+          delta: "native-2:complete:text:policy-ask",
         },
       }),
     ]);

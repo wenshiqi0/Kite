@@ -699,7 +699,7 @@ pub fn parse_history(provider: &str, bytes: &[u8]) -> Vec<Item> {
                     }
                 }
             }
-            "codex" | "dsh" | "ply" => {
+            agent if providers::managed(agent) => {
                 if let Some(id) = turn_error_id(&v) {
                     add_text(
                         &mut items,
