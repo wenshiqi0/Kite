@@ -124,7 +124,7 @@ impl<'a> Repository<'a> {
             for agent in agents {
                 let Some(reference) = agent.agent_session.as_ref().filter(|r| {
                     crate::providers::registered(&r.agent)
-                        && (!matches!(r.agent.as_str(), "dsh" | "ply")
+                        && (!crate::providers::harness_owner(&r.agent)
                             || r.source == "kite:harness")
                 }) else {
                     continue;

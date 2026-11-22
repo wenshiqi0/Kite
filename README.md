@@ -15,6 +15,7 @@ A native workspace for local and remote coding agents, built around [herdr](http
 - Run a Linux host node with a native control panel and taskbar status; agents and host services continue when the panel closes.
 - See connection status on simple host cards, connect or enter a workspace, and edit settings separately.
 - Follow Claude / Codex conversations and tool calls, send prompts, and respond to supported terminal approval choices.
+- Start Antigravity sessions on a configured host, follow tool activity, respond to approvals and resume the same conversation. [Host setup](docs/backend-setup.md#google-antigravity).
 - View Codex plan allowance, available reset cards and their earliest expiry alongside model and reasoning selection.
 - Keep complete synchronized conversation history, continue saved sessions, and archive them while their tasks keep running. See running, waiting-for-answer and attention states directly in the Android session list.
 - Read compact, collapsible tool activity while public progress updates and interim conclusions stay visible; answer model questions with choices or text and see live response feedback.

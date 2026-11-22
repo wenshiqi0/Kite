@@ -94,7 +94,9 @@ impl server::Handler for Peer {
             return session.close(channel);
         }
         if command.ends_with("harness-scan") {
-            let managed = matches!(self.agent["agent"].as_str(), Some("ply" | "dsh"));
+            let managed = self.agent["agent"]
+                .as_str()
+                .is_some_and(providers::harness_owner);
             return finish(
                 session,
                 channel,
@@ -404,7 +406,7 @@ async fn a_send_receipt_follows_catalog_registration_during_the_native_request()
 
 #[tokio::test]
 async fn interruption_reaches_each_managed_owner_and_rejects_stale_or_paused_controls() {
-    for provider in ["codex", "dsh", "ply"] {
+    for provider in ["codex", "dsh", "ply", "antigravity"] {
         let fixture = Fixture::start(provider).await;
         let id = fixture.agent.terminal_id.clone();
         let key = ConversationKey::new("owned-host", &id);
@@ -457,7 +459,7 @@ async fn interruption_reaches_each_managed_owner_and_rejects_stale_or_paused_con
 
 #[tokio::test]
 async fn approval_reaches_managed_owner_when_herdr_has_no_agent() {
-    for provider in ["ply", "dsh", "codex"] {
+    for provider in ["ply", "dsh", "codex", "antigravity"] {
         for choice in [0, 1] {
             let fixture = Fixture::start(provider).await;
             let request = fixture.client.runtime().approval().unwrap().id;

@@ -467,6 +467,7 @@
     <string name="skill_context_source">来源：%1$s</string>
     <string name="harness_selector">智能体</string>
     <string name="provider_ply">Ply</string>
+    <string name="provider_antigravity">Antigravity</string>
     <string name="search_sessions">搜索会话</string>
     <string name="sort_newest">创建时间：从新到旧</string>
     <string name="sort_oldest">创建时间：从旧到新</string>

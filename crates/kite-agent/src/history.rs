@@ -53,7 +53,7 @@ pub async fn page(
     cursor: &str,
     newer: bool,
 ) -> Arc<History> {
-    if !matches!(reference.agent.as_str(), "codex" | "claude" | "dsh" | "ply")
+    if !crate::providers::registered(&reference.agent)
         || cursor.len() > 128
         || !cursor.bytes().all(|c| c.is_ascii_digit() || c == b':')
     {
@@ -70,7 +70,7 @@ async fn request(
 ) -> Arc<History> {
     let cache_key = key(reference);
     let previous = previous.filter(|p| p.key == cache_key);
-    if matches!(reference.agent.as_str(), "dsh" | "ply") {
+    if crate::providers::harness_owner(&reference.agent) {
         if reference.source != "kite:harness"
             || reference.kind != "id"
             || reference.value.len() != 36

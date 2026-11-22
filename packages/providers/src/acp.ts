@@ -3,7 +3,10 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import {
   array,
+  CHAT_PROVIDERS,
+  type ChatProvider,
   check,
+  isChatProvider,
   type Json,
   json,
   type ObjectValue,
@@ -37,8 +40,8 @@ export interface KiteAcpOptions {
   machine: string;
   workspaces: string[];
   herdr: string;
-  defaultProvider: "codex" | "ply" | "dsh";
-  newSessionProviders?: string[];
+  defaultProvider: ChatProvider;
+  newSessionProviders?: readonly ChatProvider[];
   repository?: AcpRepository;
   backend?(
     record: SessionRecord,
@@ -46,15 +49,11 @@ export interface KiteAcpOptions {
     request: (message: RpcMessage) => void,
   ): Promise<AcpBackend>;
 }
-const supported = (provider: string) => ["codex", "ply", "dsh"].includes(provider);
 const repository: AcpRepository = {
   list: async () => (await catalogRead()).sessions,
   create: async (provider, cwd, title) =>
     locked(join(catalogRoot(), "sessions.lock"), () => {
-      check(
-        provider === "codex" || provider === "ply" || provider === "dsh",
-        "network session provider is not supported",
-      );
+      check(isChatProvider(provider), "network session provider is not supported");
       const catalog = catalogUnlocked(),
         at = Date.now();
       check(catalog.sessions.length < 1024, "session catalog is full");
@@ -88,7 +87,7 @@ async function connectBackend(
   check(
     reference.kind === "id" &&
       reference.agent === record.provider &&
-      supported(string(reference.agent)),
+      isChatProvider(reference.agent),
     "structured owner identity unavailable",
   );
   const rpc = new RpcProcess(
@@ -214,6 +213,7 @@ export class KiteAcp implements AcpConnection {
     if (pending.id !== turn.id) return;
     clearTimeout(pending.timer);
     binding.turn = undefined;
+    binding.deltas.clear();
     for (const [id, permission] of this.permissions)
       if (permission.binding === binding) this.permissions.delete(id);
     if (turn.status === "failed")
@@ -364,7 +364,7 @@ export class KiteAcp implements AcpConnection {
     const record = (await this.repository.list()).find((row) => row.id === id);
     check(
       record &&
-        supported(record.provider) &&
+        isChatProvider(record.provider) &&
         !record.archived &&
         this.cwd(record.cwd || "") === path,
       "session unavailable in this workspace",
@@ -406,8 +406,8 @@ export class KiteAcp implements AcpConnection {
           kite: {
             machine: this.options.machine,
             transport: "websocket-v1",
-            newSessionProviders: this.options.newSessionProviders ?? ["codex", "ply", "dsh"],
-            resumedSessionProviders: ["codex", "ply", "dsh"],
+            newSessionProviders: [...(this.options.newSessionProviders ?? CHAT_PROVIDERS)],
+            resumedSessionProviders: [...CHAT_PROVIDERS],
           },
         },
       };
@@ -417,7 +417,7 @@ export class KiteAcp implements AcpConnection {
     if (method === "session/list") {
       const rows = (await this.repository.list()).filter((r) => {
         try {
-          return supported(r.provider) && !r.archived && Boolean(this.cwd(r.cwd || ""));
+          return isChatProvider(r.provider) && !r.archived && Boolean(this.cwd(r.cwd || ""));
         } catch {
           return false;
         }
@@ -449,7 +449,8 @@ export class KiteAcp implements AcpConnection {
           provider = optionalString(meta.provider) || this.options.defaultProvider;
         if (method === "session/new")
           check(
-            (this.options.newSessionProviders ?? ["codex", "ply", "dsh"]).includes(provider),
+            isChatProvider(provider) &&
+              (this.options.newSessionProviders ?? CHAT_PROVIDERS).includes(provider),
             "network provider is not available on this host",
           );
         const record =

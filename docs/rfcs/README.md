@@ -84,3 +84,4 @@ RFC 记录 kite 的设计决定：为什么这么做、考虑过哪些别的方�
 - [0029 — Mac 客户端内的本机主机角色](0029-macos-host.md)
 
 - [0031 — Windows 纯客户端与 Linux 交叉构建](0031-windows-client.md)
+- [0032 — Antigravity ACP 接入](0032-antigravity-acp.md)

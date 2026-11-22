@@ -35,8 +35,20 @@ export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{1
 export const SESSION_ID = /^[a-f0-9]{32,64}$/;
 export const MAX_FILE = 25 * 1024 * 1024;
 export const RPC_LIMIT = 40 * 1024 * 1024;
-export type Provider = "codex" | "claude" | "dsh" | "ply";
-export type ManagedProvider = "dsh" | "ply";
+const MANAGED_PROVIDERS = ["dsh", "ply", "antigravity"] as const;
+export type ManagedProvider = (typeof MANAGED_PROVIDERS)[number];
+export const PROVIDERS = ["codex", "claude", ...MANAGED_PROVIDERS] as const;
+export type Provider = (typeof PROVIDERS)[number];
+export const CHAT_PROVIDERS = ["codex", ...MANAGED_PROVIDERS] as const;
+export type ChatProvider = (typeof CHAT_PROVIDERS)[number];
+
+export function isManagedProvider(value: unknown): value is ManagedProvider {
+  return MANAGED_PROVIDERS.some((provider) => provider === value);
+}
+
+export function isChatProvider(value: unknown): value is ChatProvider {
+  return value === "codex" || isManagedProvider(value);
+}
 export interface Reference {
   source: string;
   agent: string;
@@ -77,10 +89,7 @@ export function session(value: unknown): SessionRecord {
     provider = string(row.provider),
     title = string(row.title);
   check(SESSION_ID.test(id), "invalid session ID");
-  check(
-    provider === "codex" || provider === "claude" || provider === "dsh" || provider === "ply",
-    "invalid provider",
-  );
+  check(provider === "claude" || isChatProvider(provider), "invalid provider");
   const result: SessionRecord = { ...row, id, provider, title };
   for (const key of ["cwd", "terminal_id", "pane_id", "workspace_id", "agent_name"] as const) {
     const value = row[key];

@@ -80,6 +80,10 @@ struct TrustSheet: View {
     }
 }
 
+func providerLabel(_ id: String) -> String {
+    id == "antigravity" ? "Antigravity" : id
+}
+
 struct SessionEditor: View {
     let model: ClientModel
     @State private var provider = ""
@@ -97,7 +101,7 @@ struct SessionEditor: View {
                     ForEach((model.snapshot?.hosts ?? []).filter { host in model.snapshot?.hostConnections.contains { $0.hostId == host.id && $0.connection == .connected } == true }, id: \.id) { Text($0.host).tag($0.id) }
                 }
                 Picker(tr("harness"), selection: $provider) {
-                    ForEach(available, id: \.id) { Text($0.id).tag($0.id) }
+                    ForEach(available, id: \.id) { Text(providerLabel($0.id)).tag($0.id) }
                 }
                 TextField(tr("session_title"), text: $title)
                 TextField(tr("working_directory"), text: $cwd)

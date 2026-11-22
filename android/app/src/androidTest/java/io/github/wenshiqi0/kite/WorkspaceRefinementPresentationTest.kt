@@ -11,6 +11,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,7 +67,7 @@ class WorkspaceRefinementPresentationTest {
             listOf(BlockInfo.Attachment(photos[0]), BlockInfo.Text("\n\n"), BlockInfo.Attachment(photos[1]), BlockInfo.Text("\n"), BlockInfo.Attachment(photos[2])), false, null)
         try {
             overlay({
-                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val activity = LocalActivity.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ChatEntryContent(ChatEntry.Work(listOf(pure))) {}
@@ -136,7 +137,7 @@ class WorkspaceRefinementPresentationTest {
         }
         try {
             overlay({
-                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val activity = LocalActivity.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp)) { MessageAttachments(vm, files, {}, {}, conversation) }
             }) {
@@ -195,7 +196,7 @@ class WorkspaceRefinementPresentationTest {
         lateinit var nativeRoot: View
         try {
             overlay({
-                val activity = androidx.compose.ui.platform.LocalContext.current as MainActivity
+                val activity = LocalActivity.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 nativeRoot = activity.window.decorView
                 Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -654,6 +655,27 @@ class WorkspaceRefinementPresentationTest {
             waitFor("Effort menu closes for non-reasoning model"){find(text="Plain")!=null&&find(text="最大思考")==null}
             assertNull(find(text="深入思考"))
             screenshot("harness-model-without-effort.png")
+        }
+    }
+
+    @Test fun verifiedAntigravityShowsItsNameAndSubmitsItsProviderId() {
+        val selected = java.util.concurrent.atomic.AtomicReference("")
+        val codex = ProviderInfo("codex", true, true, true, true, true, true, true, true)
+        val antigravity = ProviderInfo("antigravity", true, true, true, false, false, false, false, true)
+        overlay({ HarnessChoices(listOf(codex), "codex", selected::set) }) {
+            waitFor("Codex appears") { find(text = "Codex") != null }
+            val dropdown = requireNotNull(find(text = "Codex"))
+            assertTrue(actionNode(dropdown, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            assertNull(find(text = "Antigravity"))
+        }
+        overlay({ HarnessChoices(listOf(codex, antigravity), "codex", selected::set) }) {
+            waitFor("Codex appears") { find(text = "Codex") != null }
+            val dropdown = requireNotNull(find(text = "Codex"))
+            assertTrue(actionNode(dropdown, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Antigravity appears in the verified catalogue") { find(text = "Antigravity") != null }
+            val option = requireNotNull(find(text = "Antigravity"))
+            assertTrue(actionNode(option, AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Antigravity's provider ID is submitted") { selected.get() == "antigravity" }
         }
     }
 

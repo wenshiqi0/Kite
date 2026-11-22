@@ -14,6 +14,7 @@ import {
   array,
   check,
   integer,
+  isManagedProvider,
   type Json,
   type ObjectValue,
   object,
@@ -433,7 +434,7 @@ export async function sessionOpen(id: string, binary: string): Promise<Json> {
       if (provider === "codex" && found.archived) await patchSession(id, { archived: false });
       return { agent };
     };
-    if (provider === "dsh" || provider === "ply") {
+    if (isManagedProvider(provider)) {
       const managed = await openHarness(record);
       await patchSession(id, {
         reference: parseReference(managed.agent_session),
@@ -703,7 +704,7 @@ export function installResourceHooks(): void {
       for (const record of records) {
         try {
           const pane = record.pane_id;
-          if (record.provider === "dsh" || record.provider === "ply") {
+          if (isManagedProvider(record.provider)) {
             const ref = record.reference;
             if (ref?.source !== "kite:harness" || ref.agent !== record.provider) continue;
             const path = harnessDirectory(ref.value),

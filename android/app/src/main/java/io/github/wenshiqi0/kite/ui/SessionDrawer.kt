@@ -31,6 +31,7 @@ import io.github.wenshiqi0.kite.core.*
     "claude" -> stringResource(R.string.provider_claude)
     "dsh" -> stringResource(R.string.provider_dsh)
     "ply" -> stringResource(R.string.provider_ply)
+    "antigravity" -> stringResource(R.string.provider_antigravity)
     else -> provider
 }
 @Composable fun sessionTitle(session: SessionInfo): String = session.title.ifBlank { providerLabel(session.provider) + " · " + stringResource(R.string.new_session_short) }

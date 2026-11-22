@@ -1,79 +1,11 @@
-import {
-  array,
-  check,
-  json,
-  type Model,
-  type NativeAdapter,
-  type NativeBlock,
-  type NativeOptions,
-  type ObjectValue,
-  object,
-  optionalString,
-  type RpcMessage,
-  string,
-} from "@kite/protocol";
-import { RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
+import { array, check, type NativeBlock, object, optionalString, string } from "@kite/protocol";
 import { nativeModelId } from "@kite/runtime/socket";
-import { appendContent } from "../media";
-import { permissionSettings, permissionValues } from "../permissions";
+import { AcpAdapter } from "./acp";
 
-export class Ply implements NativeAdapter {
-  models: Model[] = [];
-  currentModel = "";
-  currentEffort = "";
-  readonly rpc: RpcProcess;
-  private session = "";
-  private cancelled = false;
-  private config: ObjectValue[] = [];
-  private content: ObjectValue[] = [];
-  private message = "";
-  private replaying = false;
-  private tools = new Map<string, ObjectValue>();
-  private permissions = new Set<string | number>();
-  get settings() {
-    return permissionSettings(this.config);
-  }
-  async configure(values: Record<string, string>): Promise<void> {
-    for (const [configId, value] of Object.entries(permissionValues(values, this.settings))) {
-      if (this.config.find((row) => row.id === configId)?.currentValue === value) continue;
-      const reply = object(
-        await this.rpc.call("session/set_config_option", {
-          sessionId: this.session,
-          configId,
-          value,
-        }),
-      );
-      this.config = array(reply.configOptions).map(object);
-    }
-  }
-  constructor(
-    private options: NativeOptions,
-    private promptTimeout = 3600000,
-  ) {
-    this.rpc = new RpcProcess(
-      options.command,
-      options.cwd,
-      (message) => this.update(message),
-      (message) => this.request(message),
-    );
-  }
+export class Ply extends AcpAdapter {
   async initialize(): Promise<this> {
     try {
-      const hello = object(
-        await this.rpc.call(
-          "initialize",
-          {
-            protocolVersion: 1,
-            clientInfo: { name: "kite", version: "2" },
-            clientCapabilities: {},
-          },
-          15000,
-        ),
-      );
-      check(
-        hello.protocolVersion === 1 && object(hello.agentInfo).name === "ply",
-        "Ply ACP capability unavailable",
-      );
+      const hello = await this.handshake("ply");
       const metadata = object(object(hello._meta).ply);
       this.models = array(metadata.models).map((value) => {
         const row = object(value);
@@ -101,21 +33,16 @@ export class Ply implements NativeAdapter {
           !saved || typeof saved === "string",
           "Ply session predates ACP; start a new ACP session",
         );
-        this.replaying = true;
-        try {
-          const value = object(
-            await this.rpc.call(saved ? "session/load" : "session/new", {
-              ...(saved ? { sessionId: saved } : {}),
-              cwd: this.options.cwd,
-              mcpServers: [],
-            }),
-          );
-          this.session = saved ? string(saved) : string(value.sessionId);
-          this.config = array(value.configOptions ?? []).map(object);
-          this.options.persist(this.session);
-        } finally {
-          this.replaying = false;
-        }
+        const value = object(
+          await this.rpc.call(saved ? "session/load" : "session/new", {
+            ...(saved ? { sessionId: saved } : {}),
+            cwd: this.options.cwd,
+            mcpServers: [],
+          }),
+        );
+        this.session = saved ? string(saved) : string(value.sessionId);
+        this.readConfig(value.configOptions ?? []);
+        this.options.persist(this.session);
         this.currentModel =
           optionalString(this.config.find((row) => row.id === "model")?.currentValue) ||
           this.currentModel;
@@ -129,146 +56,13 @@ export class Ply implements NativeAdapter {
       throw error;
     }
   }
-  alive(): boolean {
-    return this.rpc.child.exitCode === null && this.rpc.child.signalCode === null;
-  }
-  prepare(): void {
-    this.cancelled = false;
-  }
-  async steer(): Promise<boolean> {
-    return false;
-  }
   async run(blocks: NativeBlock[], model: string, effort: string): Promise<undefined> {
-    if (this.cancelled) throw new TurnCancelled();
-    for (const [configId, value] of [
-      ["model", model],
-      ["reasoning_effort", effort],
-    ]) {
-      const selected = this.config.find((row) => row.id === configId);
-      if (selected?.currentValue === value) continue;
-      const reply = object(
-        await this.rpc.call("session/set_config_option", {
-          sessionId: this.session,
-          configId,
-          value,
-        }),
-      );
-      this.config = array(reply.configOptions).map(object);
-    }
-    if (this.cancelled) throw new TurnCancelled();
-    this.content = [];
-    this.message = crypto.randomUUID();
-    this.tools.clear();
-    const reply = object(
-      await this.rpc.call(
-        "session/prompt",
-        json({ sessionId: this.session, prompt: blocks }),
-        this.promptTimeout,
-        () => {
-          if (this.cancelled) this.cancel();
-        },
-        () => this.cancel(),
-      ),
-    );
-    if (reply.stopReason === "cancelled") throw new TurnCancelled();
-    check(
-      reply.stopReason === "end_turn" && this.content.length > 0,
-      "Ply did not complete its turn",
-    );
+    this.checkCancellation();
+    await this.select("model", model);
+    await this.select("reasoning_effort", effort);
+    await this.prompt(blocks, true);
     this.currentModel = model;
     this.currentEffort = effort;
     return undefined;
-  }
-  private update(value: RpcMessage): void {
-    if (value.method !== "session/update" || this.replaying) return;
-    const params = object(value.params);
-    if (params.sessionId !== this.session) return;
-    const update = object(params.update);
-    if (update.sessionUpdate === "agent_message_chunk" && update.content) {
-      this.content = appendContent(this.content, update.content);
-      this.options.event({
-        type: "assistant/message",
-        seq: this.message,
-        data: { message: { content: this.content } },
-      });
-    } else if (update.sessionUpdate === "config_option_update") {
-      this.config = array(update.configOptions).map(object);
-    } else if (update.sessionUpdate === "tool_call") {
-      const id = string(update.toolCallId);
-      this.tools.set(id, update);
-      this.options.event({
-        type: "tool/call",
-        data: {
-          callId: id,
-          name: update.title ?? "tool",
-          arguments: JSON.stringify(update.rawInput ?? {}),
-        },
-      });
-    } else if (
-      update.sessionUpdate === "tool_call_update" &&
-      ["completed", "failed"].includes(String(update.status))
-    ) {
-      const output = array(update.content ?? [])
-        .map(object)
-        .filter((row) => row.type === "content")
-        .map((row) => object(row.content));
-      this.options.event({
-        type: "tool/result",
-        data: {
-          message: {
-            toolCallId: update.toolCallId,
-            content: output,
-            isError: update.status === "failed",
-          },
-        },
-      });
-    }
-  }
-  private request(value: RpcMessage): void {
-    if (value.method !== "session/request_permission") {
-      this.rpc.write({
-        id: value.id ?? null,
-        error: { code: -32601, message: "unsupported native request" },
-      });
-      return;
-    }
-    const params = object(value.params),
-      tool = object(params.toolCall),
-      id = value.id;
-    check(typeof id === "string" || typeof id === "number", "invalid permission identity");
-    if (params.sessionId !== this.session || this.cancelled) {
-      this.rpc.write({ id, result: { outcome: { outcome: "cancelled" } } });
-      return;
-    }
-    params.toolCall = { ...this.tools.get(String(tool.toolCallId)), ...tool };
-    this.permissions.add(id);
-    this.options.permission(object(json({ ...value, params })));
-  }
-  async approve(request: ObjectValue, accepted: boolean): Promise<void> {
-    const id = request.id;
-    check(
-      (typeof id === "string" || typeof id === "number") && this.permissions.has(id),
-      "permission expired",
-    );
-    const params = object(request.params);
-    check(params.sessionId === this.session, "permission session mismatch");
-    const chosen = array(params.options)
-      .map(object)
-      .find((row) => row.kind === (accepted ? "allow_once" : "reject_once"));
-    check(chosen, "permission option unavailable");
-    this.permissions.delete(id);
-    this.rpc.write({ id, result: { outcome: { outcome: "selected", optionId: chosen.optionId } } });
-  }
-  cancel(): void {
-    this.cancelled = true;
-    for (const id of this.permissions)
-      this.rpc.write({ id, result: { outcome: { outcome: "cancelled" } } });
-    this.permissions.clear();
-    if (this.session)
-      this.rpc.write({ method: "session/cancel", params: { sessionId: this.session } });
-  }
-  close(): void {
-    this.permissions.clear();
-    this.rpc.close();
   }
 }

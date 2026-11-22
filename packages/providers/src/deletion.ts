@@ -312,7 +312,7 @@ export function sessionTerminators(binary: string): Record<Provider, SessionTerm
       return undefined;
     },
   };
-  return { codex: terminal, claude: terminal, dsh: managed, ply: managed };
+  return { codex: terminal, claude: terminal, dsh: managed, ply: managed, antigravity: managed };
 }
 export async function sessionDelete(
   id: string,

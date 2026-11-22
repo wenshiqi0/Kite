@@ -389,8 +389,8 @@ async fn dispatch<T: Send + 'static>(
 impl AppCore {
     async fn fetch_agents(&self, c: &Connected) -> Result<Vec<Agent>, AppError> {
         let mut agents = c.api.agents().await?;
-        // DSH is managed through its SDK owner, not an unverified Herdr TUI.
-        agents.retain(|agent| !matches!(agent.agent.as_deref(), Some("dsh" | "ply")));
+        // Discover Kite-managed harnesses through their owner inventory.
+        agents.retain(|agent| !agent.agent.as_deref().is_some_and(providers::harness_owner));
         let scan = providers::scan(&c.ssh).await?;
         agents.extend(scan.agents);
         if self.generation.load(Ordering::SeqCst) == c.generation
@@ -1151,7 +1151,7 @@ impl AppCore {
             .await
             .get(&AgentKey::new(&c.host.id, &agent))
             .cloned();
-        let text = if matches!(agent.agent.as_deref(), Some("dsh" | "ply")) {
+        let text = if agent.agent.as_deref().is_some_and(providers::harness_owner) {
             String::new()
         } else {
             let Ok(text) = c.api.read_agent(&agent.pane_id).await else {
