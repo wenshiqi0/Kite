@@ -54,6 +54,8 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
       });
       break;
     case "session/list":
+      if (p.cwd === home() && process.env.KITE_FIXTURE_AGY_SLOW_LOGIN === "1")
+        await Bun.sleep(4200);
       if (process.env.KITE_FIXTURE_AGY_SIGNED_IN !== "1")
         send({
           jsonrpc: "2.0",

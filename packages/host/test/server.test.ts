@@ -969,7 +969,11 @@ test("Antigravity discovery uses native authentication and one owner restores th
       resolve("packages/host/test/fixtures/antigravity.ts"),
     ]),
   };
-  const signedIn = { ...configured, KITE_FIXTURE_AGY_SIGNED_IN: "1" };
+  const signedIn = {
+    ...configured,
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_FIXTURE_AGY_SLOW_LOGIN: "1",
+  };
   const scan = async (extra: NodeJS.ProcessEnv) => {
     const result = await command(home, ["harness-scan"], undefined, extra);
     expect(result.code, result.stderr.toString()).toBe(0);

@@ -14,6 +14,8 @@ import {
 import { optionalObject } from "@kite/runtime/socket";
 import { AcpAdapter } from "./acp";
 
+const SESSION_LIST_TIMEOUT_MS = 12_000;
+
 function selection(row: ObjectValue): SessionSetting {
   check(row.type === "select", "invalid Antigravity configuration");
   const choices = array(row.options).map(object);
@@ -122,21 +124,24 @@ export class Antigravity extends AcpAdapter {
     }
   }
 
-  private async list(cursor = ""): Promise<ObjectValue> {
+  private async list(cursor = "", timeout = SESSION_LIST_TIMEOUT_MS): Promise<ObjectValue> {
     const result = object(
       await this.rpc.call(
         "session/list",
         { cwd: this.options.cwd, ...(cursor ? { cursor } : {}) },
-        4000,
+        timeout,
       ),
     );
     array(result.sessions);
     return result;
   }
   private async listed(sessionId: string): Promise<boolean> {
+    const deadline = performance.now() + SESSION_LIST_TIMEOUT_MS;
     let cursor = "";
     for (let page = 0; page < 4; page++) {
-      const result = await this.list(cursor);
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) return false;
+      const result = await this.list(cursor, remaining);
       if (array(result.sessions).some((row) => object(row).sessionId === sessionId)) return true;
       const next = optionalString(result.nextCursor);
       if (!next || next === cursor) return false;
