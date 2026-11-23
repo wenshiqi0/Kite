@@ -155,6 +155,7 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
           sessionUpdate: "tool_call_update",
           toolCallId: call,
           status: "completed",
+          rawOutput: { exitCode: 0 },
           content: [{ type: "content", content: { type: "text", text: "owned result" } }],
         },
       },

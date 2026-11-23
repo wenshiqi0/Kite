@@ -227,6 +227,11 @@ enum Command {
         host_id: String,
         session_id: String,
     },
+    InspectSubagent {
+        host_id: String,
+        parent_id: String,
+        child_id: String,
+    },
     ResumeSession {
         host_id: String,
         session_id: String,
@@ -392,7 +397,14 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
         OpenSession {
             host_id,
             session_id,
-        } => core.open_session(host_id, session_id).await?,
+        } => core.open_workspace_session(host_id, session_id).await?,
+        InspectSubagent {
+            host_id,
+            parent_id,
+            child_id,
+        } => {
+            return value(core.inspect_subagent(host_id, parent_id, child_id).await?);
+        }
         ResumeSession {
             host_id,
             session_id,

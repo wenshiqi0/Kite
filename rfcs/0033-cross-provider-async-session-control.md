@@ -1,6 +1,6 @@
 # RFC 0033：跨供应商长会话异步控制面与协作治理
 
-> 编号：0033 · 状态：草案 · 创建：2026-11-23
+> 编号：0033 · 状态：部分实现，分级验收见第 8 节 · 创建：2026-11-23
 > 相关：[RFC 0017](0017-agent-notifications.md)、[RFC 0020](0020-session-owner-lifecycle.md)、[RFC 0026](0026-session-permissions.md)、[RFC 0027](0027-conversation-items-and-threads.md)、[RFC 0030](0030-network-acp-and-shared-workspaces.md)、[RFC 0032](0032-antigravity-acp.md)
 > 配套实施规范：[跨供应商长会话协作开发规范](../docs/development/cross-provider-collaboration.md)
 
@@ -162,3 +162,11 @@ export type RemoteSessionState =
 1. **`kite_remote_task` 的去留**：在阶段 P0 完成后，保留 `kite_remote_task` 作为内部调用 `spawn/send(waitMs)` 的便捷单次工具，还是在过渡期后移除？倾向于保留一个短平快同步封装，避免破坏既有自动化脚本。
 2. **`claude` 作为被调用端的接入路径**：Claude Code 后续是否通过 `claude -p --output-format stream-json` 或官方 ACP 桥接纳入 `CHAT_PROVIDERS`？需要单独评估其长会话恢复与审批协议后另立 RFC 或补充至 [harness 接入规范](../docs/development/harness-integration.md)。
 3. **跨机器 `parent` 反向索引的离线表现**：当子会话所在远端机器离线时，主会话所在客户端的“关联任务”区如何展示离线缓存状态（沿用现有多主机离线目录缓存，不把缺失实时事实显示为“运行中”）。
+
+## 8. 实施与验收记录
+
+- **静态与离线**。Bun 类型、lint、单向依赖与测试，Rust workspace 测试均通过。覆盖模型、思考强度、服务档位校验，UTF-8 和 JSON 转义下的读回上限，血缘 CAS 和旧记录兼容，Rust 关联任务合并、离线状态与通知去重。Windows C ABI 特性测试通过，Kotlin 与 Swift 绑定使用同版编译库生成并核对字段。
+- **协议夹具**。在独立临时目录和 loopback 端口运行打包的 `kite acp serve`。真实 WebSocket 与本机 Unix Socket 连接到确定性的 Ply 协议夹具，验证断开后观察待审批状态、原生协议响应后读回同一轮回复和工具退出码、仅执行一次、父会话配额、同 cwd 冲突、原始未知 provider 行的无损写回。移除夹具中的近期投影后从原始轮次历史读回。另有真实 stdio MCP 与双 peer WebSocket 验证聚合等待、取消和状态请求分桶，以及关闭等待连接。
+- **隔离策略**。本地 Git linked worktree 夹具覆盖两个不同 provider 并发、同目录冲突、越界附件拒绝、不支持自动档位时拒绝，以及复用 fixture 已启用的 Ply 自动档位。空闲及强制取消后释放由协议夹具和现有生命周期回归覆盖。
+- **独立网关**。安装器检测活跃的 `kite-acp.service` 并报告该单元独立管理。兼容型 Node 热交接由 `kite-node upgrade` 管理自己的监听器和代次，另一个单元中已加载的适配器由该服务的部署流程刷新。
+- **待验收**。真实跨机与真实模型联调、真实系统通知至手机或桌面、原生设备交互、超过旧十分钟窗口的持续任务和正式发布包属于后续证据。

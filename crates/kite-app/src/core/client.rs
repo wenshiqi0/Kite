@@ -107,6 +107,7 @@ impl ClientCore {
                 .iter()
                 .map(|(id, s)| HostConnection {
                     host_id: id.clone(),
+                    machine: s.machine.clone(),
                     connection: s.connection,
                     connection_step: s.connection_step,
                     failure: s.failure.clone(),
@@ -121,6 +122,14 @@ impl ClientCore {
         };
         if let Some(store) = lock(&self.base.store).as_ref() {
             snapshot.hosts = store.data().hosts.clone();
+        }
+        super::subagent_history::associate(&mut snapshot.host_connections, &snapshot.hosts);
+        if let Some(workspace) = snapshot
+            .host_connections
+            .iter()
+            .find(|h| Some(&h.host_id) == snapshot.selected_host.as_ref())
+        {
+            snapshot.sessions.clone_from(&workspace.sessions);
         }
         snapshot
     }
@@ -420,21 +429,10 @@ impl ClientCore {
         self.runtime(&host)?.open_session(id).await
     }
     pub async fn open_workspace_session(&self, host: String, id: String) -> Result<(), AppError> {
-        let runtime = {
-            let _guard = self.operations.lock().await;
-            let runtime = self.runtime(&host)?;
-            if !runtime
-                .snapshot()
-                .sessions
-                .iter()
-                .any(|session| session.id == id)
-            {
-                return Err(AppError::State("session unavailable".into()));
-            }
-            self.select_inner(&host).await?;
-            runtime
-        };
-        runtime.open_session(id).await
+        let _guard = self.operations.lock().await;
+        let runtime = self.runtime(&host)?;
+        runtime.open_session(id).await?;
+        self.select_inner(&host).await
     }
     pub async fn resume_session(&self, host: String, id: String) -> Result<(), AppError> {
         self.runtime(&host)?.resume_session(id).await
@@ -679,6 +677,25 @@ impl ClientCore {
         parent: String,
         child: String,
     ) -> Result<SubagentInspection, AppError> {
+        let snapshot = self.snapshot();
+        let target = snapshot
+            .host_connections
+            .iter()
+            .find(|workspace| workspace.host_id == host)
+            .and_then(|workspace| workspace.sessions.iter().find(|record| record.id == parent))
+            .and_then(|record| {
+                record
+                    .associated_tasks
+                    .iter()
+                    .find(|task| task.activity.id == child)
+            })
+            .and_then(|task| task.session.as_ref());
+        if let Some(target) = target {
+            return self
+                .runtime(&target.host_id)?
+                .inspect_associated_session(target.host_id.clone(), target.session_id.clone())
+                .await;
+        }
         self.runtime(&host)?
             .inspect_subagent(host, parent, child)
             .await

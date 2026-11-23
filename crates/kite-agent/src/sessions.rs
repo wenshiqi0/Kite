@@ -8,6 +8,39 @@ use kite_ssh::Session;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionParent {
+    pub machine: String,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelegationPolicy {
+    Strict,
+    HumanInTheLoop,
+    IsolatedAuto,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDelegation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<SessionParent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    pub policy: DelegationPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_isolated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_lock: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
     pub id: String,
     pub provider: String,
@@ -25,6 +58,8 @@ pub struct Record {
     pub agent_name: String,
     #[serde(default)]
     pub subagents: Vec<crate::subagents::Subagent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<SessionDelegation>,
 }
 impl Record {
     pub fn matches(&self, agent: &Agent) -> bool {
@@ -59,6 +94,7 @@ impl Record {
             workspace_id: String::new(),
             agent_name: String::new(),
             subagents: Vec::new(),
+            delegation: None,
         }
     }
 }
@@ -269,6 +305,23 @@ impl<'a> Repository<'a> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn delegation_round_trips_and_older_records_remain_top_level() {
+        use super::*;
+        let draft = Record::draft("child".into(), "ply".into(), String::new(), None, 0);
+        let mut wire = serde_json::to_value(draft).unwrap();
+        assert!(wire.get("delegation").is_none());
+        let old: Record = serde_json::from_value(wire.clone()).unwrap();
+        assert!(old.delegation.is_none());
+        let delegation = serde_json::json!({
+            "parent": {"machine": "remote", "sessionId": "opaque-parent", "provider": "claude"},
+            "policy": "human_in_the_loop", "label": "Build", "writeLock": true,
+            "worktreeIsolated": false
+        });
+        wire["delegation"] = delegation.clone();
+        let row: Record = serde_json::from_value(wire).unwrap();
+        assert_eq!(serde_json::to_value(row).unwrap()["delegation"], delegation);
+    }
     use super::*;
     #[test]
     fn provider_is_part_of_session_identity_and_drafts_are_not_provider_history() {

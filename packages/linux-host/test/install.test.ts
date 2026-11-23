@@ -83,7 +83,11 @@ test("an interrupted installation retries against the running binary and keeps u
   expect(readFileSync(f.link, "utf8")).toBe("new binary");
   interrupt = false;
   calls.length = 0;
-  await install(options, dependencies);
+  const result = await install(options, dependencies);
+  expect(result.acpGateway).toEqual({ active: true, refresh: "operator-managed" });
+  expect(calls.filter((argv) => argv.includes("kite-acp.service"))).toEqual([
+    ["systemctl", "--user", "show", "kite-acp.service", "--property=ActiveState", "--value"],
+  ]);
   expect(calls).toContainEqual([
     f.link,
     "--socket",

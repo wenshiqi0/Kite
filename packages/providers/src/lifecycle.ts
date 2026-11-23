@@ -29,7 +29,15 @@ import {
   startTicks,
   stopped,
 } from "@kite/runtime";
-import { catalogRead, catalogRoot, catalogUnlocked, sessionLock } from "./catalog";
+import { ownerPresent } from "./acp-owner";
+import { delegatedInteraction } from "./acp-state";
+import {
+  catalogRead,
+  catalogRoot,
+  catalogUnlocked,
+  saveCatalogUnlocked,
+  sessionLock,
+} from "./catalog";
 import { api, backendRpc, ownerLock, readRegistry, registryPath, sameReference } from "./codex";
 import { codexHistoryFiles, codexThread, setCodexArchived } from "./codex-storage";
 import { harnessAgents, harnessDirectory, harnessInfo } from "./harness";
@@ -414,10 +422,59 @@ export async function lifecycleReap(
     });
   });
 }
+/** Explicit release uses the same provider lifecycle proof and lock order as reclamation. */
+export async function releaseRemoteSession(id: string, binary: string): Promise<void> {
+  await locked(sessionLock(id), async () => {
+    const record = (await catalogRead()).sessions.find((row) => row.id === id);
+    check(record, "remote session unavailable");
+    const adapter = lifecycleAdapters(binary)[record.provider];
+    check(adapter, "unsupported lifecycle provider");
+    const archive = (fresh?: LifecycleFact) =>
+      locked(join(catalogRoot(), "sessions.lock"), async () => {
+        const catalog = catalogUnlocked();
+        const current = catalog.sessions.find((row) => row.id === id);
+        check(
+          current &&
+            ["reference", "provider", "pane_id", "cwd"].every((key) =>
+              same(current[key], record[key]),
+            ),
+          "session identity changed before release",
+        );
+        if (fresh) {
+          check(
+            !catalog.sessions.some(
+              (row) =>
+                row.id !== id && !row.archived && adapter.sharesOwner(record, fresh.owner, row),
+            ),
+            "owner is shared with another session",
+          );
+          const released = object(await adapter.release(record, fresh));
+          check(released.reclaimed === true, "owner could not be released safely");
+        }
+        if (!current.archived) {
+          current.archived = true;
+          current.updated_ms = Date.now();
+          saveCatalogUnlocked(catalog);
+        }
+      });
+    if (!(await ownerPresent(record))) return archive();
+    await locked(adapter.ownerLock(record), async () => {
+      const fresh = await adapter.snapshot(record);
+      check(
+        fresh.idle && fresh.persisted,
+        "owner still active or conversation has not been persisted",
+      );
+      await archive(fresh);
+    });
+  });
+}
 export async function notificationFacts(binary: string, includeArchived = false): Promise<Json> {
   const records = (await catalogRead()).sessions,
     agents = [
-      ...array((await api(binary, "agent.list", {})).agents).map(object),
+      ...(await api(binary, "agent.list", {}).then(
+        (result) => array(result.agents).map(object),
+        () => [],
+      )),
       ...(await harnessAgents(records)),
     ],
     facts: ObjectValue[] = [];
@@ -429,6 +486,7 @@ export async function notificationFacts(binary: string, includeArchived = false)
     );
     if (!agent || agent.launch_pending) continue;
     const reference = record.reference;
+    const pending = delegatedInteraction(record);
     let controls = "",
       known = true;
     if (reference?.source === "kite:harness" && isManagedProvider(reference.agent)) {
@@ -471,12 +529,18 @@ export async function notificationFacts(binary: string, includeArchived = false)
       session_id: record.id,
       title: [...record.title].slice(0, 160).join(""),
       source: `${agent.terminal_id}:${sha256(JSON.stringify(reference ?? {}))}`,
-      status: agent.agent_status,
+      status:
+        pending?.kind === "approval"
+          ? "blocked"
+          : pending?.kind === "question"
+            ? "question"
+            : agent.agent_status,
       revision: agent.state_change_seq ?? 0,
       thread: reference?.value ?? "",
       controls,
       controls_known: known,
       lifecycle: isChatProvider(reference?.agent),
+      ...(pending ? { interaction: json(pending) } : {}),
     });
   }
   const result = { facts };

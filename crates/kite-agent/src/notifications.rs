@@ -12,6 +12,41 @@ pub enum Kind {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InteractionKind {
+    Approval,
+    Question,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Interaction {
+    pub kind: InteractionKind,
+    pub id: String,
+    #[serde(default, rename = "turnId", skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub command: Option<String>,
+    pub cwd: Option<String>,
+    pub question: Option<String>,
+}
+
+impl Interaction {
+    pub fn valid(&self) -> bool {
+        !self.id.is_empty()
+            && self.id.len() <= 128
+            && self.turn_id.as_ref().is_none_or(|id| id.len() <= 128)
+            && self
+                .command
+                .as_ref()
+                .is_none_or(|value| value.len() <= 16 * 1024)
+            && self.cwd.as_ref().is_none_or(|value| value.len() <= 4096)
+            && self
+                .question
+                .as_ref()
+                .is_none_or(|value| value.len() <= 4096)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub id: String,
@@ -21,6 +56,8 @@ pub struct Event {
     pub title: String,
     pub kind: Kind,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interaction: Option<Interaction>,
 }
 impl Event {
     pub fn valid(&self) -> bool {
@@ -32,6 +69,7 @@ impl Event {
             && self.title.len() <= 2048
             && self.source.len() <= 256
             && self.created_ms >= 0
+            && self.interaction.as_ref().is_none_or(Interaction::valid)
     }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -45,6 +83,7 @@ pub struct Fact {
     pub questions_known: bool,
     pub lifecycle: bool,
     pub terminal: Option<Terminal>,
+    pub interaction: Option<Interaction>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Terminal {
@@ -87,6 +126,8 @@ struct Seen {
     working: bool,
     questions: Vec<String>,
     terminal: Option<String>,
+    #[serde(default)]
+    interaction: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ledger {
@@ -154,7 +195,14 @@ impl Ledger {
                     && seen.questions.iter().all(|q| q.len() <= 256)
             })
     }
-    fn emit(&mut self, fact: &Fact, kind: Kind, source: &str, now: i64) {
+    fn emit(
+        &mut self,
+        fact: &Fact,
+        kind: Kind,
+        source: &str,
+        now: i64,
+        interaction: Option<&Interaction>,
+    ) {
         let id = fingerprint(&format!(
             "{}/{}/{}/{:?}/{source}",
             self.node_id, fact.session_id, fact.source, kind
@@ -171,8 +219,22 @@ impl Ledger {
             title: fact.title.chars().take(160).collect(),
             kind,
             source: source.into(),
+            interaction: interaction.cloned(),
         });
-        while self.events.len() > 512 {
+        // Preserve the journal's size budget even when many approvals include commands.
+        while self.events.len() > 512
+            || self
+                .events
+                .iter()
+                .filter_map(|event| event.interaction.as_ref())
+                .map(|interaction| {
+                    interaction.command.as_ref().map_or(0, String::len)
+                        + interaction.question.as_ref().map_or(0, String::len)
+                        + interaction.cwd.as_ref().map_or(0, String::len)
+                })
+                .sum::<usize>()
+                > 256 * 1024
+        {
             self.events.pop_front();
         }
     }
@@ -199,17 +261,37 @@ impl Ledger {
             if let (Some(old), Some(terminal)) = (&old, &fact.terminal)
                 && old.terminal.as_deref() != Some(&terminal.id)
             {
-                self.emit(fact, terminal.kind, &terminal.id, now);
+                self.emit(fact, terminal.kind, &terminal.id, now, None);
+            }
+            let interaction = fact.interaction.as_ref().filter(|value| value.valid());
+            let interaction_id = interaction.map(|value| {
+                fingerprint(&format!(
+                    "{:?}/{}/{}",
+                    value.kind,
+                    value.turn_id.as_deref().unwrap_or_default(),
+                    value.id
+                ))
+            });
+            if let (Some(interaction), Some(id)) = (interaction, &interaction_id)
+                && old.as_ref().and_then(|old| old.interaction.as_ref()) != Some(id)
+            {
+                let kind = match interaction.kind {
+                    InteractionKind::Approval => Kind::Attention,
+                    InteractionKind::Question => Kind::Question,
+                };
+                self.emit(fact, kind, id, now, Some(interaction));
             }
             if state_changed {
                 let transition = format!("{}:{}", fact.revision, self.sequence.saturating_add(1));
                 match fact.status.as_str() {
-                    "blocked" => self.emit(fact, Kind::Attention, &transition, now),
-                    "failed" | "error" => self.emit(fact, Kind::Failed, &transition, now),
+                    "blocked" if interaction.is_none() => {
+                        self.emit(fact, Kind::Attention, &transition, now, None)
+                    }
+                    "failed" | "error" => self.emit(fact, Kind::Failed, &transition, now, None),
                     "idle" | "done"
                         if !fact.lifecycle && old.as_ref().is_some_and(|old| old.working) =>
                     {
-                        self.emit(fact, Kind::Completed, &transition, now)
+                        self.emit(fact, Kind::Completed, &transition, now, None)
                     }
                     _ => {}
                 }
@@ -223,11 +305,12 @@ impl Ledger {
             };
             for question in &questions {
                 if question.len() <= 256
+                    && !interaction.is_some_and(|pending| pending.kind == InteractionKind::Question)
                     && old
                         .as_ref()
                         .is_none_or(|old| !old.questions.contains(question))
                 {
-                    self.emit(fact, Kind::Question, question, now)
+                    self.emit(fact, Kind::Question, question, now, None)
                 }
             }
             self.seen.insert(
@@ -242,6 +325,7 @@ impl Ledger {
                         .as_ref()
                         .map(|t| t.id.clone())
                         .or_else(|| old.as_ref().and_then(|old| old.terminal.clone())),
+                    interaction: interaction_id,
                 },
             );
         }
@@ -312,7 +396,42 @@ mod tests {
             questions_known: true,
             lifecycle: false,
             terminal: None,
+            interaction: None,
         }
+    }
+    #[test]
+    fn delegated_requests_keep_the_original_details_and_dedupe_across_restart() {
+        let mut journal = Ledger::new("node".into());
+        let mut input = fact("blocked", 1);
+        let approval = Interaction {
+            kind: InteractionKind::Approval,
+            id: "native-approval".into(),
+            turn_id: Some("turn".into()),
+            command: Some("bun run check".into()),
+            cwd: Some("/owned/worktree".into()),
+            question: None,
+        };
+        input.interaction = Some(approval.clone());
+        assert!(journal.observe(&[input.clone()], 1));
+        let mut journal: Ledger =
+            serde_json::from_slice(&serde_json::to_vec(&journal).unwrap()).unwrap();
+        assert!(!journal.observe(&[input.clone()], 2));
+        let question = Interaction {
+            kind: InteractionKind::Question,
+            id: "native-question".into(),
+            question: Some("Which workspace?".into()),
+            command: None,
+            ..approval.clone()
+        };
+        input.interaction = Some(question.clone());
+        input.status = "question".into();
+        assert!(journal.observe(&[input], 3));
+        let page = journal.page(Some("node:0"));
+        assert_eq!(page.events.len(), 2);
+        assert_eq!(page.events[0].kind, Kind::Attention);
+        assert_eq!(page.events[0].interaction.as_ref(), Some(&approval));
+        assert_eq!(page.events[1].kind, Kind::Question);
+        assert_eq!(page.events[1].interaction.as_ref(), Some(&question));
     }
     #[test]
     fn terminal_errors_emit_failed_notifications_once_across_reconnects() {

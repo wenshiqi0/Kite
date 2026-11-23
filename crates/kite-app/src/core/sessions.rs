@@ -21,6 +21,8 @@ pub(super) struct SessionBook {
     selected: BTreeMap<String, Option<String>>,
     revisions: BTreeMap<String, u64>,
     #[serde(default)]
+    machines: BTreeMap<String, String>,
+    #[serde(default)]
     sorts: BTreeMap<String, SessionSort>,
     #[serde(default, skip_serializing)]
     pub(super) histories: BTreeMap<String, CachedConversation>,
@@ -82,6 +84,9 @@ pub(super) fn views(
                             .collect()
                     }),
                 subagents_error: live.is_some_and(|a| a.subagents_error),
+                associated_tasks: Vec::new(),
+                delegation: r.delegation.clone(),
+                delegated_child: false,
             }
         })
         .collect();
@@ -231,6 +236,7 @@ impl AppCore {
             thread: String,
             controls: String,
             controls_known: bool,
+            interaction: Option<kite_agent::notifications::Interaction>,
         }
         // One batch covers questions in every session, including archived running
         // sessions and sessions which this phone has never opened.
@@ -274,7 +280,14 @@ impl AppCore {
                 || controls.as_ref().is_some_and(|h| !h.pending.is_empty());
             let paused = lock(&self.paused_processes)
                 .contains_key(&pane_key(&c.host.id, &agent.terminal_id));
-            let status = activity_status(agent, paused, question, runtime.as_ref());
+            let status = match fact
+                .and_then(|fact| fact.interaction.as_ref())
+                .map(|interaction| interaction.kind)
+            {
+                Some(kite_agent::notifications::InteractionKind::Approval) => "blocked",
+                Some(kite_agent::notifications::InteractionKind::Question) => "question",
+                None => activity_status(agent, paused, question, runtime.as_ref()),
+            };
             states.insert(session.id.clone(), status.to_owned());
             if let Some(runtime) = runtime.filter(|_| !session.archived) {
                 routed.push((ConversationKey::new(&c.host.id, &session.id), runtime));
@@ -405,6 +418,16 @@ impl AppCore {
         }
         Ok(())
     }
+    pub(super) fn remember_machine(&self, host: &str, machine: Option<&str>) {
+        if let Some(machine) = machine {
+            lock(&self.session_book)
+                .machines
+                .insert(host.into(), machine.into());
+            if let Err(error) = self.persist_session_book() {
+                log::debug!("machine identity cache unavailable: {error}");
+            }
+        }
+    }
     pub(super) fn restore_session_cache(&self) {
         let Some(host) = self.snapshot().selected_host else {
             return;
@@ -419,6 +442,7 @@ impl AppCore {
             .filter(|id| records.iter().any(|r| &r.id == id));
         let selected = selected.map(|id| ConversationKey::new(&host, id));
         self.select(selected, |s| {
+            s.machine = book.machines.get(&host).cloned();
             s.session_sort = book.sorts.get(&host).copied().unwrap_or(s.session_sort);
             s.sessions = views(&records, &s.agents, s.session_sort);
         });

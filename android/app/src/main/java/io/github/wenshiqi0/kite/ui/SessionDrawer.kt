@@ -47,7 +47,8 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
     val allSessions = state?.hostConnections.orEmpty().flatMap { it.sessions }
     val groups = state?.hosts.orEmpty().mapNotNull { host ->
         val sessions = workspaces[host.id]?.sessions.orEmpty().filter {
-            it.archived == archived && (query.isBlank() || host.host.contains(query, true) || it.title.contains(query, true) || it.preview.contains(query, true) || it.provider.contains(query, true) || it.subagents.any { child -> child.name.contains(query, true) || child.task.contains(query, true) })
+            (query.isNotBlank() || !it.delegatedChild || archived ||
+                (state?.selectedHost == host.id && state.selectedSession == it.id)) && it.archived == archived && (query.isBlank() || host.host.contains(query, true) || it.title.contains(query, true) || it.preview.contains(query, true) || it.provider.contains(query, true) || it.subagents.any { child -> child.name.contains(query, true) || child.task.contains(query, true) })
         }
         if (query.isNotBlank() && sessions.isEmpty()) null else host to sessions
     }

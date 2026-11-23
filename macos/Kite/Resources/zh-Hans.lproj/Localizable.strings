@@ -146,6 +146,8 @@
 "no_sessions" = "尚无会话";
 "session_machine" = "目标机器";
 "active_sessions" = "活动";
+"associated_task_close" = "关闭";
+"associated_take_over" = "打开并接管";
 "subagents_count" = "子 agent · %d";
 "subagents_unavailable" = "暂时无法更新子 agent 状态";
 "subagent_running" = "运行中";

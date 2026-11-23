@@ -26,6 +26,7 @@ internal sealed class MainWindow : Window
     private readonly ObservableCollection<ChatRow> messages = [];
     private readonly ListBox hosts = new(), sessions = new(), chat = new();
     private readonly TextBlock title = Ui.Label("欢迎使用 Kite", 22), status = Ui.Label("添加主机，开始远程工作。", 12, Ui.Muted), history = Ui.Label("", 12, Ui.Muted);
+    private readonly TextBox sessionSearch = new() { ToolTip = "跨主机搜索会话", Margin = new Thickness(0, 4, 0, 4) };
     private readonly TextBox draft = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ComboBox models = new() { MinWidth = 150, MaxWidth = 250, DisplayMemberPath = "Label", SelectedValuePath = "Id" }, efforts = new() { MinWidth = 85, Margin = new Thickness(6, 0, 6, 0) };
     private readonly StackPanel interactions = new(), uploadPanel = new();
@@ -46,6 +47,7 @@ internal sealed class MainWindow : Window
     private readonly bool restoreConnections;
     internal bool IsCoreInitialized => state.Flag("initialized");
     private sealed record Selection(string Id, string Label);
+    private sealed record SessionTarget(string Host, string Id);
 
     public MainWindow(string? dataDirectory = null, bool restoreConnections = true)
     {
@@ -76,11 +78,13 @@ internal sealed class MainWindow : Window
         brand.Children.Add(Ui.Label("会话", 12, Ui.Muted));
         brand.Children.Add(Ui.Row(Ui.Button("＋ 新建", CreateSession), Ui.Button("管理", SessionMenu)));
         brand.Children.Add(archived); brand.Children.Add(sort);
+        brand.Children.Add(Ui.Label("跨主机搜索会话", 11, Ui.Muted)); brand.Children.Add(sessionSearch);
+        sessionSearch.TextChanged += (_, _) => { sessionSignature = ""; RenderSessions(); };
         DockPanel.SetDock(brand, Dock.Top); sidebar.Children.Add(brand);
         var footer = Ui.Label("Windows 客户端 · Alpha", 11, Ui.Muted); footer.Margin = new Thickness(18, 12, 0, 12); DockPanel.SetDock(footer, Dock.Bottom); sidebar.Children.Add(footer);
         sessions.Margin = new Thickness(10, 0, 8, 0); sidebar.Children.Add(sessions); root.Children.Add(sidebar);
         hosts.SelectionChanged += async (_, _) => { if (!rendering && hosts.SelectedItem is ListBoxItem item && item.Tag is Host host) { LoseInput(); await Safe(new { op = "select_host", host_id = host.id }); } };
-        sessions.SelectionChanged += async (_, _) => { if (!rendering && sessions.SelectedItem is ListBoxItem item && item.Tag is JsonElement session) await Safe(new { op = "open_session", host_id = HostId, session_id = session.Text("id") }); };
+        sessions.SelectionChanged += async (_, _) => { if (!rendering && sessions.SelectedItem is ListBoxItem item && item.Tag is SessionTarget target) await Safe(new { op = "open_session", host_id = target.Host, session_id = target.Id }); };
         archived.Checked += (_, _) => { sessionSignature = ""; RenderSessions(); }; archived.Unchecked += (_, _) => { sessionSignature = ""; RenderSessions(); };
         sort.SelectionChanged += async (_, _) => { if (!rendering && HostId.Length > 0) await Safe(new { op = "set_session_sort", host_id = HostId, order = new[] { "Newest", "Oldest", "RecentActivity", "Title" }[sort.SelectedIndex] }); };
 
@@ -198,22 +202,87 @@ internal sealed class MainWindow : Window
     private void RenderSessions()
     {
         if (state.ValueKind != JsonValueKind.Object) return;
-        string signature = state.Field("sessions").GetRawText() + state.Text("selected_session") + archived.IsChecked;
+        string query = sessionSearch.Text.Trim();
+        var inventory = query.Length == 0 ? state.Field("sessions") : state.Field("host_connections");
+        if (inventory.ValueKind == JsonValueKind.Undefined) return;
+        string signature = inventory.GetRawText() + HostId + state.Text("selected_session") + archived.IsChecked;
         if (signature == sessionSignature) return; sessionSignature = signature;
         bool before = rendering; rendering = true;
         sessions.Items.Clear();
-        foreach (var session in state.Array("sessions").Where(s => archived.IsChecked == true || !s.Flag("archived")))
+        var rows = query.Length == 0
+            ? state.Array("sessions").Select(session => (Host: HostId, Session: session))
+            : state.Array("host_connections").SelectMany(workspace => workspace.Array("sessions")
+                .Select(session => (Host: workspace.Text("host_id"), Session: session)))
+                .Where(row => new[] { row.Session.Text("title"), row.Session.Text("preview"), row.Session.Text("provider"),
+                    state.Array("hosts").FirstOrDefault(h => h.Text("id") == row.Host).Text("host") }
+                    .Any(value => value.Contains(query, StringComparison.CurrentCultureIgnoreCase)));
+        foreach (var (host, session) in rows.Where(row => archived.IsChecked == true || !row.Session.Flag("archived")))
         {
-            string provider = ProviderLabel(session.Text("provider"));
-            var item = new ListBoxItem { Content = new TextBlock { Text = (session.Flag("archived") ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : provider) + "\n" + provider + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 7, 2, 7) }, Tag = session };
-            string host = HostId, id = session.Text("id"); bool isArchived = session.Flag("archived");
+            string provider = ProviderLabel(session.Text("provider")), id = session.Text("id");
+            bool isArchived = session.Flag("archived");
+            var body = new StackPanel { Margin = new Thickness(2, 7, 2, 7) };
+            body.Children.Add(new TextBlock { Text = (isArchived ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : provider) + "\n" + provider + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis });
+            var related = session.Array("subagents").ToArray();
+            if (related.Length > 0)
+            {
+                var group = new Expander { Header = $"关联任务 · {related.Length}", Foreground = Ui.Muted };
+                var children = new StackPanel();
+                foreach (var child in related)
+                {
+                    string caption = string.Join(" · ", new[] { child.Text("name"), child.Text("machine"),
+                        child.Text("provider") is { Length: > 0 } childProvider ? ProviderLabel(childProvider) : "",
+                        AssociatedStatus(child.Text("status")) }.Where(field => field.Length > 0));
+                    children.Children.Add(Ui.Button(caption, () => InspectAssociatedTask(host, id, child)));
+                }
+                group.Content = children; body.Children.Add(group);
+            }
+            var item = new ListBoxItem { Content = body, Tag = new SessionTarget(host, id),
+                Opacity = session.Flag("delegated_child") && query.Length == 0 ? 0.7 : 1.0 };
             item.ContextMenu = new ContextMenu();
             var archive = new MenuItem { Header = isArchived ? "取消归档" : "归档" }; archive.Click += async (_, _) => await Safe(new { op = "archive_session", host_id = host, session_id = id, archived = !isArchived }); item.ContextMenu.Items.Add(archive);
             var resume = new MenuItem { Header = "继续此会话" }; resume.Click += async (_, _) => await Safe(new { op = "resume_session", host_id = host, session_id = id }); item.ContextMenu.Items.Add(resume);
             var delete = new MenuItem { Header = "删除会话…" }; delete.Click += async (_, _) => { if (MessageBox.Show(this, "删除会话将终止此会话正在执行的任务。继续？", "删除会话", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Safe(new { op = "delete_session", host_id = host, session_id = id }); }; item.ContextMenu.Items.Add(delete);
-            sessions.Items.Add(item); if (session.Text("id") == state.Text("selected_session")) sessions.SelectedItem = item;
+            sessions.Items.Add(item); if (host == HostId && id == state.Text("selected_session")) sessions.SelectedItem = item;
         }
         sort.SelectedIndex = state.Text("session_sort") switch { "Oldest" => 1, "RecentActivity" => 2, "Title" => 3, _ => 0 }; rendering = before;
+    }
+    private static string AssociatedStatus(string status) => status switch
+    {
+        "working" => "运行中", "blocked" => "待审批", "question" => "待回答",
+        "done" => "已完成", "failed" => "失败", "offline" => "离线",
+        "released" => "已释放", "idle" => "空闲", _ => "状态未知",
+    };
+    private async Task InspectAssociatedTask(string host, string parent, JsonElement task)
+    {
+        var detail = new Window { Owner = this, Title = task.Text("name"), Width = 640, Height = 480,
+            Background = Ui.Background, Foreground = Ui.Foreground, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var body = new DockPanel { Margin = new Thickness(12) };
+        var header = new StackPanel();
+        header.Children.Add(Ui.Label(AssociatedStatus(task.Text("status")), 12, Ui.Muted));
+        string target = task.Text("host_id"), session = task.Text("session_id");
+        if (target.Length > 0 && session.Length > 0)
+        {
+            var open = Ui.Button("打开并接管", async () =>
+            {
+                await Safe(new { op = "open_session", host_id = target, session_id = session });
+                detail.Close();
+            });
+            open.IsEnabled = task.Flag("connected"); header.Children.Add(open);
+        }
+        DockPanel.SetDock(header, Dock.Top); body.Children.Add(header);
+        var preview = new ListBox { ItemTemplate = chat.ItemTemplate, ItemContainerStyle = chat.ItemContainerStyle };
+        body.Children.Add(preview); detail.Content = body;
+        detail.Loaded += async (_, _) =>
+        {
+            try
+            {
+                var page = await Core.Call(new { op = "inspect_subagent", host_id = host, parent_id = parent, child_id = task.Text("id") });
+                preview.ItemsSource = page.Array("items").Select(item => new ChatRow(item, null, "")).ToArray();
+                if (page.Flag("has_older")) header.Children.Add(Ui.Label("最近对话", 12, Ui.Muted));
+            }
+            catch { header.Children.Add(Ui.Label("暂时无法读取关联任务", 12, Ui.Muted)); }
+        };
+        detail.ShowDialog();
     }
     private void RenderComposer()
     {

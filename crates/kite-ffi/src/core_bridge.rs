@@ -1119,6 +1119,8 @@ pub struct SessionInfo {
     pub recorded: bool,
     pub subagents: Vec<SubagentInfo>,
     pub subagents_error: bool,
+    #[uniffi(default = false)]
+    pub delegated_child: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 #[cfg_attr(
@@ -1132,14 +1134,26 @@ pub struct SubagentInfo {
     pub task: String,
     pub status: String,
     pub updated_ms: i64,
+    #[uniffi(default = None)]
+    pub host_id: Option<String>,
+    #[uniffi(default = None)]
+    pub session_id: Option<String>,
+    #[uniffi(default = None)]
+    pub machine: Option<String>,
+    #[uniffi(default = None)]
+    pub provider: Option<String>,
+    #[uniffi(default = None)]
+    pub connected: Option<bool>,
 }
 #[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(feature = "windows-client", derive(serde::Serialize))]
 pub struct SubagentInspectionInfo {
     pub items: Vec<ItemInfo>,
     pub has_older: bool,
 }
-impl From<kite_app::Subagent> for SubagentInfo {
-    fn from(value: kite_app::Subagent) -> Self {
+impl From<kite_app::AssociatedTask> for SubagentInfo {
+    fn from(task: kite_app::AssociatedTask) -> Self {
+        let value = task.activity;
         Self {
             id: value.id,
             parent_id: value.parent_id,
@@ -1147,6 +1161,14 @@ impl From<kite_app::Subagent> for SubagentInfo {
             task: value.task,
             status: value.status,
             updated_ms: value.updated_ms,
+            host_id: task.session.as_ref().map(|target| target.host_id.clone()),
+            session_id: task
+                .session
+                .as_ref()
+                .map(|target| target.session_id.clone()),
+            machine: task.session.as_ref().map(|target| target.machine.clone()),
+            provider: task.session.as_ref().map(|target| target.provider.clone()),
+            connected: task.session.as_ref().map(|target| target.connected),
         }
     }
 }
@@ -1163,8 +1185,9 @@ impl From<kite_app::ConversationSession> for SessionInfo {
             agent_id: s.agent_id,
             status: s.status,
             recorded: s.recorded,
-            subagents: s.subagents.into_iter().map(Into::into).collect(),
+            subagents: s.associated_tasks.into_iter().map(Into::into).collect(),
             subagents_error: s.subagents_error,
+            delegated_child: s.delegated_child,
         }
     }
 }
@@ -1206,9 +1229,19 @@ pub struct AgentNoticeInfo {
     pub created_ms: i64,
     pub read: bool,
     pub alerted: bool,
+    #[uniffi(default = None)]
+    pub command: Option<String>,
+    #[uniffi(default = None)]
+    pub cwd: Option<String>,
+    #[uniffi(default = None)]
+    pub question: Option<String>,
 }
 impl From<kite_app::AgentNotice> for AgentNoticeInfo {
     fn from(value: kite_app::AgentNotice) -> Self {
+        let (command, cwd, question) = value
+            .interaction
+            .map(|detail| (detail.command, detail.cwd, detail.question))
+            .unwrap_or_default();
         Self {
             id: value.id,
             host_id: value.host_id,
@@ -1217,6 +1250,9 @@ impl From<kite_app::AgentNotice> for AgentNoticeInfo {
             created_ms: value.created_ms,
             read: value.read,
             alerted: value.alerted,
+            command,
+            cwd,
+            question,
             kind: match value.kind {
                 kite_app::AgentNoticeKind::Completed => AgentNoticeKind::Completed,
                 kite_app::AgentNoticeKind::Attention => AgentNoticeKind::Attention,

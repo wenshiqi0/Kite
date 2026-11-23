@@ -31,4 +31,28 @@ kite acp task --peer mini --cwd /absolute/workspace/project \
 
 The prompt comes from stdin; stdout is one result containing the remote session ID, stop reason and reply. Progress and permission events use stderr. The optional exact command authorization applies only in the named directory; other permissions are rejected. `end_turn` means the agent finished, so inspect actual tool results before calling a build successful. A requested revision must match a clean tracked checkout.
 
-Use `--session ID` to continue the same remote context. Transport failure does not replay input or cancel the owner. Explicit cancellation is forwarded to the active prompt. For another ACP client use `kite acp proxy --peer mini`; for MCP use `kite acp mcp`, which provides `kite_remote_task`. Every task names its peer, directory and optional session; no automatic load balancing is enabled.
+Use `--session ID` to continue the same remote context. Transport failure does not replay input or cancel the owner. Explicit cancellation is forwarded to the active prompt. Use `kite acp proxy --peer mini` to attach another ACP client. `kite acp mcp` keeps `kite_remote_task` for existing short-task callers.
+
+## Long-running collaboration
+
+A peer advertising `controlPlaneVersion: 2` supports independent submission and observation. Supply the parent Kite machine and session ID when delegating from a Kite conversation. An external caller can use a stable opaque parent ID.
+
+```sh
+kite acp spawn --peer mini --cwd /absolute/workspace/project --provider ply \
+  --parent-machine caller-host --parent-session PARENT_ID \
+  --label "Run checks" --write-lock --policy human_in_the_loop
+kite acp send --peer mini --session CHILD_ID < task.txt
+kite acp status --peer mini --session CHILD_ID
+kite acp wait --target mini/CHILD_ID --timeout-ms 30000
+kite acp read --peer mini --session CHILD_ID --turn TURN_ID
+kite acp release --peer mini --session CHILD_ID
+```
+
+- `spawn` and `send` accept `--model`, `--effort`, and advertised Codex `--service-tier` values. `send --attachment PATH` accepts a file already inside the executing host's allowed workspaces. `--wait-ms` waits up to 30 seconds for a reply.
+- Recover from uncertain creation with `list --parent-machine caller-host --parent-session PARENT_ID --label "Run checks"`, following any pagination cursor. Recover from uncertain submission with `status` and `read` before deciding whether to send again.
+- `wait` accepts multiple `--target PEER/SESSION` arguments. Append `/REVISION` from `status` to wait past a previously observed state. `read` returns public text and tool summaries with a truncation flag. Check structured tool status and exit codes before reporting a build as successful.
+- `strict` is the default. Use `--allow-command` for an exact command in the session directory. `human_in_the_loop` needs a reachable Kite Node on the executing host. A person opens the target session to decide an approval or answer a question.
+- Use `cancel` for an explicit interruption. `release` reclaims eligible idle owners while preserving history. `release --force-cancel` explicitly requests interruption before release.
+- MCP exposes `kite_session_spawn`, `kite_session_send`, `kite_session_status`, `kite_session_read`, `kite_session_list`, `kite_session_wait_any`, `kite_session_cancel`, and `kite_session_release`.
+
+A running, independently managed Linux ACP unit loads its adapter at startup. Schedule its refresh separately after its work has settled when an upgraded host still advertises an older ACP capability.

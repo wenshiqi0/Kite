@@ -6,18 +6,31 @@ import { parseArgs } from "node:util";
 import { proc, userManagerCgroup } from "@kite/platform/resources";
 import {
   array,
+  boundedString,
   CHAT_PROVIDERS,
   check,
+  DELEGATION_POLICIES,
   isChatProvider,
   type Json,
+  json,
+  type ObjectValue,
   object,
   optionalString,
   parse,
+  REMOTE_SESSION_STATES,
   type RpcMessage,
   string,
 } from "@kite/protocol";
-import { ACP_MESSAGE_LIMIT, ACP_QUEUE_LIMIT, acpMessage } from "@kite/protocol/acp";
-import { KiteAcp } from "@kite/providers/acp";
+import {
+  ACP_MAX_WAIT_SESSIONS,
+  ACP_MESSAGE_LIMIT,
+  ACP_QUEUE_LIMIT,
+  ACP_READ_LIMIT,
+  acpLimit,
+  acpMessage,
+  acpSessionId,
+} from "@kite/protocol/acp";
+import { kiteAcpConnector } from "@kite/providers/acp";
 import { providers } from "@kite/providers/harness";
 import { home, input, lines, privateDir, requireOwnedFile, sleep } from "@kite/runtime";
 import { type AcpClient, connectAcp, serveAcp } from "@kite/runtime/acp";
@@ -103,10 +116,12 @@ async function listening(port: number): Promise<boolean> {
 async function connectPeer(
   target: Peer,
   receive: (message: RpcMessage) => void,
+  signal?: AbortSignal,
 ): Promise<AcpClient> {
   let url = target.url,
     tunnel: Bun.Subprocess<"ignore", "ignore", "ignore"> | undefined;
   try {
+    signal?.throwIfAborted();
     if (target.sshTarget) {
       const endpoint = new URL(url);
       check(
@@ -140,13 +155,14 @@ async function connectPeer(
           tunnel.exitCode === null && Date.now() < deadline,
           "SSH ACP forward unavailable; verify existing SSH trust and connectivity",
         );
+        signal?.throwIfAborted();
         await sleep(50);
       }
       endpoint.hostname = "127.0.0.1";
       endpoint.port = String(localPort);
       url = endpoint.toString();
     }
-    const client = await connectAcp(url, acpToken(target.tokenFile), receive),
+    const client = await connectAcp(url, acpToken(target.tokenFile), receive, signal),
       forward = tunnel;
     void client.closed.finally(() => forward?.kill());
     return {
@@ -165,6 +181,7 @@ async function connectPeer(
 export class AcpRpc {
   private client?: AcpClient;
   private nextId = 0;
+  private disconnect = new AbortController();
   private pending = new Map<
     number,
     { resolve(value: Json): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
@@ -173,22 +190,27 @@ export class AcpRpc {
     private receive: (message: RpcMessage, reply: (result: Json) => void) => void = () => {},
   ) {}
   async connect(target: Peer): Promise<void> {
-    this.client = await connectPeer(target, (message) => {
-      if (!message.method && typeof message.id === "number") {
-        const pending = this.pending.get(message.id);
-        if (!pending) return;
-        this.pending.delete(message.id);
-        clearTimeout(pending.timer);
-        if (message.error) pending.reject(new Error(message.error.message));
-        else pending.resolve(message.result ?? {});
-      } else {
-        const id = message.id;
-        this.receive(message, (result) => {
-          check(id !== undefined, "cannot reply to a notification");
-          this.client?.send({ id, result });
-        });
-      }
-    });
+    this.client = await connectPeer(
+      target,
+      (message) => {
+        if (!message.method && typeof message.id === "number") {
+          const pending = this.pending.get(message.id);
+          if (!pending) return;
+          this.pending.delete(message.id);
+          clearTimeout(pending.timer);
+          if (message.error) pending.reject(new Error(message.error.message));
+          else pending.resolve(message.result ?? {});
+        } else {
+          const id = message.id;
+          this.receive(message, (result) => {
+            check(id !== undefined, "cannot reply to a notification");
+            this.client?.send({ id, result });
+          });
+        }
+      },
+      this.disconnect.signal,
+    );
+    if (this.disconnect.signal.aborted) this.client.close();
     void this.client.closed.then(() =>
       this.rejectPending("ACP disconnected; submitted work is not replayed"),
     );
@@ -222,6 +244,7 @@ export class AcpRpc {
     this.client?.send({ method, params });
   }
   close(): void {
+    this.disconnect.abort();
     this.client?.close();
     this.rejectPending("ACP client closed");
   }
@@ -349,11 +372,324 @@ export async function acpTask(options: AcpTaskOptions): Promise<Json> {
   }
 }
 
+const textField = { type: "string" };
+const boolField = { type: "boolean" };
+const peerField = { peer: textField };
+const targetFields = { ...peerField, sessionId: textField };
+const choices = (...values: string[]) => ({ type: "string", enum: values });
+const items = (schema: Json, maxItems: number) => ({ type: "array", items: schema, maxItems });
+const limit = (maximum: number, minimum = 0) => ({ type: "integer", minimum, maximum });
+const schema = (required: string[], properties: ObjectValue) => ({
+  type: "object",
+  additionalProperties: false,
+  required,
+  properties,
+});
+const selectionFields = {
+  model: textField,
+  effort: textField,
+  serviceTier: textField,
+  policy: choices(...DELEGATION_POLICIES),
+};
+const operations = {
+  spawn: {
+    method: "session/new",
+    description: "Create a session and acquire its stable identity.",
+    schema: schema(["peer", "cwd", "provider"], {
+      ...peerField,
+      cwd: textField,
+      provider: choices(...CHAT_PROVIDERS),
+      title: textField,
+      ...selectionFields,
+      parent: schema(["machine", "sessionId"], {
+        machine: textField,
+        sessionId: textField,
+        provider: textField,
+      }),
+      label: textField,
+      role: textField,
+      writeLock: boolField,
+      worktreeIsolated: boolField,
+    }),
+  },
+  send: {
+    method: "_kite/session/submit",
+    description: "Submit one turn. Query status after uncertain delivery before sending again.",
+    schema: schema(["peer", "sessionId", "prompt"], {
+      ...targetFields,
+      ...selectionFields,
+      prompt: textField,
+      attachments: items(textField, 63),
+      expectedRevision: textField,
+      allowCommands: items(textField, 16),
+      waitMs: limit(30_000),
+    }),
+  },
+  status: {
+    method: "_kite/session/status",
+    description: "Query the owner's turn and any pending interaction.",
+    schema: schema(["peer", "sessionId"], targetFields),
+  },
+  read: {
+    method: "_kite/session/read",
+    description: "Read a bounded public reply and tool summaries.",
+    schema: schema(["peer", "sessionId"], {
+      ...targetFields,
+      turnId: textField,
+      maxBytes: limit(ACP_READ_LIMIT, 1),
+      includeToolSummaries: boolField,
+    }),
+  },
+  list: {
+    method: "session/list",
+    description: "List one page of workload sessions and their lineage.",
+    schema: schema(["peer"], {
+      ...peerField,
+      parentSessionId: textField,
+      parentMachine: textField,
+      label: textField,
+      states: items(choices(...REMOTE_SESSION_STATES), 6),
+      includeArchived: boolField,
+      cursor: textField,
+    }),
+  },
+  wait: {
+    method: "_kite/session/wait_any",
+    description: "Wait for any target to become ready or need human input.",
+    schema: schema(["targets"], {
+      targets: items(
+        schema(["peer", "sessionId"], { ...targetFields, since: textField }),
+        ACP_MAX_WAIT_SESSIONS,
+      ),
+      timeoutMs: limit(60_000),
+    }),
+  },
+  cancel: {
+    method: "session/cancel",
+    description: "Explicitly interrupt the target's active turn.",
+    schema: schema(["peer", "sessionId"], targetFields),
+  },
+  release: {
+    method: "_kite/session/release",
+    description: "Archive and release an owner with durable history.",
+    schema: schema(["peer", "sessionId"], { ...targetFields, forceCancel: boolField }),
+  },
+};
+type Operation = keyof typeof operations;
+function operation(value: unknown): Operation | undefined {
+  return (Object.keys(operations) as Operation[]).find((key) => key === value);
+}
+
+async function controlPeer(
+  target: Peer,
+  signal: AbortSignal,
+  method: string,
+  params: Json,
+  timeout = 40_000,
+) {
+  const rpc = new AcpRpc();
+  const close = () => rpc.close();
+  signal.throwIfAborted();
+  signal.addEventListener("abort", close, { once: true });
+  try {
+    await rpc.connect(target);
+    const hello = object(
+      await rpc.call("initialize", {
+        protocolVersion: 1,
+        clientInfo: { name: "kite-session-control", version: "2" },
+        clientCapabilities: {},
+      }),
+    );
+    check(
+      optionalObject(optionalObject(hello._meta).kite).controlPlaneVersion === 2,
+      "peer does not advertise Kite session control v2",
+    );
+    signal.throwIfAborted();
+    return await rpc.call(method, params, timeout);
+  } finally {
+    signal.removeEventListener("abort", close);
+    rpc.close();
+  }
+}
+
+async function waitAny(file: string, args: ObjectValue, signal: AbortSignal) {
+  const targets = array(args.targets).map(object);
+  check(targets.length > 0 && targets.length <= ACP_MAX_WAIT_SESSIONS, "invalid wait target count");
+  const groups = new Map<string, { sessionIds: string[]; since: ObjectValue }>();
+  for (const target of targets) {
+    const name = string(target.peer),
+      id = acpSessionId(target.sessionId);
+    const group = groups.get(name) ?? { sessionIds: [], since: {} };
+    check(!group.sessionIds.includes(id), "duplicate wait target");
+    group.sessionIds.push(id);
+    if (target.since !== undefined) group.since[id] = boundedString(target.since, 128);
+    groups.set(name, group);
+  }
+  const timeoutMs = acpLimit(args.timeoutMs, 60_000, 60_000);
+  const stop = new AbortController(),
+    combined = AbortSignal.any([signal, stop.signal]);
+  const jobs = [...groups].map(async ([name, group]) => {
+    const result = object(
+      await controlPeer(
+        peer(file, name),
+        combined,
+        operations.wait.method,
+        {
+          ...group,
+          timeoutMs,
+        },
+        timeoutMs + 15_000,
+      ),
+    );
+    return { peer: name, result };
+  });
+  try {
+    // A timeout/error on one peer must not mask an available result on another.
+    const first = await Promise.any(
+      jobs.map(async (job) => {
+        const answer = await job;
+        check(answer.result.timedOut === false, "wait timed out");
+        return answer;
+      }),
+    ).catch(() => undefined);
+    if (first) return { ...first.result, peer: first.peer };
+    signal.throwIfAborted();
+    const settled = await Promise.allSettled(jobs);
+    const sessions: Json[] = [],
+      errors: Json[] = [];
+    for (const [index, item] of settled.entries()) {
+      if (item.status === "fulfilled") {
+        const { peer: name, result } = item.value;
+        for (const session of array(result.sessions))
+          sessions.push({ ...object(session), peer: name });
+      } else {
+        const name = [...groups.keys()][index];
+        errors.push({
+          peer: name,
+          message: item.reason instanceof Error ? item.reason.message : "peer wait failed",
+        });
+      }
+    }
+    if (errors.length === groups.size) throw new Error(String(object(errors[0]).message));
+    return { timedOut: true, sessions, ...(errors.length ? { errors } : {}) };
+  } finally {
+    stop.abort();
+  }
+}
+
+async function sessionControl(
+  file: string,
+  action: Operation,
+  args: ObjectValue,
+  signal: AbortSignal,
+): Promise<Json> {
+  const entry = operations[action];
+  check(
+    Object.keys(args).every((key) => Object.hasOwn(entry.schema.properties, key)),
+    "unknown session control argument",
+  );
+  if (action === "wait") return waitAny(file, args, signal);
+  const { peer: name, ...params } = args;
+  const target = peer(file, string(name));
+  if (action === "spawn") {
+    const {
+      cwd,
+      title,
+      provider,
+      model,
+      effort,
+      serviceTier,
+      parent,
+      role,
+      label,
+      policy,
+      writeLock,
+      worktreeIsolated,
+    } = params;
+    check(isChatProvider(provider), "invalid remote provider");
+    return controlPeer(
+      target,
+      signal,
+      entry.method,
+      {
+        cwd: string(cwd),
+        mcpServers: [],
+        _meta: {
+          kite: {
+            controlPlaneVersion: 2,
+            provider,
+            title,
+            model,
+            effort,
+            serviceTier,
+            delegation: {
+              policy: policy ?? "strict",
+              role,
+              parent,
+              label,
+              writeLock,
+              worktreeIsolated,
+            },
+          },
+        },
+      },
+      90_000,
+    );
+  }
+  if (action === "list") {
+    const { cursor, ...filters } = params;
+    return controlPeer(target, signal, entry.method, { cursor, _meta: { kite: filters } });
+  }
+  acpSessionId(params.sessionId);
+  if (action === "send") {
+    const { prompt, attachments, ...fields } = params;
+    const text = string(prompt);
+    const links = attachments === undefined ? [] : array(attachments).map(string);
+    check((text.trim() || links.length) && links.length <= 63, "invalid session prompt");
+    return controlPeer(
+      target,
+      signal,
+      entry.method,
+      {
+        ...fields,
+        prompt: [{ type: "text", text }, ...links.map((uri) => ({ type: "resource_link", uri }))],
+      },
+      125_000,
+    );
+  }
+  return controlPeer(target, signal, entry.method, params);
+}
+
+const toolName = (action: Operation) => `kite_session_${action === "wait" ? "wait_any" : action}`;
+const controlTools = (Object.keys(operations) as Operation[]).map((action) => ({
+  name: toolName(action),
+  description: operations[action].description,
+  inputSchema: operations[action].schema,
+  annotations: {
+    readOnlyHint: ["status", "read", "list", "wait"].includes(action),
+    idempotentHint: action !== "spawn" && action !== "send",
+    openWorldHint: true,
+  },
+}));
+function mcpOperation(name: unknown) {
+  return (Object.keys(operations) as Operation[]).find((key) => toolName(key) === name);
+}
+function mcpBucket(request: RpcMessage) {
+  const action = mcpOperation(optionalObject(request.params).name);
+  if (action === "wait") return "wait";
+  if (action === "cancel") return "cancel";
+  if (action === "status" || action === "read" || action === "list") return "read";
+  return request.method === "tools/call" ? "write" : "meta";
+}
+
 async function mcp(file: string): Promise<void> {
   let initialized = false,
     closed = false;
   const detach = new AbortController(),
-    running = new Map<string | number, { cancel: AbortController; done: Promise<void> }>();
+    running = new Map<
+      string | number,
+      { cancel: AbortController; done: Promise<void>; bucket: string }
+    >();
   const output = (id: string | number, result: Json) => {
     if (closed) return;
     const line = `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`;
@@ -379,6 +715,7 @@ async function mcp(file: string): Promise<void> {
     if (request.method === "tools/list")
       return {
         tools: [
+          ...controlTools,
           {
             name: "kite_remote_task",
             description:
@@ -412,24 +749,28 @@ async function mcp(file: string): Promise<void> {
           },
         ],
       };
-    check(
-      request.method === "tools/call" && params.name === "kite_remote_task",
-      "unknown ACP tool",
-    );
-    const args = optionalObject(params.arguments),
-      commands = args.allowCommands === undefined ? [] : array(args.allowCommands).map(string);
-    check(commands.length <= 16, "too many command authorizations");
-    const value = await acpTask({
-      peer: peer(file, string(args.peer)),
-      cwd: string(args.cwd),
-      prompt: string(args.prompt),
-      sessionId: optionalString(args.sessionId) || undefined,
-      provider: optionalString(args.provider) || "codex",
-      expectedRevision: optionalString(args.expectedRevision) || undefined,
-      allowCommands: commands,
-      signal,
-      detachSignal: detach.signal,
-    });
+    check(request.method === "tools/call", "unknown ACP tool");
+    const args = optionalObject(params.arguments);
+    const action = mcpOperation(params.name);
+    const value = action
+      ? await sessionControl(file, action, args, AbortSignal.any([signal, detach.signal]))
+      : await (async () => {
+          check(params.name === "kite_remote_task", "unknown ACP tool");
+          const commands =
+            args.allowCommands === undefined ? [] : array(args.allowCommands).map(string);
+          check(commands.length <= 16, "too many command authorizations");
+          return acpTask({
+            peer: peer(file, string(args.peer)),
+            cwd: string(args.cwd),
+            prompt: string(args.prompt),
+            sessionId: optionalString(args.sessionId) || undefined,
+            provider: optionalString(args.provider) || "codex",
+            expectedRevision: optionalString(args.expectedRevision) || undefined,
+            allowCommands: commands,
+            signal,
+            detachSignal: detach.signal,
+          });
+        })();
     return {
       content: [{ type: "text", text: JSON.stringify(value) }],
       structuredContent: value,
@@ -449,9 +790,10 @@ async function mcp(file: string): Promise<void> {
         }
         continue;
       }
-      if (running.size >= 4) {
+      const bucket = mcpBucket(request);
+      if ([...running.values()].filter((job) => job.bucket === bucket).length >= 4) {
         output(id, {
-          content: [{ type: "text", text: "Remote task concurrency limit reached" }],
+          content: [{ type: "text", text: "Remote session request concurrency limit reached" }],
           isError: true,
         });
         continue;
@@ -472,7 +814,7 @@ async function mcp(file: string): Promise<void> {
             }),
           )
           .finally(() => running.delete(id));
-      running.set(id, { cancel, done });
+      running.set(id, { cancel, done, bucket });
     }
   } finally {
     closed = true;
@@ -492,13 +834,36 @@ export async function acpMain(argv: string[]): Promise<void> {
         workspace: { type: "string", multiple: true },
         "token-file": { type: "string" },
         herdr: { type: "string" },
-        provider: { type: "string", default: "codex" },
+        provider: { type: "string" },
         peers: { type: "string" },
         peer: { type: "string" },
         cwd: { type: "string" },
         session: { type: "string" },
         "expected-revision": { type: "string" },
         "allow-command": { type: "string", multiple: true },
+        model: { type: "string" },
+        effort: { type: "string" },
+        "service-tier": { type: "string" },
+        policy: { type: "string" },
+        label: { type: "string" },
+        role: { type: "string" },
+        title: { type: "string" },
+        "parent-machine": { type: "string" },
+        "parent-session": { type: "string" },
+        "parent-provider": { type: "string" },
+        "write-lock": { type: "boolean" },
+        "worktree-isolated": { type: "boolean" },
+        attachment: { type: "string", multiple: true },
+        "wait-ms": { type: "string" },
+        turn: { type: "string" },
+        "max-bytes": { type: "string" },
+        "no-tools": { type: "boolean" },
+        state: { type: "string", multiple: true },
+        "include-archived": { type: "boolean" },
+        cursor: { type: "string" },
+        target: { type: "string", multiple: true },
+        "timeout-ms": { type: "string" },
+        "force-cancel": { type: "boolean" },
       },
     });
   check(!positionals.length, "unexpected ACP arguments");
@@ -521,7 +886,8 @@ export async function acpMain(argv: string[]): Promise<void> {
     }
     const port = Number(values.port);
     check(Number.isInteger(port) && port >= 0 && port <= 65535, "invalid ACP port");
-    const defaultProvider = values.provider;
+    const defaultProvider = values.provider ?? "codex";
+    const machine = process.env.KITE_ACP_MACHINE || hostname();
     check(
       values.workspace?.length && isChatProvider(defaultProvider),
       "ACP serve requires workspace roots and a supported default provider",
@@ -537,20 +903,16 @@ export async function acpMain(argv: string[]): Promise<void> {
     const server = serveAcp({
       token: acpToken(values["token-file"] || join(root, "token"), true),
       port,
-      connect: (send) =>
-        new KiteAcp(
-          {
-            machine: hostname(),
-            workspaces: values.workspace || [],
-            herdr: values.herdr || process.env.KITE_ACP_HERDR || "herdr",
-            defaultProvider,
-            newSessionProviders,
-          },
-          send,
-        ),
+      connect: kiteAcpConnector({
+        machine,
+        workspaces: values.workspace,
+        herdr: values.herdr || process.env.KITE_ACP_HERDR || "herdr",
+        defaultProvider,
+        newSessionProviders,
+      }),
     });
     process.stdout.write(
-      `${JSON.stringify({ machine: hostname(), url: `ws://127.0.0.1:${server.port}/acp`, pid: process.pid, tokenFile: values["token-file"] || join(root, "token") })}\n`,
+      `${JSON.stringify({ machine, url: `ws://127.0.0.1:${server.port}/acp`, pid: process.pid, tokenFile: values["token-file"] || join(root, "token") })}\n`,
     );
     const stop = () => {
       server.stop(true);
@@ -562,6 +924,93 @@ export async function acpMain(argv: string[]): Promise<void> {
   }
   if (action === "mcp") {
     await mcp(file);
+    return;
+  }
+  const op = operation(action);
+  if (op) {
+    const args: ObjectValue = { peer: values.peer, sessionId: values.session };
+    const selection = {
+      model: values.model,
+      effort: values.effort,
+      serviceTier: values["service-tier"],
+      policy: values.policy,
+    };
+    const numeric = (value: string | undefined) =>
+      value === undefined ? undefined : Number(boundedString(value, 8));
+    switch (op) {
+      case "spawn":
+        delete args.sessionId;
+        Object.assign(args, selection, {
+          cwd: values.cwd,
+          provider: values.provider,
+          title: values.title,
+          label: values.label,
+          role: values.role,
+          writeLock: values["write-lock"],
+          worktreeIsolated: values["worktree-isolated"],
+          parent:
+            values["parent-machine"] || values["parent-session"] || values["parent-provider"]
+              ? {
+                  machine: values["parent-machine"],
+                  sessionId: values["parent-session"],
+                  provider: values["parent-provider"],
+                }
+              : undefined,
+        });
+        break;
+      case "send":
+        Object.assign(args, selection, {
+          prompt: (await input(1024 * 1024)).toString(),
+          attachments: values.attachment,
+          allowCommands: values["allow-command"],
+          expectedRevision: values["expected-revision"],
+          waitMs: numeric(values["wait-ms"]),
+        });
+        break;
+      case "read":
+        Object.assign(args, {
+          turnId: values.turn,
+          maxBytes: numeric(values["max-bytes"]),
+          includeToolSummaries: values["no-tools"] ? false : undefined,
+        });
+        break;
+      case "list":
+        delete args.sessionId;
+        Object.assign(args, {
+          parentMachine: values["parent-machine"],
+          parentSessionId: values["parent-session"],
+          label: values.label,
+          states: values.state,
+          includeArchived: values["include-archived"],
+          cursor: values.cursor,
+        });
+        break;
+      case "wait":
+        delete args.peer;
+        delete args.sessionId;
+        Object.assign(args, {
+          targets: (
+            values.target ??
+            (values.peer && values.session ? [`${values.peer}/${values.session}`] : [])
+          ).map((value) => {
+            const [peer, sessionId, since, extra] = value.split("/");
+            check(
+              peer && sessionId && extra === undefined,
+              "--target requires PEER/SESSION[/REVISION]",
+            );
+            return { peer, sessionId, since };
+          }),
+          timeoutMs: numeric(values["timeout-ms"]),
+        });
+        break;
+      case "release":
+        args.forceCancel = values["force-cancel"];
+        break;
+    }
+    writeWire(
+      process.stdout,
+      await sessionControl(file, op, object(json(args)), new AbortController().signal),
+    );
     return;
   }
   const target = peer(file, string(values.peer));
@@ -591,7 +1040,7 @@ export async function acpMain(argv: string[]): Promise<void> {
     }
     return;
   }
-  check(action === "proxy", "ACP action must be serve, proxy, task or mcp");
+  check(action === "proxy", "unknown ACP action");
   const client = await connectPeer(target, (message) => writeWire(process.stdout, message));
   const write = (async () => {
     for await (const line of lines(Bun.stdin.stream(), ACP_MESSAGE_LIMIT))

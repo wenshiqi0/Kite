@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace Kite;
 
-internal sealed record ChatRow(JsonElement Item, Func<string, string, Task> Save, string Context);
+internal sealed record ChatRow(JsonElement Item, Func<string, string, Task>? Save, string Context);
 
 public sealed class ChatItemControl : ContentControl
 {
@@ -46,7 +46,8 @@ public sealed class ChatItemControl : ContentControl
             if (file.ValueKind == JsonValueKind.Object)
             {
                 string id = file.Text("id"), name = file.Text("name");
-                panel.Children.Add(Ui.Button("↓ " + name, () => row.Save(id, name)));
+                if (row.Save is { } save) panel.Children.Add(Ui.Button("↓ " + name, () => save(id, name)));
+                else panel.Children.Add(Ui.Label(name, 12, Ui.Muted));
             }
             var reply = block.Field("QuestionReply").Field("reply");
             if (reply.ValueKind == JsonValueKind.Object) panel.Children.Add(Markdown(reply.Text("question") + "\n\n" + reply.Text("answer")));

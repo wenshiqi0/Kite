@@ -24,6 +24,7 @@ import {
 } from "@kite/protocol";
 import { live, locked, pgid, processArgv, readJson, same, sleep, startTicks } from "@kite/runtime";
 import { listening } from "@kite/runtime/socket";
+import { discardTurnProjection } from "./acp-state";
 import {
   catalogRead,
   catalogRoot,
@@ -345,6 +346,7 @@ export async function sessionDelete(
           if (reference) markSessionDeleted({ ...record, reference });
         }
         markSessionDeleted(record);
+        discardTurnProjection(record);
         return saveCatalogUnlocked({
           ...catalog,
           sessions: catalog.sessions.filter((r) => r.id !== id),

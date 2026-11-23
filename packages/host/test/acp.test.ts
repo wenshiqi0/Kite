@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { object, optionalString } from "@kite/protocol";
+import { array, object, optionalString, parse } from "@kite/protocol";
+import { ACP_MESSAGE_LIMIT } from "@kite/protocol/acp";
+import { lines } from "@kite/runtime";
 import { serveAcp } from "@kite/runtime/acp";
 import { acpTask, acpToken } from "../src/acp";
 
@@ -181,7 +183,7 @@ test("MCP processes cancellation while a remote task is in flight", async () => 
     }
   };
   const send = (value: unknown) => {
-    child.stdin.write(JSON.stringify(value) + "\n");
+    child.stdin.write(`${JSON.stringify(value)}\n`);
     void child.stdin.flush();
   };
   try {
@@ -213,3 +215,122 @@ test("MCP processes cancellation while a remote task is in flight", async () => 
     await child.exited;
   }
 });
+
+test("MCP keeps status and cancel available during multi-peer waits and closes losing transports", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kite-mcp-v2-"));
+  directories.push(dir);
+  const tokenFile = join(dir, "token"),
+    token = acpToken(tokenFile, true);
+  const id = "b".repeat(32);
+  const waits: (() => void)[] = [];
+  let waiting = 0,
+    closed = 0;
+  const serve = (winner: boolean) => {
+    const server = serveAcp({
+      port: 0,
+      token,
+      connect(send) {
+        let waitingHere = false;
+        return {
+          async receive(message) {
+            const requestId = message.id;
+            if (requestId === undefined) return;
+            if (message.method === "initialize")
+              send({
+                id: requestId,
+                result: { protocolVersion: 1, _meta: { kite: { controlPlaneVersion: 2 } } },
+              });
+            if (message.method === "_kite/session/status" || message.method === "session/cancel")
+              send({ id: requestId, result: { sessionId: id, state: "working" } });
+            if (message.method === "_kite/session/wait_any") {
+              waiting++;
+              waitingHere = true;
+              if (winner)
+                waits.push(() =>
+                  send({
+                    id: requestId,
+                    result: {
+                      timedOut: false,
+                      sessions: [{ sessionId: id, state: "waiting_question" }],
+                    },
+                  }),
+                );
+            }
+          },
+          close() {
+            if (waitingHere && !winner) closed++;
+          },
+        };
+      },
+    });
+    servers.push(server);
+    return { url: `ws://127.0.0.1:${server.port}/acp`, tokenFile };
+  };
+  const peers = join(dir, "peers.json");
+  writeFileSync(peers, JSON.stringify({ peers: { a: serve(false), b: serve(true) } }), {
+    mode: 0o600,
+  });
+  const child = Bun.spawn(
+    [process.execPath, resolve("packages/host/src/cli.ts"), "acp", "mcp", "--peers", peers],
+    { stdin: "pipe", stdout: "pipe", stderr: "ignore" },
+  );
+  const responses = new Map<number, unknown>();
+  const output = (async () => {
+    for await (const line of lines(child.stdout, ACP_MESSAGE_LIMIT)) {
+      const row = object(parse(line));
+      if (typeof row.id === "number") responses.set(row.id, row.result);
+    }
+  })();
+  const until = async (ready: () => boolean) => {
+    for (let attempt = 0; attempt < 300 && !ready(); attempt++) await Bun.sleep(5);
+    expect(ready()).toBe(true);
+  };
+  const request = (id: number, method: string, params: unknown) => {
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    void child.stdin.flush();
+  };
+  const call = (id: number, name: string, args: unknown) =>
+    request(id, "tools/call", { name, arguments: args });
+  try {
+    request(1, "initialize", { protocolVersion: "2024-11-05" });
+    await until(() => responses.has(1));
+    request(2, "tools/list", {});
+    await until(() => responses.has(2));
+    const names = array(object(responses.get(2)).tools).map((tool) => object(tool).name);
+    expect(names).toEqual([
+      "kite_session_spawn",
+      "kite_session_send",
+      "kite_session_status",
+      "kite_session_read",
+      "kite_session_list",
+      "kite_session_wait_any",
+      "kite_session_cancel",
+      "kite_session_release",
+      "kite_remote_task",
+    ]);
+    const targets = [
+      { peer: "a", sessionId: id },
+      { peer: "b", sessionId: id },
+    ];
+    for (let i = 3; i < 7; i++) call(i, "kite_session_wait_any", { targets, timeoutMs: 5000 });
+    await until(() => waiting === 8);
+    call(7, "kite_session_wait_any", { targets, timeoutMs: 5000 });
+    call(8, "kite_session_status", { peer: "a", sessionId: id });
+    call(9, "kite_session_cancel", { peer: "a", sessionId: id });
+    await until(() => [7, 8, 9].every((requestId) => responses.has(requestId)));
+    expect(object(responses.get(7)).isError).toBe(true);
+    expect(object(responses.get(8)).structuredContent).toMatchObject({ state: "working" });
+    expect(object(responses.get(9)).structuredContent).toMatchObject({ state: "working" });
+    for (const ready of waits) ready();
+    await until(() => [3, 4, 5, 6].every((requestId) => responses.has(requestId)) && closed === 4);
+    for (let i = 3; i < 7; i++)
+      expect(object(responses.get(i)).structuredContent).toMatchObject({
+        peer: "b",
+        timedOut: false,
+      });
+  } finally {
+    child.stdin.end();
+    child.kill();
+    await Promise.allSettled([child.exited, output]);
+  }
+}, 10_000);

@@ -189,6 +189,7 @@ struct ChatPane: View {
 struct MessageRow: View {
     let model: ClientModel
     let message: ItemInfo
+    var readOnly = false
     private var skillContextOnly: Bool {
         !message.blocks.isEmpty && message.blocks.allSatisfy {
             if case .skillContext = $0 { return true }
@@ -230,7 +231,8 @@ struct MessageRow: View {
                         Text(reply.question).foregroundStyle(.secondary); Text(reply.answer)
                     }.font(.callout).padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 case .attachment(let file):
-                    AttachmentRow(model: model, file: file, context: model.snapshot?.conversationContext ?? "")
+                    if readOnly { Label(file.name, systemImage: "doc").font(.caption) }
+                    else { AttachmentRow(model: model, file: file, context: model.snapshot?.conversationContext ?? "") }
                 case .skillContext(let name, let path, let content):
                     DisclosureGroup {
                         Text(String(format: tr("skill_context_source"), path))

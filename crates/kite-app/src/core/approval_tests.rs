@@ -297,6 +297,7 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         *lock(&core.store) = Some(Store::open(directory.path()).unwrap());
         let connection = Arc::new(Connected {
+            machine: None,
             generation: 0,
             host: Host {
                 id: "owned-host".into(),

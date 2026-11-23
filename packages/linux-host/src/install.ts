@@ -313,6 +313,7 @@ export async function install(
   if (options.enable && migration)
     await run(["systemctl", "--user", "stop", "kite-node.service"], { timeout: 30000 });
   await run(["systemctl", "--user", "daemon-reload"], { timeout: 10000 });
+  let acpGateway: { active: true; refresh: "operator-managed" } | undefined;
   if (options.enable) {
     await run(["systemctl", "--user", "enable", "--now", "kite-node.socket"], { timeout: 10000 });
     await run(["systemctl", "--user", "enable", "--now", "kite-node.service"], { timeout: 30000 });
@@ -334,8 +335,26 @@ export async function install(
         )
       : {};
     await (dependencies.refreshGui || ((value) => refreshGui(value, run)))(env);
+    try {
+      const gateway = await run(
+        ["systemctl", "--user", "show", "kite-acp.service", "--property=ActiveState", "--value"],
+        { timeout: 3000, allowFailure: true },
+      );
+      // The independent unit can own active ACP connections and user-specific
+      // process scopes. Node handover has no authority to refresh it.
+      if (gateway.code === 0 && gateway.stdout.trim() === "active")
+        acpGateway = { active: true, refresh: "operator-managed" };
+    } catch {
+      // The independent unit's status cannot invalidate a successful Node upgrade.
+    }
   }
-  return { version, node: nodeLink, desktop: gui, service: unit };
+  return {
+    version,
+    node: nodeLink,
+    desktop: gui,
+    service: unit,
+    ...(acpGateway ? { acpGateway } : {}),
+  };
 }
 if (import.meta.main) {
   try {

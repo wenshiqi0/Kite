@@ -1,6 +1,5 @@
 /** ACP is another client of the existing Kite owners, never another model loop. */
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 import {
   array,
   CHAT_PROVIDERS,
@@ -13,28 +12,38 @@ import {
   object,
   optionalString,
   type RpcMessage,
+  type SessionDelegation,
   type SessionRecord,
+  type SessionSelection,
   string,
 } from "@kite/protocol";
-import { home, locked, run, selfCommand } from "@kite/runtime";
+import { ACP_CONTROL_METHODS, ACP_MAX_CHILDREN_PER_PARENT, acpSessionId } from "@kite/protocol/acp";
+import { locked } from "@kite/runtime";
 import type { AcpConnection } from "@kite/runtime/acp";
-import { RpcProcess } from "@kite/runtime/rpc";
 import { optionalObject } from "@kite/runtime/socket";
-import { catalogRead, catalogRoot, catalogUnlocked, saveCatalogUnlocked } from "./catalog";
-import { sessionOpen } from "./codex";
+import { type AcpBackend, connectBackend, selectModel, verifyRevision } from "./acp-backend";
+import { AcpControl } from "./acp-control";
+import { type OwnerStatus, ownerPresent } from "./acp-owner";
+import {
+  catalogRead,
+  catalogRoot,
+  catalogUnlocked,
+  patchSession,
+  saveCatalogUnlocked,
+} from "./catalog";
 
-export interface AcpBackend {
-  thread: string;
-  model: string;
-  effort: string;
-  status?: string;
-  call(method: string, params: Json): Promise<Json>;
-  write(message: RpcMessage): void;
-  close(): void;
-}
+export type { AcpBackend } from "./acp-backend";
+
 export interface AcpRepository {
   list(): Promise<SessionRecord[]>;
-  create(provider: string, cwd: string, title: string): Promise<SessionRecord>;
+  create(
+    provider: string,
+    cwd: string,
+    title: string,
+    delegation?: SessionDelegation,
+    selection?: SessionSelection,
+  ): Promise<SessionRecord>;
+  configure?(id: string, selection: SessionSelection): Promise<void>;
 }
 export interface KiteAcpOptions {
   machine: string;
@@ -43,6 +52,11 @@ export interface KiteAcpOptions {
   defaultProvider: ChatProvider;
   newSessionProviders?: readonly ChatProvider[];
   repository?: AcpRepository;
+  stateDirectory?: string;
+  humanAvailable?(): Promise<boolean>;
+  inspect?(record: SessionRecord): Promise<OwnerStatus>;
+  interrupt?(record: SessionRecord, turnId: string): Promise<void>;
+  release?(record: SessionRecord): Promise<void>;
   backend?(
     record: SessionRecord,
     event: (message: RpcMessage) => void,
@@ -51,12 +65,28 @@ export interface KiteAcpOptions {
 }
 const repository: AcpRepository = {
   list: async () => (await catalogRead()).sessions,
-  create: async (provider, cwd, title) =>
-    locked(join(catalogRoot(), "sessions.lock"), () => {
+  configure: async (id, selection) => {
+    await patchSession(id, { acp_selection: selection });
+  },
+  create: async (provider, cwd, title, delegation, selection) =>
+    locked(join(catalogRoot(), "sessions.lock"), async () => {
       check(isChatProvider(provider), "network session provider is not supported");
       const catalog = catalogUnlocked(),
         at = Date.now();
       check(catalog.sessions.length < 1024, "session catalog is full");
+      const parent = delegation?.parent;
+      if (parent) {
+        let children = 0;
+        for (const r of catalog.sessions) {
+          if (
+            r.delegation?.parent?.machine === parent.machine &&
+            r.delegation.parent.sessionId === parent.sessionId &&
+            (!r.archived || (await ownerPresent(r).catch(() => true)))
+          )
+            children++;
+          check(children < ACP_MAX_CHILDREN_PER_PARENT, "parent session child quota exceeded");
+        }
+      }
       const record: SessionRecord = {
         id: crypto.randomUUID().replaceAll("-", ""),
         provider,
@@ -68,6 +98,8 @@ const repository: AcpRepository = {
         reference: null,
         created_ms: at,
         updated_ms: at,
+        ...(delegation ? { delegation } : {}),
+        ...(selection ? { acp_selection: selection } : {}),
       };
       catalog.sessions.push(record);
       saveCatalogUnlocked(catalog);
@@ -75,76 +107,9 @@ const repository: AcpRepository = {
     }),
 };
 
-async function connectBackend(
-  record: SessionRecord,
-  herdr: string,
-  event: (message: RpcMessage) => void,
-  request: (message: RpcMessage) => void,
-): Promise<AcpBackend> {
-  const agent = object(object(await sessionOpen(record.id, herdr)).agent),
-    reference = object(agent.agent_session),
-    thread = string(reference.value);
-  check(
-    reference.kind === "id" &&
-      reference.agent === record.provider &&
-      isChatProvider(reference.agent),
-    "structured owner identity unavailable",
-  );
-  const rpc = new RpcProcess(
-    selfCommand("proxy", "--pane", string(agent.pane_id)),
-    record.cwd || home(),
-    event,
-    request,
-  );
-  try {
-    await rpc.call("initialize", {
-      clientInfo: { name: "kite-acp", version: "1" },
-      capabilities: { experimentalApi: true },
-    });
-    rpc.write({ method: "initialized" });
-    const models = array(
-        object(await rpc.call("model/list", { limit: 100, includeHidden: false })).data,
-      ).map(object),
-      config = optionalObject(object(await rpc.call("config/read", {})).config),
-      model =
-        models.find((m) => m.model === config.model) ??
-        models.find((m) => m.isDefault === true) ??
-        models[0];
-    check(model, "owner model unavailable");
-    const backend: AcpBackend = {
-      thread,
-      model: string(model.model),
-      effort:
-        optionalString(config.model_reasoning_effort) ||
-        optionalString(model.defaultReasoningEffort),
-      call: (method, params) => rpc.call(method, params),
-      write: (message) => rpc.write(message),
-      close: () => rpc.close(),
-    };
-    void rpc.child.exited.then(() =>
-      event({ method: "_kite/backend_closed", params: { threadId: thread } }),
-    );
-    if (record.provider === "codex") {
-      const loaded = object(
-        object(await backend.call("thread/read", { threadId: thread, includeTurns: false })).thread,
-      );
-      check(loaded.id === thread, "loaded owner identity mismatch");
-      const path = loaded.path;
-      if (path === null || (typeof path === "string" && isAbsolute(path) && !existsSync(path))) {
-        // Naming persists the empty rollout so resume can subscribe before the first turn.
-        await backend.call("thread/name/set", { threadId: thread, name: record.title || "Kite" });
-      }
-    }
-    const resumed = object(
-      object(await backend.call("thread/resume", { threadId: thread, excludeTurns: true })).thread,
-    );
-    check(resumed.id === thread, "resumed owner identity mismatch");
-    backend.status = optionalString(optionalObject(resumed.status).type) || "unknown";
-    return backend;
-  } catch (error) {
-    rpc.close();
-    throw error;
-  }
+export function kiteAcpConnector(options: KiteAcpOptions) {
+  const control = new AcpControl(options, options.repository ?? repository);
+  return (send: (message: RpcMessage) => void) => new KiteAcp(options, send, control);
 }
 
 interface PendingTurn {
@@ -174,31 +139,18 @@ export class KiteAcp implements AcpConnection {
   private closed = false;
   private bindings = new Map<string, Binding>();
   private permissions = new Map<string, Permission>();
-  private roots: string[];
+  private disconnect = new AbortController();
   private repository: AcpRepository;
   private sessionTail: Promise<unknown> = Promise.resolve();
   constructor(
     private options: KiteAcpOptions,
     private send: (message: RpcMessage) => void,
+    private control = new AcpControl(options, options.repository ?? repository),
   ) {
-    check(
-      options.workspaces.length > 0 && options.workspaces.length <= 32,
-      "ACP requires explicit workspace roots",
-    );
-    this.roots = options.workspaces.map((path) => realpathSync(path));
     this.repository = options.repository ?? repository;
   }
   private cwd(path: string): string {
-    check(isAbsolute(path), "ACP working directory must be absolute");
-    const actual = realpathSync(path);
-    check(
-      this.roots.some((root) => {
-        const child = relative(root, actual);
-        return child === "" || (!child.startsWith("..") && !isAbsolute(child));
-      }),
-      "ACP working directory is outside configured workspaces",
-    );
-    return actual;
+    return this.control.paths.cwd(path);
   }
   private publish(sessionId: string, update: Json): void {
     if (!this.closed) this.send({ method: "session/update", params: { sessionId, update } });
@@ -308,6 +260,8 @@ export class KiteAcp implements AcpConnection {
     }
   }
   private permission(binding: Binding, message: RpcMessage): void {
+    if (this.control.ownsTurn(binding.record.id) || (binding.record.delegation && !binding.turn))
+      return;
     const params = optionalObject(message.params);
     if (params.threadId !== binding.backend.thread || message.id === undefined) return;
     if (!message.method?.endsWith("requestApproval")) {
@@ -406,6 +360,8 @@ export class KiteAcp implements AcpConnection {
           kite: {
             machine: this.options.machine,
             transport: "websocket-v1",
+            controlPlaneVersion: 2,
+            controlMethods: ACP_CONTROL_METHODS,
             newSessionProviders: [...(this.options.newSessionProviders ?? CHAT_PROVIDERS)],
             resumedSessionProviders: [...CHAT_PROVIDERS],
           },
@@ -414,7 +370,16 @@ export class KiteAcp implements AcpConnection {
     }
     check(this.initialized, "initialize the ACP connection first");
     if (method === "initialized") return {};
+    if (method === "_kite/session/submit")
+      return this.control.submit(params, this.disconnect.signal);
+    if (method === "_kite/session/status")
+      return this.control.status(acpSessionId(params.sessionId));
+    if (method === "_kite/session/read") return this.control.read(params);
+    if (method === "_kite/session/wait_any")
+      return this.control.wait(params, this.disconnect.signal);
+    if (method === "_kite/session/release") return this.control.release(params);
     if (method === "session/list") {
+      if (optionalObject(params._meta).kite !== undefined) return this.control.list(params);
       const rows = (await this.repository.list()).filter((r) => {
         try {
           return isChatProvider(r.provider) && !r.archived && Boolean(this.cwd(r.cwd || ""));
@@ -446,13 +411,25 @@ export class KiteAcp implements AcpConnection {
           "client-provided MCP servers are not available on this endpoint",
         );
         const meta = optionalObject(optionalObject(params._meta).kite),
-          provider = optionalString(meta.provider) || this.options.defaultProvider;
+          provider =
+            meta.provider === undefined ? this.options.defaultProvider : string(meta.provider);
+        check(
+          meta.controlPlaneVersion === undefined || meta.controlPlaneVersion === 2,
+          "unsupported Kite session control version",
+        );
         if (method === "session/new")
           check(
             isChatProvider(provider) &&
               (this.options.newSessionProviders ?? CHAT_PROVIDERS).includes(provider),
             "network provider is not available on this host",
           );
+        if (
+          method === "session/new" &&
+          ["controlPlaneVersion", "delegation", "model", "effort", "serviceTier"].some(
+            (key) => meta[key] !== undefined,
+          )
+        )
+          return this.control.spawn(provider, cwd, meta);
         const record =
             method === "session/new"
               ? await this.repository.create(
@@ -481,6 +458,8 @@ export class KiteAcp implements AcpConnection {
     }
     const id = string(params.sessionId),
       binding = this.bindings.get(id);
+    if (method === "session/cancel" && !binding?.turn && !binding?.prompting)
+      return this.control.cancel(acpSessionId(id));
     check(binding, "session is not attached to this ACP connection");
     if (method === "session/cancel") {
       if (binding.prompting && !binding.turn?.id) {
@@ -495,45 +474,20 @@ export class KiteAcp implements AcpConnection {
       return {};
     }
     check(method === "session/prompt", "ACP method not supported");
-    check(!binding.turn && !binding.prompting, "session prompt is already active");
-    const blocks = array(params.prompt).map(object);
     check(
-      blocks.length > 0 &&
-        blocks.length <= 64 &&
-        blocks.every(
-          (b) =>
-            (b.type === "text" && typeof b.text === "string") ||
-            (b.type === "resource_link" && typeof b.uri === "string"),
-        ),
-      "unsupported ACP prompt content",
+      !binding.record.delegation?.writeLock &&
+        (!binding.record.delegation || binding.record.delegation.policy === "strict"),
+      "delegated session requires asynchronous submit for its write lock or permission policy",
     );
+    check(!binding.turn && !binding.prompting, "session prompt is already active");
+    const input = this.control.paths.prompt(params.prompt);
     binding.prompting = true;
     binding.cancelRequested = false;
+    let unlock: (() => void) | undefined;
     try {
+      unlock = await this.control.claimLegacy(binding.record);
       const meta = optionalObject(optionalObject(params._meta).kite);
-      if (meta.expectedRevision !== undefined) {
-        const expected = string(meta.expectedRevision);
-        check(/^[a-f0-9]{40}$/.test(expected), "invalid expected source revision");
-        const current = await run(["git", "-C", string(binding.record.cwd), "rev-parse", "HEAD"], {
-          timeout: 5000,
-        });
-        check(
-          current.stdout.toString().trim() === expected,
-          "remote workspace source revision differs from the requested build",
-        );
-        const dirty = await run(
-          [
-            "git",
-            "-C",
-            string(binding.record.cwd),
-            "status",
-            "--porcelain",
-            "--untracked-files=normal",
-          ],
-          { timeout: 5000 },
-        );
-        check(!dirty.stdout.length, "remote build workspace contains tracked modifications");
-      }
+      await verifyRevision(string(binding.record.cwd), meta.expectedRevision);
       const threadId = binding.backend.thread;
       if (binding.record.provider === "codex") {
         // Codex has live status before its first prompt creates turn history.
@@ -575,15 +529,14 @@ export class KiteAcp implements AcpConnection {
           object(
             await binding.backend.call("turn/start", {
               threadId: binding.backend.thread,
-              input: blocks.map((b) => ({
-                type: "text",
-                text:
-                  b.type === "text"
-                    ? string(b.text)
-                    : `${optionalString(b.name)}: ${string(b.uri)}`,
-              })),
-              model: binding.backend.model,
-              effort: binding.backend.effort,
+              input,
+              ...(binding.record.provider === "codex" ? {} : { _kiteRequireIdle: true }),
+              ...selectModel(
+                binding.backend,
+                binding.record.acp_selection ?? {},
+                {},
+                binding.record.provider === "codex",
+              ),
             }),
           ).turn,
         );
@@ -606,6 +559,7 @@ export class KiteAcp implements AcpConnection {
       return await result;
     } finally {
       binding.prompting = false;
+      unlock?.();
     }
   }
   async receive(message: RpcMessage): Promise<void> {
@@ -639,6 +593,7 @@ export class KiteAcp implements AcpConnection {
   }
   close(): void {
     this.closed = true;
+    this.disconnect.abort();
     for (const binding of this.bindings.values()) {
       binding.backend.close();
       if (binding.turn) {

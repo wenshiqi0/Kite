@@ -11,6 +11,41 @@ pub struct Subagent {
     pub updated_ms: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssociatedSession {
+    pub host_id: String,
+    pub session_id: String,
+    pub machine: String,
+    pub provider: String,
+    pub connected: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssociatedTask {
+    pub activity: Subagent,
+    pub session: Option<AssociatedSession>,
+}
+
+impl From<Subagent> for AssociatedTask {
+    fn from(activity: Subagent) -> Self {
+        Self {
+            activity,
+            session: None,
+        }
+    }
+}
+
+pub fn delegated_status(connected: bool, archived: bool, status: &str) -> &str {
+    if !connected {
+        return "offline";
+    }
+    match status {
+        "saved" if archived => "released",
+        "saved" | "" => "unknown",
+        value => value,
+    }
+}
+
 impl From<kite_herdr::api::Subagent> for Subagent {
     fn from(value: kite_herdr::api::Subagent) -> Self {
         let status = match value.runtime_status.as_str() {
