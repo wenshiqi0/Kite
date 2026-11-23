@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { array, object, optionalString, parse } from "@kite/protocol";
+import { array, type ObjectValue, object, optionalString, parse } from "@kite/protocol";
 import { ACP_MESSAGE_LIMIT } from "@kite/protocol/acp";
 import { lines } from "@kite/runtime";
 import { serveAcp } from "@kite/runtime/acp";
@@ -20,6 +20,7 @@ function fixture(hold = false) {
   const tokenFile = join(root, "token"),
     token = acpToken(tokenFile, true),
     calls: string[] = [],
+    created: ObjectValue[] = [],
     permissions: boolean[] = [];
   const server = serveAcp({
     port: 0,
@@ -36,6 +37,7 @@ function fixture(hold = false) {
               return;
             }
             const p = object(message.params ?? {});
+            if (message.method === "session/new") created.push(p);
             if (message.method === "session/prompt") {
               send({
                 method: "session/update",
@@ -69,7 +71,7 @@ function fixture(hold = false) {
                 id: message.id,
                 result:
                   message.method === "initialize"
-                    ? { protocolVersion: 1 }
+                    ? { protocolVersion: 1, _meta: { kite: { controlPlaneVersion: 2 } } }
                     : message.method === "session/prompt"
                       ? { stopReason: "end_turn" }
                       : { sessionId: optionalString(p.sessionId) || "remote-session" },
@@ -98,8 +100,122 @@ function fixture(hold = false) {
   const peer = { url: `ws://127.0.0.1:${server.port}/acp`, tokenFile };
   const peers = join(root, "peers.json");
   writeFileSync(peers, JSON.stringify({ peers: { mini: peer } }), { mode: 0o600 });
-  return { root, peer, peers, calls, permissions };
+  return { root, peer, peers, calls, created, permissions };
 }
+
+function callerFixture(root: string) {
+  const codexThread = "cb495004-826c-4603-b99a-b2fe50ecd267";
+  const managedThread = "cced3f7b-e252-4bb4-b641-3f57f8a7ccd2";
+  const codex = { machine: "caller-host", sessionId: "a".repeat(32), provider: "codex" };
+  const managed = { machine: codex.machine, sessionId: "b".repeat(32), provider: "antigravity" };
+  const catalog = join(root, ".local/share/kite");
+  mkdirSync(catalog, { recursive: true });
+  writeFileSync(
+    join(catalog, "sessions.json"),
+    JSON.stringify({
+      version: 1,
+      revision: 1,
+      sessions: [
+        {
+          id: codex.sessionId,
+          title: "Owned Codex fixture",
+          provider: codex.provider,
+          reference: {
+            source: "herdr:codex",
+            agent: codex.provider,
+            kind: "id",
+            value: codexThread,
+          },
+        },
+        {
+          id: managed.sessionId,
+          title: "Owned managed fixture",
+          provider: managed.provider,
+          reference: {
+            source: "kite:harness",
+            agent: managed.provider,
+            kind: "id",
+            value: managedThread,
+          },
+        },
+      ],
+    }),
+    { mode: 0o600 },
+  );
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, KITE_ACP_MACHINE: codex.machine };
+  delete env.CODEX_THREAD_ID;
+  delete env.KITE_SESSION_ID;
+  return { env, codexThread, codex, managed };
+}
+
+test("ACP spawn binds the verified caller and requires explicit standalone intent", async () => {
+  const f = fixture();
+  const caller = callerFixture(f.root);
+  const spawn = async (extra: NodeJS.ProcessEnv, ...args: string[]) => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        resolve("packages/host/src/cli.ts"),
+        "acp",
+        "spawn",
+        "--peers",
+        f.peers,
+        "--peer",
+        "mini",
+        "--cwd",
+        f.root,
+        "--provider",
+        "codex",
+        ...args,
+      ],
+      { env: { ...caller.env, ...extra }, stdin: "ignore", stdout: "ignore", stderr: "pipe" },
+    );
+    const [code, error] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    return { code, error };
+  };
+  const latest = () => object(object(object(f.created.at(-1)?._meta).kite).delegation);
+  const codex = { CODEX_THREAD_ID: caller.codexThread };
+  expect(await spawn(codex)).toMatchObject({ code: 0 });
+  expect(latest().parent).toEqual(caller.codex);
+  expect(await spawn({ ...codex, KITE_SESSION_ID: caller.managed.sessionId })).toMatchObject({
+    code: 0,
+  });
+  expect(latest().parent).toEqual(caller.managed);
+  expect(
+    (
+      await spawn(
+        codex,
+        "--parent-machine",
+        "wrong-host",
+        "--parent-session",
+        caller.codex.sessionId,
+      )
+    ).error,
+  ).toContain("Explicit parent does not match");
+  expect((await spawn({ ...codex, KITE_SESSION_ID: "c".repeat(32) })).error).toContain(
+    "Could not verify the active Kite parent",
+  );
+  expect((await spawn({})).error).toContain("Kite caller context unavailable");
+  expect(
+    (
+      await spawn(
+        {},
+        "--standalone",
+        "--parent-machine",
+        "external-host",
+        "--parent-session",
+        "external-context",
+      )
+    ).error,
+  ).toContain("standalone and parent are mutually exclusive");
+  expect(f.created).toHaveLength(2);
+  expect(await spawn({}, "--standalone")).toMatchObject({ code: 0 });
+  expect(latest().parent).toBeUndefined();
+  expect(
+    await spawn({}, "--parent-machine", "external-host", "--parent-session", "external-context"),
+  ).toMatchObject({ code: 0 });
+  expect(latest().parent).toEqual({ machine: "external-host", sessionId: "external-context" });
+});
 test("task client returns remote progress and defaults to rejecting unapproved commands", async () => {
   const f = fixture();
   const result = object(await acpTask({ peer: f.peer, cwd: f.root, prompt: "typecheck" }));
@@ -222,6 +338,8 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
   const tokenFile = join(dir, "token"),
     token = acpToken(tokenFile, true);
   const id = "b".repeat(32);
+  const caller = callerFixture(dir);
+  const created: ObjectValue[] = [];
   const waits: (() => void)[] = [];
   let waiting = 0,
     closed = 0;
@@ -242,6 +360,10 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
               });
             if (message.method === "_kite/session/status" || message.method === "session/cancel")
               send({ id: requestId, result: { sessionId: id, state: "working" } });
+            if (message.method === "session/new") {
+              created.push(object(message.params));
+              send({ id: requestId, result: { sessionId: id } });
+            }
             if (message.method === "_kite/session/wait_any") {
               waiting++;
               waitingHere = true;
@@ -272,7 +394,12 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
   });
   const child = Bun.spawn(
     [process.execPath, resolve("packages/host/src/cli.ts"), "acp", "mcp", "--peers", peers],
-    { stdin: "pipe", stdout: "pipe", stderr: "ignore" },
+    {
+      env: { ...caller.env, KITE_SESSION_ID: caller.managed.sessionId },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "ignore",
+    },
   );
   const responses = new Map<number, unknown>();
   const output = (async () => {
@@ -318,6 +445,12 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
     expect(tools.find((tool) => tool.name === "kite_remote_task")?.description).toContain(
       "Deprecated. Reserved for existing automation.",
     );
+    call(10, "kite_session_spawn", { peer: "a", cwd: dir, provider: "codex" });
+    await until(() => responses.has(10));
+    expect(object(responses.get(10)).isError).toBe(false);
+    expect(created[0]).toMatchObject({
+      _meta: { kite: { delegation: { parent: caller.managed } } },
+    });
     const targets = [
       { peer: "a", sessionId: id },
       { peer: "b", sessionId: id },

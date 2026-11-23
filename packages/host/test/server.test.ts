@@ -47,6 +47,8 @@ const env = (home: string, extra: NodeJS.ProcessEnv = {}) => ({
   KITE_HOST_BACKEND_PATH: cli,
   HOME: home,
   CODEX_HOME: join(home, ".codex"),
+  CODEX_THREAD_ID: undefined,
+  KITE_SESSION_ID: undefined,
   KITE_AGENT_RESOURCE_CONTROL: "0",
   KITE_ENABLE_DSH: "0",
   KITE_ENABLE_PLY: "0",
@@ -1526,7 +1528,14 @@ test("isolated network ACP resumes one native turn, journals human approval and 
         interaction: expect.objectContaining({ kind: "approval", command: "df -h\nfree -h", cwd }),
       }),
     );
-    const conflict = await control("spawn", ["--cwd", cwd, "--provider", "ply", "--write-lock"]);
+    const conflict = await control("spawn", [
+      "--cwd",
+      cwd,
+      "--provider",
+      "ply",
+      "--write-lock",
+      "--standalone",
+    ]);
     expect(conflict.code).toBe(1);
     expect(conflict.stderr.toString()).toContain("workspace");
 
@@ -1553,11 +1562,13 @@ test("isolated network ACP resumes one native turn, journals human approval and 
     expect(array(read.tools)).toContainEqual(
       expect.objectContaining({ command: "df -h\nfree -h", output: "owned result", exitCode: 0 }),
     );
-    expect(
-      readFileSync(trace, "utf8")
-        .split("\n")
-        .filter((line) => line.includes('"event":"spawn"')),
-    ).toHaveLength(1);
+    const nativeStarts = readFileSync(trace, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => object(parse(line)))
+      .filter((event) => event.event === "spawn");
+    expect(nativeStarts).toHaveLength(1);
+    expect(nativeStarts[0]?.kiteSessionId).toBe(id);
 
     // Removing the owned gateway projection exercises recovery from the native turn markers.
     rmSync(join(home, ".local/share/kite/acp", `${id}-turns.json`));

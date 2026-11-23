@@ -108,7 +108,7 @@ async function request(method: string, p: ObjectValue, rid: string | number): Pr
     if (record)
       appendFileSync(
         record,
-        `${JSON.stringify({ event: "spawn", fiber: { id: call, plugin: "bash", input: { owned: true } } })}\n`,
+        `${JSON.stringify({ event: "spawn", kiteSessionId: process.env.KITE_SESSION_ID, fiber: { id: call, plugin: "bash", input: { owned: true } } })}\n`,
       );
     send({
       method: "session/update",

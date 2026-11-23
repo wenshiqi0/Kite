@@ -115,11 +115,13 @@ test.skipIf(process.platform !== "linux")(
       process.env.HERDR_PANE_ID = "owned-pane";
       process.env.NOTIFY_SOCKET = "owned-notify";
       process.env.CODEX_THREAD_ID = "owned-thread";
+      process.env.KITE_SESSION_ID = "owned-kite-session";
       process.env.CHROME_USER_DATA_DIR = "/owned/profile";
       const env = sessionEnvironment();
       expect(env.HERDR_PANE_ID).toBeUndefined();
       expect(env.NOTIFY_SOCKET).toBeUndefined();
       expect(env.CODEX_THREAD_ID).toBeUndefined();
+      expect(env.KITE_SESSION_ID).toBeUndefined();
       expect(env.CHROME_USER_DATA_DIR).toBeUndefined();
     } finally {
       for (const k of Object.keys(process.env)) if (!(k in previous)) delete process.env[k];
