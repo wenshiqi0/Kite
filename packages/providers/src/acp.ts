@@ -23,7 +23,7 @@ import type { AcpConnection } from "@kite/runtime/acp";
 import { optionalObject } from "@kite/runtime/socket";
 import { type AcpBackend, connectBackend, selectModel, verifyRevision } from "./acp-backend";
 import { AcpControl } from "./acp-control";
-import { type OwnerStatus, ownerPresent } from "./acp-owner";
+import { acpTurnSettings, type OwnerStatus, ownerPresent } from "./acp-owner";
 import {
   catalogRead,
   catalogRoot,
@@ -514,6 +514,7 @@ export class KiteAcp implements AcpConnection {
         check(turns[0]?.status !== "inProgress", "remote session already has an active turn");
       }
       if (binding.cancelRequested) return { stopReason: "cancelled" };
+      const settings = acpTurnSettings(binding.record.provider, binding.backend.settings, "strict");
       const { promise: result, resolve, reject } = Promise.withResolvers<Json>();
       const pending: PendingTurn = {
         resolve,
@@ -531,6 +532,7 @@ export class KiteAcp implements AcpConnection {
               threadId: binding.backend.thread,
               input,
               ...(binding.record.provider === "codex" ? {} : { _kiteRequireIdle: true }),
+              ...(settings ? { sessionSettings: settings } : {}),
               ...selectModel(
                 binding.backend,
                 binding.record.acp_selection ?? {},

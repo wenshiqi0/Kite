@@ -255,6 +255,8 @@ export interface NativeAdapter {
   currentEffort: string;
   settings?: SessionSetting[];
   configure?(values: Record<string, string>): Promise<void>;
+  account?(): Promise<ObjectValue>;
+  rateLimits?(): Promise<ObjectValue>;
   alive(): boolean;
   prepare(): void;
   run(blocks: NativeBlock[], model: string, effort: string): Promise<string | undefined>;

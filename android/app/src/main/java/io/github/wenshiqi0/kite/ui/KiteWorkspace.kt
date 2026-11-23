@@ -617,7 +617,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     if(noticeCenter&&!hideChrome)AgentNotificationCenter(vm,onOpen={id->noticeCenter=false;vm.openAgentNotification(id)},onClose={noticeCenter=false})
     if(modelSettings&&providerInfo?.models==true&&!hideChrome)AlertDialog(onDismissRequest={modelSettings=false},title={Text(stringResource(R.string.chat_model_settings))},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
         ComposerSettings(vm,state?.agents?.find{it.id==state.selectedAgent},state?.composer,providerInfo?.models == true)
-        if(providerInfo?.usage == true) AccountUsageAccess(state?.composer?.usage){modelSettings=false;usageDialog=true;vm.refreshUsage()}
+        if(providerInfo?.usage == true) AccountUsageAccess(state?.composer?.usage, state?.composer?.model){modelSettings=false;usageDialog=true;vm.refreshUsage()}
     }},confirmButton={TextButton(onClick={modelSettings=false}){Text(stringResource(R.string.dismiss))}})
     if(usageDialog&&providerInfo?.usage==true&&!hideChrome)AccountUsageDialog(state?.composer?.usage,currentSession?.provider?:state?.agents?.find{it.id==state.selectedAgent}?.agent,state?.connection==ConnectionStatus.CONNECTED&&state.composer.ready,vm::refreshUsage){usageDialog=false}
     if ((terminal || diagnostics) && !hideChrome) AlertDialog(onDismissRequest = { terminal = false; diagnostics = false }, title = { Text(stringResource(if (terminal) R.string.terminal_output else R.string.connection_diagnostics)) }, text = {

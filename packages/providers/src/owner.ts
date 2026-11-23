@@ -316,6 +316,16 @@ export class Owner {
     }
   }
   request(method: string, p: ObjectValue): Promise<Json> {
+    if (method === "account/read") {
+      return this.native?.account
+        ? this.native.account()
+        : Promise.resolve({ account: null, requiresOpenaiAuth: false });
+    }
+    if (method === "account/rateLimits/read") {
+      return this.native?.rateLimits
+        ? this.native.rateLimits()
+        : Promise.reject(new Error("unsupported harness operation"));
+    }
     return this.serialize(() =>
       ["initialize", "turn/start"].includes(method)
         ? locked(join(this.path, "owner.lock"), () => this.requestLocked(method, p))

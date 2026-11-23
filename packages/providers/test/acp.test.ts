@@ -28,6 +28,13 @@ const until = async (check: () => boolean) => {
   }
   throw new Error("ACP condition timed out");
 };
+const antigravitySettings = [
+  {
+    id: "tool_permission",
+    currentValue: "turbo",
+    options: [{ value: "default" }, { value: "turbo" }],
+  },
+];
 function fixture() {
   const root = directory(),
     records: SessionRecord[] = [
@@ -85,6 +92,7 @@ function fixture() {
           thread: `thread-${record.id}`,
           model: "model",
           effort: "",
+          ...(record.provider === "antigravity" ? { settings: antigravitySettings } : {}),
           async call(method, params) {
             owner.calls.push([method, params]);
             if (method === "thread/read") {
@@ -299,6 +307,27 @@ test("disconnect detaches the transport without cancelling or replaying its remo
   expect(owner?.calls.some(([method]) => method === "turn/interrupt")).toBe(false);
 });
 
+test("legacy ACP prompts retain the strict approval path with an Antigravity Turbo owner", async () => {
+  const f = fixture();
+  const record = f.records[0];
+  if (!record) throw new Error("missing fixture record");
+  record.provider = "antigravity";
+  await f.initialize();
+  await f.resume(record.id);
+  const pending = f.agent.receive({
+    id: 9,
+    method: "session/prompt",
+    params: { sessionId: record.id, prompt: [{ type: "text", text: "owned" }] },
+  });
+  const owner = f.owners.get(record.id);
+  await until(() => owner?.active === true);
+  expect(owner?.calls.find(([method]) => method === "turn/start")?.[1]).toMatchObject({
+    sessionSettings: { tool_permission: "default" },
+  });
+  f.agent.close();
+  await pending;
+});
+
 function controlFixture() {
   const root = directory();
   const records: SessionRecord[] = [];
@@ -314,7 +343,8 @@ function controlFixture() {
     repository: {
       list: async () => records,
       async create(provider, cwd, title, delegation, selection) {
-        if (provider !== "codex" && provider !== "ply") throw new Error("unexpected provider");
+        if (provider !== "codex" && provider !== "ply" && provider !== "antigravity")
+          throw new Error("unexpected provider");
         const row: SessionRecord = {
           id: crypto.randomUUID().replaceAll("-", ""),
           provider,
@@ -355,6 +385,7 @@ function controlFixture() {
               ],
             }
           : {}),
+        ...(record.provider === "antigravity" ? { settings: antigravitySettings } : {}),
         models: [
           {
             model: "fixture",
@@ -412,6 +443,25 @@ function controlFixture() {
   const prompt = [{ type: "text", text: "owned turn" }];
   return { root, records, runs, finish, client, prompt };
 }
+
+test("v2 pins the manual approval path for strict and human policies on Antigravity", async () => {
+  const f = controlFixture(),
+    client = await f.client();
+  const child = await client.call("session/new", {
+    cwd: f.root,
+    mcpServers: [],
+    _meta: { kite: { provider: "antigravity", controlPlaneVersion: 2 } },
+  });
+  const sessionId = string(child.sessionId);
+  for (const policy of ["strict", "human_in_the_loop"]) {
+    await client.call("_kite/session/submit", { sessionId, prompt: f.prompt, policy });
+    expect(f.runs.get(sessionId)?.params).toMatchObject({
+      sessionSettings: { tool_permission: "default" },
+    });
+    f.finish(sessionId);
+  }
+  client.close();
+});
 
 test("v2 validates model and service tier, exposes question transitions and bounds encoded readback", async () => {
   const f = controlFixture(),

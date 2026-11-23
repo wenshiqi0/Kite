@@ -8,15 +8,18 @@ import {
   type ObjectValue,
   object,
   optionalString,
+  parse,
   type SessionSetting,
   string,
   UUID,
 } from "@kite/protocol";
+import { run } from "@kite/runtime";
 import { optionalObject } from "@kite/runtime/socket";
 import { permissionValues } from "../permissions";
 import { AcpAdapter } from "./acp";
 
 const SESSION_LIST_TIMEOUT_MS = 12_000;
+const USAGE_TIMEOUT_MS = 20_000;
 const SKIP_PERMISSIONS = "--dangerously-skip-permissions";
 
 function permissionCommand(command: string[], turbo: boolean): string[] {
@@ -24,6 +27,145 @@ function permissionCommand(command: string[], turbo: boolean): string[] {
     ...command.filter((arg) => arg !== SKIP_PERMISSIONS),
     ...(turbo ? [SKIP_PERMISSIONS] : []),
   ];
+}
+
+function usageCommand(command: string[]): string[] {
+  return [
+    ...command.filter((arg) => arg !== "acp" && arg !== SKIP_PERMISSIONS),
+    "-p",
+    "/usage",
+    "--output-format",
+    "json",
+  ];
+}
+
+function windowDurationMins(window: string): number | undefined {
+  const value = window.trim().toLowerCase();
+  if (value === "weekly") return 7 * 24 * 60;
+  if (value === "daily") return 24 * 60;
+  const hours = /^(\d+)h$/.exec(value);
+  if (hours) return Number(hours[1]) * 60;
+  const days = /^(\d+)d$/.exec(value);
+  if (days) return Number(days[1]) * 24 * 60;
+  const minutes = /^(\d+)m$/.exec(value);
+  if (minutes) return Number(minutes[1]);
+  return undefined;
+}
+
+function resetSeconds(resetTime: string): number | undefined {
+  if (!resetTime) return undefined;
+  const ms = Date.parse(resetTime);
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  return Math.floor(ms / 1000);
+}
+
+function groupId(name: string, bucketIds: string[]): string {
+  for (const raw of bucketIds) {
+    const trimmed = raw.replace(/-(?:weekly|daily|\d+[hdm])$/i, "").trim();
+    if (trimmed) return trimmed;
+  }
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "antigravity";
+}
+
+function unavailableReason(message: string): "unsupportedAuth" | "noAccount" | undefined {
+  if (/gemini api key|not available with/i.test(message)) return "unsupportedAuth";
+  if (/not logged in|authentication required|sign in|unauthenticated/i.test(message))
+    return "noAccount";
+  return undefined;
+}
+
+function decodeUsageResponse(stdout: string, stderr: string, code: number): ObjectValue {
+  const trimmed = stdout.trim();
+  let payload: ObjectValue | undefined;
+  if (trimmed) {
+    try {
+      payload = object(parse(trimmed));
+    } catch {
+      /* handled below */
+    }
+  }
+  const errorText = optionalString(payload?.error) || stderr.trim();
+  if (code !== 0 || payload?.status === "ERROR") {
+    const unavailable = unavailableReason(errorText);
+    if (unavailable) return { rateLimits: {}, unavailable };
+    throw new Error("Antigravity quota read failed");
+  }
+  check(payload && payload.status === "SUCCESS", "invalid Antigravity quota response");
+  const command = object(payload.command);
+  check(command.name === "usage", "unexpected Antigravity quota command");
+  const data = object(command.data);
+  const groups = array(data.groups ?? []).map(object);
+  check(groups.length <= 64, "Antigravity quota groups exceed limit");
+  const buckets: ObjectValue[] = [];
+  for (const group of groups) {
+    const name = optionalString(group.name).trim();
+    const rawBuckets = array(group.buckets ?? []).map(object);
+    check(rawBuckets.length <= 32, "Antigravity quota buckets exceed limit");
+    const parsed = rawBuckets
+      .map((row) => {
+        const id = optionalString(row.id).trim();
+        const label = optionalString(row.name).trim();
+        const window = optionalString(row.window).trim();
+        const resetTime = optionalString(row.reset_time).trim();
+        let fraction: number;
+        if (typeof row.remaining_fraction === "number") {
+          fraction = row.remaining_fraction;
+        } else if (row.remaining_fraction === undefined && (window || resetTime || id)) {
+          // Go json omitempty drops remaining_fraction when the quota is exhausted (0).
+          fraction = 0;
+        } else {
+          throw new Error("invalid Antigravity quota fraction");
+        }
+        check(
+          Number.isFinite(fraction) && fraction >= 0 && fraction <= 1.001,
+          "invalid Antigravity quota fraction",
+        );
+        const remaining = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+        const duration = windowDurationMins(window);
+        const resetsAt = resetSeconds(resetTime);
+        return {
+          id,
+          label,
+          exhausted: remaining === 0,
+          duration: duration ?? Number.MAX_SAFE_INTEGER,
+          window: {
+            usedPercent: 100 - remaining,
+            ...(duration === undefined ? {} : { windowDurationMins: duration }),
+            ...(resetsAt === undefined ? {} : { resetsAt }),
+          },
+        };
+      })
+      .sort((a, b) => a.duration - b.duration);
+    if (parsed.length === 0) continue;
+    const baseId = groupId(
+      name,
+      parsed.map((item) => item.id),
+    );
+    for (let index = 0; index < parsed.length; index += 2) {
+      const slice = parsed.slice(index, index + 2);
+      const first = slice[0];
+      const second = slice[1];
+      if (!first) continue;
+      const limitId = index === 0 ? baseId : `${baseId}-${index / 2 + 1}`;
+      const limitName = name || first.label || limitId;
+      const reached = slice.some((item) => item.exhausted);
+      buckets.push({
+        limitId,
+        limitName,
+        primary: first.window,
+        ...(second ? { secondary: second.window } : {}),
+        ...(reached ? { rateLimitReachedType: "quota_exhausted" } : {}),
+      });
+    }
+  }
+  return {
+    rateLimits: buckets[0] ?? {},
+    buckets,
+  };
 }
 
 function selection(row: ObjectValue): SessionSetting {
@@ -86,6 +228,7 @@ export class Antigravity extends AcpAdapter {
   protected override readonly splitMessagesAtTools = true;
   private hasHistory = false;
   private turbo: boolean;
+  private usageRequest: Promise<ObjectValue> | undefined;
 
   constructor(options: NativeOptions) {
     const saved = options.saved === undefined ? undefined : object(options.saved);
@@ -94,8 +237,11 @@ export class Antigravity extends AcpAdapter {
       policy === undefined || policy === "default" || policy === "turbo",
       "invalid tool permissions",
     );
-    const turbo =
-      policy === undefined ? options.command.includes(SKIP_PERMISSIONS) : policy === "turbo";
+    const turbo = options.inspect
+      ? options.command.includes(SKIP_PERMISSIONS)
+      : policy === undefined
+        ? true
+        : policy === "turbo";
     super({ ...options, command: permissionCommand(options.command, turbo) });
     this.turbo = turbo;
   }
@@ -198,11 +344,30 @@ export class Antigravity extends AcpAdapter {
         name: "Tool permissions",
         currentValue: this.turbo ? "turbo" : "default",
         options: [
-          { value: "default", name: "Use host settings" },
           { value: "turbo", name: "Turbo (auto-approve tools)" },
+          { value: "default", name: "Use host settings" },
         ],
       },
     ];
+  }
+  async account(): Promise<ObjectValue> {
+    return { account: { type: "antigravity" }, requiresOpenaiAuth: false };
+  }
+  async rateLimits(): Promise<ObjectValue> {
+    if (!this.usageRequest) {
+      this.usageRequest = run(usageCommand(this.options.command), {
+        cwd: this.options.cwd,
+        timeout: USAGE_TIMEOUT_MS,
+        allowFailure: true,
+      })
+        .then(({ stdout, stderr, code }) =>
+          decodeUsageResponse(stdout.toString(), stderr.toString(), code),
+        )
+        .finally(() => {
+          this.usageRequest = undefined;
+        });
+    }
+    return this.usageRequest;
   }
   override async configure(values: Record<string, string>): Promise<void> {
     const selected = permissionValues(values, this.settings);

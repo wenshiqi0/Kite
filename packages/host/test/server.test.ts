@@ -996,6 +996,7 @@ test("Antigravity discovery uses native authentication and one owner restores th
     managed_chat: true,
     models: true,
     attachments: true,
+    usage: true,
     release: true,
     terminal: false,
   });
@@ -1039,12 +1040,15 @@ test("Antigravity discovery uses native authentication and one owner restores th
       env(home, signedIn),
     );
   let rpc = client();
-  const prompt = (text: string) =>
+  const prompt = (text: string, toolPermission?: string) =>
     rpc.call("turn/start", {
       threadId: thread,
       model: "gemini-flash",
       effort: "high",
-      sessionSettings: { mode: "plan" },
+      sessionSettings: {
+        mode: "plan",
+        ...(toolPermission ? { tool_permission: toolPermission } : {}),
+      },
       input: [{ type: "text", text }],
     });
   try {
@@ -1060,9 +1064,9 @@ test("Antigravity discovery uses native authentication and one owner restores th
     const config = object(object(await rpc.call("config/read", {})).config);
     expect(config.session_settings).toMatchObject([
       { id: "mode", currentValue: "default" },
-      { id: "tool_permission", currentValue: "default" },
+      { id: "tool_permission", currentValue: "turbo" },
     ]);
-    await prompt("approve");
+    await prompt("approve", "default");
     await waitStatus(path, "blocked");
     for (let i = 0; !permission && i < 100; i++) await sleep(20);
     check(permission, "permission not delivered");
@@ -1071,7 +1075,7 @@ test("Antigravity discovery uses native authentication and one owner restores th
     rpc.write({ id: permissionId, result: { decision: "decline" } });
     await waitStatus(path, "done");
     const saved = object(parse(readFileSync(join(path, "native.json"), "utf8")));
-    expect(saved).toMatchObject({ hasHistory: true, restorable: true });
+    expect(saved).toMatchObject({ hasHistory: true, restorable: true, toolPermission: "default" });
     expect(saved.sessionId).toBe(readFileSync(join(home, "agy-fixture-session"), "utf8"));
     const lifecycle = await command(
       home,
@@ -1118,13 +1122,13 @@ test("Antigravity discovery uses native authentication and one owner restores th
     );
     const methods = readFileSync(trace, "utf8").trim().split("\n");
     expect(methods.filter((method) => method === "session/new")).toHaveLength(1);
-    expect(methods.filter((method) => method === "session/resume")).toHaveLength(1);
+    expect(methods.filter((method) => method === "session/resume")).toHaveLength(2);
   } finally {
     rpc.close();
     if (startTicks(pid)) process.kill(pid, "SIGTERM");
   }
 }, 15000);
-test("Antigravity Turbo preserves context, queued permissions and cold-start policy", async () => {
+test("Antigravity Turbo defaults on and preserves context, queued permissions and cold-start policy", async () => {
   const home = fresh(),
     id = "b".repeat(32);
   const configured = {
@@ -1184,8 +1188,9 @@ test("Antigravity Turbo preserves context, queued permissions and cold-start pol
     await rpc.call("initialize", {});
     await expect(prompt("invalid")).rejects.toThrow();
     expect(launches()).toHaveLength(1);
+    expect(launches()[0]?.turbo).toBe(true);
     const nativeId = saved().sessionId;
-    await prompt("turbo");
+    await prompt();
     await waitStatus(path, "done");
     expect(permissions).toHaveLength(0);
     expect(saved()).toMatchObject({
@@ -1194,17 +1199,17 @@ test("Antigravity Turbo preserves context, queued permissions and cold-start pol
       restorable: true,
     });
     expect(Number(state().pid)).toBe(pid);
-    expect(launches().map((launch) => launch.turbo)).toEqual([false, true]);
-    expect(startTicks(Number(launches()[0]?.pid))).toBeUndefined();
+    expect(launches().map((launch) => launch.turbo)).toEqual([true]);
 
     await prompt("default");
     await waitStatus(path, "blocked");
     for (let i = 0; !permissions.length && i < 100; i++) await sleep(20);
     expect(permissions).toHaveLength(1);
+    expect(startTicks(Number(launches()[0]?.pid))).toBeUndefined();
     // A queued Turbo turn must not approve the current turn's pending request.
     await prompt("turbo");
     expect(state().status).toBe("blocked");
-    expect(launches().map((launch) => launch.turbo)).toEqual([false, true, false]);
+    expect(launches().map((launch) => launch.turbo)).toEqual([true, false]);
     rpc.write({ id: permissions[0]?.id ?? null, result: { decision: "decline" } });
     await waitStatus(path, "done");
     expect(permissions).toHaveLength(1);
@@ -1228,10 +1233,10 @@ test("Antigravity Turbo preserves context, queued permissions and cold-start pol
     await waitStatus(path, "done");
     expect(permissions).toHaveLength(1);
     expect(saved().sessionId).toBe(nativeId);
-    expect(launches().map((launch) => launch.turbo)).toEqual([false, true, false, true, true]);
+    expect(launches().map((launch) => launch.turbo)).toEqual([true, false, true, true]);
     const methods = readFileSync(join(home, "agy-fixture-methods"), "utf8");
     expect(methods.match(/^session\/new$/gm)).toHaveLength(1);
-    expect(methods.match(/^session\/resume$/gm)).toHaveLength(4);
+    expect(methods.match(/^session\/resume$/gm)).toHaveLength(3);
     // Refuse to reopen a missing native context as a fresh, privileged session.
     rmSync(join(home, "agy-fixture-session"));
     await prompt("default");
@@ -1245,6 +1250,88 @@ test("Antigravity Turbo preserves context, queued permissions and cold-start pol
     rpc.close();
     if (startTicks(pid)) process.kill(pid, "SIGTERM");
   }
+}, 15000);
+test("Antigravity exposes read-only quota buckets and unavailable auth states", async () => {
+  const runCase = async (mode: string) => {
+    const home = fresh(),
+      id = "c".repeat(32);
+    const configured = {
+      KITE_ENABLE_ANTIGRAVITY: "1",
+      KITE_FIXTURE_AGY_SIGNED_IN: "1",
+      KITE_FIXTURE_AGY_USAGE_MODE: mode,
+      KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+        process.execPath,
+        resolve("packages/host/test/fixtures/antigravity.ts"),
+      ]),
+    };
+    expect(
+      (
+        await command(
+          home,
+          ["catalog-write"],
+          JSON.stringify({ revision: 0, sessions: [row(id, "antigravity")] }),
+        )
+      ).code,
+    ).toBe(0);
+    const opened = await command(
+      home,
+      ["session-open", "--id", id, "--herdr", "unused"],
+      undefined,
+      configured,
+    );
+    expect(opened.code, opened.stderr.toString()).toBe(0);
+    const thread = string(
+      object(object(object(parse(opened.stdout.toString())).agent).agent_session).value,
+    );
+    const path = join(home, "harnesses", thread);
+    const pid = Number(object(parse(readFileSync(join(path, "state.json"), "utf8"))).pid);
+    const rpc = new RpcProcess(
+      [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+      home,
+      () => {},
+      () => {},
+      env(home, configured),
+    );
+    try {
+      await rpc.call("initialize", {});
+      const account = object(await rpc.call("account/read", { refreshToken: false }));
+      expect(account).toMatchObject({
+        account: { type: "antigravity" },
+        requiresOpenaiAuth: false,
+      });
+      const limits = await rpc.call("account/rateLimits/read", {});
+      return object(limits);
+    } finally {
+      rpc.close();
+      if (startTicks(pid)) process.kill(pid, "SIGTERM");
+    }
+  };
+
+  const ready = await runCase("ready");
+  expect(ready.buckets).toEqual([
+    {
+      limitId: "gemini",
+      limitName: "Gemini Models",
+      primary: { usedPercent: 60, windowDurationMins: 300, resetsAt: 1795439714 },
+      secondary: { usedPercent: 18, windowDurationMins: 10080, resetsAt: 1796026514 },
+    },
+    {
+      limitId: "3p",
+      limitName: "Claude and GPT models",
+      primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1795456532 },
+      secondary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1796043332 },
+      rateLimitReachedType: "quota_exhausted",
+    },
+    {
+      limitId: "gemini-argon-wtu",
+      limitName: "Gemini 4 Argon",
+      primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1796043332 },
+    },
+  ]);
+
+  expect(await runCase("api_key")).toMatchObject({ unavailable: "unsupportedAuth" });
+  expect(await runCase("signed_out")).toMatchObject({ unavailable: "noAccount" });
+  await expect(runCase("fail")).rejects.toThrow();
 }, 15000);
 async function waitStatus(path: string, status: string): Promise<void> {
   for (let i = 0; i < 300; i++) {

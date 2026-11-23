@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   array,
   check,
+  type DelegationPolicy,
   type ObjectValue,
   object,
   optionalString,
@@ -201,25 +202,35 @@ export async function gitWorkspace(cwd: string, verifyLinked = false) {
   return { path, branch, linked };
 }
 
-export function requireAutoPermission(
+export function acpTurnSettings(
   provider: string,
   settings: ObjectValue[] | undefined,
-): ObjectValue {
-  const [id, value] =
+  policy: DelegationPolicy,
+): ObjectValue | undefined {
+  const isolated = policy === "isolated_auto";
+  const mode =
     provider === "antigravity"
-      ? ["tool_permission", "turbo"]
+      ? (["tool_permission", "default", "turbo"] as const)
       : provider === "ply"
-        ? ["approval_mode", "bypass"]
-        : ["", ""];
-  // Only reuse an automatic mode already enabled by the executing provider.
-  // An advertised choice on its own is not authorization to raise privileges.
+        ? (["approval_mode", "ask", "bypass"] as const)
+        : undefined;
+  if (!mode) {
+    check(!isolated, "provider has not enabled an isolated automatic permission mode");
+    return;
+  }
+  const [id, manual, automatic] = mode;
   const setting = settings?.find((entry) => entry.id === id);
+  // Ply without a permission selector uses its existing ask-mode protocol.
+  if (!isolated && provider === "ply" && !setting) return;
+  const value = isolated ? automatic : manual;
   check(
-    id &&
-      setting?.currentValue === value &&
+    setting &&
+      (!isolated || setting.currentValue === value) &&
       Array.isArray(setting.options) &&
       setting.options.some((option) => optionalObject(option).value === value),
-    "provider has not enabled an isolated automatic permission mode",
+    isolated
+      ? "provider has not enabled an isolated automatic permission mode"
+      : "provider permission routing is unavailable",
   );
   return { [id]: value };
 }

@@ -41,11 +41,11 @@ import {
 } from "./acp-backend";
 import { historyTurn } from "./acp-history";
 import {
+  acpTurnSettings,
   gitWorkspace,
   inspectOwner,
   isActive,
   type OwnerStatus,
-  requireAutoPermission,
   terminalState,
 } from "./acp-owner";
 import {
@@ -331,7 +331,7 @@ export class AcpControl {
       record = await this.repo.create(provider, cwd, title, delegation, defaults);
       backend = await this.connect(record);
       const selected = selectModel(backend, defaults, {}, provider === "codex");
-      if (delegation.policy === "isolated_auto") requireAutoPermission(provider, backend.settings);
+      acpTurnSettings(provider, backend.settings, delegation.policy);
       await this.repo.configure?.(record.id, selectionForDisk(selected));
       return {
         sessionId: record.id,
@@ -690,10 +690,7 @@ export class AcpControl {
         requested,
         record.provider === "codex",
       );
-      const settings =
-        policy === "isolated_auto"
-          ? requireAutoPermission(record.provider, backend.settings)
-          : undefined;
+      const settings = acpTurnSettings(record.provider, backend.settings, policy);
       check(!signal.aborted, "connection closed before submitting");
       check(!current.cancelRequested, "submission cancelled before delivery");
       // Serialize against the actual owner, including clients outside the gateway.
