@@ -21,7 +21,7 @@ export abstract class AcpAdapter implements NativeAdapter {
   models: Model[] = [];
   currentModel = "";
   currentEffort = "";
-  readonly rpc: RpcProcess;
+  rpc: RpcProcess;
   protected session = "";
   protected config: ObjectValue[] = [];
   protected readonly splitMessagesAtTools: boolean = false;
@@ -36,12 +36,29 @@ export abstract class AcpAdapter implements NativeAdapter {
     protected options: NativeOptions,
     private promptTimeout = 3600000,
   ) {
-    this.rpc = new RpcProcess(
-      options.command,
-      options.cwd,
+    this.rpc = this.connect(options.command);
+  }
+  private connect(command: string[]): RpcProcess {
+    return new RpcProcess(
+      command,
+      this.options.cwd,
       (message) => this.update(message),
       (message) => this.request(message),
     );
+  }
+  protected async restart(command: string[]): Promise<void> {
+    check(!this.prompting, "ACP session is busy");
+    const previous = this.rpc;
+    previous.close();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("ACP runtime did not stop")), 5000);
+      void previous.child.exited.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    this.checkCancellation();
+    this.rpc = this.connect(command);
   }
   abstract run(blocks: NativeBlock[], model: string, effort: string): Promise<undefined>;
 
