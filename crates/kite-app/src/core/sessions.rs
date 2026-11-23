@@ -95,16 +95,43 @@ pub(super) fn views(
 }
 
 fn sort_views(result: &mut [ConversationSession], sort: SessionSort) {
-    result.sort_by(|a, b| {
-        (match sort {
-            SessionSort::Newest => b.created_ms.cmp(&a.created_ms),
-            SessionSort::Oldest => a.created_ms.cmp(&b.created_ms),
-            SessionSort::RecentActivity => b.updated_ms.cmp(&a.updated_ms),
-            SessionSort::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+    result.sort_by(|a, b| compare_sessions(a, b, sort));
+}
+
+fn compare_sessions(
+    a: &ConversationSession,
+    b: &ConversationSession,
+    sort: SessionSort,
+) -> std::cmp::Ordering {
+    (match sort {
+        SessionSort::Newest => b.created_ms.cmp(&a.created_ms),
+        SessionSort::Oldest => a.created_ms.cmp(&b.created_ms),
+        SessionSort::RecentActivity => b.updated_ms.cmp(&a.updated_ms),
+        SessionSort::Title => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+    })
+    .then_with(|| b.created_ms.cmp(&a.created_ms))
+    .then_with(|| a.id.cmp(&b.id))
+}
+
+pub(super) fn workspace_order(
+    workspaces: &[HostConnection],
+    sort: SessionSort,
+) -> Vec<ConversationKey> {
+    let mut rows: Vec<_> = workspaces
+        .iter()
+        .flat_map(|workspace| {
+            workspace
+                .sessions
+                .iter()
+                .map(|session| (&workspace.host_id, session))
         })
-        .then_with(|| b.created_ms.cmp(&a.created_ms))
-        .then_with(|| a.id.cmp(&b.id))
+        .collect();
+    rows.sort_by(|(host_a, a), (host_b, b)| {
+        compare_sessions(a, b, sort).then_with(|| host_a.cmp(host_b))
     });
+    rows.into_iter()
+        .map(|(host, session)| ConversationKey::new(host, &session.id))
+        .collect()
 }
 
 /// Use the order the user acted on, before the remote mutation changes metadata.

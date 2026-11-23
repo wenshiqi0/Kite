@@ -164,13 +164,15 @@
 "sort_title" = "按标题";
 
 "search_sessions" = "搜索全部会话";
+"hosts" = "主机";
 "machine_settings" = "机器配置";
 "no_sessions" = "尚无会话";
-"session_machine" = "目标机器";
+"no_session_matches" = "没有匹配的会话";
+"session_machine" = "执行主机";
 "active_sessions" = "活动";
 "associated_task_close" = "关闭";
 "associated_take_over" = "打开并接管";
-"subagents_count" = "子 agent · %d";
+"subagents_count" = "关联任务 · %d";
 "subagents_unavailable" = "暂时无法更新子 agent 状态";
 "subagent_running" = "运行中";
 "subagent_starting" = "启动中";

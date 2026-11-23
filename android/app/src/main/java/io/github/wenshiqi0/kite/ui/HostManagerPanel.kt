@@ -45,10 +45,21 @@ fun HostSetupScreen(vm: HostCheckViewModel, onBack: () -> Unit) {
     }) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(state?.hosts.orEmpty(), key = { it.id }, contentType = { "host" }) { host ->
-                val status = state?.hostConnections?.find { it.hostId == host.id }?.connection ?: ConnectionStatus.DISCONNECTED
-                HostConnectionCard(host, status, !vm.savingHost, selected = state?.selectedHost == host.id,
-                    activate = { vm.connectSaved(host); if(status == ConnectionStatus.CONNECTED)onBack() },
-                    disconnect = { vm.disconnectHost(host.id) }, edit = { vm.chooseHost(host) })
+                val workspace = state?.hostConnections?.find { it.hostId == host.id }
+                val status = workspace?.connection ?: ConnectionStatus.DISCONNECTED
+                Column {
+                    HostConnectionCard(host, status, !vm.savingHost, selected = state?.selectedHost == host.id,
+                        activate = { vm.connectSaved(host); if (status == ConnectionStatus.CONNECTED) onBack() },
+                        disconnect = { vm.disconnectHost(host.id) }, edit = { vm.chooseHost(host) })
+                    if (status == ConnectionStatus.CONNECTED && workspace?.providers?.any { it.release } == true) {
+                        val releaseTarget = vm.archiveReleaseHost == host.id
+                        ArchivedReleaseControls(
+                            enabled = !vm.sessionBusy && !vm.releasingArchived,
+                            releasing = releaseTarget && vm.releasingArchived,
+                            result = vm.archiveReleaseStatus.takeIf { releaseTarget },
+                        ) { vm.releaseArchivedSessions(host.id) }
+                    }
+                }
             }
             if (state?.hosts.isNullOrEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {

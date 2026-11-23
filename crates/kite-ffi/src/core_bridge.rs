@@ -69,6 +69,16 @@ pub struct HostConnectionInfo {
     pub session_sort: SessionSortOrder,
 }
 
+#[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub struct WorkspaceSessionKey {
+    pub host_id: String,
+    pub session_id: String,
+}
+
 impl From<kite_app::ConnectionPhase> for ConnectionStatus {
     fn from(value: kite_app::ConnectionPhase) -> Self {
         match value {
@@ -1307,6 +1317,8 @@ pub struct CoreSnapshot {
     pub device_key: Option<DeviceKeyInfo>,
     pub hosts: Vec<HostRecord>,
     pub host_connections: Vec<HostConnectionInfo>,
+    pub workspace_session_order: Vec<WorkspaceSessionKey>,
+    pub workspace_session_sort: SessionSortOrder,
     pub session_sort: SessionSortOrder,
     pub selected_host: Option<String>,
     pub connection: ConnectionStatus,
@@ -1364,6 +1376,15 @@ impl From<kite_app::Snapshot> for CoreSnapshot {
                     session_sort: h.session_sort.into(),
                 })
                 .collect(),
+            workspace_session_order: s
+                .workspace_session_order
+                .into_iter()
+                .map(|key| WorkspaceSessionKey {
+                    host_id: key.host,
+                    session_id: key.conversation,
+                })
+                .collect(),
+            workspace_session_sort: s.workspace_session_sort.into(),
             session_sort: s.session_sort.into(),
             selected_host: s.selected_host,
             connection: match s.connection {

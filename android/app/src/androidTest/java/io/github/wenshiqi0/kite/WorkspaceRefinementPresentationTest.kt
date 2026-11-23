@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -431,6 +432,68 @@ class WorkspaceRefinementPresentationTest {
             assertEquals("child", selected.value?.id)
             actionNode(requireNotNull(find(description = "关闭")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK)
             waitFor("closing returns to the parent") { selected.value == null && find(text = "Parent remains selected") != null }
+        }
+    }
+
+    @Test fun sidebarInterleavesHostsAndKeepsDelegatedTasksWithTheirParent() {
+        val first = HostRecord("first", "first.example", 22u, "tester", null, null, 47989u)
+        val second = first.copy(id = "second", host = "second.example")
+        val task = SubagentInfo("delegated/first/worker", "shared", "Disk telemetry", "Inspect storage",
+            "done", 4, first.id, "worker", first.host, "antigravity", true)
+        val newest = SessionInfo("shared", "codex", "Workspace audit", "", null, false, 3, null, "saved", true, emptyList(), false)
+        val parent = newest.copy(title = "Release plan", updatedMs = 2, subagents = listOf(task))
+        val oldest = newest.copy(id = "notes", title = "Reference notes", updatedMs = 1)
+        val worker = newest.copy(id = "worker", provider = "antigravity", title = "Worker session title", delegatedChild = true)
+        val ordering = SessionSortOrder.NEWEST
+        val opened = java.util.concurrent.atomic.AtomicReference<Pair<String, String>>()
+        val inspected = java.util.concurrent.atomic.AtomicReference<Triple<String, String, SubagentInfo>>()
+        val managed = java.util.concurrent.atomic.AtomicBoolean()
+        fun clickText(label: String) {
+            val node = actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK)
+            assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        }
+        fun top(label: String): Int = Rect().also { requireNotNull(find(text = label)).getBoundsInScreen(it) }.top
+
+        overlay({
+            val activity = LocalActivity.current as MainActivity
+            val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+            val state = vm.engine.state.collectAsState().value
+            val snapshot = state?.copy(
+                hosts = listOf(first, second),
+                hostConnections = listOf(
+                    HostConnectionInfo(first.id, ConnectionStatus.CONNECTED, null, listOf(worker, newest, oldest), null, emptyList(), ordering),
+                    HostConnectionInfo(second.id, ConnectionStatus.CONNECTED, null, listOf(parent), null, emptyList(), ordering),
+                ),
+                workspaceSessionSort = ordering,
+                workspaceSessionOrder = listOf(
+                    WorkspaceSessionKey(first.id, worker.id), WorkspaceSessionKey(first.id, newest.id),
+                    WorkspaceSessionKey(second.id, parent.id), WorkspaceSessionKey(first.id, oldest.id),
+                ),
+            )
+            SessionDrawer(vm, snapshot, close = {}, open = { host, session -> opened.set(host to session) },
+                create = {}, manageHosts = { managed.set(true) },
+                inspectSubagent = { host, session, child -> inspected.set(Triple(host, session, child)) })
+        }) {
+            waitFor("Sessions from both hosts are visible") { find(text = oldest.title) != null }
+            assertTrue(top(newest.title) < top(parent.title) && top(parent.title) < top(oldest.title))
+            assertNotNull(find(text = "Codex · ${second.host}"))
+            assertNull(find(text = worker.title))
+            clickText(parent.title)
+            waitFor("The other host receives the exact session identity") { opened.get() == (second.id to parent.id) }
+            clickText("关联任务 · 1")
+            waitFor("The delegated task is visible inside its parent") { find(text = task.name) != null }
+            screenshot("cross-host-sidebar.png")
+            clickText(task.name)
+            waitFor("Inspection receives the remote child under its parent") { inspected.get() == Triple(second.id, parent.id, task) }
+            val search = actionNode(requireNotNull(find(description = test.targetContext.getString(R.string.search_sessions))), AccessibilityNodeInfo.ACTION_SET_TEXT)
+            assertTrue(search.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, task.name)
+            }))
+            waitFor("Search finds the parent through its child task") {
+                find(text = parent.title) != null && find(text = newest.title) == null && find(text = task.task) != null
+            }
+            clickText(test.targetContext.getString(R.string.hosts_title))
+            waitFor("The host entry opens resources") { managed.get() }
         }
     }
 

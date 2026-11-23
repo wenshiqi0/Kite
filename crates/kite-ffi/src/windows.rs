@@ -217,6 +217,9 @@ enum Command {
         host_id: String,
         order: SessionSortOrder,
     },
+    SetWorkspaceSort {
+        order: SessionSortOrder,
+    },
     CreateSession {
         host_id: String,
         provider: String,
@@ -388,6 +391,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
             core.set_agent_memory_limit(host_id, bytes).await?
         }
         SetSessionSort { host_id, order } => core.set_session_sort(host_id, order).await?,
+        SetWorkspaceSort { order } => core.set_workspace_sort(order).await?,
         CreateSession {
             host_id,
             provider,
