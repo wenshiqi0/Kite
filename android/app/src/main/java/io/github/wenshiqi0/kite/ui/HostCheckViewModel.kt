@@ -410,7 +410,7 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
     fun selectModel(id: String, model: String, effort: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.setChatModel(host,id, model, effort) } }
-    fun selectPermission(id: String, setting: String, value: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.setChatSetting(host,id, setting, value) } }
+    fun selectChatSetting(id: String, setting: String, value: String) { val host=engine.state.value?.selectedHost?:return; engine.command { engine.core.setChatSetting(host,id, setting, value) } }
     fun reloadComposer() = engine.command { engine.core.reloadComposer() }
     fun refreshUsage() { if (engine.state.value?.composer?.ready == true) engine.command { engine.core.refreshAccountUsage() } }
     var skillBusy by mutableStateOf(false)

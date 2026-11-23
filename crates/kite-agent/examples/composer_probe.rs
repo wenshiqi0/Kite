@@ -48,9 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("fixture thread missing")?;
     let client = Client::connect(&ssh, &agent.pane_id, &reference.value).await?;
     let selected = Selection {
-        settings: Default::default(),
         model: "gpt-6.1-sol".into(),
         effort: "low".into(),
+        ..Selection::default()
     };
     let mut files = Vec::new();
     for (name, mime) in [

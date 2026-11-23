@@ -325,7 +325,7 @@ internal sealed class MainWindow : Window
         string host = HostId, agent = AgentId; var panel = new StackPanel { Margin = new Thickness(24) }; var window = new Window { Title = "模型与会话设置", Owner = this, Width = 500, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         foreach (var setting in state.Field("composer").Array("settings"))
         {
-            string id = setting.Text("id"); panel.Children.Add(Ui.Label(setting.Text("name")));
+            string id = setting.Text("id"); panel.Children.Add(Ui.Label(id == "service_tier" ? "速度" : setting.Text("name")));
             var select = new ComboBox { ItemsSource = setting.Array("options").Select(o => new Selection(o.Text("value"), o.Text("name"))).ToList(), DisplayMemberPath = "Label", SelectedValuePath = "Id", SelectedValue = setting.Text("current_value"), Margin = new Thickness(0, 0, 0, 12) };
             select.SelectionChanged += async (_, _) => { if (select.SelectedValue is string value) await Safe(new { op = "set_chat_setting", host_id = host, agent_id = agent, setting = id, value }); }; panel.Children.Add(select);
         }

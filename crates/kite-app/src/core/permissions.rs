@@ -25,10 +25,6 @@ impl AppCore {
                 .get(&key)
                 .cloned()
                 .ok_or_else(|| AppError::State("chat backend unavailable".into()))?;
-            composer::settings::validate(
-                &client.settings,
-                &BTreeMap::from([(setting.clone(), value.clone())]),
-            )?;
             let selected = {
                 let store = lock(&core.store);
                 let store = store
@@ -39,7 +35,15 @@ impl AppCore {
                 let selected = settings
                     .entry(key)
                     .or_insert_with(|| client.initial.clone());
-                selected.settings.insert(setting, value);
+                if setting == composer::SPEED_SETTING {
+                    client.select_speed(selected, value)?;
+                } else {
+                    composer::settings::validate(
+                        &client.settings,
+                        &BTreeMap::from([(setting.clone(), value.clone())]),
+                    )?;
+                    selected.settings.insert(setting, value);
+                }
                 let selected = selected.clone();
                 store.write_document("chat-settings", &settings)?;
                 selected
@@ -48,8 +52,7 @@ impl AppCore {
                 core.update_live(
                     &core.agent_conversation(&connection.host.id, &agent),
                     |live| {
-                        live.composer.settings =
-                            composer::settings::display(&client.settings, &selected.settings);
+                        live.composer.settings = client.displayed_settings(&selected);
                         live.composer.selection = selected;
                     },
                 );

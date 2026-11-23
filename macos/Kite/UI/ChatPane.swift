@@ -72,9 +72,10 @@ struct ChatPane: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let state = model.snapshot, let agent = state.selectedAgent {
-                if !state.composer.settings.isEmpty {
+                let settings = state.composer.settings.filter { $0.id != "service_tier" }
+                if !settings.isEmpty {
                     HStack {
-                        ForEach(state.composer.settings, id: \.id) { setting in
+                        ForEach(settings, id: \.id) { setting in
                             Menu {
                                 ForEach(setting.options, id: \.value) { choice in
                                     Button(choice.name) { model.command { try await $0.setChatSetting(hostId: state.selectedHost ?? "", agentId: agent, setting: setting.id, value: choice.value) } }
@@ -101,6 +102,22 @@ struct ChatPane: View {
                                 Button(effort) { model.command { try await $0.setChatModel(hostId: state.selectedHost ?? "", agentId: agent, model: state.composer.model, effort: effort) } }
                             }
                         }.menuStyle(.borderlessButton).fixedSize()
+                    }
+                    if let speed = state.composer.settings.first(where: { $0.id == "service_tier" }) {
+                        Menu {
+                            ForEach(speed.options, id: \.value) { choice in
+                                Button {
+                                    model.command { try await $0.setChatSetting(hostId: state.selectedHost ?? "", agentId: agent, setting: speed.id, value: choice.value) }
+                                } label: {
+                                    if choice.value == speed.currentValue { Label(tr(choice.name), systemImage: "checkmark") }
+                                    else { Text(tr(choice.name)) }
+                                }
+                            }
+                        } label: {
+                            Label(tr(speed.options.first(where: { $0.value == speed.currentValue })?.name ?? speed.name), systemImage: "bolt")
+                        }.menuStyle(.borderlessButton).fixedSize()
+                            .help(tr("Speed"))
+                            .disabled(!state.composer.ready || state.composer.loading)
                     }
                     Spacer()
                     if let bucket = state.composer.usage.buckets.first, let window = bucket.primary {

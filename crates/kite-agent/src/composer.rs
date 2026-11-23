@@ -30,6 +30,8 @@ const DEADLINE: Duration = Duration::from_secs(25);
 const MAX_LINE: usize = 2 * 1024 * 1024;
 pub const MAX_FILE: u64 = 25 * 1024 * 1024;
 pub const BACKEND_SOURCE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/host.js"));
+pub const SPEED_SETTING: &str = "service_tier";
+const STANDARD_SPEED: &str = "default";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -118,6 +120,11 @@ pub struct Effort {
     pub description: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ServiceTier {
+    pub id: String,
+    pub name: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
     pub model: String,
@@ -128,11 +135,27 @@ pub struct Model {
     pub default_reasoning_effort: String,
     pub supported_reasoning_efforts: Vec<Effort>,
     pub input_modalities: Vec<String>,
+    #[serde(default)]
+    pub service_tiers: Vec<ServiceTier>,
+    pub default_service_tier: Option<String>,
+}
+impl Model {
+    fn service_tier(&self, id: &str) -> Option<&str> {
+        if id == STANDARD_SPEED {
+            return Some(STANDARD_SPEED);
+        }
+        self.service_tiers
+            .iter()
+            .find(|tier| tier.id == id || (id == "fast" && tier.id == "priority"))
+            .map(|tier| tier.id.as_str())
+    }
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Selection {
     pub model: String,
     pub effort: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
     #[serde(default)]
     pub settings: BTreeMap<String, String>,
 }
@@ -184,6 +207,7 @@ pub struct Client {
     pub settings: Vec<SessionSetting>,
     managed_settings: bool,
     configuration: Value,
+    session_service_tier: Option<String>,
 }
 impl Rpc {
     async fn write(&self, value: Value) -> Result<(), Error> {
@@ -302,6 +326,7 @@ impl Client {
             settings: vec![],
             managed_settings: false,
             configuration: Value::Null,
+            session_service_tier: None,
         };
         client
             .request(
@@ -348,7 +373,7 @@ impl Client {
                 .as_str()
                 .unwrap_or_default()
                 .into(),
-            settings: BTreeMap::new(),
+            ..Selection::default()
         };
         client.configuration = configuration["config"].clone();
         if let Some(settings) = configuration["config"].get("session_settings") {
@@ -359,8 +384,64 @@ impl Client {
             client.settings = settings::codex(&client.configuration, &requirements["requirements"]);
         }
         client.initial = selection(&client.models, &client.initial)?;
-        client.observe_thread().await?;
+        let resumed = client.observe_thread().await?;
+        client.session_service_tier = resumed
+            .as_ref()
+            .and_then(|result| result.get("serviceTier"))
+            .unwrap_or(&client.configuration["service_tier"])
+            .as_str()
+            .map(str::to_owned);
         Ok(client)
+    }
+    fn speed_setting(&self, selected: &Selection) -> Option<SessionSetting> {
+        let model = self.models.iter().find(|m| m.model == selected.model)?;
+        let mut options = vec![settings::SettingChoice {
+            value: STANDARD_SPEED.into(),
+            name: "Standard".into(),
+        }];
+        options.extend(
+            model
+                .service_tiers
+                .iter()
+                .filter(|tier| !tier.id.is_empty() && tier.id != STANDARD_SPEED)
+                .map(|tier| settings::SettingChoice {
+                    value: tier.id.clone(),
+                    name: tier.name.clone(),
+                }),
+        );
+        if options.len() == 1 {
+            return None;
+        }
+        let current_value = selected
+            .service_tier
+            .as_deref()
+            .or(self.session_service_tier.as_deref())
+            .or(model.default_service_tier.as_deref())
+            .and_then(|tier| model.service_tier(tier))
+            .unwrap_or(STANDARD_SPEED);
+        Some(SessionSetting {
+            id: SPEED_SETTING.into(),
+            name: "Speed".into(),
+            current_value: current_value.into(),
+            options,
+        })
+    }
+    pub fn displayed_settings(&self, selected: &Selection) -> Vec<SessionSetting> {
+        let mut settings = settings::display(&self.settings, &selected.settings);
+        settings.extend(self.speed_setting(selected));
+        settings
+    }
+    pub fn select_speed(&self, selected: &mut Selection, value: String) -> Result<(), Error> {
+        let mut proposed = selection(&self.models, selected)?;
+        if !self
+            .speed_setting(&proposed)
+            .is_some_and(|setting| setting.options.iter().any(|option| option.value == value))
+        {
+            return Err(Error::Invalid("model speed unavailable"));
+        }
+        proposed.service_tier = Some(value);
+        *selected = proposed;
+        Ok(())
     }
     pub fn runtime(&self) -> RuntimeState {
         lock(&self.runtime).clone()
@@ -407,9 +488,9 @@ impl Client {
     pub fn is_observing(&self) -> bool {
         self.subscribed.load(Ordering::SeqCst)
     }
-    pub async fn observe_thread(&self) -> Result<(), Error> {
+    pub async fn observe_thread(&self) -> Result<Option<Value>, Error> {
         if self.subscribed.load(Ordering::SeqCst) {
-            return Ok(());
+            return Ok(None);
         }
         match self
             .request(
@@ -434,10 +515,10 @@ impl Client {
                         lock(&self.runtime).restore_failed_turn(revision, turn);
                     }
                 }
-                Ok(())
+                Ok(Some(value))
             }
             Err(Error::Remote(details)) if details.contains("no rollout found for thread id") => {
-                Ok(())
+                Ok(None)
             }
             Err(error) => Err(error),
         }
@@ -503,6 +584,9 @@ impl Client {
         }
         lock(&self.runtime).begin();
         let mut params = json!({"threadId":self.thread,"input":input,"model":selected.model,"effort":selected.effort});
+        if let Some(tier) = selected.service_tier {
+            params["serviceTier"] = json!(tier);
+        }
         settings::apply(
             &mut params,
             &selected.settings,
@@ -634,6 +718,10 @@ pub fn selection(models: &[Model], selected: &Selection) -> Result<Selection, Er
     Ok(Selection {
         model: model.model.clone(),
         effort: effort.clone(),
+        service_tier: selected
+            .service_tier
+            .as_deref()
+            .map(|tier| model.service_tier(tier).unwrap_or(STANDARD_SPEED).into()),
         settings: selected.settings.clone(),
     })
 }
@@ -878,6 +966,8 @@ mod tests {
             default_reasoning_effort: "low".into(),
             supported_reasoning_efforts: vec![],
             input_modalities: vec!["text".into(), "image".into()],
+            service_tiers: vec![],
+            default_service_tier: None,
         };
         let blocks = prompt_blocks("Explain this", &files, &skills);
         assert_eq!(
@@ -946,6 +1036,8 @@ mod tests {
             default_reasoning_effort: "low".into(),
             supported_reasoning_efforts: vec![],
             input_modalities: vec!["image".into()],
+            service_tiers: vec![],
+            default_service_tier: None,
         };
         let blocks = prompt_blocks("Look", &files, &[]);
         let input = turn_input(&blocks, &[], &model).unwrap();

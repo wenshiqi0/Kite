@@ -640,7 +640,7 @@ class WorkspaceRefinementPresentationTest {
             ChatModelInfo("plain","Plain","",emptyList(),"",listOf("text")))
         val current=androidx.compose.runtime.mutableStateOf(ComposerInfo(true,false,"",nativeModels,"flash","high",emptyList(),usage(),SkillDraftInfo(emptyList(),emptyList(),true,false,""),emptyList()))
         val selected=java.util.concurrent.atomic.AtomicReference("")
-        overlay({HarnessModelChoices(current.value,true){model,effort->selected.set("$model:$effort");current.value=current.value.copy(model=model,effort=effort)}}) {
+        overlay({HarnessModelChoices(current.value,true, selectSpeed = {}) {model,effort->selected.set("$model:$effort");current.value=current.value.copy(model=model,effort=effort)}}) {
             waitFor("Native Flash and effort available"){find(text="Flash")!=null&&find(text="深入思考")!=null}
             assertTrue(actionNode(requireNotNull(find(text="深入思考")),AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitFor("Native maximum effort is offered"){find(text="最大思考")!=null}
@@ -655,6 +655,40 @@ class WorkspaceRefinementPresentationTest {
             waitFor("Effort menu closes for non-reasoning model"){find(text="Plain")!=null&&find(text="最大思考")==null}
             assertNull(find(text="深入思考"))
             screenshot("harness-model-without-effort.png")
+        }
+    }
+
+    @Test fun codexSpeedMenuUsesOnlyAvailableTiers() {
+        val models = listOf(
+            ChatModelInfo("fast", "Fast model", "", emptyList(), "", listOf("text")),
+            ChatModelInfo("plain", "Plain model", "", emptyList(), "", listOf("text")),
+        )
+        val speed = SessionSettingInfo("service_tier", "Speed", "default", listOf(
+            SettingChoiceInfo("default", "Standard"), SettingChoiceInfo("priority", "Fast"),
+        ))
+        val current = androidx.compose.runtime.mutableStateOf(ComposerInfo(
+            true, false, "", models, "fast", "", emptyList(), usage(),
+            SkillDraftInfo(emptyList(), emptyList(), true, false, ""), listOf(speed),
+        ))
+        val selected = java.util.concurrent.atomic.AtomicReference("")
+        overlay({
+            HarnessModelChoices(current.value, true, selectSpeed = { tier ->
+                selected.set(tier)
+                current.value = current.value.copy(settings = listOf(speed.copy(currentValue = tier)))
+            }) { model, effort ->
+                current.value = current.value.copy(model = model, effort = effort, settings = emptyList())
+            }
+        }) {
+            waitFor("Standard speed appears") { find(text = "速度 · 标准") != null }
+            assertTrue(actionNode(requireNotNull(find(text = "速度 · 标准")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Fast is offered") { find(text = "快速") != null }
+            assertNull(find(text = "极速"))
+            assertTrue(actionNode(requireNotNull(find(text = "快速")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("The selected native tier value reaches the composer") { selected.get() == "priority" && find(text = "速度 · 快速") != null }
+            assertTrue(actionNode(requireNotNull(find(text = "Fast model")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Plain model is offered") { find(text = "Plain model") != null }
+            assertTrue(actionNode(requireNotNull(find(text = "Plain model")), AccessibilityNodeInfo.ACTION_CLICK).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("The unsupported speed selector disappears") { find(text = "Plain model") != null && find(text = "速度 · 快速") == null }
         }
     }
 
