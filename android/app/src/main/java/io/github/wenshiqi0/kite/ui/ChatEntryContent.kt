@@ -21,7 +21,7 @@ internal fun ChatEntryContent(
     inspect: () -> Unit = {},
     desktop: () -> Unit = {},
     desktopEnabled: Boolean = true,
-    attachment: @Composable (List<AttachmentInfo>) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>, String?) -> Unit,
 ) {
     when (entry) {
         is ChatEntry.Work -> ToolGroupCard(entry, working, inspect, desktop, desktopEnabled)
@@ -36,7 +36,7 @@ private fun ChatMessageCard(
     inspect: () -> Unit,
     desktop: () -> Unit,
     desktopEnabled: Boolean,
-    attachment: @Composable (List<AttachmentInfo>) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>, String?) -> Unit,
 ) {
     if (message.isSkillContextOnly) {
         ItemContent(message, attachment = attachment)

@@ -18,6 +18,8 @@ import android.util.TypedValue
 import android.widget.TextView
 import android.text.style.StrikethroughSpan
 import android.text.style.URLSpan
+import android.text.style.ClickableSpan
+import android.view.View
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -50,6 +52,7 @@ import io.noties.markwon.ext.tables.TableAwareMovementMethod
 import io.noties.markwon.ext.tables.TablePlugin
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.movement.MovementMethodPlugin
+import io.github.wenshiqi0.kite.core.AttachmentInfo
 import java.util.Locale
 import org.commonmark.node.Code
 import org.commonmark.node.Link
@@ -57,13 +60,13 @@ import org.commonmark.node.Paragraph
 
 /** Presentation only: original Markdown remains in the shared message history. */
 @Composable
-fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 16f, streaming: Boolean = false) {
+fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 16f, streaming: Boolean = false, attachments: List<AttachmentInfo> = emptyList(), onAttachmentClick: (AttachmentInfo) -> Unit = {}) {
     AndroidView(
         factory = { MarkdownTextView(it) },
         update = {
             if (it.currentTextColor != color.toArgb()) it.setTextColor(color.toArgb())
             it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-            it.bind(text, streaming)
+            it.bind(text, streaming, attachments, onAttachmentClick)
         },
         modifier = modifier,
     )
@@ -100,6 +103,8 @@ class MarkdownTextView(context: Context) : TextView(context) {
     private var source: String? = null
     private var renderedSource: String? = null
     private var streaming = false
+    private var attachments = emptyList<AttachmentInfo>()
+    private var onAttachmentClick: (AttachmentInfo) -> Unit = {}
     init {
         setPadding(0, 0, 0, 0)
         includeFontPadding = false
@@ -108,7 +113,9 @@ class MarkdownTextView(context: Context) : TextView(context) {
         setTextColor(0xFFE5E9EE.toInt())
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
     }
-    fun bind(value: String, inProgress: Boolean = false) {
+    fun bind(value: String, inProgress: Boolean = false, files: List<AttachmentInfo> = emptyList(), onFileClick: (AttachmentInfo) -> Unit = {}) {
+        attachments = files
+        onAttachmentClick = onFileClick
         if (source == value && streaming == inProgress) return
         source = value
         streaming = inProgress
@@ -126,6 +133,10 @@ class MarkdownTextView(context: Context) : TextView(context) {
         (text as? Spanned)?.let { body ->
             body.getSpans(0, body.length, CompactCodeSpan::class.java).forEach { it.drawCompactBackground = true }
         }
+    }
+
+    internal fun openAttachment(index: Int) {
+        attachments.getOrNull(index)?.let(onAttachmentClick)
     }
 
     // Paint.bgColor fills the entire TextView line, including its extra leading.
@@ -181,6 +192,17 @@ class MarkdownTextView(context: Context) : TextView(context) {
     }
 }
 
+/** Native text spans wrap with the sentence and retain selection and list margins. */
+internal class InlineAttachmentSpan(private val index: Int) : ClickableSpan() {
+    override fun onClick(widget: View) {
+        (widget as? MarkdownTextView)?.openAttachment(index)
+    }
+    override fun updateDrawState(paint: TextPaint) {
+        paint.color = KiteColors.Accent.toArgb()
+        paint.isUnderlineText = true
+    }
+}
+
 private class CompactCodeSpan(theme: MarkwonTheme) : CodeSpan(theme) {
     var drawCompactBackground = false
     override fun updateMeasureState(paint: TextPaint) {
@@ -223,7 +245,12 @@ object MarkdownRenderer {
                 builder.setFactory(Code::class.java) { configuration, _ -> CompactCodeSpan(configuration.theme()) }
                 builder.setFactory(Link::class.java) { configuration, props ->
                     val link = CoreProps.LINK_DESTINATION.require(props)
-                    if (isExternalLink(link)) LinkSpan(configuration.theme(), link, configuration.linkResolver()) else null
+                    val fileIndex = link.takeIf { it.startsWith("kite-attachment:") }?.removePrefix("kite-attachment:")?.toIntOrNull()?.takeIf { it >= 0 }
+                    when {
+                        fileIndex != null -> InlineAttachmentSpan(fileIndex)
+                        isExternalLink(link) -> LinkSpan(configuration.theme(), link, configuration.linkResolver())
+                        else -> null
+                    }
                 }
             }
             override fun configureTheme(builder: MarkwonTheme.Builder) {

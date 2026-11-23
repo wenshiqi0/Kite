@@ -66,25 +66,29 @@ internal fun attachmentPreviewKind(mime: String, name: String): AttachmentPrevie
 internal fun previewTime(ms: Int): String = "%d:%02d".format(ms.coerceAtLeast(0)/60000, ms.coerceAtLeast(0)/1000%60)
 
 @Composable
-fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit, conversation: String = vm.engine.timeline.context) {
+fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit, conversation: String = vm.engine.timeline.context, inlineMarkdown: String? = null, streaming: Boolean = false) {
     var selected by remember(conversation) { mutableStateOf<AttachmentInfo?>(null) }
-    var index = 0
-    while (index < files.size) {
-        val start = index
-        if (attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) {
-            while (index < files.size && attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) index++
-            val images = files.subList(start, index)
-            key(conversation, start) {
-                AttachmentImageGrid(vm, conversation, images) { file -> inspect(); selected = file }
-            }
-        } else {
-            val file = files[index++]
-            key(conversation, start, file.id) {
-                Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
-                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
+    if (inlineMarkdown != null) {
+        MarkdownMessage(inlineMarkdown, streaming = streaming, attachments = files, onAttachmentClick = { inspect(); selected = it })
+    } else {
+        var index = 0
+        while (index < files.size) {
+            val start = index
+            if (attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) {
+                while (index < files.size && attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) index++
+                val images = files.subList(start, index)
+                key(conversation, start) {
+                    AttachmentImageGrid(vm, conversation, images) { file -> inspect(); selected = file }
+                }
+            } else {
+                val file = files[index++]
+                key(conversation, start, file.id) {
+                    Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
+                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                            Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
+                        }
                     }
                 }
             }

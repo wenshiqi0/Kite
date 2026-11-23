@@ -20,6 +20,10 @@ import android.os.SystemClock
 import io.github.wenshiqi0.kite.ui.MarkdownRenderer
 import io.github.wenshiqi0.kite.ui.MarkdownTextView
 import io.github.wenshiqi0.kite.ui.markdownLabel
+import io.github.wenshiqi0.kite.ui.InlineAttachmentSpan
+import io.github.wenshiqi0.kite.ui.inlineFileMarkdown
+import io.github.wenshiqi0.kite.core.AttachmentInfo
+import io.github.wenshiqi0.kite.core.BlockInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
@@ -38,6 +42,55 @@ class NativePresentationTest {
     private fun exact(n: Int) = View.MeasureSpec.makeMeasureSpec(n, View.MeasureSpec.EXACTLY)
     private fun layout(view: View, width: Int, height: Int) {
         view.measure(exact(width), exact(height)); view.layout(0, 0, width, height)
+    }
+
+    @Test fun inlineFilesShareNativeLinesAndKeepListSpansAndClickTargets() = onMain {
+        val plan = AttachmentInfo("plan", "plan.md", "text/markdown", 10uL, false)
+        val config = AttachmentInfo("config", "skills.json", "application/json", 10uL, false)
+        val files = listOf(plan, config)
+        val source = inlineFileMarkdown(listOf(BlockInfo.Text("已更新 "), BlockInfo.Attachment(plan),
+            BlockInfo.Text("，请确认：\n\n- **推荐**：把 "), BlockInfo.Attachment(config), BlockInfo.Text(" 切换为 `project/skills`。\n- 保留原目录。")))
+        val view = MarkdownTextView(instrumentation.targetContext)
+        FrameLayout(instrumentation.targetContext).addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        val opened = mutableListOf<AttachmentInfo>()
+        view.bind(source, true, files) { opened.add(it) }
+        measureText(view, 900)
+        val body = view.text as Spanned
+        val plain = body.toString()
+        val spans = body.getSpans(0, body.length, InlineAttachmentSpan::class.java).sortedBy { body.getSpanStart(it) }
+        assertEquals(2, spans.size)
+        assertEquals(listOf(plan.name, config.name), spans.map { plain.substring(body.getSpanStart(it), body.getSpanEnd(it)) })
+        assertEquals(view.layout.getLineForOffset(0), view.layout.getLineForOffset(plain.indexOf("请确认")))
+        assertEquals(view.layout.getLineForOffset(plain.indexOf("把")), view.layout.getLineForOffset(plain.indexOf(config.name)))
+        assertTrue(body.getSpans(0, body.length, io.noties.markwon.core.spans.BulletListItemSpan::class.java).size == 2)
+        assertFalse(plain.contains("kite-attachment:"))
+        spans[1].onClick(view)
+        assertEquals(listOf(config), opened)
+        val retained = view.text
+        val replaced = config.copy(id = "updated-config")
+        view.bind(source, false, listOf(plan, replaced)) { opened.add(it) }
+        assertSame("Finishing a streamed run retains native text", retained, view.text)
+        spans[1].onClick(view)
+        assertEquals(replaced, opened.last())
+        view.bind(source)
+        spans[0].onClick(view)
+        assertEquals("A reference without a bound file cannot open another resource", 2, opened.size)
+        for (width in listOf(420, 600, 900)) {
+            measureText(view, width)
+            assertTrue(view.measuredHeight > 0)
+            assertEquals(plain, view.text.toString())
+        }
+        assertTrue(view.isTextSelectable)
+    }
+
+    @Test fun inlineFileLabelsKeepLiteralMarkdownPunctuation() = onMain {
+        val file = AttachmentInfo("literal", "draft [v2](final)*_`\\.md", "text/markdown", 10uL, false)
+        val view = MarkdownTextView(instrumentation.targetContext)
+        view.bind(inlineFileMarkdown(listOf(BlockInfo.Text("文件 "), BlockInfo.Attachment(file), BlockInfo.Text(" 已保存。"))), files = listOf(file))
+        assertEquals("文件 ${file.name} 已保存。", view.text.toString())
+        val body = view.text as Spanned
+        assertEquals(1, body.getSpans(0, body.length, InlineAttachmentSpan::class.java).size)
+        assertTrue(body.getSpans(0, body.length, io.noties.markwon.core.spans.CodeSpan::class.java).isEmpty())
     }
 
     @Test fun firstSplitMeasuresVideoInTheSameLayoutPass() = onMain {

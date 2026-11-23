@@ -22,22 +22,27 @@ internal fun ItemContent(
     inspect: () -> Unit = {},
     desktop: () -> Unit = {},
     desktopEnabled: Boolean = true,
-    attachment: @Composable (List<AttachmentInfo>) -> Unit,
+    attachment: @Composable (List<AttachmentInfo>, String?) -> Unit,
 ) {
     Column {
         itemContentRuns(message.blocks).forEach { run ->
             val index = run.start
             val block = run.blocks.first()
             key(index) {
+                val files = run.blocks.filterIsInstance<BlockInfo.Attachment>().map { it.file }
                 when (block) {
-                    is BlockInfo.Text -> if (block.text.isNotBlank()) {
-                        MarkdownMessage(block.text, streaming = streaming)
+                    is BlockInfo.Text, is BlockInfo.Attachment -> {
+                        if (block is BlockInfo.Attachment && !isInlineFile(block.file)) attachment(files, null)
+                        else {
+                            val markdown = inlineFileMarkdown(run.blocks)
+                            if (files.isNotEmpty()) attachment(files, markdown)
+                            else if (markdown.isNotBlank()) MarkdownMessage(markdown, streaming = streaming)
+                        }
                     }
                     is BlockInfo.SkillSelection -> MessageSkillTags(
                         block.names,
                         Modifier.padding(bottom = if (index < message.blocks.lastIndex) 8.dp else 0.dp),
                     )
-                    is BlockInfo.Attachment -> attachment(run.blocks.filterIsInstance<BlockInfo.Attachment>().map { it.file })
                     is BlockInfo.SkillContext -> SkillContextCard(block)
                     is BlockInfo.QuestionReply -> AnsweredQuestions(listOf(block.reply))
                     is BlockInfo.Tool -> ToolGroupCard(

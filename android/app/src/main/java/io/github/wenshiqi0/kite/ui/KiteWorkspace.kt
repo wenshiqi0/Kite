@@ -373,12 +373,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                         }
                     }
                     items(entries, key = { it.key },contentType={if(it is ChatEntry.Work)"work" else "item"}) { entry ->
+                        val rowStreaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId
                         ChatEntryContent(
                             entry, working = agent?.status == "working",
-                            streaming = state?.responsePhase == ResponsePhase.RESPONDING && (entry as? ChatEntry.Message)?.message?.id == streamingId,
+                            streaming = rowStreaming,
                             inspect = ::pauseHistory, desktop = vm::openDesktop,
-                        ) { files ->
-                            MessageAttachments(vm, files, updatePip, ::pauseHistory)
+                        ) { files, markdown ->
+                            MessageAttachments(vm, files, updatePip, ::pauseHistory, inlineMarkdown = markdown, streaming = rowStreaming)
                         }
                     }
                     state?.approval?.let { approval -> item { ApprovalCard(approval, state.agentPause == AgentPauseStatus.RUNNING) { state.selectedAgent?.let { id -> vm.respond(id, approval.id, it) } } } }
