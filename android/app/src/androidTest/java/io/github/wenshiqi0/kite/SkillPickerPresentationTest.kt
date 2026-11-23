@@ -171,13 +171,13 @@ class SkillPickerPresentationTest {
                     (if (narrow) Modifier.width(240.dp) else Modifier.fillMaxSize()).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ChatEntryContent(ChatEntry.Message(message)) {}
+                    ChatEntryContent(ChatEntry.Message(message)) { _, _ -> }
                     names.forEach { name ->
                         val context = ItemInfo(
                             name, ItemRole.USER,
                             listOf(BlockInfo.SkillContext(name, "/skills/$name/SKILL.md", "检查回归。")), false, null,
                         )
-                        ChatEntryContent(ChatEntry.Message(context)) {}
+                        ChatEntryContent(ChatEntry.Message(context)) { _, _ -> }
                     }
                 }
             }
@@ -211,7 +211,7 @@ class SkillPickerPresentationTest {
             BlockInfo.SkillContext("review", "/owned/review/SKILL.md", "# 代码检查\n\n检查回归风险。"),
             BlockInfo.Text("保留这条补充要求。"),
         ), false, null)
-        overlay({ ChatEntryContent(ChatEntry.Message(message)) {} }) {
+        overlay({ ChatEntryContent(ChatEntry.Message(message)) { _, _ -> } }) {
             waitFor("Skill context label") { find(text = "Skill 指令") != null }
             assertNotNull(find(text = "\$report：请检查测试。"))
             assertNotNull(find(text = "保留这条补充要求。"))

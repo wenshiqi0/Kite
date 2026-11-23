@@ -127,7 +127,7 @@ class WorkspaceRefinementPresentationTest {
                 val activity = LocalActivity.current as MainActivity
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ChatEntryContent(ChatEntry.Work(listOf(pure))) {}
+                    ChatEntryContent(ChatEntry.Work(listOf(pure))) { _, _ -> }
                     ChatEntryContent(ChatEntry.Message(mixed)) { files, markdown -> MessageAttachments(vm, files, {}, {}, conversation, inlineMarkdown = markdown) }
                     ChatEntryContent(ChatEntry.Message(album)) { files, markdown -> MessageAttachments(vm, files, {}, {}, conversation, inlineMarkdown = markdown) }
                 }
@@ -376,7 +376,7 @@ class WorkspaceRefinementPresentationTest {
         }
         overlay({
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                messages.forEach { ChatEntryContent(ChatEntry.Message(it)) {} }
+                messages.forEach { ChatEntryContent(ChatEntry.Message(it)) { _, _ -> } }
                 androidx.compose.material3.TextButton(onClick = { inspecting.value = true }) {
                     androidx.compose.material3.Text("Inspect shared history fixture")
                 }
