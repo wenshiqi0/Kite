@@ -1047,7 +1047,10 @@ test("Antigravity discovery uses native authentication and one owner restores th
       ],
     });
     const config = object(object(await rpc.call("config/read", {})).config);
-    expect(config.session_settings).toMatchObject([{ id: "mode", currentValue: "default" }]);
+    expect(config.session_settings).toMatchObject([
+      { id: "mode", currentValue: "default" },
+      { id: "tool_permission", currentValue: "default" },
+    ]);
     await prompt("approve");
     await waitStatus(path, "blocked");
     for (let i = 0; !permission && i < 100; i++) await sleep(20);
@@ -1105,6 +1108,128 @@ test("Antigravity discovery uses native authentication and one owner restores th
     const methods = readFileSync(trace, "utf8").trim().split("\n");
     expect(methods.filter((method) => method === "session/new")).toHaveLength(1);
     expect(methods.filter((method) => method === "session/resume")).toHaveLength(1);
+  } finally {
+    rpc.close();
+    if (startTicks(pid)) process.kill(pid, "SIGTERM");
+  }
+}, 15000);
+test("Antigravity Turbo preserves context, queued permissions and cold-start policy", async () => {
+  const home = fresh(),
+    id = "b".repeat(32);
+  const configured = {
+    KITE_ENABLE_ANTIGRAVITY: "1",
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+      process.execPath,
+      resolve("packages/host/test/fixtures/antigravity.ts"),
+    ]),
+  };
+  expect(
+    (
+      await command(
+        home,
+        ["catalog-write"],
+        JSON.stringify({ revision: 0, sessions: [row(id, "antigravity")] }),
+      )
+    ).code,
+  ).toBe(0);
+  const open = () =>
+    command(home, ["session-open", "--id", id, "--herdr", "unused"], undefined, configured);
+  const opened = await open();
+  expect(opened.code, opened.stderr.toString()).toBe(0);
+  const reference = object(object(object(parse(opened.stdout.toString())).agent).agent_session);
+  const thread = string(reference.value),
+    path = join(home, "harnesses", thread);
+  const state = () => object(parse(readFileSync(join(path, "state.json"), "utf8")));
+  const saved = () => object(parse(readFileSync(join(path, "native.json"), "utf8")));
+  const launches = () =>
+    readFileSync(join(home, "agy-fixture-launches"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => object(parse(line)));
+  const permissions: import("@kite/protocol").RpcMessage[] = [];
+  const client = () =>
+    new RpcProcess(
+      [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+      home,
+      () => {},
+      (message) => permissions.push(message),
+      env(home, configured),
+    );
+  let rpc = client(),
+    pid = Number(state().pid);
+  const prompt = (toolPermission?: string) =>
+    rpc.call("turn/start", {
+      threadId: thread,
+      model: "gemini-flash",
+      effort: "high",
+      sessionSettings: {
+        mode: "plan",
+        ...(toolPermission ? { tool_permission: toolPermission } : {}),
+      },
+      input: [{ type: "text", text: "approve" }],
+    });
+  try {
+    await rpc.call("initialize", {});
+    await expect(prompt("invalid")).rejects.toThrow();
+    expect(launches()).toHaveLength(1);
+    const nativeId = saved().sessionId;
+    await prompt("turbo");
+    await waitStatus(path, "done");
+    expect(permissions).toHaveLength(0);
+    expect(saved()).toMatchObject({
+      sessionId: nativeId,
+      toolPermission: "turbo",
+      restorable: true,
+    });
+    expect(Number(state().pid)).toBe(pid);
+    expect(launches().map((launch) => launch.turbo)).toEqual([false, true]);
+    expect(startTicks(Number(launches()[0]?.pid))).toBeUndefined();
+
+    await prompt("default");
+    await waitStatus(path, "blocked");
+    for (let i = 0; !permissions.length && i < 100; i++) await sleep(20);
+    expect(permissions).toHaveLength(1);
+    // A queued Turbo turn must not approve the current turn's pending request.
+    await prompt("turbo");
+    expect(state().status).toBe("blocked");
+    expect(launches().map((launch) => launch.turbo)).toEqual([false, true, false]);
+    rpc.write({ id: permissions[0]?.id ?? null, result: { decision: "decline" } });
+    await waitStatus(path, "done");
+    expect(permissions).toHaveLength(1);
+    expect(saved()).toMatchObject({ sessionId: nativeId, toolPermission: "turbo" });
+    const history = readFileSync(join(path, "history.jsonl"), "utf8");
+    expect(history.match(/Turbo tool ran/g)).toHaveLength(2);
+    expect(history).toContain("Denied once");
+
+    rpc.close();
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 100 && startTicks(pid); i++) await sleep(20);
+    const restored = await open();
+    expect(restored.code, restored.stderr.toString()).toBe(0);
+    expect(object(object(object(parse(restored.stdout.toString())).agent).agent_session)).toEqual(
+      reference,
+    );
+    pid = Number(state().pid);
+    rpc = client();
+    await rpc.call("initialize", {});
+    await prompt();
+    await waitStatus(path, "done");
+    expect(permissions).toHaveLength(1);
+    expect(saved().sessionId).toBe(nativeId);
+    expect(launches().map((launch) => launch.turbo)).toEqual([false, true, false, true, true]);
+    const methods = readFileSync(join(home, "agy-fixture-methods"), "utf8");
+    expect(methods.match(/^session\/new$/gm)).toHaveLength(1);
+    expect(methods.match(/^session\/resume$/gm)).toHaveLength(4);
+    // Refuse to reopen a missing native context as a fresh, privileged session.
+    rmSync(join(home, "agy-fixture-session"));
+    await prompt("default");
+    await waitStatus(path, "failed");
+    expect(saved().sessionId).toBe(nativeId);
+    expect(readFileSync(join(path, "history.jsonl"), "utf8")).toContain("Denied once");
+    const failedMethods = readFileSync(join(home, "agy-fixture-methods"), "utf8");
+    expect(failedMethods.match(/^session\/new$/gm)).toHaveLength(1);
+    expect(failedMethods.match(/^session\/prompt$/gm)).toHaveLength(4);
   } finally {
     rpc.close();
     if (startTicks(pid)) process.kill(pid, "SIGTERM");

@@ -10,6 +10,8 @@ owner 提供工具名称、完整命令、实际工作目录和结构化参数�
 
 模型面板展示真实后端支持的会话权限参数。ACP 只投影 `permissions` 类配置；Codex 按本机 schema 和 `configRequirements/read` 约束提供审批策略与文件访问范围。无能力的 provider 不显示选择器。
 
+Antigravity 的原生执行模式和独立 Turbo 启动参数按 [RFC 0032](0032-antigravity-acp.md) 接入同一会话设置接口；切换启动参数时恢复原会话，不把启动参数伪装成 ACP 模式。
+
 选择按主机/会话存于现有 chat-settings，随下一条消息传入原生后端。设置不批准当前待确认操作，不修改全局配置、凭据或工具白名单。排队消息保留各自的权限设置，不把新策略混入前一轮。Ply 经 ACP `approval_mode` 持久化 ask/risk/bypass；DSH 只展示实际公布的权限配置。
 
 ## 验收与兼容范围

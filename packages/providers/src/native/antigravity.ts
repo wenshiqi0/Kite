@@ -4,6 +4,7 @@ import {
   type Json,
   type Model,
   type NativeBlock,
+  type NativeOptions,
   type ObjectValue,
   object,
   optionalString,
@@ -12,9 +13,18 @@ import {
   UUID,
 } from "@kite/protocol";
 import { optionalObject } from "@kite/runtime/socket";
+import { permissionValues } from "../permissions";
 import { AcpAdapter } from "./acp";
 
 const SESSION_LIST_TIMEOUT_MS = 12_000;
+const SKIP_PERMISSIONS = "--dangerously-skip-permissions";
+
+function permissionCommand(command: string[], turbo: boolean): string[] {
+  return [
+    ...command.filter((arg) => arg !== SKIP_PERMISSIONS),
+    ...(turbo ? [SKIP_PERMISSIONS] : []),
+  ];
+}
 
 function selection(row: ObjectValue): SessionSetting {
   check(row.type === "select", "invalid Antigravity configuration");
@@ -75,6 +85,20 @@ function modelCatalog(
 export class Antigravity extends AcpAdapter {
   protected override readonly splitMessagesAtTools = true;
   private hasHistory = false;
+  private turbo: boolean;
+
+  constructor(options: NativeOptions) {
+    const saved = options.saved === undefined ? undefined : object(options.saved);
+    const policy = saved?.toolPermission;
+    check(
+      policy === undefined || policy === "default" || policy === "turbo",
+      "invalid tool permissions",
+    );
+    const turbo =
+      policy === undefined ? options.command.includes(SKIP_PERMISSIONS) : policy === "turbo";
+    super({ ...options, command: permissionCommand(options.command, turbo) });
+    this.turbo = turbo;
+  }
 
   async initialize(): Promise<this> {
     try {
@@ -151,7 +175,14 @@ export class Antigravity extends AcpAdapter {
   }
   private persist(restorable: boolean): void {
     this.hasHistory ||= restorable;
-    this.options.persist({ sessionId: this.session, hasHistory: this.hasHistory, restorable });
+    const saved = {
+      sessionId: this.session,
+      hasHistory: this.hasHistory,
+      restorable,
+      toolPermission: this.turbo ? "turbo" : "default",
+    };
+    this.options.saved = saved;
+    this.options.persist(saved);
   }
 
   private setting(id: string): SessionSetting | undefined {
@@ -160,7 +191,35 @@ export class Antigravity extends AcpAdapter {
   }
   override get settings(): SessionSetting[] {
     const mode = this.setting("mode");
-    return mode ? [mode] : [];
+    return [
+      ...(mode ? [mode] : []),
+      {
+        id: "tool_permission",
+        name: "Tool permissions",
+        currentValue: this.turbo ? "turbo" : "default",
+        options: [
+          { value: "default", name: "Use host settings" },
+          { value: "turbo", name: "Turbo (auto-approve tools)" },
+        ],
+      },
+    ];
+  }
+  override async configure(values: Record<string, string>): Promise<void> {
+    const selected = permissionValues(values, this.settings);
+    const mode = selected.mode ?? this.setting("mode")?.currentValue;
+    if (
+      selected.tool_permission !== undefined &&
+      (selected.tool_permission === "turbo") !== this.turbo
+    ) {
+      // agy exposes this policy as a launch flag, not an ACP config option. Resume
+      // the same native conversation between turns; never approve pending requests.
+      const turbo = selected.tool_permission === "turbo";
+      await this.restart(permissionCommand(this.options.command, turbo));
+      this.turbo = turbo;
+      await this.initialize();
+    }
+    this.checkCancellation();
+    if (mode) await this.select("mode", mode);
   }
   protected override readConfig(value: Json | undefined): void {
     super.readConfig(value);

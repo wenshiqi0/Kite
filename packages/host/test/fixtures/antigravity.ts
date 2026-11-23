@@ -5,6 +5,11 @@ import { home, lines } from "@kite/runtime";
 
 const nativeFile = join(home(), "agy-fixture-session");
 const trace = join(home(), "agy-fixture-methods");
+const turbo = process.argv.includes("--dangerously-skip-permissions");
+appendFileSync(
+  join(home(), "agy-fixture-launches"),
+  `${JSON.stringify({ pid: process.pid, turbo })}\n`,
+);
 const send = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const choice = (id: string, name: string, currentValue: string, options: string[]) => ({
   id,
@@ -111,20 +116,31 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
           content: { type: "text", text: "Checking" },
         });
         update({ sessionUpdate: "tool_call", status: "in_progress", ...tool });
-        pending = value.id;
-        send({
-          jsonrpc: "2.0",
-          id: "approve-tool",
-          method: "session/request_permission",
-          params: {
-            sessionId: sid,
-            toolCall: { toolCallId: tool.toolCallId },
-            options: [
-              { kind: "allow_once", optionId: "allow" },
-              { kind: "reject_once", optionId: "deny" },
-            ],
-          },
-        });
+        if (turbo) {
+          update({
+            sessionUpdate: "tool_call_update",
+            toolCallId: tool.toolCallId,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: "Turbo tool ran" } }],
+          });
+          writeFileSync(nativeFile, sid, { mode: 0o600 });
+          reply(value.id, { stopReason: "end_turn" });
+        } else {
+          pending = value.id;
+          send({
+            jsonrpc: "2.0",
+            id: "approve-tool",
+            method: "session/request_permission",
+            params: {
+              sessionId: sid,
+              toolCall: { toolCallId: tool.toolCallId },
+              options: [
+                { kind: "allow_once", optionId: "allow" },
+                { kind: "reject_once", optionId: "deny" },
+              ],
+            },
+          });
+        }
       } else if (prompt.text === "cancel") pending = value.id;
       else {
         update({
