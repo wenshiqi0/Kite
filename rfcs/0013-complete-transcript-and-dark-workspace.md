@@ -50,7 +50,7 @@ flowchart LR
 - 验证 3MiB 工具输出、跨批次工具结果、稳定分组、晚到响应隔离、存储迁移及失败保留。
 - 用真实 APK 截图与操作验证深色界面、全屏鼠标和分屏触控板。CI、模拟器、发布安装与真实手机体验分别记录。
 
-实现与受控验证记录见 [完整会话与深色工作区验收](../product/2026-10-31/complete-transcript/acceptance.md)。
+实现与受控验证记录见 [完整会话与深色工作区验收](../docs/product/2026-10-31/complete-transcript/acceptance.md)。
 
 ## Alpha 14 指针修正
 

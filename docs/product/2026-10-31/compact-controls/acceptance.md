@@ -1,6 +1,6 @@
 # Alpha 12 native controls and history validation
 
-Date: 2026-10-31. Implementation: [RFC 0011](../../../rfcs/0011-compact-desktop-controls.md), [RFC 0012](../../../rfcs/0012-history-pagination.md). Delivery target: [0.2.0-alpha.12](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.12), Android versionCode 14.
+Date: 2026-10-31. Implementation: [RFC 0011](../../../../rfcs/0011-compact-desktop-controls.md), [RFC 0012](../../../../rfcs/0012-history-pagination.md). Delivery target: [0.2.0-alpha.12](https://github.com/wenshiqi0/Kite/releases/tag/v0.2.0-alpha.12), Android versionCode 14.
 
 This record covers the native debug build from the tagged source, an ARM64 API 36 emulator at approximately 411dp portrait width, and a disposable Linux X11 desktop. The desktop source and decode dimensions both remained **1920×1080**, with a 60fps request. Test-only loopback TCP/UDP relays were used because the emulator could not route directly to the LAN. These are real SSH, Sunshine/Moonlight, MediaCodec, input and history integrations; they do not establish physical-phone latency, LAN throughput or WAN acceptance.
 

@@ -1,6 +1,6 @@
 # Alpha 5 phone feedback fixes
 
-The reported phone flow had several real client gaps: the connection form closed before the asynchronous SSH / herdr handshake completed; an empty agent list left the send button disabled without preparing a backend agent; there was no explicit orientation control; and operation-mode touch had no viewport zoom path. Those have been addressed under [RFC 0005](../../rfcs/0005-mobile-operation-and-session-entry.md).
+The reported phone flow had several real client gaps: the connection form closed before the asynchronous SSH / herdr handshake completed; an empty agent list left the send button disabled without preparing a backend agent; there was no explicit orientation control; and operation-mode touch had no viewport zoom path. Those have been addressed under [RFC 0005](../../../rfcs/0005-mobile-operation-and-session-entry.md).
 
 The live host's herdr API returned an empty agent list during diagnosis. The user clarified that connecting the host should be enough to chat. The client now reuses the host agent or automatically prepares a persistent default Codex session; optional project sessions are secondary. The host now retains a real default `kite` backend after the test phone disconnects.
 

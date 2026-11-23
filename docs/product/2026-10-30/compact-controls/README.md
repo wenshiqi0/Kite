@@ -4,7 +4,7 @@
 
 The user's follow-up fixed the portrait order: **desktop → collapsible trackpad → Chat → message composer**. The laptop-style trackpad opens directly below the desktop controls, with a movement area above left/right buttons and a wheel between them. Chat stays below the trackpad and the composer stays at the bottom. Closing the trackpad moves Chat upward into the released space. Fullscreen uses a separate compact mouse control informed by the user's UU expanded/collapsed reference images. Those images were reviewed as references; the captures below use only constructed test content.
 
-The complete decisions and native acceptance requirements are in [RFC 0011](../../../rfcs/0011-compact-desktop-controls.md). Existing source resolution, input coordinate mapping, explicit Watch/Operate, separate agent pause, history/identity and automatic clipboard behavior are retained.
+The complete decisions and native acceptance requirements are in [RFC 0011](../../../../rfcs/0011-compact-desktop-controls.md). Existing source resolution, input coordinate mapping, explicit Watch/Operate, separate agent pause, history/identity and automatic clipboard behavior are retained.
 
 ## Preview states
 

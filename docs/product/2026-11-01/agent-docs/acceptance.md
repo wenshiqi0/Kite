@@ -1,6 +1,6 @@
 # Shared agent docs and X11 control acceptance
 
-Kite now owns the CLI/docs/MCP desktop contract described in [RFC 0019](../../../rfcs/0019-agent-docs-and-linux-desktop.md). The previous deployed hot-upgrade changes were committed to remote main as `e3ab192` before this work. This revision adds compiled, single-source task guides and a thin standard Skill bundle; no harness-specific tool prefixes, prompt interpolation, approval settings or new chat-provider routing are required.
+Kite now owns the CLI/docs/MCP desktop contract described in [RFC 0019](../../../../rfcs/0019-agent-docs-and-linux-desktop.md). The previous deployed hot-upgrade changes were committed to remote main as `e3ab192` before this work. This revision adds compiled, single-source task guides and a thin standard Skill bundle; no harness-specific tool prefixes, prompt interpolation, approval settings or new chat-provider routing are required.
 
 `kite docs desktop` is directly useful without loading the index or an entire reference manual. Advanced input, host, session, harness and upgrade details remain separate topics. Matching explicit known revisions omit only the retained bodies. A new context gets a fresh body; no global “read already” flag exists. Docs and tool discovery are usable while the Node is missing. CLI is a complete path for consumers that already have shell/image-viewer tools; MCP adds four compact tools and native image blocks for consumers that need that integration.
 

@@ -26,7 +26,7 @@ Mac kernel-enforced aggregate agent budgets, process pause and X11 desktop MCP a
 
 ## Sources
 
-- [Mac host setup](../../../macos-host.md) and [RFC 0029](../../../rfcs/0029-macos-host.md)
+- [Mac host setup](../../../macos-host.md) and [RFC 0029](../../../../rfcs/0029-macos-host.md)
 - [Mac host policy](../../../../crates/kite-app/src/host_node/macos.rs), [launchd state parsing](../../../../crates/kite-app/src/host_node/launchd.rs)
 - [Darwin process facts](../../../../packages/runtime/src/darwin.ts), [private socket validation](../../../../packages/runtime/src/socket.ts), [Mac Codex initialization](../../../../packages/providers/src/codex.ts)
 - [Capture target verification](../../../../packages/platform/src/captured-display.ts), [native pixel metadata](../../../../macos/HostPlatform/main.swift), [client geometry](../../../../crates/kite-stream/src/display.rs)

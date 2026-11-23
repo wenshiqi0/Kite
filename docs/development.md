@@ -1,6 +1,6 @@
 # Development
 
-Kite shares a Rust core between native Android and iOS clients. Rust owns SSH, herdr and Sunshine protocols, domain state and persistence; Kotlin and Swift own UI, lifecycle, secure storage and media presentation. The full rules are in [SPEC](../SPEC.md) and the [RFC index](rfcs/README.md).
+Kite shares a Rust core between native Android and iOS clients. Rust owns SSH, herdr and Sunshine protocols, domain state and persistence; Kotlin and Swift own UI, lifecycle, secure storage and media presentation. The full rules are in [SPEC](../SPEC.md) and the [RFC index](../rfcs/README.md).
 
 The native [macOS client](macos.md) also uses this Core. Build with `macos/scripts/build.sh` after `bun install --frozen-lockfile` and submodule initialization; run its offline native checks with `macos/scripts/test.sh`. XcodeGen maintains `macos/project.yml`; generated bindings, projects and all `macos/build/` output are ignored.
 
@@ -71,7 +71,7 @@ The Xcode build phase rebuilds the current platform's Rust static library and Sw
 xcodebuild -project ios/Kite.xcodeproj -target Kite -sdk iphonesimulator ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 ```
 
-The current script builds the ARM64 simulator target. A successful iOS build validates compilation, not an iOS desktop renderer. iPhone and iPad layouts adapt to window width, including narrow split-screen windows; see [RFC 0002](rfcs/0002-ios.md).
+The current script builds the ARM64 simulator target. A successful iOS build validates compilation, not an iOS desktop renderer. iPhone and iPad layouts adapt to window width, including narrow split-screen windows; see [RFC 0002](../rfcs/0002-ios.md).
 
 ## Checks
 
@@ -79,7 +79,7 @@ Run the [testing checks](testing.md) before delivery. GitHub Actions also builds
 
 ## Conversation and input presentation
 
-The host projection in packages/providers/src/codex.ts installs as host.js through Kite Node. It sends gzip-compressed record batches with source positions; kite-agent keeps message identity independent of transport metadata, and kite-app automatically builds and persists complete conversations. Rust snapshots hold shared immutable messages. CoreSnapshot contains metadata only; conversation_since supplies versioned range edits or an explicit reset. Kotlin maintains a read-only presentation mirror and stable tool groups. Video telemetry carries no message body. Scrolling is a native-only operation and never starts a history SSH request. See [RFC 0013](rfcs/0013-complete-transcript-and-dark-workspace.md).
+The host projection in packages/providers/src/codex.ts installs as host.js through Kite Node. It sends gzip-compressed record batches with source positions; kite-agent keeps message identity independent of transport metadata, and kite-app automatically builds and persists complete conversations. Rust snapshots hold shared immutable messages. CoreSnapshot contains metadata only; conversation_since supplies versioned range edits or an explicit reset. Kotlin maintains a read-only presentation mirror and stable tool groups. Video telemetry carries no message body. Scrolling is a native-only operation and never starts a history SSH request. See [RFC 0013](../rfcs/0013-complete-transcript-and-dark-workspace.md).
 
 `WorkspaceGeometry` budgets portrait desktop, controls, optional trackpad, Chat and composer in device-independent units. `DesktopViewport` remains the single source-to-view coordinate transform. `RemoteInputConnection` preserves IME composition; `RemoteTextBuffer` batches committed text over a fixed 200 ms window and invalidates pending callbacks when a destination closes. Keyboard, pointer and modifier transitions flush committed text in order.
 

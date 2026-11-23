@@ -2,7 +2,7 @@
 
 > 编号：0001 · 状态：已采纳 · 创建：2026-10-28
 > 范围：技术栈、系统架构、herdr 与 Sunshine 集成、交互设计（含桌面的几种呈现方式和状态行规则）
-> 由本 RFC 产生的硬性规则已汇总进 [SPEC.md](../../SPEC.md)。
+> 由本 RFC 产生的硬性规则已汇总进 [SPEC.md](../SPEC.md)。
 
 ## 1. 目标
 
@@ -81,7 +81,7 @@ kite 是 [herdr](https://github.com/herdrdev/herdr) 的原生移动客户端。�
 
 ### 3.2 Rust 内核模块
 
-crate 的分层、职责和依赖规则以 [SPEC.md](../../SPEC.md) 第 3 节为准，这里只说明各自做什么：
+crate 的分层、职责和依赖规则以 [SPEC.md](../SPEC.md) 第 3 节为准，这里只说明各自做什么：
 
 - **kite-ssh**：基于 russh。生成 ed25519 密钥；严格校验主机密钥；支持跳板机；保活和断线重连。用到两种通道：执行命令（herdr 桥接、读文件、剪贴板）和端口转发（Sunshine 的 TCP 端口）。
 - **kite-store**：本地持久化主机配置、已信任的主机密钥和对话缓存。私钥明文不进这里，由原生的安全存储保管。
@@ -93,7 +93,7 @@ crate 的分层、职责和依赖规则以 [SPEC.md](../../SPEC.md) 第 3 节为
 
 ### 3.3 Rust 与原生代码的边界
 
-谁负责什么、三条通道（命令、状态、媒体）的约定，见 [SPEC.md](../../SPEC.md) 第 4 节。要点：
+谁负责什么、三条通道（命令、状态、媒体）的约定，见 [SPEC.md](../SPEC.md) 第 4 节。要点：
 
 - **状态和指令走 UniFFI**：连接状态、agent 列表、聊天消息、状态行、终端单元格增量。这些数据量小、频率低。
 - **视频帧和高频输入走 JNI 直通**：UniFFI 的 Kotlin 绑定底层用 JNA，每次调用都有额外开销和拷贝。视频帧通过 direct ByteBuffer 交给 Kotlin 的 MediaCodec；指针移动这类每秒上百次的输入也走这条通道。moonlight-android 也是这种结构：C 库经 JNI 交给 Java 的 MediaCodec。
@@ -342,7 +342,7 @@ kite/
 └── docs/rfcs/            设计提案（RFC）
 ```
 
-布局规则见 [SPEC.md](../../SPEC.md) 第 2 节。
+布局规则见 [SPEC.md](../SPEC.md) 第 2 节。
 
 ## 9. 里程碑
 

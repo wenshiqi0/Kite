@@ -12,8 +12,9 @@
 - [Testing](testing.md): offline checks, integration fixtures and acceptance boundaries.
 - [Alpha releases](releases.md): CI, stable signing, version tags and GitHub prereleases.
 - [Product reference](product/2026-10-29/README.md): original chat / desktop mockups and confirmed interaction rules.
-- [Engineering specification](../SPEC.md): architecture and ownership rules.
-- [RFCs](rfcs/README.md): design decisions and implementation scope.
+- [Engineering specification](../SPEC.md): root index, core invariants and links to [modular specs](spec/architecture.md).
+- [RFCs](../rfcs/README.md): independent design decisions and implementation scope.
+- [Cross-provider collaboration development guide](development/cross-provider-collaboration.md): implementation spec for [RFC 0033](../rfcs/0033-cross-provider-async-session-control.md).
 
 ## Delivery and evaluation records
 

@@ -4,7 +4,7 @@
 
 ## 主机与客户端
 
-主机通过 `agy acp` 启动 Google Antigravity CLI。执行主机提供 CLI 和登录状态。Kite 使用 `antigravity` 作为 provider ID。新建会话目录要求主机显式启用、ACP v1 握手成功且 `session/list` 可用。这个读取操作验证 CLI 已拾取认证配置。对于 Gemini API key，Google 服务会在模型收到请求时验证凭据。安装和配置见[主机指南](../backend-setup.md#google-antigravity)。
+主机通过 `agy acp` 启动 Google Antigravity CLI。执行主机提供 CLI 和登录状态。Kite 使用 `antigravity` 作为 provider ID。新建会话目录要求主机显式启用、ACP v1 握手成功且 `session/list` 可用。这个读取操作验证 CLI 已拾取认证配置。对于 Gemini API key，Google 服务会在模型收到请求时验证凭据。安装和配置见[主机指南](../docs/backend-setup.md#google-antigravity)。
 
 Android、macOS 和 Windows 从主机发布的目录选择 Antigravity，复用同一个 Core 会话和聊天接口。模型及思考强度取自 ACP 的模型清单、模型配置和思考配置。图片输入遵循 ACP 握手能力。模式选项由 `agy` 提供，工具授权使用原请求的允许一次或拒绝一次选项。聊天显示公开文本和工具事件。取消通过 `session/cancel` 向同一会话发送。已有会话也可以通过 Kite 的网络 ACP 连接。
 

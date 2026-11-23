@@ -8,4 +8,4 @@ Queries use `account/read` with `refreshToken=false` and `account/rateLimits/rea
 
 Account queries run independently of chat. They refresh at most once per minute automatically, update on provider notifications and can be refreshed from the detail panel. A failed query shows an unavailable state or labels the previous result as stale; it does not disable chat or infer permission to send from a percentage. Account changes clear old allowance data. Email addresses, account identifiers, credentials and allowance history are not persisted by Kite.
 
-The [protocol decision](rfcs/0006-rich-composer.md) records ownership and lifecycle details. The implementation uses the [official Codex account/limits API](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt) and the running Codex 0.164.0 schema.
+The [protocol decision](../rfcs/0006-rich-composer.md) records ownership and lifecycle details. The implementation uses the [official Codex account/limits API](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt) and the running Codex 0.164.0 schema.

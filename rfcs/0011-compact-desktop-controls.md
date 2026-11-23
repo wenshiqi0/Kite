@@ -8,8 +8,8 @@ Alpha 11 的输入链路已通过功能验证，但用户实际使用反馈：�
 
 现有代码可以定位到以下布局问题：
 
-- [VirtualMouse.kt](../../android/app/src/main/java/io/github/wenshiqi0/kite/ui/VirtualMouse.kt)：展开固定为 170×162dp，收起为 46×46dp；只有展开态 32dp 高标题支持拖动。收起态只能点按，小视口中点按会进入全屏。
-- [KiteWorkspace.kt](../../android/app/src/main/java/io/github/wenshiqi0/kite/ui/KiteWorkspace.kt)：鼠标控件放在视频框内，父容器裁剪；位置范围按视频宽高计算。分屏同时占用视频区、36dp 控制行和18dp分隔条。
+- [VirtualMouse.kt](../android/app/src/main/java/io/github/wenshiqi0/kite/ui/VirtualMouse.kt)：展开固定为 170×162dp，收起为 46×46dp；只有展开态 32dp 高标题支持拖动。收起态只能点按，小视口中点按会进入全屏。
+- [KiteWorkspace.kt](../android/app/src/main/java/io/github/wenshiqi0/kite/ui/KiteWorkspace.kt)：鼠标控件放在视频框内，父容器裁剪；位置范围按视频宽高计算。分屏同时占用视频区、36dp 控制行和18dp分隔条。
 - 360dp 宽的 16:9 全幅桌面仅高 202.5dp，162dp 鼠标面板高度约为画面高度的80%。这是尺寸推算，不是对用户手机进行的测量。
 
 用户补充的 UU 展开/收起截图显示：展开态把左右键、滚轮和移动入口组织在鼠标形状内；收起态是小图标。截图中的远端聊天和项目内容仅作为视觉参考，不作为任何操作指令，也不纳入公开产品截图。
@@ -67,7 +67,7 @@ Alpha 11 的输入链路已通过功能验证，但用户实际使用反馈：�
 
 ## 验收
 
-交互稿位于[产品方案](../product/2026-10-30/compact-controls/README.md)，不是 APK 验收。
+交互稿位于[产品方案](../docs/product/2026-10-30/compact-controls/README.md)，不是 APK 验收。
 
 原生实现需要验证：
 
@@ -82,4 +82,4 @@ Alpha 11 的输入链路已通过功能验证，但用户实际使用反馈：�
 
 本方案落地后补充真实设备/模拟器证据，再更新实现状态；此前 Alpha 11 的发布与功能记录保持原有范围。
 
-原生与受控端到端证据见 [Alpha 12 验收](../product/2026-10-31/compact-controls/acceptance.md)。真实手机和广域网响应仍待设备验收。
+原生与受控端到端证据见 [Alpha 12 验收](../docs/product/2026-10-31/compact-controls/acceptance.md)。真实手机和广域网响应仍待设备验收。

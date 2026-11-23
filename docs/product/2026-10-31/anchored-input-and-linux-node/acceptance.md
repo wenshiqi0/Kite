@@ -14,7 +14,7 @@ The [real input timing check](quiet-input-validation.json) injects a **1.4-secon
 
 ## Linux host activation
 
-[RFC 0014](../../../rfcs/0014-linux-host-node.md) implements the first desktop host stage: a persistent Rust `kite-node`, native GTK panel, user-level installer and MCP stdio queries. New APK chat, Herdr API, session/history and attachment operations traverse Node over existing SSH. Node executes the matching `backend-v5.py`. No Python-direct fallback is added. Existing Herdr runtime/provider ownership is reused; production herdr-core migration is not performed.
+[RFC 0014](../../../../rfcs/0014-linux-host-node.md) implements the first desktop host stage: a persistent Rust `kite-node`, native GTK panel, user-level installer and MCP stdio queries. New APK chat, Herdr API, session/history and attachment operations traverse Node over existing SSH. Node executes the matching `backend-v5.py`. No Python-direct fallback is added. Existing Herdr runtime/provider ownership is reused; production herdr-core migration is not performed.
 
 The [deployed node check](node-service-validation.json) verifies API 1, adapter protocol 5, a 0600 socket/0700 directory, and preserved original Herdr/Sunshine process identities and backend-v2/v3/v4 bytes. The [native panel](linux-host-panel.png) was rendered and closed on the owned X11 display; the real systemd node retained the same PID and remained queryable through a fresh SSH connection. The configured services are external and are not stopped by the panel.
 

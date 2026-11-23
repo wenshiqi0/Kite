@@ -50,7 +50,7 @@ Agent consumers can use `kite docs desktop` for Linux X11 operations or `kite do
 - [Build and development](docs/development.md)
 - [Testing](docs/testing.md)
 - [Releases and CI](docs/releases.md)
-- [Architecture and engineering specification](SPEC.md)
+- [Architecture and engineering specification](SPEC.md) ([modular specs](docs/spec/architecture.md), [RFCs](rfcs/README.md))
 
 ## License
 
