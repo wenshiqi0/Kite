@@ -71,28 +71,28 @@ fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onEx
     if (inlineMarkdown != null) {
         MarkdownMessage(inlineMarkdown, streaming = streaming, attachments = files, onAttachmentClick = { inspect(); selected = it })
     } else {
-    var index = 0
-    while (index < files.size) {
-        val start = index
-        if (attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) {
-            while (index < files.size && attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) index++
-            val images = files.subList(start, index)
-            key(conversation, start) {
-                AttachmentImageGrid(vm, conversation, images) { file -> inspect(); selected = file }
-            }
-        } else {
-            val file = files[index++]
-            key(conversation, start, file.id) {
-                Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
-                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
+        var index = 0
+        while (index < files.size) {
+            val start = index
+            if (attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) {
+                while (index < files.size && attachmentPreviewKind(files[index].mime, files[index].name) == AttachmentPreviewKind.Image) index++
+                val images = files.subList(start, index)
+                key(conversation, start) {
+                    AttachmentImageGrid(vm, conversation, images) { file -> inspect(); selected = file }
+                }
+            } else {
+                val file = files[index++]
+                key(conversation, start, file.id) {
+                    Row(Modifier.fillMaxWidth().clickable { inspect(); selected = file }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ProductIcon(attachmentMark(file.mime, file.name), KiteColors.Accent, Modifier.size(20.dp))
+                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                            Text(file.name, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.attachment_open_preview), fontSize = 11.sp, color = KiteColors.Muted)
+                        }
                     }
                 }
             }
         }
-    }
     }
     selected?.let { AttachmentPreview(vm, conversation, it, onExternalActivityChanged) { selected = null } }
 }

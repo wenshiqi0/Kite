@@ -889,7 +889,10 @@ class WorkspaceRefinementPresentationTest {
             val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
             waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
             val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
-            assertTrue("Block order is retained: $positions", positions.zipWithNext().all { (a,b) -> a <= b })
+            val prose = requireNotNull(find(text="owned-before")).text.toString()
+            assertTrue(prose.indexOf("owned-before") < prose.indexOf(file.name))
+            assertTrue(prose.indexOf(file.name) < prose.indexOf("owned-between"))
+            assertTrue("Controls and later content retain their order: $positions", positions.drop(2).zipWithNext().all { (a,b) -> a < b })
             assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
             screenshot("mixed-item-block-order.png")
         }

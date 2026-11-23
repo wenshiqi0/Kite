@@ -39,6 +39,13 @@ class ItemContentRunsTest {
         val markdown = inlineFileMarkdown(itemContentRuns(blocks).single().blocks)
         assertEquals("[draft \\[v2\\]\\(final\\)\\*\\_\\`\\\\\\.md](kite-attachment:0) [另一个\\.json](kite-attachment:1)", markdown)
     }
+
+    @Test fun distinctProviderTextBlocksKeepTheirLayoutBoundary() {
+        val blocks = listOf(BlockInfo.Text("First paragraph."), BlockInfo.Text("Second "), document("file"), BlockInfo.Text(" continues."))
+        val runs = itemContentRuns(blocks)
+        assertEquals(listOf(0, 1), runs.map { it.start })
+        assertEquals(blocks, runs.flatMap { it.blocks })
+    }
     @Test fun consecutiveImagesShareAnAlbumAcrossBlankMarkdownSeparators() {
         val images = listOf(image("a"), image("b"), image("c"))
         val runs = itemContentRuns(listOf(images[0], BlockInfo.Text("\n"), BlockInfo.Text("  "), images[1], BlockInfo.Text("\n\n"), images[2]))

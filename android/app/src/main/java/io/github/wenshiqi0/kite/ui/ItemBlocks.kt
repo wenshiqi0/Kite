@@ -30,7 +30,12 @@ internal fun itemContentRuns(blocks: List<BlockInfo>): List<ItemContentRun> = bu
     while (index < blocks.size) {
         val start = index
         if (blocks[index].isInlineContent()) {
-            while (index < blocks.size && blocks[index].isInlineContent()) index++
+            index++
+            while (index < blocks.size && blocks[index].isInlineContent()) {
+                // Distinct provider text blocks still start separate layouts.
+                if (blocks[index - 1] is BlockInfo.Text && blocks[index] is BlockInfo.Text) break
+                index++
+            }
             add(ItemContentRun(start, blocks.subList(start, index)))
             continue
         }
@@ -55,6 +60,8 @@ internal fun itemContentRuns(blocks: List<BlockInfo>): List<ItemContentRun> = bu
     }
 }
 
+private val fileLabelPunctuation = Regex("([\\p{Punct}])")
+
 /** The destinations are scoped to this rendered run, never paths or external URLs. */
 internal fun inlineFileMarkdown(blocks: List<BlockInfo>): String = buildString {
     var fileIndex = 0
@@ -68,7 +75,7 @@ internal fun inlineFileMarkdown(blocks: List<BlockInfo>): String = buildString {
             is BlockInfo.Attachment -> {
                 if (previousFile) append(' ')
                 val label = block.file.name.replace('\n', ' ').replace('\r', ' ')
-                    .replace(Regex("([\\p{Punct}])"), "\\\\$1")
+                    .replace(fileLabelPunctuation, "\\\\$1")
                 append('[').append(label).append("](kite-attachment:").append(fileIndex++).append(')')
                 previousFile = true
             }
