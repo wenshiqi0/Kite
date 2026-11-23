@@ -1,6 +1,8 @@
 # Cross-machine sessions and tasks
 
-`kite acp` exposes existing Kite session owners through authenticated ACP v1 JSON-RPC at WebSocket `/acp`. This is the WebSocket profile of the active remote-transport RFD; HTTP/2/SSE and full history replay are not implemented. New network sessions use verified Codex, Ply, DSH and Antigravity providers. Existing sessions from these providers can be attached with `session/resume`; check negotiated capabilities. Normal Kite history remains available through its host connection.
+`kite acp` exposes existing Kite session owners through authenticated ACP v1 JSON-RPC at WebSocket `/acp`. This is the WebSocket profile of the active remote-transport RFD; HTTP/2/SSE and full history replay are not implemented. New network sessions use verified Codex, Ply, DSH and Antigravity providers. Use the Kite session ID to continue an existing conversation. Normal Kite history remains available through its host connection.
+
+Use session control v2 for every new remote task, including short tasks. Use the `kite_session_*` MCP tools or the CLI below. If a peer lacks v2, report that its gateway needs updating. The deprecated `kite_remote_task` tool and `kite acp task` command are reserved for existing automation.
 
 On a Linux executing machine, run in its existing systemd user hierarchy so agent resource admission remains enforced:
 
@@ -23,17 +25,9 @@ Copy the endpoint token through an already trusted SSH connection and keep the p
 
 Kite's peer client checks a nonce/HMAC endpoint proof before sending its Bearer token. Other ACP clients can use an authenticated WebSocket upgrade directly; ACP messages and IDs remain unchanged.
 
-```sh
-kite acp task --peer mini --cwd /absolute/workspace/project \
-  --provider ply --expected-revision 0123456789012345678901234567890123456789 \
-  --allow-command 'bun run typecheck' < task.txt
-```
+Use `kite acp proxy --peer mini` to attach another ACP client.
 
-The prompt comes from stdin; stdout is one result containing the remote session ID, stop reason and reply. Progress and permission events use stderr. The optional exact command authorization applies only in the named directory; other permissions are rejected. `end_turn` means the agent finished, so inspect actual tool results before calling a build successful. A requested revision must match a clean tracked checkout.
-
-Use `--session ID` to continue the same remote context. Transport failure does not replay input or cancel the owner. Explicit cancellation is forwarded to the active prompt. Use `kite acp proxy --peer mini` to attach another ACP client. `kite acp mcp` keeps `kite_remote_task` for existing short-task callers.
-
-## Long-running collaboration
+## Run a remote task
 
 A peer advertising `controlPlaneVersion: 2` supports independent submission and observation. Supply the parent Kite machine and session ID when delegating from a Kite conversation. An external caller can use a stable opaque parent ID.
 
@@ -49,6 +43,7 @@ kite acp release --peer mini --session CHILD_ID
 ```
 
 - `spawn` and `send` accept `--model`, `--effort`, and advertised Codex `--service-tier` values. `send --attachment PATH` accepts a file already inside the executing host's allowed workspaces. `--wait-ms` waits up to 30 seconds for a reply.
+- Use `send --session ID` to continue the same remote context. The prompt comes from stdin. For revision-pinned builds, pass `send --expected-revision SHA` and use a clean checkout on the executing host.
 - Recover from uncertain creation with `list --parent-machine caller-host --parent-session PARENT_ID --label "Run checks"`, following any pagination cursor. Recover from uncertain submission with `status` and `read` before deciding whether to send again.
 - `wait` accepts multiple `--target PEER/SESSION` arguments. Append `/REVISION` from `status` to wait past a previously observed state. `read` returns public text and tool summaries with a truncation flag. Check structured tool status and exit codes before reporting a build as successful.
 - `strict` is the default. Use `--allow-command` for an exact command in the session directory. `human_in_the_loop` needs a reachable Kite Node on the executing host. A person opens the target session to decide an approval or answer a question.

@@ -709,6 +709,8 @@ async function mcp(file: string): Promise<void> {
         protocolVersion: "2024-11-05",
         serverInfo: { name: "kite-acp", version: "1" },
         capabilities: { tools: {} },
+        instructions:
+          "Use kite_session_* for every new remote task, including short tasks. Recover or create a session with kite_session_list or kite_session_spawn, submit with kite_session_send, and inspect the turn with kite_session_status, kite_session_wait_any, and kite_session_read. kite_remote_task is reserved for existing automation. If a peer lacks session control v2, report that its gateway needs updating.",
       };
     }
     check(initialized, "initialize MCP first");
@@ -719,7 +721,7 @@ async function mcp(file: string): Promise<void> {
           {
             name: "kite_remote_task",
             description:
-              "Submit an explicit task to a named remote Kite session over authenticated ACP. The target keeps its workspace, credentials and owner; requests are never replayed.",
+              "Deprecated. Reserved for existing automation. For any new remote task, use kite_session_spawn or kite_session_list, then kite_session_send and kite_session_read.",
             inputSchema: {
               type: "object",
               additionalProperties: false,

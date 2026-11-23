@@ -35,7 +35,7 @@
 
 ### 2.1 控制面与恢复
 
-- 网关在 ACP v1 `initialize` 的 `_meta.kite` 发布 `controlPlaneVersion: 2` 与 `controlMethods`。CLI 和 MCP 提供 `spawn`、`send`、`status`、`read`、`list`、`wait_any`、`cancel`、`release`。同步 `kite acp task` 和 `kite_remote_task` 继续使用 ACP v1 短任务协议。
+- 网关在 ACP v1 `initialize` 的 `_meta.kite` 发布 `controlPlaneVersion: 2` 与 `controlMethods`。CLI 和 MCP 提供 `spawn`、`send`、`status`、`read`、`list`、`wait_any`、`cancel`、`release`。Agent 发起的新任务统一使用 v2。同步 `kite acp task` 和 `kite_remote_task` 保留给已有自动化。
 - `send` 通过既有 owner 启动一轮，收到 owner 确认后即可返回稳定 `turnId`。可短等至多 30 秒。关闭提交连接或等待超时只结束当前等待。恢复时以 `status` 的活跃或最近轮次和 `read` 返回为准。投递结果不明确时先查事实再决定是否发送。
 - `status`、`list` 和 `wait_any` 读取 owner 的活动、交互和终态。单次等待至多 60 秒，支持状态 `revision` 游标。跨 peer 聚合由 CLI/MCP 并发发起，首个就绪结果返回后关闭其他观察连接。MCP 对读取、取消、等待和提交分别限制并发。
 - `read` 按轮次取回公开回复与工具摘要，默认预算 64 KiB，响应硬上限 256 KiB。裁剪保留尾部并设置 `truncated`。可从近期持久化投影或有轮次标记的有界原始历史中读取。历史轮次超过窗口时返回不可用。

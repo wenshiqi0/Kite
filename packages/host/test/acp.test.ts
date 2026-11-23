@@ -294,9 +294,16 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
   try {
     request(1, "initialize", { protocolVersion: "2024-11-05" });
     await until(() => responses.has(1));
+    expect(object(responses.get(1)).instructions).toContain(
+      "Use kite_session_* for every new remote task, including short tasks.",
+    );
+    expect(object(responses.get(1)).instructions).toContain(
+      "If a peer lacks session control v2, report that its gateway needs updating.",
+    );
     request(2, "tools/list", {});
     await until(() => responses.has(2));
-    const names = array(object(responses.get(2)).tools).map((tool) => object(tool).name);
+    const tools = array(object(responses.get(2)).tools).map(object);
+    const names = tools.map((tool) => tool.name);
     expect(names).toEqual([
       "kite_session_spawn",
       "kite_session_send",
@@ -308,6 +315,9 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
       "kite_session_release",
       "kite_remote_task",
     ]);
+    expect(tools.find((tool) => tool.name === "kite_remote_task")?.description).toContain(
+      "Deprecated. Reserved for existing automation.",
+    );
     const targets = [
       { peer: "a", sessionId: id },
       { peer: "b", sessionId: id },
