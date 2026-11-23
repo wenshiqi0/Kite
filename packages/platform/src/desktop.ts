@@ -111,6 +111,7 @@ export function sessionEnvironment(): NodeJS.ProcessEnv {
         "INVOCATION_ID",
         "SYSTEMD_EXEC_PID",
         "CODEX_THREAD_ID",
+        "KITE_SESSION_ID",
         "KITE_DESKTOP_ARTIFACTS",
       ].includes(key)
     )

@@ -190,6 +190,7 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
       cwd = context.cwd;
     const env: NodeJS.ProcessEnv = { ...process.env, KITE_HOST_BACKEND_PATH: entry() };
     delete env.CODEX_THREAD_ID;
+    delete env.KITE_SESSION_ID;
     if (process.platform === "darwin") {
       // SIP-protected shells can omit their environment from KERN_PROCARGS2.
       // Derive hook context from the verified pane API and configured server.

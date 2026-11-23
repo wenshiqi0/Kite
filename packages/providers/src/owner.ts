@@ -487,6 +487,8 @@ export class Owner {
 export async function serveOwner(thread: string): Promise<void> {
   const path = harnessDirectory(thread),
     owner = new Owner(path);
+  // This process and its native descendants own one Kite session.
+  process.env.KITE_SESSION_ID = owner.info.id;
   await owner.initialize();
   const socket = join(path, "owner.sock");
   rmSync(socket, { force: true });

@@ -6,11 +6,13 @@ import { parseArgs } from "node:util";
 import { proc, userManagerCgroup } from "@kite/platform/resources";
 import {
   array,
+  boolean,
   boundedString,
   CHAT_PROVIDERS,
   check,
   DELEGATION_POLICIES,
   isChatProvider,
+  isManagedProvider,
   type Json,
   json,
   type ObjectValue,
@@ -19,7 +21,10 @@ import {
   parse,
   REMOTE_SESSION_STATES,
   type RpcMessage,
+  SESSION_ID,
+  sessionParent,
   string,
+  UUID,
 } from "@kite/protocol";
 import {
   ACP_MAX_WAIT_SESSIONS,
@@ -31,6 +36,7 @@ import {
   acpSessionId,
 } from "@kite/protocol/acp";
 import { kiteAcpConnector } from "@kite/providers/acp";
+import { catalogRead } from "@kite/providers/catalog";
 import { providers } from "@kite/providers/harness";
 import { home, input, lines, privateDir, requireOwnedFile, sleep } from "@kite/runtime";
 import { type AcpClient, connectAcp, serveAcp } from "@kite/runtime/acp";
@@ -394,7 +400,8 @@ const selectionFields = {
 const operations = {
   spawn: {
     method: "session/new",
-    description: "Create a session and acquire its stable identity.",
+    description:
+      "Create a session under the verified Kite parent or an explicitly supplied parent.",
     schema: schema(["peer", "cwd", "provider"], {
       ...peerField,
       cwd: textField,
@@ -406,6 +413,10 @@ const operations = {
         sessionId: textField,
         provider: textField,
       }),
+      standalone: {
+        ...boolField,
+        description: "Set true only for an independent session requested by the user.",
+      },
       label: textField,
       role: textField,
       writeLock: boolField,
@@ -577,6 +588,53 @@ async function waitAny(file: string, args: ObjectValue, signal: AbortSignal) {
   }
 }
 
+async function spawnParent(args: ObjectValue): Promise<ObjectValue | undefined> {
+  const standalone = args.standalone === undefined ? false : boolean(args.standalone);
+  if (standalone) {
+    check(args.parent === undefined, "standalone and parent are mutually exclusive");
+    return undefined;
+  }
+  const explicit = args.parent === undefined ? undefined : sessionParent(args.parent);
+  const managed = process.env.KITE_SESSION_ID;
+  const codex = process.env.CODEX_THREAD_ID;
+  if (managed === undefined && codex === undefined) {
+    check(
+      explicit,
+      "Kite caller context unavailable. Run from a Kite session, supply an external parent, or explicitly request a standalone session.",
+    );
+    return { ...explicit };
+  }
+  const unresolved = "Could not verify the active Kite parent in the local session catalog.";
+  check(managed === undefined ? UUID.test(codex ?? "") : SESSION_ID.test(managed), unresolved);
+  const { sessions } = await catalogRead();
+  const matches = sessions.filter(
+    (row) =>
+      !row.archived &&
+      row.reference?.kind === "id" &&
+      row.reference.agent === row.provider &&
+      (managed === undefined
+        ? row.provider === "codex" && row.reference.value === codex
+        : isManagedProvider(row.provider) &&
+          row.reference.source === "kite:harness" &&
+          row.id === managed),
+  );
+  const caller = matches[0];
+  check(matches.length === 1 && caller, unresolved);
+  const parent = sessionParent({
+    machine: process.env.KITE_ACP_MACHINE || hostname(),
+    sessionId: caller.id,
+    provider: caller.provider,
+  });
+  check(
+    !explicit ||
+      (explicit.machine === parent.machine &&
+        explicit.sessionId === parent.sessionId &&
+        (explicit.provider === undefined || explicit.provider === parent.provider)),
+    "Explicit parent does not match the active Kite session",
+  );
+  return { ...parent };
+}
+
 async function sessionControl(
   file: string,
   action: Operation,
@@ -599,7 +657,6 @@ async function sessionControl(
       model,
       effort,
       serviceTier,
-      parent,
       role,
       label,
       policy,
@@ -607,6 +664,7 @@ async function sessionControl(
       worktreeIsolated,
     } = params;
     check(isChatProvider(provider), "invalid remote provider");
+    const parent = await spawnParent(params);
     return controlPeer(
       target,
       signal,
@@ -710,7 +768,7 @@ async function mcp(file: string): Promise<void> {
         serverInfo: { name: "kite-acp", version: "1" },
         capabilities: { tools: {} },
         instructions:
-          "Use kite_session_* for every new remote task, including short tasks. Recover or create a session with kite_session_list or kite_session_spawn, submit with kite_session_send, and inspect the turn with kite_session_status, kite_session_wait_any, and kite_session_read. kite_remote_task is reserved for existing automation. If a peer lacks session control v2, report that its gateway needs updating.",
+          "Use kite_session_* for every new remote task, including short tasks. kite_session_spawn binds the active Kite parent automatically. Leave parent unset when working in a Kite session. Set standalone only for an independent session requested by the user. External callers can supply parent. Recover with kite_session_list, submit with kite_session_send, and inspect with kite_session_status, kite_session_wait_any, and kite_session_read. kite_remote_task is reserved for existing automation. If a peer lacks session control v2, report that its gateway needs updating.",
       };
     }
     check(initialized, "initialize MCP first");
@@ -853,6 +911,7 @@ export async function acpMain(argv: string[]): Promise<void> {
         "parent-machine": { type: "string" },
         "parent-session": { type: "string" },
         "parent-provider": { type: "string" },
+        standalone: { type: "boolean" },
         "write-lock": { type: "boolean" },
         "worktree-isolated": { type: "boolean" },
         attachment: { type: "string", multiple: true },
@@ -948,6 +1007,7 @@ export async function acpMain(argv: string[]): Promise<void> {
           title: values.title,
           label: values.label,
           role: values.role,
+          standalone: values.standalone,
           writeLock: values["write-lock"],
           worktreeIsolated: values["worktree-isolated"],
           parent:
