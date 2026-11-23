@@ -681,8 +681,18 @@ mod tests {
         assert_eq!(value.buckets.len(), 3);
         assert_eq!(value.buckets[0].id, "gemini");
         assert_eq!(value.buckets[0].name.as_deref(), Some("Gemini Models"));
-        assert_eq!(value.buckets[0].primary.as_ref().unwrap().remaining_percent, 40);
-        assert_eq!(value.buckets[0].secondary.as_ref().unwrap().remaining_percent, 82);
+        assert_eq!(
+            value.buckets[0].primary.as_ref().unwrap().remaining_percent,
+            40
+        );
+        assert_eq!(
+            value.buckets[0]
+                .secondary
+                .as_ref()
+                .unwrap()
+                .remaining_percent,
+            82
+        );
         assert_eq!(value.buckets[1].id, "3p");
         assert!(value.buckets[1].limit_reached);
         assert_eq!(value.buckets[2].id, "gemini-argon-wtu");
@@ -705,11 +715,13 @@ mod tests {
         assert_eq!(signed_out.status, Status::Unavailable);
         assert_eq!(signed_out.unavailable, Unavailable::NoAccount);
 
-        assert!(decode(
-            &agy_account,
-            Some(&json!({"rateLimits": {}, "unavailable": "bogus"})),
-            100,
-        )
-        .is_err());
+        assert!(
+            decode(
+                &agy_account,
+                Some(&json!({"rateLimits": {}, "unavailable": "bogus"})),
+                100,
+            )
+            .is_err()
+        );
     }
 }
