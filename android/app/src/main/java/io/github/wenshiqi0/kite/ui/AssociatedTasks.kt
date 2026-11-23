@@ -20,7 +20,7 @@ import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.SubagentInfo
 import io.github.wenshiqi0.kite.ui.theme.KiteColors
 
-internal fun associatedTaskTitle(task: SubagentInfo): String = task.task.substringAfterLast('/').ifBlank { task.name }
+internal fun associatedTaskTitle(task: SubagentInfo): String = if (task.sessionId != null) task.name else task.task.substringAfterLast('/').ifBlank { task.name }
 
 @Composable
 internal fun AssociatedTasks(
@@ -36,8 +36,8 @@ internal fun AssociatedTasks(
     var expanded by rememberSaveable(context) { mutableStateOf(initiallyExpanded) }
     // Provider ancestry remains in each record for read authorization, never UI indentation.
     val rows = remember(tasks) { tasks.distinctBy { it.id } }
-    val active = rows.count { it.status in listOf("working", "starting") }
-    val completed = rows.count { sessionStatus(it.status, connected) == SessionStatus.Completed }
+    val active = rows.count { (it.connected ?: connected) && it.status in listOf("working", "starting") }
+    val completed = rows.count { sessionStatus(it.status, it.connected ?: connected) == SessionStatus.Completed }
     Column(modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = !expanded }.padding(horizontal = 8.dp),
@@ -46,8 +46,8 @@ internal fun AssociatedTasks(
         ) {
             ProductIcon(Mark.Chevron, modifier = Modifier.size(15.dp).rotate(if (expanded) 0f else -90f))
             Text(stringResource(R.string.associated_tasks_count, rows.size), color = KiteColors.Muted, fontSize = 12.sp)
-            if (connected && active > 0 && !failed) Text(stringResource(R.string.associated_tasks_active, active), color = KiteColors.Accent, fontSize = 11.sp)
-            if (completed > 0 && !failed) Text(stringResource(R.string.associated_tasks_completed, completed), color = KiteColors.Muted, fontSize = 11.sp)
+            if (active > 0) Text(stringResource(R.string.associated_tasks_active, active), color = KiteColors.Accent, fontSize = 11.sp)
+            if (completed > 0) Text(stringResource(R.string.associated_tasks_completed, completed), color = KiteColors.Muted, fontSize = 11.sp)
         }
         if (expanded) {
             if (failed) Text(stringResource(R.string.associated_tasks_unavailable), color = KiteColors.Warning, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
@@ -62,9 +62,11 @@ internal fun AssociatedTasks(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(associatedTaskTitle(task), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = KiteColors.Text)
+                            val source = listOfNotNull(task.machine, task.provider?.let { providerLabel(it) }, task.task.takeIf { task.sessionId != null && it.isNotBlank() }).joinToString(" · ")
+                            if (source.isNotEmpty()) Text(source, fontSize = 10.sp, color = KiteColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (task.name.isNotBlank() && task.name != associatedTaskTitle(task)) Text(task.name, fontSize = 10.sp, color = KiteColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        SessionStatusBadge(sessionStatus(if (failed && task.status in listOf("working", "blocked", "question", "starting")) "unknown" else task.status, connected))
+                        SessionStatusBadge(sessionStatus(if (failed && task.sessionId == null && task.status in listOf("working", "blocked", "question", "starting")) "unknown" else task.status, task.connected ?: connected))
                     }
                 }
             }

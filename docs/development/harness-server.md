@@ -19,7 +19,7 @@
 
 ## 2. 接通创建、发现与恢复
 
-新 owner 必须在执行 provider 前进入共享资源预算，复用 `kite_resources.py` 的执行入口和 Node `resource-admit` / `resource-ready`。不要由原生客户端决定限额或直接启动无限制后台进程；见 [RFC 0022](../rfcs/0022-host-resources-and-agent-budget.md)。已有 owner 复用不重新启动，预算拒绝也不重放消息。
+新 owner 必须在执行 provider 前进入共享资源预算，复用 `kite_resources.py` 的执行入口和 Node `resource-admit` / `resource-ready`。不要由原生客户端决定限额或直接启动无限制后台进程；见 [RFC 0022](../../rfcs/0022-host-resources-and-agent-budget.md)。已有 owner 复用不重新启动，预算拒绝也不重放消息。
 
 按以下顺序修改并验证：
 

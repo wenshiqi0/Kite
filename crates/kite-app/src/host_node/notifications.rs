@@ -23,6 +23,7 @@ struct SourceFact {
     controls: String,
     controls_known: bool,
     lifecycle: bool,
+    interaction: Option<kite_agent::notifications::Interaction>,
 }
 pub(super) struct Watch(pub JoinHandle<()>);
 impl Drop for Watch {
@@ -153,6 +154,7 @@ pub(super) fn start(node: &Arc<Node>) -> Watch {
                             questions,
                             questions_known: source.controls_known,
                             lifecycle: source.lifecycle,
+                            interaction: source.interaction,
                             terminal: kite_agent::notifications::terminal_from_controls(
                                 source.controls.as_bytes(),
                             ),
@@ -194,6 +196,7 @@ mod tests {
             questions_known: true,
             lifecycle: false,
             terminal: None,
+            interaction: None,
         };
         journal.ingest(&[fact("working", 1)], 1).unwrap();
         journal.ingest(&[fact("idle", 2)], 2).unwrap();

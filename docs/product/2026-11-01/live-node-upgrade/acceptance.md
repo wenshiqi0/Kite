@@ -1,6 +1,6 @@
 # Linux Node live-upgrade source acceptance
 
-Source changes implement [RFC 0018](../../../rfcs/0018-live-node-upgrade.md) on the Alpha 31 source baseline. They are uncommitted local changes and not a published package. The final implementation has also been installed and tested on the local host; see the local deployment section below. The previous host identity, services and real sessions were not used as failure fixtures.
+Source changes implement [RFC 0018](../../../../rfcs/0018-live-node-upgrade.md) on the Alpha 31 source baseline. They are uncommitted local changes and not a published package. The final implementation has also been installed and tested on the local host; see the local deployment section below. The previous host identity, services and real sessions were not used as failure fixtures.
 
 The real user-systemd [probe](../../../../desktop/linux/qa/live_upgrade_probe.py) ran the actual installer in a temporary user tree. Manager operations were confined to unique owned `kite-qa-upgrade-*` socket/service units. It tested the generated units rather than independently handwritten replacements. A trailing owned ELF marker changed the candidate's digest without rebuilding a second model/client; this proves process/digest/descriptor handover, not arbitrary future code/schema compatibility. API 1 / backend protocol 5 remain required.
 

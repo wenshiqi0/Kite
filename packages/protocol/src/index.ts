@@ -55,6 +55,89 @@ export interface Reference {
   kind: string;
   value: string;
 }
+export const DELEGATION_POLICIES = ["strict", "human_in_the_loop", "isolated_auto"] as const;
+export type DelegationPolicy = (typeof DELEGATION_POLICIES)[number];
+export const REMOTE_SESSION_STATES = [
+  "idle",
+  "working",
+  "waiting_approval",
+  "waiting_question",
+  "failed",
+  "released",
+] as const;
+export type RemoteSessionState = (typeof REMOTE_SESSION_STATES)[number];
+export interface SessionParent {
+  machine: string;
+  sessionId: string;
+  provider?: string;
+}
+export interface SessionDelegation {
+  parent?: SessionParent;
+  label?: string;
+  role?: string;
+  policy: DelegationPolicy;
+  writeLock?: boolean;
+  worktreeIsolated?: boolean;
+}
+export interface SessionSelection {
+  model?: string;
+  effort?: string;
+  serviceTier?: string;
+}
+export function boundedString(value: unknown, limit: number): string {
+  const text = string(value);
+  const chars = [...text];
+  check(
+    text.trim() &&
+      chars.length <= limit &&
+      chars.every((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127),
+    "invalid bounded string",
+  );
+  return text;
+}
+export function delegationPolicy(value: unknown): DelegationPolicy {
+  const policy = DELEGATION_POLICIES.find((entry) => entry === value);
+  check(policy, "invalid delegation policy");
+  return policy;
+}
+export function remoteSessionState(value: unknown): RemoteSessionState {
+  const state = REMOTE_SESSION_STATES.find((entry) => entry === value);
+  check(state, "invalid remote session state");
+  return state;
+}
+export function boolean(value: unknown): boolean {
+  check(typeof value === "boolean", "boolean required");
+  return value;
+}
+export function sessionParent(value: unknown): SessionParent {
+  const row = object(value);
+  return {
+    machine: boundedString(row.machine, 128),
+    sessionId: boundedString(row.sessionId, 128),
+    ...(row.provider === undefined ? {} : { provider: boundedString(row.provider, 64) }),
+  };
+}
+export function sessionDelegation(value: unknown): SessionDelegation {
+  const row = object(value);
+  return {
+    policy: delegationPolicy(row.policy),
+    ...(row.parent === undefined ? {} : { parent: sessionParent(row.parent) }),
+    ...(row.label === undefined ? {} : { label: boundedString(row.label, 120) }),
+    ...(row.role === undefined ? {} : { role: boundedString(row.role, 64) }),
+    ...(row.writeLock === undefined ? {} : { writeLock: boolean(row.writeLock) }),
+    ...(row.worktreeIsolated === undefined
+      ? {}
+      : { worktreeIsolated: boolean(row.worktreeIsolated) }),
+  };
+}
+export function sessionSelection(value: unknown): SessionSelection {
+  const row = object(value);
+  return {
+    ...(row.model === undefined ? {} : { model: boundedString(row.model, 256) }),
+    ...(row.effort === undefined ? {} : { effort: boundedString(row.effort, 64) }),
+    ...(row.serviceTier === undefined ? {} : { serviceTier: boundedString(row.serviceTier, 64) }),
+  };
+}
 export interface SessionRecord {
   id: string;
   provider: Provider;
@@ -66,6 +149,8 @@ export interface SessionRecord {
   workspace_id?: string | null;
   agent_name?: string | null;
   archived?: boolean;
+  delegation?: SessionDelegation;
+  acp_selection?: SessionSelection;
   [key: string]: unknown;
 }
 export interface Catalog {
@@ -104,15 +189,21 @@ export function session(value: unknown): SessionRecord {
     check(typeof row.archived === "boolean", "invalid archive state");
     result.archived = row.archived;
   }
+  if (row.delegation !== undefined) result.delegation = sessionDelegation(row.delegation);
+  if (row.acp_selection !== undefined) result.acp_selection = sessionSelection(row.acp_selection);
   return result;
 }
-export function catalog(value: unknown): Catalog {
+export function catalogEnvelope(value: unknown) {
   const row = object(value);
   check(row.version === 1, "unsupported session catalog");
   check(integer(row.revision) >= 0, "invalid catalog revision");
   const rows = array(row.sessions);
   check(rows.length <= 1024, "session capacity exceeded");
-  return { version: 1, revision: integer(row.revision), sessions: rows.map(session) };
+  return { version: 1 as const, revision: integer(row.revision), sessions: rows };
+}
+export function catalog(value: unknown): Catalog {
+  const envelope = catalogEnvelope(value);
+  return { ...envelope, sessions: envelope.sessions.map(session) };
 }
 export interface Model {
   model: string;

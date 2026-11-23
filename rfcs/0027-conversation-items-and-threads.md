@@ -22,12 +22,12 @@ Kite 今天的聊天抽象是"一条线性会话 + 一个全局选中"。把上�
 
 | Medeo 概念 | Kite 现状 | 差距 |
 |---|---|---|
-| Room（持久容器，全局 ID） | `kite_agent::sessions::Record`（[sessions.rs:11-26](../../crates/kite-agent/src/sessions.rs)）只存元数据；消息真相在 provider 历史里 | 身份被 `selected_session` 与 `selected_agent`（terminal_id）两个主键分摊，键有五种写法：`chat_key`（[core.rs:2409](../../crates/kite-app/src/core.rs)）、`source_key`（core.rs:2424）、`history::key`（[history.rs:28](../../crates/kite-agent/src/history.rs)）、`cache_key`、`conversation_context`（[conversation.rs:33](../../crates/kite-app/src/core/conversation.rs)） |
-| Session（有生命周期的连接） | 运行态散在 `AppCore`/`Snapshot` 的单例字段上：`history`、`history_window`、`pending_messages`、`composer`、`approval`、`question`、`response_activity`、`agent_pause` | 切换会话要手写同一串清零代码，目前有五份（[core/sessions.rs:451-453、642-644、690-692、742-744、839-841](../../crates/kite-app/src/core/sessions.rs)）；同一时刻只持有一份 transcript |
-| Chat Item（容器，放对象） | `Message { id, role, text, intermediate, tool, question_replies }`（[lib.rs:84](../../crates/kite-agent/src/lib.rs)），正文是扁平字符串 | 附件以 `<kite_attachments>` 尾缀拼进 text（[composer.rs:612-618](../../crates/kite-agent/src/composer.rs)），到 FFI 再拆；而发送侧 Codex `turn/start input[]` 和 TS `NativeBlock` 本来就是块 |
+| Room（持久容器，全局 ID） | `kite_agent::sessions::Record`（[sessions.rs:11-26](../crates/kite-agent/src/sessions.rs)）只存元数据；消息真相在 provider 历史里 | 身份被 `selected_session` 与 `selected_agent`（terminal_id）两个主键分摊，键有五种写法：`chat_key`（[core.rs:2409](../crates/kite-app/src/core.rs)）、`source_key`（core.rs:2424）、`history::key`（[history.rs:28](../crates/kite-agent/src/history.rs)）、`cache_key`、`conversation_context`（[conversation.rs:33](../crates/kite-app/src/core/conversation.rs)） |
+| Session（有生命周期的连接） | 运行态散在 `AppCore`/`Snapshot` 的单例字段上：`history`、`history_window`、`pending_messages`、`composer`、`approval`、`question`、`response_activity`、`agent_pause` | 切换会话要手写同一串清零代码，目前有五份（[core/sessions.rs:451-453、642-644、690-692、742-744、839-841](../crates/kite-app/src/core/sessions.rs)）；同一时刻只持有一份 transcript |
+| Chat Item（容器，放对象） | `Message { id, role, text, intermediate, tool, question_replies }`（[lib.rs:84](../crates/kite-agent/src/lib.rs)），正文是扁平字符串 | 附件以 `<kite_attachments>` 尾缀拼进 text（[composer.rs:612-618](../crates/kite-agent/src/composer.rs)），到 FFI 再拆；而发送侧 Codex `turn/start input[]` 和 TS `NativeBlock` 本来就是块 |
 | 子 Session / 分叉 | 无。全仓无 fork、parent、origin 字段 | Codex app-server v2 有 `thread/fork`（本机 codex-cli 0.147.0 schema，支持 `lastTurnId` 截到某一轮）；Claude CLI 有 `--fork-session`；ACP（DSH/Ply）没有 fork |
 | Chat Thread（可持久化的 Item 编组） | 无 | — |
-| 引用转发 / 拷贝转发 | 只有一次性拷贝：`migrationContext` 把旧 harness 历史序列化为纯文本注入新 turn（[harness.ts:313](../../packages/providers/src/harness.ts)、[owner.ts:240](../../packages/providers/src/owner.ts)） | 没有结构、没有来源标记、不可回溯 |
+| 引用转发 / 拷贝转发 | 只有一次性拷贝：`migrationContext` 把旧 harness 历史序列化为纯文本注入新 turn（[harness.ts:313](../packages/providers/src/harness.ts)、[owner.ts:240](../packages/providers/src/owner.ts)） | 没有结构、没有来源标记、不可回溯 |
 | Subscription（未读、已读位置、置顶、免打扰） | RFC 0017 只有通知事件身份、接收游标和去重；会话列表没有未读与阅读位置 | 红点与通知混在一起 |
 | Membership（多个能体同处一个 Room） | 一个会话一个 agent | 本稿不做 |
 
@@ -102,7 +102,7 @@ AppCore
 ### 4. Item 与 Block
 
 - `kite-agent::parse_history` 直接产出 `Vec<Item>`；id 与 `positions` 排序规则不变（RFC 0013：传输位置不参与 ID）。
-- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 `turn/start input[]`，ACP prompt 的 blocks 由主机适配器从 `input[]` 转换（[uploads.ts](../../packages/providers/src/uploads.ts) 的 `nativeInput`）。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，阶段 3 新增 `kite_embed` 信封承载快照引用）；信封无法表示的块在编码时报错，不静默丢弃。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
+- 附件不再拼进文本：解析层把 `<kite_attachments>` 信封解成 `Block::Attachment`，发送层把 `Block` 列表编码到 `turn/start input[]`，ACP prompt 的 blocks 由主机适配器从 `input[]` 转换（[uploads.ts](../packages/providers/src/uploads.ts) 的 `nativeInput`）。provider 历史里 Kite 自有的结构只允许通过一个 `envelope` 模块编解码（现有附件信封保持原样以免迁移数据，阶段 3 新增 `kite_embed` 信封承载快照引用）；信封无法表示的块在编码时报错，不静默丢弃。已有历史里的旧信封继续能读，这是读取用户数据，不是接口兼容层。
 - 本地缓存里的旧 `Message` 记录继续能读，读入时转为 blocks，下次保存时写成新格式；其中可能有 provider 已压缩掉的内容，不能丢。不支持降级。
 - FFI：`MessageInfo` → `ItemInfo { id, role, blocks: Vec<BlockInfo>, intermediate, origin }`，`BlockInfo` 为 UniFFI enum。`ConversationEditInfo.items` 改为 `Vec<ItemInfo>`。增量协议（`conversation_since`）不变。
 - Android：`ChatEntry.Message` 从 blocks 渲染；`ToolGroupCard` 读 `BlockInfo.Tool`；附件卡读 `BlockInfo.Attachment`；阶段 3 新增最小快照来源卡，阶段 4 扩展活引用交互。
@@ -119,7 +119,7 @@ AppCore
 
 ### 6. Thread 与两种引用
 
-- 存储：主机目录新增 `threads: Vec<ThreadRecord>`，与 `sessions` 同一份文件、同一个修订号和 CAS 写入（[catalog.ts](../../packages/providers/src/catalog.ts)）。目录 1 MB/1024 条上限随之上调或把 threads 拆到 `threads.json`（待定问题 3）。Thread 只引用同一主机上的会话。
+- 存储：主机目录新增 `threads: Vec<ThreadRecord>`，与 `sessions` 同一份文件、同一个修订号和 CAS 写入（[catalog.ts](../packages/providers/src/catalog.ts)）。目录 1 MB/1024 条上限随之上调或把 threads 拆到 `threads.json`（待定问题 3）。Thread 只引用同一主机上的会话。
 - 命令：`create_thread(host, conversation, item_ids, title)`、`rename_thread`、`delete_thread`、`embed_thread(host, target, thread_id, mode)`。
 - 两种引用的边界（这是 Kite 与 Medeo 最大的不同，必须写清楚）：
   - **活引用只存在于 Kite 层。** provider 历史是唯一真相且不可改写，所以 `Reference::Live` 只能作为目录里的叠加记录（`ConversationOverlay { conversation, pins: Vec<{ at: Option<ItemId>, reference }> }`），渲染时由 Rust 从源会话的本地缓存或 `history::read` 解析成 blocks。源会话归档或 owner 被回收后仍可读（历史是文件，不依赖 owner）；源会话删除或主机不可达时渲染为"不可用"状态，不报错。

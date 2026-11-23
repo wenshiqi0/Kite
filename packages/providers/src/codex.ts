@@ -421,10 +421,11 @@ export async function proxy(pane: string): Promise<void> {
   }
   await websocketProxy(readRegistry(pane).socket);
 }
-export async function sessionOpen(id: string, binary: string): Promise<Json> {
+export async function sessionOpen(id: string, binary: string, allowArchived = true): Promise<Json> {
   return locked(sessionLock(id), async () => {
     const found = (await catalogRead()).sessions.find((r) => r.id === id);
     check(found, "session not found");
+    check(allowArchived || !found.archived, "remote session is archived");
     let record: SessionRecord = found;
     const provider = record.provider;
     const thread = codexThread(record);

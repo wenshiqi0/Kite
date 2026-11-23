@@ -486,6 +486,7 @@
     <string name="no_session_matches">没有匹配的会话</string>
     <string name="session_machine">目标机器</string>
     <string name="session_machine_offline">请先连接这台机器，再新建会话。</string>
+    <string name="associated_task_take_over">打开并接管</string>
     <string name="associated_tasks_title">关联任务</string>
     <string name="associated_tasks_count">关联任务 · %1$d</string>
     <string name="associated_tasks_active">%1$d 个运行中</string>

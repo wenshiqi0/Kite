@@ -41,6 +41,9 @@ fun AgentNotificationCenter(vm:HostCheckViewModel,onOpen:(String)->Unit,onClose:
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
                             Text(notice.title,style=MaterialTheme.typography.titleSmall,fontWeight=if(notice.read)FontWeight.Normal else FontWeight.SemiBold,maxLines=2)
                             Text(stringResource(when(notice.kind){AgentNoticeKind.COMPLETED->R.string.notice_completed;AgentNoticeKind.QUESTION->R.string.notice_question;AgentNoticeKind.ATTENTION->R.string.notice_attention;AgentNoticeKind.FAILED->R.string.notice_failed}),style=MaterialTheme.typography.bodySmall)
+                            listOfNotNull(notice.command, notice.cwd, notice.question).forEach { detail ->
+                                Text(detail, style = MaterialTheme.typography.bodySmall)
+                            }
                             val host=state?.hosts?.firstOrNull{it.id==notice.hostId}?.host.orEmpty()
                             Text(host+" · "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(notice.createdMs)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }

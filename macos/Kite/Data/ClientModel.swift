@@ -156,6 +156,9 @@ final class ClientModel {
         guard !busy, let host = hostId ?? snapshot?.selectedHost else { return }
         command(scoped: false) { try await $0.openWorkspaceSession(hostId: host, sessionId: session.id) }
     }
+    func inspectTask(host: String, parent: String, child: String) async throws -> SubagentInspectionInfo? {
+        try await core?.inspectSubagent(hostId: host, parentId: parent, childId: child)
+    }
     func send() {
         guard canSend, let id = snapshot?.selectedAgent, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let text = draft, target = destination

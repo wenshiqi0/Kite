@@ -133,6 +133,7 @@ export async function connectAcp(
   url: string,
   token: string,
   receive: (message: RpcMessage) => void,
+  signal?: AbortSignal,
 ): Promise<AcpClient> {
   const endpoint = new URL(url);
   check(
@@ -157,7 +158,9 @@ export async function connectAcp(
   const response = await fetch(probe, {
       headers: { "x-kite-acp-challenge": challenge },
       redirect: "error",
-      signal: AbortSignal.timeout(8000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000),
     }),
     proof = response.headers.get("x-kite-acp-proof") || "";
   check(
@@ -166,19 +169,27 @@ export async function connectAcp(
       timingSafeEqual(Buffer.from(proof, "hex"), Buffer.from(peerProof(token, challenge), "hex")),
     "ACP handshake failed: endpoint identity mismatch",
   );
+  signal?.throwIfAborted();
   const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
   const closed = new Promise<void>((resolve) => {
     socket.addEventListener("close", () => resolve(), { once: true });
   });
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      cleanup();
       socket.close();
-      reject(new Error("ACP handshake timed out"));
-    }, 8000);
+      reject(new Error("ACP connection cancelled"));
+    };
+    const timer = setTimeout(abort, 8000);
+    signal?.addEventListener("abort", abort, { once: true });
     socket.addEventListener(
       "open",
       () => {
-        clearTimeout(timer);
+        cleanup();
         resolve();
       },
       { once: true },
@@ -186,7 +197,7 @@ export async function connectAcp(
     socket.addEventListener(
       "error",
       () => {
-        clearTimeout(timer);
+        cleanup();
         reject(new Error("ACP handshake failed"));
       },
       { once: true },

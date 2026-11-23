@@ -1,7 +1,36 @@
-import { check, object, type RpcMessage } from "./index";
+import { array, check, integer, object, type RpcMessage, SESSION_ID, string } from "./index";
 
 export const ACP_MESSAGE_LIMIT = 2 * 1024 * 1024;
 export const ACP_QUEUE_LIMIT = 4 * 1024 * 1024;
+export const ACP_READ_LIMIT = 256 * 1024;
+export const ACP_READ_DEFAULT = 64 * 1024;
+export const ACP_MAX_CHILDREN_PER_PARENT = 16;
+export const ACP_MAX_WAIT_SESSIONS = 16;
+export const ACP_CONTROL_METHODS = ["submit", "status", "read", "wait_any", "release"].map(
+  (method) => `_kite/session/${method}`,
+);
+
+export function acpSessionId(value: unknown): string {
+  const id = string(value);
+  check(SESSION_ID.test(id), "invalid ACP session ID");
+  return id;
+}
+export function acpLimit(value: unknown, fallback: number, max: number, min = 0): number {
+  const limit = value === undefined ? fallback : integer(value);
+  check(limit >= min && limit <= max, "ACP numeric limit out of range");
+  return limit;
+}
+export function acpCommands(value: unknown): string[] {
+  const commands = value === undefined ? [] : array(value).map(string);
+  check(commands.length <= 16, "too many command authorizations");
+  check(
+    commands.every(
+      (command) => command.trim() && command.length <= 8192 && !command.includes("\0"),
+    ),
+    "invalid command authorization",
+  );
+  return commands;
+}
 
 /** Network ACP preserves the same UTF-8 JSON-RPC envelope as stdio ACP v1. */
 export function acpMessage(value: unknown): RpcMessage {

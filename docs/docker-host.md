@@ -14,7 +14,7 @@ sudo mkdir -p /dev/input
 test -d /run/udev/data
 ```
 
-This full desktop container needs `privileged: true`, host networking and a writable **private** cgroup namespace for systemd and the existing agent budget. It reads `/dev/input` and `/run/udev` for Sunshine hotplug; its Xorg ignores physical server input. Use one container desktop per server: kernel virtual input is shared, so multiple Sunshine desktops on the same server are not isolated from one another. Rootless Docker, Docker Desktop, Windows/macOS servers and ARM64 images are not supported by this deployment. See the [design decision](rfcs/0028-docker-linux-host.md), [systemd container interface](https://systemd.io/CONTAINER_INTERFACE/) and [Docker runtime privileges](https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities).
+This full desktop container needs `privileged: true`, host networking and a writable **private** cgroup namespace for systemd and the existing agent budget. It reads `/dev/input` and `/run/udev` for Sunshine hotplug; its Xorg ignores physical server input. Use one container desktop per server: kernel virtual input is shared, so multiple Sunshine desktops on the same server are not isolated from one another. Rootless Docker, Docker Desktop, Windows/macOS servers and ARM64 images are not supported by this deployment. See the [design decision](../rfcs/0028-docker-linux-host.md), [systemd container interface](https://systemd.io/CONTAINER_INTERFACE/) and [Docker runtime privileges](https://docs.docker.com/engine/containers/run/#runtime-privilege-and-linux-capabilities).
 
 ## Build an image
 

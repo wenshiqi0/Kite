@@ -1,9 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Json, object, type RpcMessage, type SessionRecord } from "@kite/protocol";
-import { type AcpBackend, type AcpRepository, KiteAcp } from "../src/acp";
+import {
+  array,
+  type Json,
+  object,
+  type RpcMessage,
+  type SessionRecord,
+  string,
+} from "@kite/protocol";
+import { type AcpBackend, type AcpRepository, KiteAcp, kiteAcpConnector } from "../src/acp";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -21,6 +28,13 @@ const until = async (check: () => boolean) => {
   }
   throw new Error("ACP condition timed out");
 };
+const antigravitySettings = [
+  {
+    id: "tool_permission",
+    currentValue: "turbo",
+    options: [{ value: "default" }, { value: "turbo" }],
+  },
+];
 function fixture() {
   const root = directory(),
     records: SessionRecord[] = [
@@ -61,6 +75,7 @@ function fixture() {
       machine: "mini",
       herdr: "/owned/herdr",
       workspaces: [root],
+      stateDirectory: root,
       defaultProvider: "ply",
       repository,
       async backend(record, event, request): Promise<AcpBackend> {
@@ -77,6 +92,7 @@ function fixture() {
           thread: `thread-${record.id}`,
           model: "model",
           effort: "",
+          ...(record.provider === "antigravity" ? { settings: antigravitySettings } : {}),
           async call(method, params) {
             owner.calls.push([method, params]);
             if (method === "thread/read") {
@@ -289,4 +305,357 @@ test("disconnect detaches the transport without cancelling or replaying its remo
   expect(owner?.active).toBe(true);
   expect(owner?.calls.filter(([method]) => method === "turn/start").length).toBe(1);
   expect(owner?.calls.some(([method]) => method === "turn/interrupt")).toBe(false);
+});
+
+test("legacy ACP prompts retain the strict approval path with an Antigravity Turbo owner", async () => {
+  const f = fixture();
+  const record = f.records[0];
+  if (!record) throw new Error("missing fixture record");
+  record.provider = "antigravity";
+  await f.initialize();
+  await f.resume(record.id);
+  const pending = f.agent.receive({
+    id: 9,
+    method: "session/prompt",
+    params: { sessionId: record.id, prompt: [{ type: "text", text: "owned" }] },
+  });
+  const owner = f.owners.get(record.id);
+  await until(() => owner?.active === true);
+  expect(owner?.calls.find(([method]) => method === "turn/start")?.[1]).toMatchObject({
+    sessionSettings: { tool_permission: "default" },
+  });
+  f.agent.close();
+  await pending;
+});
+
+function controlFixture() {
+  const root = directory();
+  const records: SessionRecord[] = [];
+  const runs = new Map<string, { turn: string; params: Json; send(message: RpcMessage): void }>();
+  const endings = new Map<string, string>();
+  const fixture = kiteAcpConnector({
+    machine: "owned-fixture",
+    herdr: "unused",
+    workspaces: [root],
+    defaultProvider: "codex",
+    stateDirectory: root,
+    humanAvailable: async () => true,
+    repository: {
+      list: async () => records,
+      async create(provider, cwd, title, delegation, selection) {
+        if (provider !== "codex" && provider !== "ply" && provider !== "antigravity")
+          throw new Error("unexpected provider");
+        const row: SessionRecord = {
+          id: crypto.randomUUID().replaceAll("-", ""),
+          provider,
+          cwd,
+          title,
+          ...(delegation ? { delegation } : {}),
+          ...(selection ? { acp_selection: selection } : {}),
+        };
+        records.push(row);
+        return row;
+      },
+    },
+    inspect: async (record) => {
+      if (record.archived) return { state: "released" };
+      const run = runs.get(record.id);
+      const status = endings.get(record.id);
+      return run
+        ? { state: "working", activeTurnId: run.turn }
+        : { state: "idle", ...(status ? { lastTurnStatus: status } : {}) };
+    },
+    release: async (record) => {
+      record.archived = true;
+    },
+    async backend(record, event) {
+      const thread = `thread-${record.id}`;
+      return {
+        thread,
+        model: "fixture",
+        effort: "high",
+        ...(record.provider === "ply"
+          ? {
+              settings: [
+                {
+                  id: "approval_mode",
+                  currentValue: "bypass",
+                  options: [{ value: "bypass" }, { value: "ask" }],
+                },
+              ],
+            }
+          : {}),
+        ...(record.provider === "antigravity" ? { settings: antigravitySettings } : {}),
+        models: [
+          {
+            model: "fixture",
+            defaultReasoningEffort: "high",
+            supportedReasoningEfforts: [{ reasoningEffort: "high" }, { reasoningEffort: "low" }],
+            serviceTiers: [{ id: "priority" }],
+          },
+        ],
+        async call(method, params) {
+          if (method === "turn/start") {
+            const turn = crypto.randomUUID();
+            const send = (message: RpcMessage) =>
+              event({
+                ...message,
+                params: {
+                  threadId: thread,
+                  turnId: turn,
+                  ...object(message.params ?? {}),
+                },
+              });
+            runs.set(record.id, { turn, params, send });
+            return { turn: { id: turn } };
+          }
+          if (method === "turn/interrupt") finish(record.id, "interrupted");
+          return {};
+        },
+        write() {},
+        close() {},
+      };
+    },
+  });
+  function finish(id: string, status = "completed") {
+    const binding = runs.get(id);
+    if (!binding) throw new Error("owner unavailable");
+    runs.delete(id);
+    endings.set(id, status);
+    binding.send({ method: "turn/completed", params: { turn: { id: binding.turn, status } } });
+  }
+  async function client() {
+    let sequence = 1;
+    const outputs = new Map<string | number, RpcMessage>();
+    const agent = fixture((message) => {
+      if (typeof message.id === "number") outputs.set(message.id, message);
+    });
+    async function call(method: string, params: Json = {}) {
+      const id = sequence++;
+      await agent.receive({ id, method, params });
+      const response = outputs.get(id);
+      if (response?.error) throw new Error(response.error.message);
+      return object(response?.result);
+    }
+    await call("initialize", { protocolVersion: 1 });
+    return { call, close: () => agent.close() };
+  }
+  const prompt = [{ type: "text", text: "owned turn" }];
+  return { root, records, runs, finish, client, prompt };
+}
+
+test("v2 pins the manual approval path for strict and human policies on Antigravity", async () => {
+  const f = controlFixture(),
+    client = await f.client();
+  const child = await client.call("session/new", {
+    cwd: f.root,
+    mcpServers: [],
+    _meta: { kite: { provider: "antigravity", controlPlaneVersion: 2 } },
+  });
+  const sessionId = string(child.sessionId);
+  for (const policy of ["strict", "human_in_the_loop"]) {
+    await client.call("_kite/session/submit", { sessionId, prompt: f.prompt, policy });
+    expect(f.runs.get(sessionId)?.params).toMatchObject({
+      sessionSettings: { tool_permission: "default" },
+    });
+    f.finish(sessionId);
+  }
+  client.close();
+});
+
+test("v2 validates model and service tier, exposes question transitions and bounds encoded readback", async () => {
+  const f = controlFixture(),
+    author = await f.client(),
+    observer = await f.client();
+  const child = await author.call("session/new", {
+    cwd: f.root,
+    mcpServers: [],
+    _meta: {
+      kite: {
+        provider: "codex",
+        model: "fixture",
+        effort: "low",
+        serviceTier: "priority",
+        delegation: { policy: "human_in_the_loop" },
+      },
+    },
+  });
+  const id = string(child.sessionId);
+  const send = (fields: Record<string, Json> = {}) =>
+    author.call("_kite/session/submit", { sessionId: id, prompt: f.prompt, ...fields });
+  await expect(send({ serviceTier: "bad" })).rejects.toThrow("service tier");
+  await expect(send({ model: "unknown" })).rejects.toThrow("model unavailable");
+  expect(f.runs.size).toBe(0);
+  const turn = await send({ serviceTier: "fast", effort: "high" });
+  const working = await observer.call("_kite/session/status", { sessionId: id });
+  expect(working).toMatchObject({
+    state: "working",
+    activeTurnId: turn.turnId,
+    model: "fixture",
+    effort: "high",
+    serviceTier: "priority",
+  });
+  const run = f.runs.get(id);
+  expect(run?.params).toMatchObject({ model: "fixture", effort: "high", serviceTier: "priority" });
+  author.close();
+  expect(
+    (await observer.call("_kite/session/wait_any", { sessionIds: [id], timeoutMs: 5 })).timedOut,
+  ).toBe(true);
+  expect(f.runs.size).toBe(1);
+  const waiting = observer.call("_kite/session/wait_any", { sessionIds: [id], timeoutMs: 5000 });
+  run?.send({
+    id: "native-question",
+    method: "item/tool/requestUserInput",
+    params: {
+      questions: [{ id: "path", question: "Which workspace?" }],
+    },
+  });
+  const blocked = await waiting;
+  expect(blocked).toMatchObject({ timedOut: false, sessionId: id });
+  expect(array(blocked.sessions)[0]).toMatchObject({
+    state: "waiting_question",
+    pendingInteraction: { id: "native-question", question: "Which workspace?" },
+  });
+  run?.send({ method: "serverRequest/resolved", params: { requestId: "native-question" } });
+  expect((await observer.call("_kite/session/status", { sessionId: id })).state).toBe("working");
+  run?.send({
+    method: "item/completed",
+    params: {
+      item: { id: "reply", type: "agentMessage", text: `${"\n`华😀".repeat(100_000)} final tail` },
+    },
+  });
+  run?.send({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "tool",
+        type: "commandExecution",
+        command: "bun run check",
+        exitCode: 2,
+        aggregatedOutput: `${"start\n".repeat(100_000)}tool tail`,
+      },
+    },
+  });
+  f.finish(id);
+  const read = (maxBytes?: number) =>
+    observer.call("_kite/session/read", { sessionId: id, turnId: turn.turnId, maxBytes });
+  await expect(read(262145)).rejects.toThrow("limit");
+  for (const size of [1024, 65536, 262144]) {
+    const result = await read(size);
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(size);
+    expect(result.truncated).toBe(true);
+    expect(string(result.reply).endsWith("final tail")).toBe(true);
+    expect(string(result.reply)).not.toContain("\ufffd");
+    expect(array(result.tools)[0]).toMatchObject({ exitCode: 2, status: "failed" });
+  }
+  expect((await observer.call("_kite/session/release", { sessionId: id })).state).toBe("released");
+  expect((await read(1024)).truncated).toBe(true);
+  observer.close();
+});
+
+test("v2 rejects path traversal and attachment escape, permits separate linked worktrees and forces release explicitly", async () => {
+  const f = controlFixture(),
+    client = await f.client();
+  const repo = join(f.root, "repository"),
+    first = join(f.root, "first"),
+    second = join(f.root, "second");
+  const git = async (...args: string[]) => {
+    const child = Bun.spawn(["git", "-C", repo, ...args], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    expect(await child.exited).toBe(0);
+  };
+  mkdirSync(repo);
+  await git("init");
+  await git(
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-m",
+    "owned",
+  );
+  await git("worktree", "add", "-b", "first", first);
+  await git("worktree", "add", "-b", "second", second);
+  const spawn = (cwd: string, provider = "codex", policy = "strict") =>
+    client.call("session/new", {
+      cwd,
+      mcpServers: [],
+      _meta: {
+        kite: { provider, delegation: { worktreeIsolated: true, writeLock: true, policy } },
+      },
+    });
+  await expect(spawn(repo)).rejects.toThrow("linked Git worktree");
+  await expect(spawn(first, "codex", "isolated_auto")).rejects.toThrow("not enabled");
+  const one = string((await spawn(first)).sessionId);
+  const two = string((await spawn(second, "ply", "isolated_auto")).sessionId);
+  symlinkSync(join(directory(), "missing"), join(first, "escape"));
+  const submit = (id: string, blocks: Json = f.prompt) =>
+    client.call("_kite/session/submit", { sessionId: id, prompt: blocks });
+  for (const uri of [
+    `file://${first}/escape`,
+    `file://${repo}/../first/some.txt`,
+    "https://example.invalid/a",
+  ]) {
+    await expect(submit(one, [{ type: "resource_link", uri }])).rejects.toThrow();
+  }
+  const allowed = join(first, "owned file.txt");
+  writeFileSync(allowed, "owned attachment");
+  await submit(one, [{ type: "resource_link", uri: allowed }]);
+  expect(f.runs.get(one)?.params).toMatchObject({
+    input: [{ type: "text", text: `file://${first}/owned%20file.txt` }],
+  });
+  await submit(two);
+  expect(f.runs.get(two)?.params).toMatchObject({ sessionSettings: { approval_mode: "bypass" } });
+  await expect(spawn(first)).rejects.toThrow("workspace");
+  expect((await client.call("_kite/session/release", { sessionId: one })).released).toBe(false);
+  expect(
+    (await client.call("_kite/session/release", { sessionId: one, forceCancel: true })).state,
+  ).toBe("released");
+  expect(f.runs.has(two)).toBe(true);
+  f.finish(two);
+  client.close();
+});
+
+test("short waits return the completed reply and release is idempotent", async () => {
+  const f = controlFixture(),
+    client = await f.client();
+  const id = string(
+    (
+      await client.call("session/new", {
+        cwd: f.root,
+        mcpServers: [],
+        _meta: { kite: { controlPlaneVersion: 2 } },
+      })
+    ).sessionId,
+  );
+  const result = client.call("_kite/session/submit", {
+    sessionId: id,
+    prompt: f.prompt,
+    waitMs: 1000,
+  });
+  await until(() => f.runs.has(id));
+  f.runs.get(id)?.send({
+    method: "item/completed",
+    params: {
+      item: { id: "recap", type: "agentMessage", text: "owned reply" },
+    },
+  });
+  f.finish(id);
+  expect(await result).toMatchObject({
+    completed: true,
+    reply: "owned reply",
+    stopReason: "end_turn",
+  });
+  for (let i = 0; i < 2; i++) {
+    expect(await client.call("_kite/session/release", { sessionId: id })).toMatchObject({
+      state: "released",
+      released: true,
+    });
+  }
+  client.close();
 });

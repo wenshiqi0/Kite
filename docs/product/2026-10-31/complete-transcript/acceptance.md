@@ -1,6 +1,6 @@
 # Complete transcript and dark workspace validation
 
-Date: 2026-10-31. Design: [RFC 0013](../../../rfcs/0013-complete-transcript-and-dark-workspace.md). Target delivery: 0.2.0-alpha.13, versionCode 15.
+Date: 2026-10-31. Design: [RFC 0013](../../../../rfcs/0013-complete-transcript-and-dark-workspace.md). Target delivery: 0.2.0-alpha.13, versionCode 15.
 
 Alpha 12 mixed a cropped data window with virtual rendering. This revision keeps the conversation independently of its rendered window: background synchronization and persistent caches belong to Rust, native code receives versioned message edits, and scrolling only changes local presentation. The previous Alpha 12 results retain their original scope and do not establish acceptance of this revised behavior.
 

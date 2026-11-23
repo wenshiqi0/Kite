@@ -13,6 +13,7 @@ import {
   string,
 } from "@kite/protocol";
 import { RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
+import { optionalObject } from "@kite/runtime/socket";
 import { appendContent } from "../media";
 import { permissionSettings, permissionValues } from "../permissions";
 
@@ -194,7 +195,12 @@ export abstract class AcpAdapter implements NativeAdapter {
       this.options.event({
         type: "tool/result",
         data: {
-          message: { toolCallId: id, content: output, isError: tool.status === "failed" },
+          message: {
+            toolCallId: id,
+            content: output,
+            isError: tool.status === "failed",
+            exitCode: optionalObject(tool.rawOutput).exitCode,
+          },
         },
       });
     }

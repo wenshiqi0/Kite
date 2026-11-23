@@ -5,6 +5,13 @@ struct WorkspaceView: View {
     @State private var editor: HostDraft?
     @State private var creatingSession = false
     @State private var sessionSearch = ""
+    private struct TaskSelection: Identifiable {
+        let host: String
+        let parent: String
+        let task: SubagentInfo
+        var id: String { "\(host)/\(parent)/\(task.id)" }
+    }
+    @State private var taskSelection: TaskSelection?
     @State private var collapsedMachines: Set<String> = []
     @State private var desktopOnly = false
     @State private var visibility: NavigationSplitViewVisibility = .all
@@ -60,6 +67,9 @@ struct WorkspaceView: View {
         }
         .onChange(of: phase) { _, next in if next != .active { model.lostFocus() } }
         .onChange(of: desktopOnly) { _, value in visibility = value ? .detailOnly : .all }
+        .sheet(item: $taskSelection) { value in
+            AssociatedTaskPreview(model: model, host: value.host, parent: value.parent, task: value.task)
+        }
     }
     private var sidebar: some View {
         VStack(spacing: 0) {
@@ -95,6 +105,8 @@ struct WorkspaceView: View {
                     let workspace = model.snapshot?.hostConnections.first { $0.hostId == host.id }
                     let connection = workspace?.connection ?? .disconnected
                     let sessions = (workspace?.sessions ?? []).filter {
+                        ($0.delegatedChild == false || model.showArchived || !sessionSearch.isEmpty ||
+                         (model.snapshot?.selectedHost == host.id && model.snapshot?.selectedSession == $0.id)) &&
                         $0.archived == model.showArchived && (sessionSearch.isEmpty || host.host.localizedCaseInsensitiveContains(sessionSearch) || $0.title.localizedCaseInsensitiveContains(sessionSearch) || $0.preview.localizedCaseInsensitiveContains(sessionSearch) || $0.provider.localizedCaseInsensitiveContains(sessionSearch) || $0.subagents.contains { $0.name.localizedCaseInsensitiveContains(sessionSearch) || $0.task.localizedCaseInsensitiveContains(sessionSearch) })
                     }
                     let expanded = !collapsedMachines.contains(host.id) || !sessionSearch.isEmpty
@@ -118,7 +130,9 @@ struct WorkspaceView: View {
                                             model.command(scoped: false) { try await $0.archiveSession(hostId: host.id, sessionId: session.id, archived: !session.archived) }
                                         }.disabled(connection != .connected)
                                     }
-                                    SubagentTree(agents: session.subagents, failed: session.subagentsError, connected: connection == .connected)
+                                    SubagentTree(agents: session.subagents, failed: session.subagentsError, connected: connection == .connected) {
+                                        taskSelection = TaskSelection(host: host.id, parent: session.id, task: $0)
+                                    }
                                         .id("\(host.id)/\(session.id)").padding(.leading, 16)
                                 }
                                 if sessions.isEmpty { Text(tr("no_sessions")).font(.caption).foregroundStyle(.secondary) }

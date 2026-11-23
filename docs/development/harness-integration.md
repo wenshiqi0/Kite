@@ -1,9 +1,9 @@
 # Agent harness 接入规范
 
 > 范围：内部开发；仅在新增、修改或排查聊天 harness/provider 接入时读取。
-> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 与 Ply 的能力对齐见 [RFC 0023](../rfcs/0023-harness-capability-parity.md)，配置按需读取 [DSH](dsh.md) / [Ply](ply.md)。
+> 状态：端到端实施规范；现有实现与待补齐设计分别标明。已实现主机验证的 provider 目录与能力快照；通用 `HarnessAdapter` trait 仍未实现。DSH 与 Ply 的能力对齐见 [RFC 0023](../../rfcs/0023-harness-capability-parity.md)，配置按需读取 [DSH](dsh.md) / [Ply](ply.md)。
 
-Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Claude、DSH 与 Ply。新增 harness 需要完成相应适配与验收，不能只把名字加入列表。本文不定义新的传输协议；架构与依赖边界以 [SPEC](../../SPEC.md) 为准，引入新外部协议等变更仍按 [RFC 规则](../rfcs/README.md) 处理。
+Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Claude、DSH 与 Ply。新增 harness 需要完成相应适配与验收，不能只把名字加入列表。本文不定义新的传输协议；架构与依赖边界以 [SPEC](../../SPEC.md) 为准，引入新外部协议等变更仍按 [RFC 规则](../../rfcs/README.md) 处理。
 
 ## 1. 先确定接入范围
 
@@ -36,15 +36,15 @@ Kite 已有工程、主机桥接和会话规范，当前分别适配 Codex、Cla
 
 | 层 | 已有合同与源码 |
 | --- | --- |
-| 主机入口 | [RFC 0014](../rfcs/0014-linux-host-node.md)：SSH 认证、私有 Unix socket、已知动作；[Node 实现](../../crates/kite-app/src/host_node/mod.rs) 负责配置、参数验证与版本 |
+| 主机入口 | [RFC 0014](../../rfcs/0014-linux-host-node.md)：SSH 认证、私有 Unix socket、已知动作；[Node 实现](../../crates/kite-app/src/host_node/mod.rs) 负责配置、参数验证与版本 |
 | 桥接传输 | [bridge.rs](../../crates/kite-app/src/host_node/bridge.rs) / [wire.rs](../../crates/kite-app/src/host_node/wire.rs)：保留 stdin/stdout/stderr 和退出码的有界帧，不负责理解 provider 语义 |
 | 终端与 agent | [Herdr API 客户端](../../crates/kite-herdr/src/api.rs)：`agent.list`、`agent.start`、`agent.prompt`、`agent.read`、`agent.send_keys` 及 pane/workspace 身份 |
 | 主机机制 | [codex.ts](../../packages/providers/src/codex.ts)：会话索引原子写入、恢复锁、进程/socket 注册、Codex owner、附件与历史投影；不是通用 provider 插件系统 |
-| 会话领域 | [sessions.rs](../../crates/kite-agent/src/sessions.rs)：provider、持久引用、归档、目录修订与合并；[RFC 0007](../rfcs/0007-sessions-and-interactions.md) 规定生命周期 |
-| 统一消息与运行状态 | [消息模型和解析](../../crates/kite-agent/src/lib.rs)、[history.rs](../../crates/kite-agent/src/history.rs)、[interaction.rs](../../crates/kite-agent/src/interaction.rs)；[RFC 0013](../rfcs/0013-complete-transcript-and-dark-workspace.md) 规定完整会话和展示边界 |
+| 会话领域 | [sessions.rs](../../crates/kite-agent/src/sessions.rs)：provider、持久引用、归档、目录修订与合并；[RFC 0007](../../rfcs/0007-sessions-and-interactions.md) 规定生命周期 |
+| 统一消息与运行状态 | [消息模型和解析](../../crates/kite-agent/src/lib.rs)、[history.rs](../../crates/kite-agent/src/history.rs)、[interaction.rs](../../crates/kite-agent/src/interaction.rs)；[RFC 0013](../../rfcs/0013-complete-transcript-and-dark-workspace.md) 规定完整会话和展示边界 |
 | 结构化聊天 | [composer.rs](../../crates/kite-agent/src/composer.rs) 与 [Core](../../crates/kite-app/src/core.rs)：当前直接使用 Codex app-server 语义，不能将其方法原样假设为所有 harness 的协议 |
 
-Node API、主机适配器协议、Herdr API、provider 协议是不同的版本边界。以各自实现和对应版本的 Schema 为准，不用某一个版本号替代全部兼容性判断。Herdr 的上游 Schema 定位见 [架构 RFC §4](../rfcs/0001-architecture.md#4-herdr-集成)。
+Node API、主机适配器协议、Herdr API、provider 协议是不同的版本边界。以各自实现和对应版本的 Schema 为准，不用某一个版本号替代全部兼容性判断。Herdr 的上游 Schema 定位见 [架构 RFC §4](../../rfcs/0001-architecture.md#4-herdr-集成)。
 
 模型、思考强度、输入模态必须从各自后端读取，并经同一 Core/FFI 合同驱动客户端；不能把适配器缺口写成 harness 原生不支持。DSH 和 Ply 的原生协议与环境变量见 [DSH](dsh.md) / [Ply](ply.md)。现有 Codex / Claude 路径如下：
 
@@ -94,7 +94,7 @@ Node API、主机适配器协议、Herdr API、provider 协议是不同的版本
 - 消息与工具调用使用稳定身份；工具开始、输出、完成和失败按 call ID 关联。实时事件与历史回填合并后不重复显示用户消息、工具或最终回复，正文变化不等于新增消息。
 - 显示公开进度、工具过程与最终回复；不根据终端动画或缺失事件虚构回复、成功或隐藏推理内容。
 - 声明事件顺序、去重/游标规则，以及重连后的补齐策略；provider 无实时结构化事件时明确采用的替代方式和局限。
-- 保持 [RFC 0013](../rfcs/0013-complete-transcript-and-dark-workspace.md) 的 Rust 数据与原生虚拟展示边界；滚动不驱动历史网络请求。
+- 保持 [RFC 0013](../../rfcs/0013-complete-transcript-and-dark-workspace.md) 的 Rust 数据与原生虚拟展示边界；滚动不驱动历史网络请求。
 
 ### 3.4 用户交互与运行状态
 
@@ -113,7 +113,7 @@ Node API、主机适配器协议、Herdr API、provider 协议是不同的版本
 | 历史与工具过程 | `history.rs` 的 provider/kind 校验与路径定位、`parse_history`、主机投影、Core 会话同步与缓存；不要只增加一处白名单 |
 | 结构化输入与交互 | `composer.rs`、`interaction.rs`、Core 的 provider 分支；按能力接入附件、Skill、额度和通知，不沿用 Codex 的假设 |
 | Android 展示与操作 | 新建会话、`providerLabel`、启动就绪、发送锁、模型/附件/Skill/额度、暂停按钮；具体文件和预期见[客户端实施表](harness-client.md#4-android-逐文件实施表) |
-| 新主机动作或协议变化 | Node 参数白名单、版本检查、桥接限制与主机安装；按需读取 [RFC 0014](../rfcs/0014-linux-host-node.md) 和 [RFC 0018](../rfcs/0018-live-node-upgrade.md) |
+| 新主机动作或协议变化 | Node 参数白名单、版本检查、桥接限制与主机安装；按需读取 [RFC 0014](../../rfcs/0014-linux-host-node.md) 和 [RFC 0018](../../rfcs/0018-live-node-upgrade.md) |
 
 Rust 应用层编排和验证；主机适配器只承接平台机制。继续沿用 SSH 与私有 IPC，不借新增 provider 引入任意 shell RPC、修改全局凭据或接管外部服务生命周期。需要改变这些边界时先走既有 RFC 流程。
 

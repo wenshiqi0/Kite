@@ -29,6 +29,6 @@ fun sessionStatus(status: String, connected: Boolean): SessionStatus = if (!conn
     "idle" -> SessionStatus.Idle
     "failed", "error" -> SessionStatus.Failed
     "saved" -> SessionStatus.Saved
-    "stopped" -> SessionStatus.Stopped
+    "stopped", "released" -> SessionStatus.Stopped
     else -> SessionStatus.Unknown
 }

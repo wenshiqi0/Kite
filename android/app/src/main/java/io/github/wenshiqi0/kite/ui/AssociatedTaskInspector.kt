@@ -32,6 +32,7 @@ internal fun AssociatedTaskInspector(
     connected: Boolean,
     load: suspend () -> SubagentInspectionInfo,
     dismiss: () -> Unit,
+    takeOver: (() -> Unit)? = null,
 ) {
     var history by remember { mutableStateOf<SubagentInspectionInfo?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -90,7 +91,13 @@ internal fun AssociatedTaskInspector(
                     val label = stringResource(R.string.dismiss)
                     IconButton(onClick = dismiss, modifier = Modifier.semantics { contentDescription = label }) { ProductIcon(Mark.Close) }
                 }
-                if (task.name.isNotBlank()) Text(stringResource(R.string.associated_task_executor, task.name), fontSize = 12.sp, color = KiteColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                task.machine?.let { machine ->
+                    Text(listOfNotNull(machine, task.provider?.let { providerLabel(it) }).joinToString(" · "), color = KiteColors.Muted, fontSize = 12.sp)
+                }
+                if (takeOver != null) TextButton(onClick = takeOver, enabled = connected) {
+                    Text(stringResource(R.string.associated_task_take_over))
+                }
+                if (task.sessionId == null && task.name.isNotBlank()) Text(stringResource(R.string.associated_task_executor, task.name), fontSize = 12.sp, color = KiteColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (task.updatedMs > 0) Text(stringResource(R.string.associated_task_last_update,
                     java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.MEDIUM).format(java.util.Date(task.updatedMs))), fontSize = 12.sp, color = KiteColors.Muted)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

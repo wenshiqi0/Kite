@@ -643,9 +643,13 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         val workspace = state?.hostConnections?.find { it.hostId == target.host }
         val child = workspace?.sessions?.find { it.id == target.parent }?.subagents?.find { it.id == target.task.id } ?: target.task
         key(target.host, target.parent, target.task.id) {
-            AssociatedTaskInspector(child, workspace?.connection == ConnectionStatus.CONNECTED,
+            AssociatedTaskInspector(child, child.connected ?: (workspace?.connection == ConnectionStatus.CONNECTED),
                 load = { vm.engine.core.inspectSubagent(target.host, target.parent, target.task.id) },
-                dismiss = { inspectedTask = null })
+                dismiss = { inspectedTask = null },
+                takeOver = child.hostId?.let { host -> child.sessionId?.let { id -> {
+                    inspectedTask = null
+                    vm.openSession(id, host)
+                } } })
         }
     }
     val platformError by vm.engine.platformError.collectAsState()

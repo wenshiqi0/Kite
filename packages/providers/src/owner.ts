@@ -26,6 +26,7 @@ import {
 import { atomic, lines, locked, readJson, same, startTicks } from "@kite/runtime";
 import { RpcTimeoutError, TurnCancelled } from "@kite/runtime/rpc";
 import { optionalObject } from "@kite/runtime/socket";
+import { tailText } from "./acp-state";
 import {
   connectHarness,
   type HarnessInfo,
@@ -155,8 +156,8 @@ export class Owner {
         },
       });
   }
-  private record(id: string, payload: ObjectValue): void {
-    const line = `${JSON.stringify({ id, type: "response_item", payload })}\n`;
+  private record(id: string, payload: ObjectValue, type = "response_item"): void {
+    const line = `${JSON.stringify({ id, type, payload })}\n`;
     check(Buffer.byteLength(line) <= RPC_LIMIT, "harness event exceeds transport limit");
     const fd = openSync(join(this.path, "history.jsonl"), "a", 0o600);
     try {
@@ -201,6 +202,15 @@ export class Owner {
       );
     else if (value.type === "tool/call") {
       const id = `${this.turn}:${data.callId}`;
+      let command: string | undefined;
+      if (typeof data.arguments === "string") {
+        try {
+          const raw = optionalObject(parse(data.arguments));
+          command = optionalString(raw.command) || optionalString(raw.CommandLine) || undefined;
+        } catch {
+          // Other native tools may report arguments as plain text.
+        }
+      }
       this.record(id, {
         type: "function_call",
         call_id: id,
@@ -212,17 +222,19 @@ export class Owner {
       });
       this.notify("item/started", {
         turnId: this.turn,
-        item: { id, type: "commandExecution", name: data.name ?? "Remote tool" },
+        item: { id, type: "commandExecution", name: data.name ?? "Remote tool", command },
       });
     } else if (value.type === "tool/result") {
       const m = optionalObject(data.message),
         id = `${this.turn}:${m.toolCallId ?? m.callId ?? ""}`;
       const output = textContent(m.content);
+      const retained = tailText(output, 128 * 1024);
       this.record(`${id}:result`, {
         type: "function_call_output",
         call_id: id,
         output: projectContent(m.content, this.info.cwd),
         failed: Boolean(m.isError),
+        exitCode: typeof m.exitCode === "number" ? m.exitCode : undefined,
       });
       this.notify("item/completed", {
         turnId: this.turn,
@@ -230,13 +242,19 @@ export class Owner {
           id,
           type: "commandExecution",
           status: m.isError ? "failed" : "completed",
-          aggregatedOutput: output.slice(0, 128 * 1024),
-          _meta: { outputTruncated: output.length > 128 * 1024 },
+          exitCode: typeof m.exitCode === "number" ? m.exitCode : undefined,
+          aggregatedOutput: retained,
+          _meta: { outputTruncated: output !== retained },
         },
       });
     }
   }
   private finish(turn: string, status: string, error: Json = null): void {
+    this.turnBoundary(
+      turn,
+      status === "interrupted" ? "task_aborted" : "task_complete",
+      status === "failed",
+    );
     this.turn = undefined;
     for (const id of this.pending.keys()) this.notify("serverRequest/resolved", { requestId: id });
     this.pending.clear();
@@ -244,6 +262,9 @@ export class Owner {
     atomic(join(this.path, "queued.json"), []);
     this.state(status === "failed" ? "failed" : status === "interrupted" ? "cancelled" : "done");
     this.notify("turn/completed", { turn: { id: turn, status, error } });
+  }
+  private turnBoundary(turn: string, type: string, failed = false): void {
+    this.record(`${turn}:${type}`, { type, turn_id: turn, failed }, "event_msg");
   }
   private async run(first: Queued, turn: string): Promise<void> {
     let current = first;
@@ -371,6 +392,7 @@ export class Owner {
       prompt = textContent(blocks),
       settings = permissionValues(p.sessionSettings, this.adapter.settings ?? []);
     if (this.turn) {
+      check(p._kiteRequireIdle !== true, "remote session already has an active turn");
       check(!this.cancelled && this.appends < 16, "pending input limit reached");
       const delivered =
         same(this.selection, [model, effort, settings]) &&
@@ -399,6 +421,7 @@ export class Owner {
     this.appends = 0;
     const turn = crypto.randomUUID();
     this.turn = turn;
+    this.turnBoundary(turn, "task_started");
     this.state("working");
     this.message("user", prompt, `${turn}:user`);
     queueMicrotask(() => {

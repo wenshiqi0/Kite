@@ -9,13 +9,24 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { array, check, type Json, json, object, parse, string } from "@kite/protocol";
-import { bounded, live, privateDir, sha256, sleep, startTicks, tryLock } from "@kite/runtime";
+import {
+  bounded,
+  lines,
+  live,
+  privateDir,
+  sha256,
+  sleep,
+  startTicks,
+  tryLock,
+} from "@kite/runtime";
 import { RpcProcess } from "@kite/runtime/rpc";
 import { listening } from "@kite/runtime/socket";
+import { AcpRpc } from "../src/acp";
 
 const root = mkdtempSync(join(tmpdir(), "kite-ts-test-")),
   cli = resolve("target/bun/host.js"),
@@ -1329,3 +1340,242 @@ async function waitStatus(path: string, status: string): Promise<void> {
   }
   throw new Error(`missing status ${status}: ${readFileSync(join(path, "state.json"), "utf8")}`);
 }
+
+test("isolated network ACP resumes one native turn, journals human approval and preserves future records", async () => {
+  const home = fresh(),
+    cwd = privateDir(join(home, "project"));
+  const catalogFile = join(privateDir(join(home, ".local/share/kite")), "sessions.json");
+  const foreign = {
+    ...row("f".repeat(32), "future_provider"),
+    additional: { opaque: [null, 42, "keep"] },
+  };
+  const delegation = {
+    parent: { machine: "caller-machine", sessionId: "caller-session", provider: "claude" },
+    policy: "strict",
+    label: "existing child",
+  };
+  const existing = Array.from({ length: 15 }, (_, index) => ({
+    ...row(index.toString(16).padStart(32, "0")),
+    cwd,
+    delegation,
+  }));
+  writeFileSync(
+    catalogFile,
+    JSON.stringify({ version: 1, revision: 1, sessions: [...existing, foreign] }),
+    { mode: 0o600 },
+  );
+  const nodeSocket = join(home, "fixture-node.sock");
+  const node = createServer((socket) => {
+    socket.on("error", () => socket.destroy());
+    socket.resume();
+  });
+  await new Promise<void>((resolve, reject) => {
+    node.once("error", reject);
+    node.listen(nodeSocket, resolve);
+  });
+  chmodSync(nodeSocket, 0o600);
+  const config = join(privateDir(join(home, ".config/kite")), "node.json");
+  writeFileSync(config, JSON.stringify({ socket: nodeSocket }), { mode: 0o600 });
+  const health = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: () => Response.json({ data: [{ id: "fixture-model" }] }),
+  });
+  const trace = join(home, "native.jsonl");
+  const extra = {
+    DEEPSEEK_API_KEY: "owned-fixture",
+    KITE_ENABLE_PLY: "1",
+    KITE_PLY_MODEL: "fixture-model",
+    KITE_PLY_PROVIDER: "fixture",
+    KITE_PLY_HEALTH_URL: `http://127.0.0.1:${health.port}/models`,
+    KITE_PLY_COMMAND: JSON.stringify([process.execPath, fixture, "ply", "--record", trace]),
+  };
+  const tokenFile = join(home, "test-token"),
+    peers = join(home, "test-peers.json");
+  const server = Bun.spawn(
+    [
+      process.execPath,
+      cli,
+      "acp",
+      "serve",
+      "--workspace",
+      cwd,
+      "--port",
+      "0",
+      "--provider",
+      "ply",
+      "--token-file",
+      tokenFile,
+      "--herdr",
+      join(home, "no-herdr"),
+    ],
+    {
+      env: env(home, extra),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "ignore",
+    },
+  );
+  const output = lines(server.stdout, 4096)[Symbol.asyncIterator]();
+  let ownerPid: number | undefined, ownerTicks: string | undefined, native: RpcProcess | undefined;
+  let legacy: AcpRpc | undefined;
+  try {
+    const endpoint = object(parse(string((await output.next()).value)));
+    const peer = { url: string(endpoint.url), tokenFile };
+    writeFileSync(peers, JSON.stringify({ peers: { isolated: peer } }), { mode: 0o600 });
+    const control = (action: string, args: string[] = [], prompt?: string) =>
+      command(
+        home,
+        ["acp", action, "--peers", peers, "--peer", "isolated", ...args],
+        prompt,
+        extra,
+      );
+    const result = async (action: string, args: string[] = [], prompt?: string) => {
+      const value = await control(action, args, prompt);
+      expect(value.code, value.stderr.toString()).toBe(0);
+      return object(parse(value.stdout.toString()));
+    };
+
+    legacy = new AcpRpc();
+    await legacy.connect(peer);
+    const hello = object(await legacy.call("initialize", { protocolVersion: 1 }));
+    expect(object(object(hello._meta).kite).controlPlaneVersion).toBe(2);
+    expect(array(object(await legacy.call("session/list", {})).sessions)).toHaveLength(15);
+    legacy.close();
+    const model = JSON.stringify(["fixture", "fixture-model"]);
+    const create = [
+      "--cwd",
+      cwd,
+      "--provider",
+      "ply",
+      "--parent-machine",
+      "caller-machine",
+      "--parent-session",
+      "caller-session",
+      "--label",
+      "approval fixture",
+      "--model",
+      model,
+      "--effort",
+      "off",
+      "--policy",
+      "human_in_the_loop",
+      "--write-lock",
+    ];
+    const spawned = await result("spawn", create),
+      id = string(spawned.sessionId);
+    const thread = string(object(object(spawned._meta).kite).threadId);
+    const statePath = join(home, "harnesses", thread, "state.json");
+    ({ pid: ownerPid, start_ticks: ownerTicks } = JSON.parse(readFileSync(statePath, "utf8")));
+    const overflow = await control("spawn", create);
+    expect(overflow.code).toBe(1);
+    expect(overflow.stderr.toString()).toContain("quota");
+    expect(
+      array((await result("list", ["--parent-session", "caller-session"])).sessions),
+    ).toHaveLength(16);
+    const catalog = object(parse((await command(home, ["catalog-read"])).stdout.toString()));
+    const rewrite = array(catalog.sessions).map((value) => {
+      const { delegation: _delegation, acp_selection: _selection, ...copy } = object(value);
+      return copy;
+    });
+    const saved = await command(
+      home,
+      ["catalog-write"],
+      JSON.stringify({ revision: catalog.revision, sessions: rewrite }),
+    );
+    expect(saved.code).toBe(0);
+    const diskRows = array(object(parse(readFileSync(catalogFile, "utf8"))).sessions).map(object);
+    expect(diskRows.find((r) => r.id === foreign.id)).toEqual(foreign);
+    expect(diskRows.find((r) => r.id === id)?.delegation).toMatchObject({
+      label: "approval fixture",
+    });
+
+    const session = ["--session", id];
+    const invalid = await control("send", [...session, "--effort", "nonexistent"], "must not run");
+    expect(invalid.code).toBe(1);
+    const sent = await result("send", session, "approve owned fixture");
+    expect(sent.state).toBe("working");
+    expect(typeof sent.turnId).toBe("string");
+    // send has exited and closed its WebSocket. A different connection observes the same turn.
+    const wait = await result("wait", [...session, "--timeout-ms", "5000"]);
+    expect(wait.timedOut).toBe(false);
+    expect(array(wait.sessions)[0]).toMatchObject({
+      state: "waiting_approval",
+      activeTurnId: sent.turnId,
+      model,
+      effort: "off",
+      pendingInteraction: { command: "df -h\nfree -h", cwd },
+    });
+    expect((await result("release", session)).released).toBe(false);
+    const facts = object(
+      parse(
+        (
+          await command(
+            home,
+            ["notification-facts", "--herdr", join(home, "no-herdr")],
+            undefined,
+            extra,
+          )
+        ).stdout.toString(),
+      ),
+    );
+    expect(array(facts.facts)).toContainEqual(
+      expect.objectContaining({
+        session_id: id,
+        status: "blocked",
+        interaction: expect.objectContaining({ kind: "approval", command: "df -h\nfree -h", cwd }),
+      }),
+    );
+    const conflict = await control("spawn", ["--cwd", cwd, "--provider", "ply", "--write-lock"]);
+    expect(conflict.code).toBe(1);
+    expect(conflict.stderr.toString()).toContain("workspace");
+
+    const approval = Promise.withResolvers<string>();
+    native = new RpcProcess(
+      [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+      cwd,
+      () => {},
+      (value) => approval.resolve(string(value.id)),
+      env(home, extra),
+    );
+    await native.call("initialize", {});
+    await native.call("thread/resume", { threadId: thread });
+    native.write({ id: await approval.promise, result: { decision: "accept" } });
+    await waitStatus(join(home, "harnesses", thread), "done");
+    const completed = await result("wait", [...session, "--timeout-ms", "5000"]);
+    expect(array(completed.sessions)[0]).toMatchObject({
+      state: "idle",
+      lastTurnId: sent.turnId,
+      lastTurnStatus: "completed",
+    });
+    const read = await result("read", [...session, "--turn", string(sent.turnId)]);
+    expect(read.reply).toContain("approve owned fixture");
+    expect(array(read.tools)).toContainEqual(
+      expect.objectContaining({ command: "df -h\nfree -h", output: "owned result", exitCode: 0 }),
+    );
+    expect(
+      readFileSync(trace, "utf8")
+        .split("\n")
+        .filter((line) => line.includes('"event":"spawn"')),
+    ).toHaveLength(1);
+
+    // Removing the owned gateway projection exercises recovery from the native turn markers.
+    rmSync(join(home, ".local/share/kite/acp", `${id}-turns.json`));
+    const recovered = await result("read", [...session, "--turn", string(sent.turnId)]);
+    expect(recovered.reply).toBe(read.reply);
+    expect(array(recovered.tools)[0]).toMatchObject({ exitCode: 0, status: "completed" });
+    expect((await result("cancel", session)).state).toBe("idle");
+  } finally {
+    legacy?.close();
+    native?.close();
+    server.kill();
+    await server.exited;
+    await output.return?.(undefined);
+    if (ownerPid && ownerTicks && live(ownerPid, ownerTicks)) {
+      process.kill(ownerPid, "SIGTERM");
+      for (let attempt = 0; attempt < 50 && live(ownerPid, ownerTicks); attempt++) await sleep(20);
+    }
+    node.close();
+    health.stop(true);
+  }
+}, 20_000);

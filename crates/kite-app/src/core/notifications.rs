@@ -12,6 +12,8 @@ pub struct AgentNotice {
     pub created_ms: i64,
     pub read: bool,
     pub alerted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interaction: Option<kite_agent::notifications::Interaction>,
     verified: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -47,6 +49,7 @@ impl NotificationInbox {
                     && item.host_id.len() <= 128
                     && item.session_id.len() <= 128
                     && item.title.len() <= 2048
+                    && item.interaction.as_ref().is_none_or(|value| value.valid())
             })
             && self
                 .cursors
@@ -65,6 +68,7 @@ impl NotificationInbox {
                 if !item.verified {
                     item.session_id = event.session_id;
                     item.title = event.title;
+                    item.interaction = event.interaction;
                     item.verified = true;
                     changed = true;
                 }
@@ -79,6 +83,7 @@ impl NotificationInbox {
                 created_ms: event.created_ms,
                 read: false,
                 alerted: false,
+                interaction: event.interaction,
                 verified: true,
             });
             changed = true;
@@ -143,6 +148,7 @@ impl AppCore {
                 created_ms: event.created_ms,
                 read: false,
                 alerted: true,
+                interaction: event.interaction,
                 verified: true,
             };
             let mut inbox = lock(&core.notifications);
@@ -205,6 +211,7 @@ impl AppCore {
                 created_ms,
                 read: false,
                 alerted: false,
+                interaction: None,
                 verified: false,
             };
             next.items.push(item.clone());
@@ -349,6 +356,7 @@ mod tests {
             title: "project".into(),
             kind: Kind::Completed,
             source: "source".into(),
+            interaction: None,
         };
         let page = Page {
             node_id: "node".into(),

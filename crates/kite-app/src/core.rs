@@ -75,7 +75,10 @@ pub struct ConversationSession {
     pub status: String,
     pub recorded: bool,
     pub subagents: Vec<kite_agent::subagents::Subagent>,
+    pub associated_tasks: Vec<kite_agent::subagents::AssociatedTask>,
     pub subagents_error: bool,
+    pub delegation: Option<kite_agent::sessions::SessionDelegation>,
+    pub delegated_child: bool,
 }
 
 pub trait SecretStorage: Send + Sync {
@@ -196,6 +199,7 @@ pub struct Snapshot {
     pub host_connections: Vec<HostConnection>,
     pub session_sort: SessionSort,
     pub selected_host: Option<String>,
+    machine: Option<String>,
     pub connection: ConnectionPhase,
     pub connection_step: ConnectionStep,
     pub pending_key: Option<HostKeyPrompt>,
@@ -238,6 +242,7 @@ impl Default for Snapshot {
             host_connections: Vec::new(),
             session_sort: SessionSort::default(),
             selected_host: None,
+            machine: None,
             connection: ConnectionPhase::Disconnected,
             connection_step: ConnectionStep::Idle,
             pending_key: None,
@@ -274,6 +279,7 @@ impl Default for Snapshot {
 #[derive(Clone, Debug)]
 pub struct HostConnection {
     pub host_id: String,
+    machine: Option<String>,
     pub connection: ConnectionPhase,
     pub connection_step: ConnectionStep,
     pub failure: Option<Failure>,
@@ -299,6 +305,7 @@ pub struct LegacyImport {
     pub trusted_keys: Vec<(String, String)>,
 }
 struct Connected {
+    machine: Option<String>,
     generation: u64,
     host: Host,
     ssh: Arc<Session>,
@@ -733,6 +740,7 @@ impl AppCore {
                 let connection = Arc::new(connection);
                 self.start_notification_sync(connection.clone(), generation);
                 *lock(&self.connected) = Some(connection.clone());
+                self.remember_machine(&connection.host.id, connection.machine.as_deref());
                 self.update(|s| {
                     s.connection_step = ConnectionStep::Agent;
                     s.pending_key = None;
@@ -741,6 +749,7 @@ impl AppCore {
                     s.herdr_path = Some(connection.path.clone());
                     s.capability = Some(connection.capability.clone());
                     s.host_key_fingerprint = Some(connection.ssh.host_key_fingerprint());
+                    s.machine = connection.machine.clone().or_else(|| s.machine.clone());
                 });
                 // Transport recovery only observes the existing owners. It never starts or resumes work.
                 let prepared = if automatic {
@@ -852,6 +861,10 @@ impl AppCore {
         let api = Arc::new(Api::new(ssh.clone(), &checked.herdr_path));
         let version = api.ping().await?;
         Ok(Connected {
+            machine: node["machine"]
+                .as_str()
+                .filter(|name| !name.is_empty() && name.len() <= 128)
+                .map(str::to_owned),
             generation,
             host: host.clone(),
             ssh,
