@@ -39,6 +39,63 @@ import java.io.File
 
 /** Synthetic display data only; no user conversation is submitted or persisted. */
 class WorkspaceRefinementPresentationTest {
+    @Test fun documentReferencesStayInsideProseAndOpenTheOriginalText() {
+        val context = test.targetContext
+        val conversation = "owned-inline-file-preview"
+        fun sha(bytes: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val directory = File(context.filesDir, "message-attachments/${sha(conversation.toByteArray())}").apply { mkdirs() }
+        val bytes = "# Owned document\n\nInline preview keeps the original file bytes.\n".toByteArray()
+        val file = AttachmentInfo("a1".repeat(16), "implementation_plan.md", "text/markdown", bytes.size.toULong(), false)
+        File(directory, file.id).writeBytes(bytes)
+        File(directory, "${file.id}.sha256").writeText(sha(bytes))
+        val item = ItemInfo("owned-inline-documents", ItemRole.ASSISTANT, listOf(
+            BlockInfo.Text("已更新 "), BlockInfo.Attachment(file), BlockInfo.Text("，请确认以下安排：\n\n- **推荐方案**：阅读 "),
+            BlockInfo.Attachment(file.copy(name = "project_notes.md")), BlockInfo.Text(" 后继续，正文和列表保持连续。\n- 备选方案：保留当前目录。"),
+        ), false, null)
+        lateinit var nativeRoot: View
+        try {
+            overlay({
+                val activity = LocalActivity.current as MainActivity
+                val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
+                nativeRoot = activity.window.decorView
+                Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp)) {
+                    ChatEntryContent(ChatEntry.Message(item)) { files, markdown ->
+                        MessageAttachments(vm, files, {}, {}, conversation, inlineMarkdown = markdown)
+                    }
+                }
+            }) {
+                waitFor("The full sentence and inline filenames are visible") { find(text = "implementation_plan.md，请确认") != null }
+                assertNull(find(text = context.getString(R.string.attachment_open_preview)))
+                screenshot("inline-document-references.png")
+                main {
+                    fun visit(view: View): MarkdownTextView? {
+                        if (view is MarkdownTextView && view.text.contains(file.name)) return view
+                        if (view is android.view.ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))?.let { return it }
+                        return null
+                    }
+                    val view = requireNotNull(visit(nativeRoot))
+                    val body = view.text as android.text.Spanned
+                    val spans = body.getSpans(0, body.length, InlineAttachmentSpan::class.java)
+                    assertEquals(2, spans.size)
+                    val span = spans.first { body.subSequence(body.getSpanStart(it), body.getSpanEnd(it)).toString() == file.name }
+                    val offset = body.getSpanStart(span) + 2
+                    val line = view.layout.getLineForOffset(offset)
+                    val x = view.totalPaddingLeft + view.layout.getPrimaryHorizontal(offset)
+                    val y = view.totalPaddingTop + (view.layout.getLineTop(line) + view.layout.getLineBottom(line)) / 2f
+                    val time = SystemClock.uptimeMillis()
+                    for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                        val event = MotionEvent.obtain(time, time + action * 20, action, x, y, 0)
+                        view.dispatchTouchEvent(event)
+                        event.recycle()
+                    }
+                }
+                waitFor("Inline tap opens the existing document preview") { find(text = "Inline preview keeps the original file bytes.") != null }
+                assertNotNull(find(text = context.getString(R.string.attachment_save)))
+                screenshot("inline-document-preview.png")
+            }
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun toolMediaUsesFullWidthAndImagesFormCompactAlbums() {
         val context = test.targetContext
         val conversation = "owned-chat-album-layout"
@@ -71,8 +128,8 @@ class WorkspaceRefinementPresentationTest {
                 val vm = androidx.compose.runtime.remember(activity) { ViewModelProvider(activity)[HostCheckViewModel::class.java] }
                 Column(Modifier.fillMaxWidth().safeDrawingPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ChatEntryContent(ChatEntry.Work(listOf(pure))) {}
-                    ChatEntryContent(ChatEntry.Message(mixed)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
-                    ChatEntryContent(ChatEntry.Message(album)) { files -> MessageAttachments(vm, files, {}, {}, conversation) }
+                    ChatEntryContent(ChatEntry.Message(mixed)) { files, markdown -> MessageAttachments(vm, files, {}, {}, conversation, inlineMarkdown = markdown) }
+                    ChatEntryContent(ChatEntry.Message(album)) { files, markdown -> MessageAttachments(vm, files, {}, {}, conversation, inlineMarkdown = markdown) }
                 }
             }) {
                 waitFor("Long thumbnail and album load") { (listOf(long) + photos).all { find(description = it.name) != null } }
@@ -203,7 +260,7 @@ class WorkspaceRefinementPresentationTest {
                     files.forEachIndexed { index, file ->
                         val message = ItemInfo("owned-$index", if (index == 0) ItemRole.USER else ItemRole.ASSISTANT,
                             listOf(BlockInfo.Text("**统一排版** · `相同内容块`"), BlockInfo.Attachment(file)), false, null)
-                        ChatEntryContent(ChatEntry.Message(message)) { attachments -> MessageAttachments(vm, attachments, {}, {}, conversation) }
+                        ChatEntryContent(ChatEntry.Message(message)) { attachments, markdown -> MessageAttachments(vm, attachments, {}, {}, conversation, inlineMarkdown = markdown) }
                     }
                 }
             }) {
@@ -825,11 +882,14 @@ class WorkspaceRefinementPresentationTest {
             BlockInfo.Text("owned-after"), tool("owned-tool-one"),
             BlockInfo.Text("owned-end"), tool("owned-tool-two"),
         ), false, null)
-        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { files -> files.forEach { attachment -> androidx.compose.material3.Text(attachment.name) } } } }) {
+        overlay({ Column(Modifier.safeDrawingPadding().padding(12.dp)) { ItemContent(item) { files, markdown ->
+            if (markdown != null) MarkdownMessage(markdown, attachments = files)
+            else files.forEach { attachment -> androidx.compose.material3.Text(attachment.name) }
+        } } }) {
             val order = listOf("owned-before", file.name, "owned-between", "owned-question", "owned-answer", "owned-after", "owned-tool-one", "owned-end", "owned-tool-two")
             waitFor("Every mixed block is visible") { order.all { find(text=it)!=null } }
             val positions = order.map { text -> Rect().also { requireNotNull(find(text=text)).getBoundsInScreen(it) }.top }
-            assertTrue("Block order is retained: $positions", positions.zipWithNext().all { (a,b) -> a < b })
+            assertTrue("Block order is retained: $positions", positions.zipWithNext().all { (a,b) -> a <= b })
             assertNull(find(text="owned-argument"));assertNull(find(text="owned-output"))
             screenshot("mixed-item-block-order.png")
         }

@@ -66,8 +66,11 @@ internal fun attachmentPreviewKind(mime: String, name: String): AttachmentPrevie
 internal fun previewTime(ms: Int): String = "%d:%02d".format(ms.coerceAtLeast(0)/60000, ms.coerceAtLeast(0)/1000%60)
 
 @Composable
-fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit, conversation: String = vm.engine.timeline.context) {
+fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onExternalActivityChanged: () -> Unit, inspect: () -> Unit, conversation: String = vm.engine.timeline.context, inlineMarkdown: String? = null, streaming: Boolean = false) {
     var selected by remember(conversation) { mutableStateOf<AttachmentInfo?>(null) }
+    if (inlineMarkdown != null) {
+        MarkdownMessage(inlineMarkdown, streaming = streaming, attachments = files, onAttachmentClick = { inspect(); selected = it })
+    } else {
     var index = 0
     while (index < files.size) {
         val start = index
@@ -89,6 +92,7 @@ fun MessageAttachments(vm: HostCheckViewModel, files: List<AttachmentInfo>, onEx
                 }
             }
         }
+    }
     }
     selected?.let { AttachmentPreview(vm, conversation, it, onExternalActivityChanged) { selected = null } }
 }

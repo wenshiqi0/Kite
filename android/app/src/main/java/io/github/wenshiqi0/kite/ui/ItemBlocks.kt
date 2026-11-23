@@ -17,11 +17,23 @@ val ItemInfo.questionReplies:List<QuestionReplyInfo> get()=blocks.filterIsInstan
 
 internal data class ItemContentRun(val start: Int, val blocks: List<BlockInfo>)
 
-/** Adjacent attachments form one album; meaningful content keeps its position. */
+internal fun isInlineFile(file: AttachmentInfo): Boolean = when (attachmentPreviewKind(file.mime, file.name)) {
+    AttachmentPreviewKind.Text, AttachmentPreviewKind.Other -> true
+    else -> false
+}
+
+private fun BlockInfo.isInlineContent(): Boolean = this is BlockInfo.Text || this is BlockInfo.Attachment && isInlineFile(file)
+
+/** Keep prose and document references in one Markdown layout; media keeps its position. */
 internal fun itemContentRuns(blocks: List<BlockInfo>): List<ItemContentRun> = buildList {
     var index = 0
     while (index < blocks.size) {
         val start = index
+        if (blocks[index].isInlineContent()) {
+            while (index < blocks.size && blocks[index].isInlineContent()) index++
+            add(ItemContentRun(start, blocks.subList(start, index)))
+            continue
+        }
         if (blocks[index] !is BlockInfo.Attachment) {
             add(ItemContentRun(index, listOf(blocks[index])))
             index++
@@ -30,15 +42,37 @@ internal fun itemContentRuns(blocks: List<BlockInfo>): List<ItemContentRun> = bu
         val files = mutableListOf(blocks[index++])
         while (index < blocks.size) {
             when {
-                blocks[index] is BlockInfo.Attachment -> files.add(blocks[index++])
+                blocks[index] is BlockInfo.Attachment && !blocks[index].isInlineContent() -> files.add(blocks[index++])
                 blocks[index] is BlockInfo.Text && (blocks[index] as BlockInfo.Text).text.isBlank() -> {
                     var next = index
                     while (blocks.getOrNull(next) is BlockInfo.Text && (blocks[next] as BlockInfo.Text).text.isBlank()) next++
-                    if (blocks.getOrNull(next) is BlockInfo.Attachment) index = next else break
+                    if (blocks.getOrNull(next) is BlockInfo.Attachment && !blocks[next].isInlineContent()) index = next else break
                 }
                 else -> break
             }
         }
         add(ItemContentRun(start, files))
+    }
+}
+
+/** The destinations are scoped to this rendered run, never paths or external URLs. */
+internal fun inlineFileMarkdown(blocks: List<BlockInfo>): String = buildString {
+    var fileIndex = 0
+    var previousFile = false
+    for (block in blocks) {
+        when (block) {
+            is BlockInfo.Text -> {
+                append(block.text)
+                previousFile = false
+            }
+            is BlockInfo.Attachment -> {
+                if (previousFile) append(' ')
+                val label = block.file.name.replace('\n', ' ').replace('\r', ' ')
+                    .replace(Regex("([\\p{Punct}])"), "\\\\$1")
+                append('[').append(label).append("](kite-attachment:").append(fileIndex++).append(')')
+                previousFile = true
+            }
+            else -> error("Only text and inline files belong in a Markdown run")
+        }
     }
 }
