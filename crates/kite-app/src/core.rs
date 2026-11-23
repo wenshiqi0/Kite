@@ -1330,7 +1330,7 @@ impl AppCore {
                 setting.id == *id && setting.options.iter().any(|option| option.value == *value)
             })
         });
-        let settings = composer::settings::display(&client.settings, &selected.settings);
+        let settings = client.displayed_settings(&selected);
         let uploads = lock(&self.uploads).get(&key).cloned().unwrap_or_default();
         let error_details = client.runtime().error.unwrap_or_default();
         if self.generation.load(Ordering::SeqCst) == generation {
@@ -1444,7 +1444,7 @@ impl AppCore {
             let mut selected = Selection {
                 model,
                 effort,
-                settings: BTreeMap::new(),
+                ..Selection::default()
             };
             {
                 let store = lock(&core.store);
@@ -1453,15 +1453,19 @@ impl AppCore {
                     .ok_or_else(|| AppError::State("store unavailable".into()))?;
                 let mut settings: BTreeMap<AgentKey, Selection> =
                     store.read_document("chat-settings")?.unwrap_or_default();
-                selected.settings = settings
-                    .get(&key)
-                    .map(|previous| previous.settings.clone())
-                    .unwrap_or_default();
+                if let Some(previous) = settings.get(&key) {
+                    selected.settings = previous.settings.clone();
+                    selected.service_tier = previous.service_tier.clone();
+                }
+                selected = composer::selection(&client.models, &selected)?;
                 settings.insert(key, selected.clone());
                 store.write_document("chat-settings", &settings)?;
             }
             let conversation = core.agent_conversation(&c.host.id, &agent);
-            core.update_live(&conversation, |live| live.composer.selection = selected);
+            core.update_live(&conversation, |live| {
+                live.composer.settings = client.displayed_settings(&selected);
+                live.composer.selection = selected;
+            });
             Ok(())
         })
         .await

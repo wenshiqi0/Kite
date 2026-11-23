@@ -42,6 +42,10 @@
 "retry_history" = "重试历史同步";
 "latest" = "回到最新";
 "model" = "模型";
+"Speed" = "速度";
+"Standard" = "标准";
+"Fast" = "快速";
+"Ultrafast" = "极速";
 "refresh" = "刷新";
 "usage_remaining" = "剩余 %u%%";
 "message_input" = "输入消息";

@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.sp
 import io.github.wenshiqi0.kite.R
 import io.github.wenshiqi0.kite.core.*
 
+private const val SPEED_SETTING = "service_tier"
+
 @Composable
 fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: ComposerInfo?, supported: Boolean = composer != null) {
     if (!supported || agent == null || composer == null) return
@@ -36,13 +38,18 @@ fun ComposerSettings(vm: HostCheckViewModel, agent: AgentInfo?, composer: Compos
         if (details) AlertDialog(onDismissRequest = { details = false }, title = { Text(stringResource(R.string.connection_diagnostics)) }, text = { SelectionContainer { Text(composer.details, fontSize = 12.sp, modifier = Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) } }, confirmButton = { TextButton(onClick = { details = false; vm.reloadComposer() }) { Text(stringResource(R.string.retry)) } }, dismissButton = { TextButton(onClick = { details = false }) { Text(stringResource(R.string.dismiss)) } })
         return
     }
-    HarnessModelChoices(composer, !vm.sending) { model, effort -> vm.selectModel(agent.id, model, effort) }
-    SessionPermissionControls(composer.settings, !vm.sending) { setting, value -> vm.selectPermission(agent.id, setting, value) }
+    HarnessModelChoices(composer, !vm.sending, selectSpeed = { vm.selectChatSetting(agent.id, SPEED_SETTING, it) }) { model, effort ->
+        vm.selectModel(agent.id, model, effort)
+    }
+    SessionPermissionControls(composer.settings.filterNot { it.id == SPEED_SETTING }, !vm.sending) { setting, value ->
+        vm.selectChatSetting(agent.id, setting, value)
+    }
 }
 
 @Composable
-fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, select: (String, String) -> Unit) {
+fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, selectSpeed: (String) -> Unit, select: (String, String) -> Unit) {
     val model = composer.models.find { it.model == composer.model }
+    val speed = composer.settings.find { it.id == SPEED_SETTING }
     var models by remember(composer.model) { mutableStateOf(false) }
     var efforts by remember(composer.model) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,7 +81,40 @@ fun HarnessModelChoices(composer: ComposerInfo, enabled: Boolean, select: (Strin
                 }
             }
         }
+        if (speed != null) {
+            Text("·", color = KiteColors.Line, modifier = Modifier.padding(horizontal = 2.dp))
+            ModelSpeedMenu(composer.model, speed, enabled, selectSpeed)
+        }
     }
+}
+
+@Composable
+private fun ModelSpeedMenu(model: String, speed: SessionSettingInfo, enabled: Boolean, select: (String) -> Unit) {
+    var expanded by remember(model) { mutableStateOf(false) }
+    val current = speed.options.firstOrNull { it.value == speed.currentValue }
+    Box {
+        TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            Text(stringResource(R.string.composer_speed, speedLabel(speed.currentValue, current?.name ?: speed.name)), fontSize = 12.sp)
+            ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 4.dp).size(13.dp))
+        }
+        DropdownMenu(expanded, { expanded = false }) {
+            speed.options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(speedLabel(option.value, option.name)) },
+                    trailingIcon = { if (option.value == speed.currentValue) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) },
+                    onClick = { expanded = false; select(option.value) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun speedLabel(value: String, fallback: String): String = when (value) {
+    "default" -> stringResource(R.string.speed_standard)
+    "priority", "fast" -> stringResource(R.string.speed_fast)
+    "ultrafast" -> stringResource(R.string.speed_ultrafast)
+    else -> fallback
 }
 
 @Composable internal fun effortLabel(effort: String): String = when (effort) {

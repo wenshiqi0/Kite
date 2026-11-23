@@ -153,7 +153,25 @@ impl server::Handler for Peer {
                 "initialize" => json!({"serverInfo":{"name":"kite-harness"}}),
                 "initialized" => continue,
                 "model/list" => {
-                    json!({"data":[{"model":"fixture","displayName":"Fixture","description":"","hidden":false,"isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"High"}],"inputModalities":["text"]}],"nextCursor":null})
+                    let model = json!({"model":"fixture","displayName":"Fixture","description":"","hidden":false,"isDefault":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":"High"}],"inputModalities":["text"]});
+                    let mut models = vec![model.clone()];
+                    if self.agent["agent"] == "codex" {
+                        let fast = json!({"id":"priority","name":"Fast","description":"Faster"});
+                        models[0]["serviceTiers"] = json!([
+                            fast,
+                            {"id":"ultrafast","name":"Ultrafast","description":"Fastest"}
+                        ]);
+                        let alternative = |id: &str| {
+                            let mut model = model.clone();
+                            model["model"] = json!(id);
+                            model["isDefault"] = json!(false);
+                            model
+                        };
+                        let mut fast_only = alternative("fast-only");
+                        fast_only["serviceTiers"] = json!([fast]);
+                        models.extend([fast_only, alternative("standard-only")]);
+                    }
+                    json!({"data":models,"nextCursor":null})
                 }
                 "thread/loaded/list" => json!({"data":[THREAD]}),
                 "config/read" => {
@@ -556,6 +574,92 @@ async fn permission_choice_survives_model_changes_and_reaches_next_native_turn()
         stored.values().next().unwrap().settings["approval_mode"],
         "risk"
     );
+    fixture.stop().await;
+}
+
+#[tokio::test]
+async fn codex_speed_uses_advertised_tiers_and_applies_to_the_next_message() {
+    let fixture = Fixture::start("codex").await;
+    let core = &fixture.core;
+    let id = fixture.agent.terminal_id.clone();
+    core.update(|snapshot| {
+        snapshot.providers = vec![providers::Provider {
+            id: "codex".into(),
+            managed_chat: true,
+            models: true,
+            attachments: false,
+            skills: false,
+            usage: false,
+            pause: false,
+            terminal: false,
+            release: false,
+        }];
+    });
+    core.update_live(&ConversationKey::new("owned-host", &id), |live| {
+        live.composer.ready = true;
+        live.composer.settings = fixture.client.displayed_settings(&fixture.client.initial);
+    });
+    let setting = || {
+        core.snapshot()
+            .composer
+            .settings
+            .into_iter()
+            .find(|setting| setting.id == composer::SPEED_SETTING)
+    };
+    let select_speed =
+        |tier: &str| core.set_chat_setting(id.clone(), composer::SPEED_SETTING.into(), tier.into());
+    let options = |setting: composer::SessionSetting| {
+        setting
+            .options
+            .into_iter()
+            .map(|option| option.value)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(setting().unwrap().current_value, "default");
+    assert_eq!(
+        options(setting().unwrap()),
+        ["default", "priority", "ultrafast"]
+    );
+    assert!(select_speed("invented").await.is_err());
+    select_speed("priority").await.unwrap();
+    core.set_chat_model(id.clone(), "fast-only".into(), "high".into())
+        .await
+        .unwrap();
+    assert_eq!(setting().unwrap().current_value, "priority");
+    assert_eq!(options(setting().unwrap()), ["default", "priority"]);
+    assert!(select_speed("ultrafast").await.is_err());
+    assert!(
+        lock(&fixture.seen)
+            .iter()
+            .all(|r| r["method"] != "turn/start")
+    );
+    core.prompt_agent(id.clone(), "Owned fast prompt".into())
+        .await
+        .unwrap();
+
+    core.set_chat_model(id.clone(), "fixture".into(), "high".into())
+        .await
+        .unwrap();
+    select_speed("ultrafast").await.unwrap();
+    core.prompt_agent(id.clone(), "Owned ultrafast prompt".into())
+        .await
+        .unwrap();
+    core.set_chat_model(id.clone(), "standard-only".into(), "high".into())
+        .await
+        .unwrap();
+    assert!(setting().is_none());
+    assert!(select_speed("priority").await.is_err());
+    core.prompt_agent(id, "Owned standard prompt".into())
+        .await
+        .unwrap();
+
+    let requests = lock(&fixture.seen).clone();
+    let tiers = requests
+        .iter()
+        .filter(|request| request["method"] == "turn/start")
+        .map(|request| request["params"]["serviceTier"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(tiers, ["priority", "ultrafast", "default"]);
     fixture.stop().await;
 }
 
