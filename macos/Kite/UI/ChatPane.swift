@@ -9,6 +9,7 @@ struct ChatPane: View {
     @Bindable var model: ClientModel
     @State private var following = true
     @State private var showSkills = false
+    @State private var showUsage = false
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -56,7 +57,7 @@ struct ChatPane: View {
                     .coordinateSpace(name: "conversation")
                     .onPreferenceChange(TailPosition.self) { y in following = y < geometry.size.height + 70 }
                     .onChange(of: model.messageRevision) { _, _ in if following { proxy.scrollTo("tail", anchor: .bottom) } }
-                    .onChange(of: model.snapshot?.conversationContext) { _, _ in following = true; showSkills = false; proxy.scrollTo("tail", anchor: .bottom) }
+                    .onChange(of: model.snapshot?.conversationContext) { _, _ in following = true; showSkills = false; showUsage = false; proxy.scrollTo("tail", anchor: .bottom) }
                     .overlay(alignment: .bottomTrailing) {
                         if !following {
                             Button { following = true; proxy.scrollTo("tail", anchor: .bottom) } label: { Label(tr("latest"), systemImage: "arrow.down") }
@@ -120,8 +121,21 @@ struct ChatPane: View {
                             .disabled(!state.composer.ready || state.composer.loading)
                     }
                     Spacer()
-                    if let bucket = state.composer.usage.buckets.first, let window = bucket.primary {
-                        Text(String(format: tr("usage_remaining"), window.remainingPercent)).font(.caption).foregroundStyle(.secondary)
+                    let providerId = model.selectedSession?.provider ?? state.agents.first(where: { $0.id == agent })?.agent
+                    let usageSupported = state.providers.first(where: { $0.id == providerId })?.usage == true
+                    if usageSupported {
+                        Button {
+                            showUsage = true
+                            model.command { try await $0.refreshAccountUsage() }
+                        } label: {
+                            Label(usageSummary(state.composer.usage, model: state.composer.model), systemImage: "gauge.with.dots.needle.67percent")
+                                .font(.caption)
+                                .foregroundStyle(state.composer.usage.stale || state.composer.usage.status == .failed ? .orange : .secondary)
+                        }.buttonStyle(.borderless)
+                            .popover(isPresented: $showUsage) {
+                                AccountUsagePopover(model: model, usage: state.composer.usage, provider: providerId, connected: state.connection == .connected && state.composer.ready)
+                                    .frame(width: 340)
+                            }
                     }
                 }.font(.caption)
                 if !state.composer.skills.selected.isEmpty {
@@ -372,6 +386,121 @@ struct SkillPicker: View {
                     }
                 }.buttonStyle(.plain)
             }
+        }
+    }
+}
+
+private func usageWindowLabel(_ minutes: UInt64?) -> String {
+    guard let minutes else { return tr("usage_window") }
+    if minutes > 0 && minutes % 1440 == 0 { return String(format: tr("usage_days"), minutes / 1440) }
+    if minutes > 0 && minutes % 60 == 0 { return String(format: tr("usage_hours"), minutes / 60) }
+    return String(format: tr("usage_minutes"), minutes)
+}
+
+private func primaryUsageBucket(_ buckets: [UsageBucketInfo], model: String) -> UsageBucketInfo? {
+    if let codex = buckets.first(where: { $0.id == "codex" }) { return codex }
+    let lower = model.lowercased()
+    if !lower.isEmpty {
+        if lower.contains("argon"), let match = buckets.first(where: { $0.id.lowercased().contains("argon") || ($0.name?.lowercased().contains("argon") == true) }) {
+            return match
+        }
+        if lower.contains("claude") || lower.contains("gpt"), let match = buckets.first(where: { $0.id == "3p" || ($0.name?.lowercased().contains("claude") == true) || ($0.name?.lowercased().contains("gpt") == true) }) {
+            return match
+        }
+        if lower.contains("gemini") || lower.contains("orchestrator"), let match = buckets.first(where: { $0.id == "gemini" || (($0.name?.lowercased().contains("gemini") == true) && !($0.name?.lowercased().contains("argon") == true)) }) {
+            return match
+        }
+    }
+    return buckets.first
+}
+
+private func usageSummary(_ usage: AccountUsageInfo, model: String) -> String {
+    if usage.status == .notLoaded { return tr(usage.loading ? "usage_loading" : "usage_open") }
+    if usage.status == .failed || usage.stale { return tr("usage_stale_summary") }
+    if usage.status == .unavailable { return tr("usage_not_provided") }
+    if let bucket = primaryUsageBucket(usage.buckets, model: model) {
+        let windows = [bucket.primary, bucket.secondary].compactMap { $0 }
+        if !windows.isEmpty {
+            return windows.map { String(format: tr("usage_short_remaining"), usageWindowLabel($0.durationMins), $0.remainingPercent) }.joined(separator: " · ")
+        }
+    }
+    if let plan = usage.plan, !plan.isEmpty { return plan }
+    return String(format: tr("usage_groups"), usage.buckets.count)
+}
+
+private struct AccountUsagePopover: View {
+    let model: ClientModel
+    let usage: AccountUsageInfo
+    let provider: String?
+    let connected: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(tr("usage_title")).font(.headline)
+                if let plan = usage.plan, !plan.isEmpty {
+                    Text(plan.capitalized).font(.caption).foregroundStyle(.secondary)
+                } else if provider == "antigravity" {
+                    Text("Antigravity").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if usage.loading { ProgressView().controlSize(.small) }
+                Button(tr("usage_refresh")) {
+                    model.command { try await $0.refreshAccountUsage() }
+                }.buttonStyle(.bordered).controlSize(.small).disabled(!connected || usage.loading)
+            }
+            if usage.status == .failed || usage.stale {
+                Text(tr(usage.updatedMs == nil ? "usage_failed" : "usage_stale"))
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if usage.status == .unavailable {
+                Text(tr(unavailableKey)).font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(usage.buckets.enumerated()), id: \.offset) { _, bucket in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(bucket.name?.isEmpty == false ? bucket.name! : (bucket.id.isEmpty ? (provider == "antigravity" ? "Antigravity" : "Codex") : bucket.id))
+                                .font(.subheadline.weight(.medium))
+                            ForEach(Array([bucket.primary, bucket.secondary].compactMap { $0 }.enumerated()), id: \.offset) { _, window in
+                                let remaining = min(window.remainingPercent, 100)
+                                let used = 100 - remaining
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(String(format: tr(usage.stale ? "usage_window_previous" : "usage_window_detail"), usageWindowLabel(window.durationMins), remaining, used))
+                                        .font(.caption)
+                                    ProgressView(value: Double(remaining), total: 100)
+                                        .tint(usage.stale ? .secondary : .accentColor)
+                                    if let resetsAt = window.resetsAt, resetsAt > 0 {
+                                        let date = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+                                        Text(String(format: tr("usage_resets"), date.formatted(date: .abbreviated, time: .shortened)))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            if bucket.limitReached {
+                                Text(tr("usage_limit_reached")).font(.caption).foregroundStyle(.orange)
+                            }
+                            if bucket.spendControlReached {
+                                Text(tr("usage_spend_limit")).font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }.frame(maxHeight: 360)
+            if let updatedMs = usage.updatedMs {
+                let date = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000)
+                Text(String(format: tr("usage_updated"), date.formatted(date: .omitted, time: .shortened)))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }.padding(14)
+    }
+    private var unavailableKey: String {
+        switch usage.unavailable {
+        case .noAccount: return "usage_no_account"
+        case .unsupportedAuth: return "usage_auth_unavailable"
+        default: return "usage_not_provided"
         }
     }
 }

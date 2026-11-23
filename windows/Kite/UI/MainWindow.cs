@@ -332,16 +332,31 @@ internal sealed class MainWindow : Window
         var usage = state.Field("composer").Field("usage"); panel.Children.Add(Ui.Label("套餐额度 · " + usage.Text("status"), 16));
         foreach (var bucket in usage.Array("buckets"))
         {
-            panel.Children.Add(Ui.Label(bucket.Text("name"), 14));
+            string title = bucket.Text("name"); if (string.IsNullOrEmpty(title)) title = bucket.Text("id");
+            panel.Children.Add(Ui.Label(title, 14));
             foreach (var key in new[] { "primary", "secondary" })
             {
                 var windowInfo = bucket.Field(key);
                 if (windowInfo.ValueKind != JsonValueKind.Object) continue;
-                string remaining = windowInfo.Field("remaining_percent").ValueKind == JsonValueKind.Number ? windowInfo.Field("remaining_percent").ToString() + "%" : "未知";
-                panel.Children.Add(Ui.Label($"{windowInfo.Number("duration_mins")} 分钟窗口 · 剩余 {remaining}", 12, Ui.Muted));
+                string duration = FormatWindowDuration(windowInfo.Field("duration_mins"));
+                string percent = windowInfo.Field("remaining_percent").ValueKind == JsonValueKind.Number
+                    ? $"剩余 {windowInfo.Field("remaining_percent").GetInt32()}% · 已用 {Math.Clamp(100 - windowInfo.Field("remaining_percent").GetInt32(), 0, 100)}%"
+                    : "未知";
+                string reset = windowInfo.Field("resets_at").ValueKind == JsonValueKind.Number && windowInfo.Field("resets_at").GetInt64() > 0
+                    ? " · " + DateTimeOffset.FromUnixTimeSeconds(windowInfo.Field("resets_at").GetInt64()).ToLocalTime().ToString("g") + " 重置"
+                    : "";
+                panel.Children.Add(Ui.Label($"{duration} · {percent}{reset}", 12, Ui.Muted));
             }
         }
-        panel.Children.Add(Ui.Button("刷新额度", async () => await Core.Call(new { op = "refresh_account_usage" }))); window.ShowDialog(); return Task.CompletedTask;
+        panel.Children.Add(Ui.Button("刷新额度", async () => { await Core.Call(new { op = "refresh_account_usage" }); await Refresh(true); })); window.ShowDialog(); return Task.CompletedTask;
+    }
+    private static string FormatWindowDuration(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Number) return "额度窗口";
+        long mins = value.GetInt64();
+        if (mins > 0 && mins % 1440 == 0) return $"{mins / 1440}天";
+        if (mins > 0 && mins % 60 == 0) return $"{mins / 60}小时";
+        return $"{mins}分钟";
     }
     private async Task Skills()
     {

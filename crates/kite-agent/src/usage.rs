@@ -179,6 +179,8 @@ impl WireBucket {
 struct WireLimits {
     rate_limits: WireBucket,
     rate_limits_by_limit_id: Option<BTreeMap<String, WireBucket>>,
+    buckets: Option<Vec<WireBucket>>,
+    unavailable: Option<String>,
     ordinary_usage_allowed: Option<bool>,
     rate_limit_reset_credits: Option<WireResetCredits>,
 }
@@ -190,7 +192,7 @@ pub fn decode(
 ) -> Result<AccountUsage, &'static str> {
     let kind = account["account"]["type"].as_str();
     let plan = account["account"]["planType"].as_str().map(str::to_owned);
-    if kind != Some("chatgpt") {
+    if !matches!(kind, Some("chatgpt" | "antigravity")) {
         return Ok(AccountUsage {
             status: Status::Unavailable,
             unavailable: if kind.is_none() {
@@ -204,9 +206,28 @@ pub fn decode(
     }
     let wire: WireLimits = serde_json::from_value(limits.ok_or("quota response missing")?.clone())
         .map_err(|_| "invalid quota response")?;
-    // Both fields belong to the installed 0.164 schema: the map is an optional
-    // expanded view, not another endpoint or an old-protocol retry.
-    let buckets = if let Some(map) = wire.rate_limits_by_limit_id.filter(|m| !m.is_empty()) {
+    if let Some(reason) = wire.unavailable.as_deref() {
+        let unavailable = match reason {
+            "noAccount" => Unavailable::NoAccount,
+            "unsupportedAuth" => Unavailable::UnsupportedAuth,
+            "noData" => Unavailable::NoData,
+            _ => return Err("invalid quota unavailability reason"),
+        };
+        return Ok(AccountUsage {
+            status: Status::Unavailable,
+            unavailable,
+            plan,
+            ..Default::default()
+        });
+    }
+    // Ordered buckets are used by multi-group providers such as Antigravity.
+    // Otherwise both fields belong to the installed Codex schema: the map is an
+    // optional expanded view, not another endpoint or an old-protocol retry.
+    let buckets = if let Some(list) = wire.buckets {
+        list.into_iter()
+            .map(|bucket| bucket.into_bucket(None))
+            .collect::<Result<Vec<_>, _>>()?
+    } else if let Some(map) = wire.rate_limits_by_limit_id.filter(|m| !m.is_empty()) {
         map.into_iter()
             .map(|(id, bucket)| bucket.into_bucket(Some(&id)))
             .collect::<Result<Vec<_>, _>>()?
@@ -628,5 +649,67 @@ mod tests {
         assert_eq!(value.status, Status::Unavailable);
         assert_eq!(value.unavailable, Unavailable::NoData);
         assert!(value.buckets.is_empty());
+    }
+    #[test]
+    fn antigravity_ordered_buckets_and_unavailable_reasons_decode() {
+        let agy_account = json!({"account":{"type":"antigravity"}});
+        let agy_limits = json!({
+            "rateLimits": {},
+            "buckets": [
+                {
+                    "limitId": "gemini",
+                    "limitName": "Gemini Models",
+                    "primary": {"usedPercent": 60, "windowDurationMins": 300, "resetsAt": 1795439714},
+                    "secondary": {"usedPercent": 18, "windowDurationMins": 10080, "resetsAt": 1796026514}
+                },
+                {
+                    "limitId": "3p",
+                    "limitName": "Claude and GPT models",
+                    "primary": {"usedPercent": 0, "windowDurationMins": 300, "resetsAt": 1795456532},
+                    "secondary": {"usedPercent": 100, "windowDurationMins": 10080, "resetsAt": 1796043332},
+                    "rateLimitReachedType": "quota_exhausted"
+                },
+                {
+                    "limitId": "gemini-argon-wtu",
+                    "limitName": "Gemini 4 Argon",
+                    "primary": {"usedPercent": 0, "windowDurationMins": 10080, "resetsAt": 1796043332}
+                }
+            ]
+        });
+        let value = decode(&agy_account, Some(&agy_limits), 100).unwrap();
+        assert_eq!(value.status, Status::Ready);
+        assert_eq!(value.buckets.len(), 3);
+        assert_eq!(value.buckets[0].id, "gemini");
+        assert_eq!(value.buckets[0].name.as_deref(), Some("Gemini Models"));
+        assert_eq!(value.buckets[0].primary.as_ref().unwrap().remaining_percent, 40);
+        assert_eq!(value.buckets[0].secondary.as_ref().unwrap().remaining_percent, 82);
+        assert_eq!(value.buckets[1].id, "3p");
+        assert!(value.buckets[1].limit_reached);
+        assert_eq!(value.buckets[2].id, "gemini-argon-wtu");
+
+        let api_key = decode(
+            &agy_account,
+            Some(&json!({"rateLimits": {}, "unavailable": "unsupportedAuth"})),
+            100,
+        )
+        .unwrap();
+        assert_eq!(api_key.status, Status::Unavailable);
+        assert_eq!(api_key.unavailable, Unavailable::UnsupportedAuth);
+
+        let signed_out = decode(
+            &agy_account,
+            Some(&json!({"rateLimits": {}, "unavailable": "noAccount"})),
+            100,
+        )
+        .unwrap();
+        assert_eq!(signed_out.status, Status::Unavailable);
+        assert_eq!(signed_out.unavailable, Unavailable::NoAccount);
+
+        assert!(decode(
+            &agy_account,
+            Some(&json!({"rateLimits": {}, "unavailable": "bogus"})),
+            100,
+        )
+        .is_err());
     }
 }

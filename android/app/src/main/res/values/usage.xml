@@ -10,9 +10,10 @@
     <string name="usage_hours">%1$s小时</string>
     <string name="usage_minutes">%1$s分钟</string>
     <string name="usage_short_remaining">%1$s %2$d%%</string>
-    <string name="usage_remaining">%1$s · 剩余 %2$d%%</string>
-    <string name="usage_previous_remaining">%1$s · 上次剩余 %2$d%%</string>
+    <string name="usage_remaining">%1$s · 剩余 %2$d%% · 已用 %3$d%%</string>
+    <string name="usage_previous_remaining">%1$s · 上次剩余 %2$d%% · 已用 %3$d%%</string>
     <string name="usage_plan">Codex · %1$s</string>
+    <string name="usage_plan_provider">%1$s · %2$s</string>
     <string name="usage_groups">%1$d组额度</string>
     <string name="usage_resets">%1$s 重置</string>
     <string name="usage_updated">上次更新 %1$s</string>
@@ -22,8 +23,11 @@
     <string name="usage_not_provided">服务端未提供可显示的套餐余量。</string>
     <string name="usage_claude_unavailable">Claude 尚未接入套餐余量查询。</string>
     <string name="usage_connect_codex">连接一个 Codex 会话后查看套餐余量。</string>
+    <string name="usage_connect_antigravity">连接一个 Antigravity 会话后查看套餐余量。</string>
     <string name="usage_no_account">远端 Codex 尚未登录套餐账号。</string>
+    <string name="usage_antigravity_no_account">远端 Antigravity 尚未登录账号。</string>
     <string name="usage_auth_unavailable">当前认证方式未提供 ChatGPT 套餐余量。</string>
+    <string name="usage_antigravity_auth_unavailable">当前认证方式未提供 Antigravity 套餐余量。</string>
     <string name="usage_included_unavailable">服务端当前不允许使用套餐内普通额度。</string>
     <string name="usage_credits">额外积分：%1$s</string>
     <string name="usage_unlimited">不限量</string>
@@ -32,6 +36,7 @@
     <string name="usage_limit_reached">已达到额度限制</string>
     <string name="usage_spend_limit">已达到消费控制上限</string>
     <string name="usage_scope">额度由当前远端 Codex 账号提供；周期百分比不代表 token 或货币余额。重置时间使用手机时区。</string>
+    <string name="usage_scope_antigravity">额度由当前远端 Antigravity 账号提供；周期百分比不代表 token 或货币余额。重置时间使用手机时区。</string>
     <string name="desktop_disconnect">断开桌面</string>
     <string name="chat_model_settings">模型设置</string>
     <string name="usage_cards_title">重置卡</string>
