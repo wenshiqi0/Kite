@@ -216,7 +216,7 @@ export async function providers(): Promise<Json[]> {
           models: p !== "claude",
           attachments: p !== "claude",
           skills: p === "codex",
-          usage: p === "codex",
+          usage: p === "codex" || p === "antigravity",
           pause: process.platform === "linux" && (p === "codex" || p === "claude"),
           terminal: p === "codex" || p === "claude",
           release: p !== "claude",

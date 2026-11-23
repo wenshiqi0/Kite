@@ -467,7 +467,10 @@ impl Client {
                     .request("account/read", json!({"refreshToken":false}))
                     .await
                     .map_err(|_| "account read failed")?;
-                let limits = if account["account"]["type"] == "chatgpt" {
+                let limits = if matches!(
+                    account["account"]["type"].as_str(),
+                    Some("chatgpt" | "antigravity")
+                ) {
                     Some(
                         rpc.request("account/rateLimits/read", json!({}))
                             .await

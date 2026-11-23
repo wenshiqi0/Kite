@@ -5,6 +5,90 @@ import { home, lines } from "@kite/runtime";
 
 const nativeFile = join(home(), "agy-fixture-session");
 const trace = join(home(), "agy-fixture-methods");
+if (process.argv.includes("-p") && process.argv.includes("/usage")) {
+  const mode = process.env.KITE_FIXTURE_AGY_USAGE_MODE || "ready";
+  if (mode === "api_key") {
+    const message =
+      "/usage failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage";
+    process.stderr.write(`error: ${message}\n`);
+    process.stdout.write(`${JSON.stringify({ status: "ERROR", error: message })}\n`);
+    process.exit(2);
+  }
+  if (mode === "signed_out") {
+    const message = "/usage failed: You are not logged into Antigravity.";
+    process.stderr.write(`error: ${message}\n`);
+    process.stdout.write(`${JSON.stringify({ status: "ERROR", error: message })}\n`);
+    process.exit(2);
+  }
+  if (mode === "fail") {
+    process.stderr.write("error: backend unavailable\n");
+    process.exit(1);
+  }
+  process.stdout.write(
+    `${JSON.stringify({
+      conversation_id: "",
+      status: "SUCCESS",
+      num_turns: 0,
+      command: {
+        name: "usage",
+        data: {
+          groups: [
+            {
+              name: "Gemini Models",
+              buckets: [
+                {
+                  id: "gemini-weekly",
+                  name: "Weekly Limit Remaining",
+                  window: "weekly",
+                  remaining_fraction: 0.8247,
+                  reset_time: "2026-11-30T08:15:14Z",
+                },
+                {
+                  id: "gemini-5h",
+                  name: "Five Hour Limit Remaining",
+                  window: "5h",
+                  remaining_fraction: 0.3956,
+                  reset_time: "2026-11-23T13:15:14Z",
+                },
+              ],
+            },
+            {
+              name: "Claude and GPT models",
+              buckets: [
+                {
+                  id: "3p-weekly",
+                  name: "Weekly Limit Remaining",
+                  window: "weekly",
+                  remaining_fraction: 1,
+                  reset_time: "2026-11-30T12:55:32Z",
+                },
+                {
+                  id: "3p-5h",
+                  name: "Five Hour Limit Remaining",
+                  window: "5h",
+                  reset_time: "2026-11-23T17:55:32Z",
+                },
+              ],
+            },
+            {
+              name: "Gemini 4 Argon",
+              buckets: [
+                {
+                  id: "gemini-argon-wtu-weekly",
+                  name: "Gemini 4 Argon Weekly Limit",
+                  window: "weekly",
+                  remaining_fraction: 1,
+                  reset_time: "2026-11-30T12:55:32Z",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    })}\n`,
+  );
+  process.exit(0);
+}
 const turbo = process.argv.includes("--dangerously-skip-permissions");
 appendFileSync(
   join(home(), "agy-fixture-launches"),

@@ -26,11 +26,25 @@ import java.util.Date
     else -> stringResource(R.string.usage_minutes, minutes.toString())
 }
 
-@Composable fun accountUsageSummary(usage: AccountUsageInfo?): String {
+private fun primaryUsageBucket(buckets: List<UsageBucketInfo>, model: String?): UsageBucketInfo? {
+    if (buckets.isEmpty()) return null
+    buckets.find { it.id == "codex" }?.let { return it }
+    val lower = model?.lowercase().orEmpty()
+    if (lower.isNotEmpty()) {
+        when {
+            "argon" in lower -> buckets.find { "argon" in it.id.lowercase() || "argon" in (it.name?.lowercase().orEmpty()) }?.let { return it }
+            "claude" in lower || "gpt" in lower -> buckets.find { it.id == "3p" || "claude" in (it.name?.lowercase().orEmpty()) || "gpt" in (it.name?.lowercase().orEmpty()) }?.let { return it }
+            "gemini" in lower || "orchestrator" in lower -> buckets.find { it.id == "gemini" || ("gemini" in (it.name?.lowercase().orEmpty()) && "argon" !in (it.name?.lowercase().orEmpty())) }?.let { return it }
+        }
+    }
+    return buckets.singleOrNull() ?: buckets.firstOrNull()
+}
+
+@Composable fun accountUsageSummary(usage: AccountUsageInfo?, model: String? = null): String {
     if (usage == null || usage.status == UsageStatus.NOT_LOADED) return stringResource(if (usage?.loading == true) R.string.usage_loading else R.string.usage_open)
     if (usage.status == UsageStatus.FAILED || usage.stale) return stringResource(R.string.usage_stale_summary)
     if (usage.status == UsageStatus.UNAVAILABLE) return stringResource(R.string.usage_not_provided)
-    val bucket = usage.buckets.find { it.id == "codex" } ?: usage.buckets.singleOrNull()
+    val bucket = primaryUsageBucket(usage.buckets, model)
     val windows = listOfNotNull(bucket?.primary, bucket?.secondary)
     if (windows.isNotEmpty()) {
         val labels = mutableListOf<String>()
@@ -42,33 +56,40 @@ import java.util.Date
 }
 
 @Composable fun AccountUsageDialog(usage: AccountUsageInfo?, provider: String?, connected: Boolean, refresh: () -> Unit, close: () -> Unit) {
+    val isAntigravity = provider == "antigravity"
+    val supportsUsage = provider == "codex" || isAntigravity
+    val providerName = if (isAntigravity) stringResource(R.string.provider_antigravity) else "Codex"
     AlertDialog(onDismissRequest = close, title = { Text(stringResource(R.string.usage_title)) },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when {
                     provider == "claude" -> Text(stringResource(R.string.usage_claude_unavailable), color = KiteColors.Muted)
-                    !connected -> Text(stringResource(R.string.usage_connect_codex), color = KiteColors.Muted)
+                    !connected -> Text(stringResource(if (isAntigravity) R.string.usage_connect_antigravity else R.string.usage_connect_codex), color = KiteColors.Muted)
                     else -> {
-                        usage?.plan?.let { Text(stringResource(R.string.usage_plan, it.replaceFirstChar(Char::uppercaseChar)), fontSize = 16.sp) }
+                        val plan = usage?.plan
+                        if (plan != null) Text(stringResource(R.string.usage_plan_provider, providerName, plan.replaceFirstChar(Char::uppercaseChar)), fontSize = 16.sp)
+                        else if (isAntigravity) Text(providerName, fontSize = 16.sp)
                         if (usage?.loading == true) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             Text(stringResource(R.string.usage_loading), fontSize = 12.sp)
                         }
                         if (usage?.status == UsageStatus.FAILED || usage?.stale == true) Text(stringResource(if(usage.updatedMs==null)R.string.usage_failed else R.string.usage_stale), color = KiteColors.Warning, fontSize = 12.sp)
                         if (usage?.status == UsageStatus.UNAVAILABLE) Text(stringResource(when (usage.unavailable) {
-                            UsageUnavailable.NO_ACCOUNT -> R.string.usage_no_account
-                            UsageUnavailable.UNSUPPORTED_AUTH -> R.string.usage_auth_unavailable
+                            UsageUnavailable.NO_ACCOUNT -> if (isAntigravity) R.string.usage_antigravity_no_account else R.string.usage_no_account
+                            UsageUnavailable.UNSUPPORTED_AUTH -> if (isAntigravity) R.string.usage_antigravity_auth_unavailable else R.string.usage_auth_unavailable
                             else -> R.string.usage_not_provided
                         }), color = KiteColors.Muted)
                         if (usage?.ordinaryUsageAllowed == false) Text(stringResource(R.string.usage_included_unavailable), color = KiteColors.Warning, fontSize = 12.sp)
                         usage?.buckets?.forEach { bucket ->
                             Surface(shape = RoundedCornerShape(12.dp), color = KiteColors.Surface, border = BorderStroke(1.dp, KiteColors.Line)) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(bucket.name?.takeIf { it.isNotBlank() } ?: bucket.id.takeIf { it.isNotBlank() } ?: "Codex", maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(bucket.name?.takeIf { it.isNotBlank() } ?: bucket.id.takeIf { it.isNotBlank() } ?: providerName, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     for (window in listOfNotNull(bucket.primary, bucket.secondary)) {
+                                        val remaining = window.remainingPercent.toInt().coerceIn(0, 100)
+                                        val used = 100 - remaining
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(stringResource(if (usage.stale) R.string.usage_previous_remaining else R.string.usage_remaining, windowLabel(window.durationMins), window.remainingPercent.toInt()), fontSize = 13.sp)
-                                            LinearProgressIndicator(progress = { window.remainingPercent.toFloat() / 100f }, modifier = Modifier.fillMaxWidth().height(4.dp), color = if (usage.stale) KiteColors.Muted else KiteColors.Accent, trackColor = KiteColors.Line)
+                                            Text(stringResource(if (usage.stale) R.string.usage_previous_remaining else R.string.usage_remaining, windowLabel(window.durationMins), remaining, used), fontSize = 13.sp)
+                                            LinearProgressIndicator(progress = { remaining.toFloat() / 100f }, modifier = Modifier.fillMaxWidth().height(4.dp), color = if (usage.stale) KiteColors.Muted else KiteColors.Accent, trackColor = KiteColors.Line)
                                             window.resetsAt?.takeIf { it > 0 }?.let { at ->
                                                 Text(stringResource(R.string.usage_resets, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(at * 1000))), fontSize = 11.sp, color = KiteColors.Muted)
                                             }
@@ -85,17 +106,17 @@ import java.util.Date
                                 }
                             }
                         }
-                        if (usage != null && usage.status != UsageStatus.NOT_LOADED && usage.unavailable !in listOf(UsageUnavailable.NO_ACCOUNT, UsageUnavailable.UNSUPPORTED_AUTH)) ResetCreditsCard(usage.resetCredits, usage.stale)
+                        if (usage != null && (provider == "codex" || usage.resetCredits != null) && usage.status != UsageStatus.NOT_LOADED && usage.unavailable !in listOf(UsageUnavailable.NO_ACCOUNT, UsageUnavailable.UNSUPPORTED_AUTH)) ResetCreditsCard(usage.resetCredits, usage.stale)
                         usage?.updatedMs?.let { Text(stringResource(R.string.usage_updated, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it))), color = KiteColors.Muted, fontSize = 11.sp) }
-                        Text(stringResource(R.string.usage_scope), color = KiteColors.Muted, fontSize = 11.sp)
+                        Text(stringResource(if (isAntigravity) R.string.usage_scope_antigravity else R.string.usage_scope), color = KiteColors.Muted, fontSize = 11.sp)
                     }
                 }
             }
         }, confirmButton = { TextButton(onClick = close) { Text(stringResource(R.string.dismiss)) } },
-        dismissButton = { TextButton(onClick = refresh, enabled = connected && provider == "codex" && usage?.loading != true) { Text(stringResource(R.string.usage_refresh)) } })
+        dismissButton = { TextButton(onClick = refresh, enabled = connected && supportsUsage && usage?.loading != true) { Text(stringResource(R.string.usage_refresh)) } })
 }
 
-@Composable fun AccountUsageAccess(usage: AccountUsageInfo?, open: () -> Unit) {
+@Composable fun AccountUsageAccess(usage: AccountUsageInfo?, model: String? = null, open: () -> Unit) {
     Surface(color=KiteColors.Surface,shape=RoundedCornerShape(12.dp),border=BorderStroke(1.dp,KiteColors.Line),
         modifier=Modifier.fillMaxWidth().clickable(onClick=open)) {
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
@@ -103,7 +124,7 @@ import java.util.Date
                 Text(stringResource(R.string.usage_title),fontSize=13.sp)
                 usage?.plan?.let{Text(it.replaceFirstChar(Char::uppercaseChar),fontSize=12.sp,color=KiteColors.Muted)}
             }
-            Text(accountUsageSummary(usage),fontSize=12.sp,color=if(usage?.stale==true)KiteColors.Warning else KiteColors.Text)
+            Text(accountUsageSummary(usage, model),fontSize=12.sp,color=if(usage?.stale==true)KiteColors.Warning else KiteColors.Text)
             usage?.resetCredits?.let { ResetCreditsSummary(it, usage.stale) }
             Text(stringResource(R.string.usage_details),fontSize=11.sp,color=KiteColors.Muted)
         }
