@@ -18,6 +18,7 @@ import {
   string,
   UUID,
 } from "@kite/protocol";
+import { readHostAccountUsage } from "@kite/providers/account-usage";
 import { catalogRead, catalogWrite } from "@kite/providers/catalog";
 import {
   api,
@@ -57,6 +58,11 @@ export async function main(argv: string[]): Promise<void> {
   const output = (v: Json) => {
     process.stdout.write(`${JSON.stringify(v)}\n`);
   };
+  if (action === "account-usage") {
+    check(argv.length === 1, "account-usage accepts no arguments");
+    output(await readHostAccountUsage());
+    return;
+  }
   if (action === "captured-display") {
     check(argv.length === 2, "captured-display requires a port");
     output(await capturedDisplay(Number(argv[1])));

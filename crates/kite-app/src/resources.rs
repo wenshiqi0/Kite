@@ -1,10 +1,12 @@
 //! Shared host resource facts and memory admission policy.
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 pub const GIB: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_AGENT_MEMORY_LIMIT: u64 = 10 * GIB;
 pub const STARTUP_RESERVATION: u64 = GIB;
+pub(crate) const PLACEMENT_SAMPLE_MAX_AGE: Duration = Duration::from_secs(15);
 
 pub fn default_agent_memory_limit() -> u64 {
     DEFAULT_AGENT_MEMORY_LIMIT
@@ -72,6 +74,44 @@ pub struct HostResources {
     pub reason: ResourceReason,
     pub can_start_agents: bool,
     pub processes: Vec<ProcessResource>,
+}
+
+impl HostResources {
+    /// Lower scores are preferred. Admission remains the responsibility of the host.
+    pub(crate) fn placement_score(&self) -> Option<u32> {
+        let pressure = match self.memory_pressure {
+            MemoryPressure::Normal => 0,
+            MemoryPressure::Warning => 3_000,
+            _ => return None,
+        };
+        if !self.available
+            || !self.limit_enforced
+            || !self.can_start_agents
+            || self.sampled_at_ms == 0
+            || self.cpu_cores == 0
+            || self.memory_total_bytes == 0
+            || self.memory_available_bytes > self.memory_total_bytes
+            || self.agent_memory_limit_bytes == 0
+        {
+            return None;
+        }
+        let cpu = self.cpu_percent.filter(|cpu| (0.0..95.0).contains(cpu))?;
+        let host_used = 1.0 - self.memory_available_bytes as f64 / self.memory_total_bytes as f64;
+        let agent_used = self
+            .agent_memory_used_bytes
+            .saturating_add(self.agent_startup_reserved_bytes) as f64
+            / self.agent_memory_limit_bytes as f64;
+        if agent_used >= 1.0 {
+            return None;
+        }
+        let memory = host_used.max(agent_used);
+        Some(
+            pressure
+                + (cpu * 10.0).round() as u32
+                + (memory * 1_000.0).round() as u32
+                + self.agent_process_count.min(100),
+        )
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -338,6 +378,26 @@ mod tests {
         assert_eq!(second.cpu_percent, Some(75.0));
         assert_eq!(second.processes[0].cpu_percent, Some(10.0));
         assert_eq!(second.agent_cpu_percent, Some(50.0));
+    }
+
+    #[test]
+    fn placement_uses_cpu_and_the_tighter_memory_budget() {
+        let mut profile = ResourceTracker::default().observe(raw(), 10 * GIB, 0, true);
+        assert_eq!(profile.placement_score(), None);
+        profile.cpu_percent = Some(30.0);
+        assert_eq!(profile.placement_score(), Some(804));
+        profile.cpu_percent = Some(10.0);
+        assert_eq!(profile.placement_score(), Some(604));
+        profile.agent_memory_used_bytes = 6 * GIB;
+        profile.agent_startup_reserved_bytes = GIB;
+        assert_eq!(profile.placement_score(), Some(804));
+        profile.memory_pressure = MemoryPressure::Warning;
+        assert_eq!(profile.placement_score(), Some(3804));
+        profile.cpu_percent = Some(95.0);
+        assert_eq!(profile.placement_score(), None);
+        profile.cpu_percent = Some(4.0);
+        profile.can_start_agents = false;
+        assert_eq!(profile.placement_score(), None);
     }
 
     #[test]

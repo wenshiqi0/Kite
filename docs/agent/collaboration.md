@@ -31,6 +31,8 @@ Use `kite acp proxy --peer mini` to attach another ACP client.
 
 A peer advertising `controlPlaneVersion: 2` supports independent submission and observation. Kite binds the parent automatically when the CLI or MCP runs within a verified session. Leave the parent unset in that workflow. External callers can supply a parent machine and a stable session ID. Use `--standalone` (MCP `standalone: true`) for an explicitly requested independent session.
 
+Use `--peer NAME` or MCP `peer` to pin an execution host. Omit it to choose among configured peers with fresh capacity for the requested provider and allowed working directory. Use the returned `peer` and `sessionId` for follow-up commands. Each nested delegation binds its immediate parent and makes its own placement decision. If placement is unavailable, use a known eligible peer explicitly.
+
 ```sh
 kite acp spawn --peer mini --cwd /absolute/workspace/project --provider ply \
   --label "Run checks" --write-lock --policy human_in_the_loop

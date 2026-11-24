@@ -261,6 +261,7 @@ mod tests {
                 crate::resources::DEFAULT_AGENT_MEMORY_LIMIT,
             )
             .unwrap(),
+            account_usage: Default::default(),
             permits: Arc::new(Semaphore::new(1)),
             notifications: None,
             push: None,

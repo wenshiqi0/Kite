@@ -175,6 +175,7 @@ enum Command {
     Snapshot {
         after_revision: Option<u64>,
     },
+    RecommendSessionHost {},
     Conversation {
         context: String,
         revision: u64,
@@ -316,6 +317,7 @@ enum Command {
         id: String,
     },
     RefreshAccountUsage {},
+    WorkspaceAccountUsage {},
     ReloadComposer {},
     RetryHistory {},
     StartDesktop {
@@ -370,6 +372,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
                 value(snapshot)
             };
         }
+        RecommendSessionHost {} => return value(core.recommend_session_host()),
         Conversation { context, revision } => {
             return value(core.conversation_since(context, revision));
         }
@@ -497,6 +500,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
             return value(STANDARD.encode(core.chat_attachment(context, id).await?));
         }
         RefreshAccountUsage {} => core.refresh_account_usage().await?,
+        WorkspaceAccountUsage {} => return value(core.workspace_account_usage().await?),
         ReloadComposer {} => core.reload_composer().await?,
         RetryHistory {} => core.retry_history().await?,
         StartDesktop {

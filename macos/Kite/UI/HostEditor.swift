@@ -88,6 +88,7 @@ struct SessionEditor: View {
     let model: ClientModel
     @State private var provider = ""
     @State private var machine = ""
+    @State private var loadedHostRecommendation = false
     private var available: [ProviderInfo] { model.snapshot?.hostConnections.first { $0.hostId == machine && $0.connection == .connected }?.providers ?? [] }
     private func selectProvider() { if !available.contains(where: { $0.id == provider }) { provider = available.first(where: { $0.id == "codex" })?.id ?? available.first?.id ?? "" } }
     @State private var title = ""
@@ -98,6 +99,7 @@ struct SessionEditor: View {
             Text(tr("new_session")).font(.title2.weight(.semibold))
             Form {
                 Picker(tr("session_machine"), selection: $machine) {
+                    if machine.isEmpty { Text(tr("choose_execution_host")).tag("") }
                     ForEach((model.snapshot?.hosts ?? []).filter { host in model.snapshot?.hostConnections.contains { $0.hostId == host.id && $0.connection == .connected } == true }, id: \.id) { Text($0.host).tag($0.id) }
                 }
                 Picker(tr("harness"), selection: $provider) {
@@ -119,7 +121,9 @@ struct SessionEditor: View {
             }
         }.padding(28).frame(width: 460)
             .onAppear {
-                machine = model.snapshot?.selectedHost.flatMap { host in model.snapshot?.hostConnections.first { $0.hostId == host && $0.connection == .connected }?.hostId } ?? model.snapshot?.hostConnections.first { $0.connection == .connected }?.hostId ?? ""
+                guard !loadedHostRecommendation else { return }
+                loadedHostRecommendation = true
+                machine = model.recommendSessionHost() ?? ""
                 selectProvider()
             }
             .onChange(of: machine) { _, _ in cwd = ""; selectProvider() }

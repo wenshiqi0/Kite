@@ -110,6 +110,16 @@ impl server::Handler for Peer {
             self.catalog.to_string()
         } else if command.ends_with("harness-scan") {
             json!({"providers":[],"agents":[]}).to_string()
+        } else if command.ends_with("account-usage") {
+            json!([crate::ProviderAccountUsage {
+                provider: "codex".into(),
+                usage: crate::AccountUsage {
+                    status: crate::UsageStatus::Ready,
+                    plan: Some("fixture-plan".into()),
+                    ..Default::default()
+                },
+            }])
+            .to_string()
         } else if command.contains("session-facts") {
             json!({"facts":[]}).to_string()
         } else if command.contains("notifications") {

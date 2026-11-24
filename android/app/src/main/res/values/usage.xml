@@ -1,6 +1,11 @@
 <resources>
     <string name="message_input">消息输入框</string>
     <string name="usage_title">套餐余量</string>
+    <string name="usage_overview_open">额度</string>
+    <string name="usage_overview">额度总览</string>
+    <string name="usage_host_offline">主机未连接</string>
+    <string name="usage_host_unavailable">主机额度暂不可用</string>
+    <string name="usage_host_no_providers">暂无支持的额度来源</string>
     <string name="usage_refresh">刷新余量</string>
     <string name="usage_details">查看周期、重置时间与详细额度</string>
     <string name="usage_open">查看套餐余量</string>

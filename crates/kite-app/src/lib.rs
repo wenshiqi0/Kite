@@ -25,7 +25,7 @@ pub use kite_agent::interaction::{
 pub use kite_agent::notifications::Kind as AgentNoticeKind;
 pub use kite_agent::providers::Provider;
 pub use kite_agent::usage::{
-    AccountUsage, Bucket as UsageBucket, Credits as UsageCredits,
+    AccountUsage, Bucket as UsageBucket, Credits as UsageCredits, ProviderAccountUsage,
     ResetCredits as UsageResetCredits, Status as UsageStatus, Unavailable as UsageUnavailable,
     Window as UsageWindow,
 };

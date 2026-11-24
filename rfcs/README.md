@@ -48,6 +48,7 @@
 | [0031](0031-windows-client.md) | Windows 纯客户端与 Linux 交叉构建 | 已实现 | v0.2.1 正式交付 |
 | [0032](0032-antigravity-acp.md) | Antigravity ACP 接入 | 已实现 | v0.2.3 接入 / v0.2.4 Turbo 权限 |
 | [0033](0033-cross-provider-async-session-control.md) | 跨供应商长会话异步控制面与协作治理 | 草案 | 配套开发规范见 [cross-provider-collaboration.md](../docs/development/cross-provider-collaboration.md) |
+| [0034](0034-resource-aware-session-placement.md) | 会话优先的客户端与资源感知选机 | 已采纳 | 用户可改选执行主机，ACP 派发使用同一评分 |
 
 ---
 

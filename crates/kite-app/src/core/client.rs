@@ -1,5 +1,6 @@
 //! One client, independent host workspaces, and a single selected media surface.
 use super::*;
+use crate::resources::PLACEMENT_SAMPLE_MAX_AGE;
 use crate::{ClipboardPlatform, RemoteClipboard};
 
 struct WorkspaceObserver {
@@ -21,6 +22,24 @@ struct ClientState {
     selected: Option<String>,
     base: Snapshot,
     workspaces: BTreeMap<String, Snapshot>,
+}
+
+fn recommended_session_host(
+    workspaces: &BTreeMap<String, Snapshot>,
+    now: Instant,
+) -> Option<String> {
+    workspaces
+        .iter()
+        .filter(|(_, state)| {
+            state.connection == ConnectionPhase::Connected
+                && !state.providers.is_empty()
+                && state
+                    .resources_observed_at
+                    .is_some_and(|at| now.saturating_duration_since(at) <= PLACEMENT_SAMPLE_MAX_AGE)
+        })
+        .filter_map(|(host, state)| Some((state.host_resources.as_ref()?.placement_score()?, host)))
+        .min()
+        .map(|(_, host)| host.clone())
 }
 
 /// Shared persistence is serialized once; transport, polling, retries and conversation
@@ -437,6 +456,10 @@ impl ClientCore {
         runtime.open_session(id).await?;
         self.select_inner(&host).await
     }
+    pub fn recommend_session_host(&self) -> Option<String> {
+        let state = lock(&self.state);
+        recommended_session_host(&state.workspaces, Instant::now())
+    }
     pub async fn resume_session(&self, host: String, id: String) -> Result<(), AppError> {
         self.runtime(&host)?.resume_session(id).await
     }
@@ -526,6 +549,54 @@ impl ClientCore {
     }
     pub async fn refresh_account_usage(&self) -> Result<(), AppError> {
         self.selected()?.refresh_account_usage().await
+    }
+    pub async fn workspace_account_usage(&self) -> Result<Vec<HostAccountUsage>, AppError> {
+        use HostAccountUsageStatus::{Offline, Ready, Unavailable};
+
+        let snapshot = self.snapshot();
+        let online: BTreeSet<_> = snapshot
+            .host_connections
+            .iter()
+            .filter(|host| host.connection == ConnectionPhase::Connected)
+            .map(|host| host.host_id.as_str())
+            .collect();
+        let mut rows = Vec::with_capacity(snapshot.hosts.len());
+        let mut targets = Vec::new();
+        {
+            let runtimes = lock(&self.runtimes);
+            for host in snapshot.hosts {
+                let connected = online.contains(host.id.as_str());
+                if connected && let Some(runtime) = runtimes.get(&host.id) {
+                    targets.push((rows.len(), runtime.clone()));
+                }
+                rows.push(HostAccountUsage {
+                    host_id: host.id,
+                    host: host.host,
+                    status: if connected { Unavailable } else { Offline },
+                    providers: Vec::new(),
+                });
+            }
+        }
+        dispatch(async move {
+            for batch in targets.chunks(4) {
+                let mut jobs = tokio::task::JoinSet::new();
+                for (index, runtime) in batch {
+                    let (index, runtime) = (*index, runtime.clone());
+                    jobs.spawn(async move {
+                        let result = runtime.read_host_account_usage().await;
+                        (index, result)
+                    });
+                }
+                while let Some(result) = jobs.join_next().await {
+                    if let Ok((index, Ok(providers))) = result {
+                        rows[index].status = Ready;
+                        rows[index].providers = providers;
+                    }
+                }
+            }
+            Ok(rows)
+        })
+        .await
     }
     pub async fn set_chat_model(
         &self,
@@ -730,6 +801,78 @@ impl ClientCore {
 mod tests {
     use super::super::recovery_tests::Fixture;
     use super::*;
+
+    #[test]
+    fn placement_recommends_a_connected_host_with_a_fresh_sample_and_a_provider() {
+        use crate::resources::{GIB, HostResources, MemoryPressure};
+
+        let now = Instant::now();
+        let ready = Snapshot {
+            connection: ConnectionPhase::Connected,
+            resources_observed_at: Some(now),
+            host_resources: Some(HostResources {
+                available: true,
+                sampled_at_ms: 1,
+                cpu_percent: Some(10.0),
+                cpu_cores: 8,
+                memory_total_bytes: 16 * GIB,
+                memory_available_bytes: 8 * GIB,
+                agent_memory_limit_bytes: 8 * GIB,
+                limit_enforced: true,
+                memory_pressure: MemoryPressure::Normal,
+                can_start_agents: true,
+                ..HostResources::default()
+            }),
+            providers: vec![providers::Provider {
+                id: "codex".into(),
+                managed_chat: true,
+                models: false,
+                attachments: false,
+                skills: false,
+                usage: false,
+                pause: false,
+                terminal: false,
+                release: false,
+            }],
+            ..Snapshot::default()
+        };
+        let mut busy = ready.clone();
+        busy.host_resources.as_mut().unwrap().cpu_percent = Some(80.0);
+        let workspaces = BTreeMap::from([
+            ("busy".into(), busy),
+            (
+                "a-disconnected".into(),
+                Snapshot {
+                    connection: ConnectionPhase::Disconnected,
+                    ..ready.clone()
+                },
+            ),
+            (
+                "b-stale".into(),
+                Snapshot {
+                    resources_observed_at: Some(now - Duration::from_secs(16)),
+                    ..ready.clone()
+                },
+            ),
+            (
+                "c-unavailable".into(),
+                Snapshot {
+                    providers: Vec::new(),
+                    ..ready.clone()
+                },
+            ),
+            ("d-ready".into(), ready.clone()),
+            ("z-ready".into(), ready),
+        ]);
+        assert_eq!(
+            recommended_session_host(&workspaces, now).as_deref(),
+            Some("d-ready")
+        );
+        assert_eq!(
+            recommended_session_host(&workspaces, now + Duration::from_secs(16)),
+            None
+        );
+    }
 
     #[tokio::test]
     async fn removing_saved_hosts_is_distinct_from_forgetting_trust_and_persists() {
@@ -1094,6 +1237,15 @@ mod tests {
                 .count(),
             2
         );
+        let selected = client.snapshot().selected_host;
+        let quotas = client.workspace_account_usage().await.unwrap();
+        assert_eq!(quotas.len(), 2);
+        assert!(quotas.iter().all(|row| {
+            row.status == HostAccountUsageStatus::Ready
+                && row.providers[0].usage.plan.as_deref() == Some("fixture-plan")
+        }));
+        assert_eq!(client.snapshot().selected_host, selected);
+        assert!(client.snapshot().selected_session.is_none());
 
         // A slow third handshake must neither restart on selection nor block established hosts.
         let pending_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))

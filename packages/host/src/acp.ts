@@ -27,8 +27,10 @@ import {
   UUID,
 } from "@kite/protocol";
 import {
+  ACP_MAX_PLACEMENT_PEERS,
   ACP_MAX_WAIT_SESSIONS,
   ACP_MESSAGE_LIMIT,
+  ACP_PLACEMENT_METHOD,
   ACP_QUEUE_LIMIT,
   ACP_READ_LIMIT,
   acpLimit,
@@ -38,7 +40,7 @@ import {
 import { kiteAcpConnector } from "@kite/providers/acp";
 import { catalogRead } from "@kite/providers/catalog";
 import { providers } from "@kite/providers/harness";
-import { home, input, lines, privateDir, requireOwnedFile, sleep } from "@kite/runtime";
+import { home, input, lines, privateDir, requireOwnedFile, run, sleep } from "@kite/runtime";
 import { type AcpClient, connectAcp, serveAcp } from "@kite/runtime/acp";
 import { optionalObject } from "@kite/runtime/socket";
 
@@ -55,9 +57,13 @@ function writeWire(stream: NodeJS.WriteStream, value: Json | RpcMessage): void {
   );
   stream.write(line);
 }
-function peer(file: string, name: string): Peer {
+function readPeers(file: string): ObjectValue {
+  return object(object(parse(requireOwnedFile(file, 65536).toString())).peers);
+}
+function peerDefinition(peers: ObjectValue, name: string): Peer {
   check(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name), "invalid ACP peer name");
-  const row = object(object(object(parse(requireOwnedFile(file, 65536).toString())).peers)[name]),
+  check(Object.hasOwn(peers, name), "ACP peer is not configured");
+  const row = object(peers[name]),
     tokenFile = string(row.tokenFile),
     url = string(row.url),
     sshTarget = optionalString(row.sshTarget);
@@ -68,6 +74,9 @@ function peer(file: string, name: string): Peer {
       "invalid SSH peer target",
     );
   return { url, tokenFile, ...(sshTarget ? { sshTarget } : {}) };
+}
+function peer(file: string, name: string): Peer {
+  return peerDefinition(readPeers(file), name);
 }
 export function acpToken(file: string, create = false): string {
   check(isAbsolute(file), "ACP token path must be absolute");
@@ -401,9 +410,12 @@ const operations = {
   spawn: {
     method: "session/new",
     description:
-      "Create a session under the verified Kite parent or an explicitly supplied parent.",
-    schema: schema(["peer", "cwd", "provider"], {
-      ...peerField,
+      "Create a session under the verified Kite parent or an explicitly supplied parent. Omit peer to choose by capacity.",
+    schema: schema(["cwd", "provider"], {
+      peer: {
+        ...textField,
+        description: "Optional execution peer. The result identifies the selected peer.",
+      },
       cwd: textField,
       provider: choices(...CHAT_PROVIDERS),
       title: textField,
@@ -511,16 +523,52 @@ async function controlPeer(
         clientCapabilities: {},
       }),
     );
-    check(
-      optionalObject(optionalObject(hello._meta).kite).controlPlaneVersion === 2,
-      "peer does not advertise Kite session control v2",
-    );
+    const capability = optionalObject(optionalObject(hello._meta).kite);
+    check(capability.controlPlaneVersion === 2, "peer does not advertise Kite session control v2");
+    if (method === ACP_PLACEMENT_METHOD)
+      check(
+        Array.isArray(capability.controlMethods) && capability.controlMethods.includes(method),
+        "peer does not advertise resource placement",
+      );
     signal.throwIfAborted();
     return await rpc.call(method, params, timeout);
   } finally {
     signal.removeEventListener("abort", close);
     rpc.close();
   }
+}
+
+async function defaultPeer(file: string, provider: string, cwd: string, signal: AbortSignal) {
+  check(isAbsolute(cwd) && !cwd.split("/").includes(".."), "invalid absolute ACP path");
+  const peers = readPeers(file);
+  const names = Object.keys(peers).sort();
+  check(
+    names.length > 0 && names.length <= ACP_MAX_PLACEMENT_PEERS,
+    "resource placement requires 1 to 16 configured peers; specify a peer directly",
+  );
+  const probe = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+  const ranked = (
+    await Promise.all(
+      names.map(async (name) => {
+        try {
+          const target = peerDefinition(peers, name);
+          const result = object(
+            await controlPeer(target, probe, ACP_PLACEMENT_METHOD, { provider, cwd }, 3_000),
+          );
+          if (result.score === null) return undefined;
+          return { name, target, score: acpLimit(result.score, -1, 10_000) };
+        } catch {
+          // An unavailable or ineligible peer must not prevent selection of another.
+          return undefined;
+        }
+      }),
+    )
+  ).filter((entry) => entry !== undefined);
+  signal.throwIfAborted();
+  ranked.sort((left, right) => left.score - right.score);
+  const preferred = ranked[0];
+  check(preferred, "no eligible ACP peer has a fresh resource sample; specify a peer directly");
+  return preferred;
 }
 
 async function waitAny(file: string, args: ObjectValue, signal: AbortSignal) {
@@ -648,7 +696,6 @@ async function sessionControl(
   );
   if (action === "wait") return waitAny(file, args, signal);
   const { peer: name, ...params } = args;
-  const target = peer(file, string(name));
   if (action === "spawn") {
     const {
       cwd,
@@ -665,35 +712,47 @@ async function sessionControl(
     } = params;
     check(isChatProvider(provider), "invalid remote provider");
     const parent = await spawnParent(params);
-    return controlPeer(
-      target,
-      signal,
-      entry.method,
-      {
-        cwd: string(cwd),
-        mcpServers: [],
-        _meta: {
-          kite: {
-            controlPlaneVersion: 2,
-            provider,
-            title,
-            model,
-            effort,
-            serviceTier,
-            delegation: {
-              policy: policy ?? "strict",
-              role,
-              parent,
-              label,
-              writeLock,
-              worktreeIsolated,
+    const directory = string(cwd);
+    const destination =
+      name === undefined
+        ? await defaultPeer(file, provider, boundedString(directory, 4096), signal)
+        : { name: string(name), target: peer(file, string(name)) };
+    try {
+      const result = await controlPeer(
+        destination.target,
+        signal,
+        entry.method,
+        {
+          cwd: directory,
+          mcpServers: [],
+          _meta: {
+            kite: {
+              controlPlaneVersion: 2,
+              provider,
+              title,
+              model,
+              effort,
+              serviceTier,
+              delegation: {
+                policy: policy ?? "strict",
+                role,
+                parent,
+                label,
+                writeLock,
+                worktreeIsolated,
+              },
             },
           },
         },
-      },
-      90_000,
-    );
+        90_000,
+      );
+      return json({ ...object(result), peer: destination.name });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown spawn error";
+      throw new Error(`ACP spawn on ${destination.name}: ${message}`, { cause: error });
+    }
   }
+  const target = peer(file, string(name));
   if (action === "list") {
     const { cursor, ...filters } = params;
     return controlPeer(target, signal, entry.method, { cursor, _meta: { kite: filters } });
@@ -961,6 +1020,8 @@ export async function acpMain(argv: string[]): Promise<void> {
       newSessionProviders.includes(defaultProvider),
       "the default ACP provider is not verified on this host",
     );
+    const node = process.env.KITE_ACP_NODE;
+    const nodeSocket = process.env.KITE_ACP_NODE_SOCKET;
     const server = serveAcp({
       token: acpToken(values["token-file"] || join(root, "token"), true),
       port,
@@ -970,6 +1031,21 @@ export async function acpMain(argv: string[]): Promise<void> {
         herdr: values.herdr || process.env.KITE_ACP_HERDR || "herdr",
         defaultProvider,
         newSessionProviders,
+        ...(node && isAbsolute(node) && nodeSocket && isAbsolute(nodeSocket)
+          ? {
+              placement: async () => {
+                const output = await run(
+                  [node, "--socket", nodeSocket, "resources", "--placement"],
+                  {
+                    timeout: 2000,
+                    limit: 64,
+                  },
+                );
+                const { score } = object(parse(output.stdout.toString()));
+                return score === null ? null : acpLimit(score, -1, 10_000);
+              },
+            }
+          : {}),
       }),
     });
     process.stdout.write(

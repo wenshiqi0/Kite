@@ -21,6 +21,7 @@ use tokio::{
     task::JoinSet,
 };
 
+mod account_usage;
 mod acp;
 mod bridge;
 mod configuration;
@@ -201,6 +202,7 @@ struct Node {
     lifecycle_scan: Mutex<()>,
     lifecycle_wake: tokio::sync::Notify,
     resources: resources::Resources,
+    account_usage: account_usage::AccountUsageCache,
     permits: Arc<Semaphore>,
     notifications: Option<notifications::Journal>,
     push: Option<push::Push>,
@@ -297,8 +299,19 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 Ok(0)
             }
             "resources" => {
-                if args.len()!=1 { return Err(Error::Config("resources accepts no arguments")); }
-                println!("{}",rpc(&socket,NodeRequest::new("resources")).await?);
+                let method = match &args[1..] {
+                    [] => "resources",
+                    [flag] if flag == "--placement" => "resource-placement",
+                    _ => return Err(Error::Config("resources accepts only --placement")),
+                };
+                println!("{}",rpc(&socket,NodeRequest::new(method)).await?);
+                Ok(0)
+            }
+            "account-usage" => {
+                if args.len() != 1 {
+                    return Err(Error::Config("account-usage accepts no arguments"));
+                }
+                println!("{}", rpc(&socket, NodeRequest::new("account-usage")).await?);
                 Ok(0)
             }
             "resource-limit" => {
@@ -607,6 +620,7 @@ async fn serve_runtime(mut config: Config, activated: Option<(PathBuf, bool)>) -
         lifecycle_scan: Mutex::new(()),
         lifecycle_wake: tokio::sync::Notify::new(),
         resources,
+        account_usage: Default::default(),
         permits: Arc::new(Semaphore::new(64)),
         notifications: journal,
         push,
@@ -766,6 +780,10 @@ impl Node {
             }
             "sessions-release-archived" => Ok(serde_json::to_value(lifecycle::scan(self).await?)?),
             "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
+            "resource-placement" => Ok(json!({"score": self.resources.placement().await})),
+            "account-usage" => Ok(serde_json::to_value(
+                self.account_usage.read(account_usage::fetch(self)).await?,
+            )?),
             "resource-limit" => Ok(serde_json::to_value(
                 self.resources
                     .set_limit(

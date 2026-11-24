@@ -46,7 +46,7 @@ private data class DrawerSession(val host: HostRecord, val session: SessionInfo,
 }
 
 @Composable
-fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String, String) -> Unit, create: () -> Unit, manageHosts: () -> Unit,
+fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Unit, open: (String, String) -> Unit, create: () -> Unit, manageHosts: () -> Unit, openUsage: () -> Unit,
     inspectSubagent: ((String, String, SubagentInfo) -> Unit)? = null) {
     var archived by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -134,10 +134,13 @@ fun SessionDrawer(vm: HostCheckViewModel, state: CoreSnapshot?, close: () -> Uni
             }
         }
         HorizontalDivider()
-        TextButton(onClick = manageHosts, modifier = Modifier.padding(horizontal = 10.dp)) {
-            ProductIcon(Mark.Monitor, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.hosts_title))
+        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = manageHosts) {
+                ProductIcon(Mark.Monitor, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.hosts_title))
+            }
+            TextButton(onClick = openUsage) { Text(stringResource(R.string.usage_overview_open)) }
         }
     }
 }

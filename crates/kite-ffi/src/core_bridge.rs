@@ -662,6 +662,58 @@ impl From<kite_app::AccountUsage> for AccountUsageInfo {
         }
     }
 }
+#[derive(Clone, Debug, uniffi::Enum)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub enum HostAccountUsageStatus {
+    Ready,
+    Offline,
+    Unavailable,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub struct ProviderAccountUsageInfo {
+    pub provider: String,
+    pub usage: AccountUsageInfo,
+}
+#[derive(Clone, Debug, uniffi::Record)]
+#[cfg_attr(
+    feature = "windows-client",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub struct HostAccountUsageInfo {
+    pub host_id: String,
+    pub host: String,
+    pub status: HostAccountUsageStatus,
+    pub providers: Vec<ProviderAccountUsageInfo>,
+}
+impl From<kite_app::HostAccountUsage> for HostAccountUsageInfo {
+    fn from(value: kite_app::HostAccountUsage) -> Self {
+        use kite_app::HostAccountUsageStatus as S;
+        Self {
+            host_id: value.host_id,
+            host: value.host,
+            status: match value.status {
+                S::Ready => HostAccountUsageStatus::Ready,
+                S::Offline => HostAccountUsageStatus::Offline,
+                S::Unavailable => HostAccountUsageStatus::Unavailable,
+            },
+            providers: value
+                .providers
+                .into_iter()
+                .map(|row| ProviderAccountUsageInfo {
+                    provider: row.provider,
+                    usage: row.usage.into(),
+                })
+                .collect(),
+        }
+    }
+}
 #[derive(Clone, Debug, uniffi::Record)]
 #[cfg_attr(
     feature = "windows-client",
@@ -1592,6 +1644,9 @@ impl KiteCore {
     pub fn snapshot(&self) -> Result<CoreSnapshot, KiteError> {
         Ok(self.inner.snapshot().into())
     }
+    pub fn recommend_session_host(&self) -> Option<String> {
+        self.inner.recommend_session_host()
+    }
     pub async fn register_push(
         &self,
         device_id: String,
@@ -1817,6 +1872,15 @@ impl KiteCore {
     }
     pub async fn refresh_account_usage(&self) -> Result<(), KiteError> {
         self.inner.refresh_account_usage().await.map_err(Into::into)
+    }
+    pub async fn workspace_account_usage(&self) -> Result<Vec<HostAccountUsageInfo>, KiteError> {
+        Ok(self
+            .inner
+            .workspace_account_usage()
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
     pub async fn refresh_skills(&self, agent_id: String) -> Result<(), KiteError> {
         self.inner

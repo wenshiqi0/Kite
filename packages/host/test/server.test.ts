@@ -1253,6 +1253,60 @@ test("Antigravity Turbo defaults on and preserves context, queued permissions an
     if (startTicks(pid)) process.kill(pid, "SIGTERM");
   }
 }, 15000);
+test("the host reports Codex and Antigravity quotas without session or turn RPCs", async () => {
+  const home = fresh();
+  const bin = privateDir(join(home, "bin"));
+  writeFileSync(
+    join(bin, "codex"),
+    `#!${process.execPath}
+import { createInterface } from "node:readline";
+for await (const line of createInterface({ input: process.stdin })) {
+  const msg = JSON.parse(line);
+  let result;
+  switch (msg.method) {
+    case "initialize": result = {}; break;
+    case "initialized": continue;
+    case "account/read":
+      if (msg.params.refreshToken !== false) throw new Error("expected read-only account request");
+      result = { account: { type: "chatgpt", planType: "pro", email: "private@example.invalid" } };
+      break;
+    case "account/rateLimits/read":
+      result = { rateLimits: { limitId: "codex", primary: { usedPercent: 25 } } };
+      break;
+    default: throw new Error("unexpected session or model operation");
+  }
+  console.log(JSON.stringify({ id: msg.id, result }));
+}`,
+    { mode: 0o700 },
+  );
+  const result = await command(home, ["account-usage"], undefined, {
+    PATH: bin,
+    KITE_ENABLE_ANTIGRAVITY: "1",
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_FIXTURE_AGY_USAGE_MODE: "ready",
+    KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+      process.execPath,
+      resolve("packages/host/test/fixtures/antigravity.ts"),
+      "acp",
+    ]),
+  });
+  expect(result.code, result.stderr.toString()).toBe(0);
+  const output = result.stdout.toString();
+  expect(output).not.toContain("private@example.invalid");
+  const [codex, antigravity] = array(parse(output));
+  expect(codex).toMatchObject({
+    provider: "codex",
+    account: { account: { type: "chatgpt", planType: "pro" } },
+    limits: { rateLimits: { primary: { usedPercent: 25 } } },
+  });
+  expect(antigravity).toMatchObject({
+    provider: "antigravity",
+    account: { account: { type: "antigravity" } },
+    limits: { buckets: expect.any(Array) },
+  });
+  expect(existsSync(join(home, "agy-fixture-session"))).toBe(false);
+}, 10000);
+
 test("Antigravity exposes read-only quota buckets and unavailable auth states", async () => {
   const runCase = async (mode: string) => {
     const home = fresh(),

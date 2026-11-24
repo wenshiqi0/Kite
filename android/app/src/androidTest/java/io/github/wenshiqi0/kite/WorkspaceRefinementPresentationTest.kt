@@ -448,6 +448,7 @@ class WorkspaceRefinementPresentationTest {
         val opened = java.util.concurrent.atomic.AtomicReference<Pair<String, String>>()
         val inspected = java.util.concurrent.atomic.AtomicReference<Triple<String, String, SubagentInfo>>()
         val managed = java.util.concurrent.atomic.AtomicBoolean()
+        val usageOpened = java.util.concurrent.atomic.AtomicBoolean()
         fun clickText(label: String) {
             val node = actionNode(requireNotNull(find(text = label)), AccessibilityNodeInfo.ACTION_CLICK)
             assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
@@ -471,7 +472,7 @@ class WorkspaceRefinementPresentationTest {
                 ),
             )
             SessionDrawer(vm, snapshot, close = {}, open = { host, session -> opened.set(host to session) },
-                create = {}, manageHosts = { managed.set(true) },
+                create = {}, manageHosts = { managed.set(true) }, openUsage = { usageOpened.set(true) },
                 inspectSubagent = { host, session, child -> inspected.set(Triple(host, session, child)) })
         }) {
             waitFor("Sessions from both hosts are visible") { find(text = oldest.title) != null }
@@ -494,6 +495,8 @@ class WorkspaceRefinementPresentationTest {
             }
             clickText(test.targetContext.getString(R.string.hosts_title))
             waitFor("The host entry opens resources") { managed.get() }
+            clickText(test.targetContext.getString(R.string.usage_overview_open))
+            waitFor("The quota entry opens from the sidebar") { usageOpened.get() }
         }
     }
 

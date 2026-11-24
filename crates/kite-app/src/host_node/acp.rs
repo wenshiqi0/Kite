@@ -10,7 +10,7 @@ use std::{
 pub(super) fn cli(args: &[String]) -> Result<i32> {
     if args.is_empty() || args.iter().any(|value| value == "--help" || value == "-h") {
         println!(
-            "Kite network ACP (v1 WebSocket profile)\n  kite acp serve --workspace PATH [--workspace PATH] [--port N] [--token-file PATH]\n  kite acp proxy --peer NAME [--peers PATH]\n  kite acp spawn --peer NAME --cwd PATH --provider ID [--standalone]\n  kite acp send --peer NAME --session ID [--wait-ms N] < prompt.txt\n  kite acp status|read|cancel|release --peer NAME --session ID\n  kite acp list --peer NAME [--parent-session ID]\n  kite acp wait --target NAME/ID [--target NAME/ID] [--timeout-ms N]\n  kite acp mcp [--peers PATH]\nExisting automation only\n  kite acp task --peer NAME --cwd PATH [--session ID] [--expected-revision SHA] < prompt.txt\nPeer file: ~/.config/kite/acp/peers.json; private tokens stay outside the repository."
+            "Kite network ACP (v1 WebSocket profile)\n  kite acp serve --workspace PATH [--workspace PATH] [--port N] [--token-file PATH]\n  kite acp proxy --peer NAME [--peers PATH]\n  kite acp spawn [--peer NAME] --cwd PATH --provider ID [--standalone]\n  kite acp send --peer NAME --session ID [--wait-ms N] < prompt.txt\n  kite acp status|read|cancel|release --peer NAME --session ID\n  kite acp list --peer NAME [--parent-session ID]\n  kite acp wait --target NAME/ID [--target NAME/ID] [--timeout-ms N]\n  kite acp mcp [--peers PATH]\nExisting automation only\n  kite acp task --peer NAME --cwd PATH [--session ID] [--expected-revision SHA] < prompt.txt\nPeer file: ~/.config/kite/acp/peers.json; private tokens stay outside the repository."
         );
         return Ok(0);
     }
@@ -100,6 +100,11 @@ pub(super) fn cli(args: &[String]) -> Result<i32> {
             .envs(config.environment)
             .env("KITE_ACP_MACHINE", config.machine)
             .env("KITE_ACP_HERDR", config.herdr);
+        if args[0] == "serve" {
+            command
+                .env("KITE_ACP_NODE", std::env::current_exe()?)
+                .env("KITE_ACP_NODE_SOCKET", config.socket);
+        }
     }
     command.env(
         "KITE_AGENT_RESOURCE_CONTROL",
