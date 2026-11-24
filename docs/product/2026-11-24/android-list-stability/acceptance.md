@@ -15,6 +15,8 @@ The baseline failures were recorded against `83b0658a`. The final implementation
 - Across five viewport changes, every measured reply-to-viewport gap remains **52px**. Concurrent viewport changes and appended/removed footer rows produce **15 drawn tail gaps of 0px**. These controls also passed before the repair; the tail-following algorithm was not changed.
 - The existing Android presentation CI now runs the new list/menu regressions and triggers for the relevant settings and chat viewport sources.
 
+Release preparation also corrects the shared client's passive-quota fixture: connection readiness does not imply that its asynchronous session catalogue has finished loading. The fixture now waits for its saved conversation, selects it explicitly and verifies that reading quotas preserves both the host and that nonempty session selection. The shared Rust component suites and three consecutive reruns of this regression pass locally.
+
 [Machine-readable results](validation.json) include the native test names and measured geometry. [Open menu during chat updates](dropdown-during-chat-updates.png) and [streaming reply](streaming-chat-stable-tail.png) are synthetic fixture captures.
 
-This validates the reproduced presentation paths. No physical handset or real user conversation was connected, so confirmation of every reported phone-side movement remains separate. The local debug APK is a test artifact; this change does not publish a new release.
+This validates the reproduced presentation paths. No physical handset or real user conversation was connected, so confirmation of every reported phone-side movement remains separate. The local debug APK is a test artifact; public delivery uses the merged source tag and GitHub release workflow.

@@ -1237,6 +1237,21 @@ mod tests {
                 .count(),
             2
         );
+        // Connection readiness precedes the asynchronous catalogue. Establish a
+        // real selection before verifying that passive quota reads retain it.
+        let session = "a".repeat(32);
+        until(|| {
+            client
+                .snapshot()
+                .sessions
+                .iter()
+                .any(|row| row.id == session)
+        })
+        .await;
+        client
+            .open_session(other.id.clone(), session.clone())
+            .await
+            .unwrap();
         let selected = client.snapshot().selected_host;
         let quotas = client.workspace_account_usage().await.unwrap();
         assert_eq!(quotas.len(), 2);
@@ -1245,7 +1260,10 @@ mod tests {
                 && row.providers[0].usage.plan.as_deref() == Some("fixture-plan")
         }));
         assert_eq!(client.snapshot().selected_host, selected);
-        assert!(client.snapshot().selected_session.is_none());
+        assert_eq!(
+            client.snapshot().selected_session.as_deref(),
+            Some(session.as_str())
+        );
 
         // A slow third handshake must neither restart on selection nor block established hosts.
         let pending_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
