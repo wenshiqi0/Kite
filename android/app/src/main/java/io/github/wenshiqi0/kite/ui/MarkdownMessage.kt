@@ -11,6 +11,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.text.Spanned
+import android.text.Spannable
+import android.text.Selection
 import android.text.TextPaint
 import android.text.style.MetricAffectingSpan
 import android.net.Uri
@@ -63,6 +65,7 @@ import org.commonmark.node.Paragraph
 fun MarkdownMessage(text: String, modifier: Modifier = Modifier, color: Color = KiteColors.Text, size: Float = 16f, streaming: Boolean = false, attachments: List<AttachmentInfo> = emptyList(), onAttachmentClick: (AttachmentInfo) -> Unit = {}) {
     AndroidView(
         factory = { MarkdownTextView(it) },
+        onReset = { it.resetForReuse() },
         update = {
             if (it.currentTextColor != color.toArgb()) it.setTextColor(color.toArgb())
             it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
@@ -112,6 +115,14 @@ class MarkdownTextView(context: Context) : TextView(context) {
         setTextIsSelectable(true)
         setTextColor(0xFFE5E9EE.toInt())
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+    }
+    /** Keep the measured view reusable without carrying selection or actions to another row. */
+    internal fun resetForReuse() {
+        clearFocus()
+        (text as? Spannable)?.let { Selection.removeSelection(it) }
+        scrollTo(0, 0)
+        attachments = emptyList()
+        onAttachmentClick = {}
     }
     fun bind(value: String, inProgress: Boolean = false, files: List<AttachmentInfo> = emptyList(), onFileClick: (AttachmentInfo) -> Unit = {}) {
         attachments = files

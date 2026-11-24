@@ -19,27 +19,36 @@ fun SessionPermissionControls(settings: List<SessionSettingInfo>, enabled: Boole
         HorizontalDivider(color = KiteColors.Line)
         Text(stringResource(R.string.permission_settings), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         settings.forEach { setting ->
-            var expanded by remember(setting.id) { mutableStateOf(false) }
-            val current = setting.options.find { it.value == setting.currentValue }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(settingTitle(setting), fontSize = 12.sp, color = KiteColors.Muted)
-                Box {
-                    TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(0.dp)) {
-                        Text(settingValue(setting.id, setting.currentValue, current?.name ?: setting.currentValue), fontSize = 14.sp)
-                        ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 6.dp).size(14.dp))
-                    }
-                    DropdownMenu(expanded, { expanded = false }) {
-                        setting.options.forEach { option ->
-                            DropdownMenuItem(text = { Text(settingValue(setting.id, option.value, option.name)) },
-                                trailingIcon = { if (setting.currentValue == option.value) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) },
-                                onClick = { expanded = false; select(setting.id, option.value) })
-                        }
-                    }
-                }
-                settingDescription(setting.id, setting.currentValue)?.let { Text(it, fontSize = 12.sp, color = KiteColors.Muted) }
+            key(setting.id) {
+                SessionPermissionSetting(setting, enabled, select)
             }
         }
         Text(stringResource(R.string.permission_next_message), fontSize = 12.sp, color = KiteColors.Muted)
+    }
+}
+
+@Composable
+private fun SessionPermissionSetting(setting: SessionSettingInfo, enabled: Boolean, select: (String, String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = setting.options.find { it.value == setting.currentValue }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(settingTitle(setting), fontSize = 12.sp, color = KiteColors.Muted)
+        Box {
+            TextButton(onClick = { expanded = true }, enabled = enabled, contentPadding = PaddingValues(0.dp)) {
+                Text(settingValue(setting.id, setting.currentValue, current?.name ?: setting.currentValue), fontSize = 14.sp)
+                ProductIcon(Mark.Chevron, modifier = Modifier.padding(start = 6.dp).size(14.dp))
+            }
+            DropdownMenu(expanded, { expanded = false }) {
+                setting.options.forEach { option ->
+                    key(option.value) {
+                        DropdownMenuItem(text = { Text(settingValue(setting.id, option.value, option.name)) },
+                            trailingIcon = { if (setting.currentValue == option.value) ProductIcon(Mark.Check, modifier = Modifier.size(17.dp)) },
+                            onClick = { expanded = false; select(setting.id, option.value) })
+                    }
+                }
+            }
+        }
+        settingDescription(setting.id, setting.currentValue)?.let { Text(it, fontSize = 12.sp, color = KiteColors.Muted) }
     }
 }
 
