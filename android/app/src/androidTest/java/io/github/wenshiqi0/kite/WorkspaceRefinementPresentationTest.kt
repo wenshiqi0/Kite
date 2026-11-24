@@ -532,12 +532,13 @@ class WorkspaceRefinementPresentationTest {
         File(test.targetContext.getExternalFilesDir(null),name).outputStream().use{image.compress(Bitmap.CompressFormat.PNG,100,it)}
         if(image!==full)image.recycle();full.recycle()
     }
-    private fun overlay(content: @Composable () -> Unit,check:()->Unit){
+    private fun overlay(content: @Composable () -> Unit,awaitIdle:Boolean=true,check:()->Unit){
         val activity=test.startActivitySync(Intent(test.targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val root=activity.findViewById<FrameLayout>(android.R.id.content);val original=mutableListOf<View>();lateinit var panel:ComposeView
         try{
             main{for(i in 0 until root.childCount){root.getChildAt(i).let{original.add(it);it.visibility=View.INVISIBLE}};panel=ComposeView(activity).apply{setContent{KiteTheme{Box(Modifier.fillMaxSize().background(KiteColors.Background)){content()}}}};root.addView(panel,FrameLayout.LayoutParams(-1,-1))}
-            test.waitForIdleSync();SystemClock.sleep(300);check()
+            if(awaitIdle)test.waitForIdleSync()
+            SystemClock.sleep(300);check()
         }catch(error:Throwable){
             runCatching { screenshot("workspace-refinement-failure.png") }
             throw error
@@ -593,23 +594,32 @@ class WorkspaceRefinementPresentationTest {
                     item(key = "conversation-tail") { Spacer(Modifier.height(8.dp)) }
                 }
             }
-        }) {
+        }, awaitIdle = false) {
             waitFor("Initial long reply reaches the measured tail", ::atTail)
             val original = requireNotNull(nativeReply())
             val rendered = original.text
             repeat(6) { step ->
                 main { streaming.value = step % 2 != 0 }
-                test.waitForIdleSync(); SystemClock.sleep(60)
+                SystemClock.sleep(60)
                 main { assertSame("Phase changes retain selectable text", rendered, original.text) }
                 assertSame(original, nativeReply())
             }
+            main { assertTrue("The selectable reply can receive focus", original.requestFocus()) }
+            waitFor("A focused reply reaches the measured tail", ::atTail)
             val draws = java.util.concurrent.atomic.AtomicInteger()
             val missing = java.util.concurrent.atomic.AtomicInteger()
+            val displaced = java.util.concurrent.atomic.AtomicInteger()
+            val maximumOverflow = java.util.concurrent.atomic.AtomicInteger()
             val drawnText = java.util.concurrent.atomic.AtomicReference("")
             val observer = android.view.ViewTreeObserver.OnDrawListener {
                 draws.incrementAndGet()
                 drawnText.set(original.text.toString())
                 if (!original.isShown || original.height == 0) missing.incrementAndGet()
+                val layout = list.layoutInfo
+                val last = layout.visibleItemsInfo.lastOrNull()
+                val overflow = last?.let { it.offset + it.size + layout.afterContentPadding - layout.viewportEndOffset } ?: 0
+                if (last?.key != "conversation-tail" || overflow > 1) displaced.incrementAndGet()
+                maximumOverflow.updateAndGet { maxOf(it, overflow) }
             }
             main { nativeRoot.viewTreeObserver.addOnDrawListener(observer) }
             try {
@@ -617,7 +627,6 @@ class WorkspaceRefinementPresentationTest {
                     val marker = "新增第 $step 行：回复持续生成，保持底部稳定。"
                     val next = body.value + "\n" + marker
                     main { body.value = next }
-                    test.waitForIdleSync()
                     waitFor("Growing reply is drawn at its measured tail") {
                         var measured = false
                         main { measured = original.text.contains(marker) && original.layout?.let { it.height <= original.height } == true }
@@ -627,6 +636,7 @@ class WorkspaceRefinementPresentationTest {
                 }
                 assertTrue("Each streaming update reaches an Android draw", draws.get() >= 24)
                 assertEquals("A streaming draw must retain the visible reply", 0, missing.get())
+                assertEquals("Every drawn update must retain the tail; maximum overflow=${maximumOverflow.get()}px", 0, displaced.get())
                 SystemClock.sleep(160)
                 screenshot("streaming-chat-stable-tail.png")
             } finally {
@@ -635,14 +645,13 @@ class WorkspaceRefinementPresentationTest {
             main { following.value = false; scope.launch { list.scrollToItem(9, 11) } }
             waitFor("Reader can inspect earlier messages") { list.firstVisibleItemIndex == 9 && list.firstVisibleItemScrollOffset == 11 }
             main { body.value += "\n后台继续生成。" }
-            test.waitForIdleSync(); SystemClock.sleep(160)
+            SystemClock.sleep(160)
             assertEquals(9, list.firstVisibleItemIndex)
             assertEquals(11, list.firstVisibleItemScrollOffset)
             main { following.value = true }
             waitFor("Explicit return to latest resumes following", ::atTail)
             main { body.value = "STREAM **完成**"; streaming.value = false; feedback.value = false }
-            test.waitForIdleSync()
-            waitFor("Completion and reply shrink settle at the tail", ::atTail)
+            waitFor("Completion and reply shrink settle at the tail") { atTail() && nativeReply()?.text?.toString() == "STREAM 完成" }
             assertEquals("STREAM 完成", nativeReply()?.text?.toString())
         }
     }
@@ -778,6 +787,118 @@ class WorkspaceRefinementPresentationTest {
             waitFor("Effort menu closes for non-reasoning model"){find(text="Plain")!=null&&find(text="最大思考")==null}
             assertNull(find(text="深入思考"))
             screenshot("harness-model-without-effort.png")
+        }
+    }
+
+    @Test fun openModelMenuKeepsItsWindowAndBoundsWhileChatUpdates() {
+        assumeTrue(Build.VERSION.SDK_INT >= 29)
+        val models = (1..24).map { ChatModelInfo("owned-$it", "Owned model $it", "", emptyList(), "", listOf("text")) }
+        val composer = androidx.compose.runtime.mutableStateOf(ComposerInfo(true, false, "", models, "owned-1", "",
+            emptyList(), usage(), SkillDraftInfo(emptyList(), emptyList(), true, false, ""), emptyList()))
+        val body = androidx.compose.runtime.mutableStateOf((1..24).joinToString("\n\n") { "Owned streaming line $it" })
+        val selected = java.util.concurrent.atomic.AtomicReference("")
+        overlay({
+            val list = rememberLazyListState()
+            ChatTailFollow(list, "owned-menu-updates") { true }
+            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                HarnessModelChoices(composer.value, true, selectSpeed = {}) { model, _ -> selected.set(model) }
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list) {
+                    item(key = "reply") { MarkdownMessage(body.value, streaming = true) }
+                    item(key = "conversation-tail") { Spacer(Modifier.height(8.dp)) }
+                }
+            }
+        }) {
+            waitFor("The model selector is visible") { find(text = "Owned model 1") != null }
+            assertTrue(actionNode(requireNotNull(find(text = "Owned model 1")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("The native model menu opens") { find(text = "Owned model 2") != null }
+            fun popup() = android.view.inspector.WindowInspector.getGlobalWindowViews()
+                .firstOrNull { it.javaClass.simpleName == "PopupLayout" }
+            lateinit var window: View
+            val bounds = Rect()
+            main { window = requireNotNull(popup()); window.getGlobalVisibleRect(bounds) }
+            val moved = java.util.concurrent.atomic.AtomicInteger()
+            val draws = java.util.concurrent.atomic.AtomicInteger()
+            val observer = android.view.ViewTreeObserver.OnDrawListener {
+                draws.incrementAndGet()
+                val current = Rect()
+                window.getGlobalVisibleRect(current)
+                if (popup() !== window || !window.isShown || current != bounds) moved.incrementAndGet()
+            }
+            main { window.viewTreeObserver.addOnDrawListener(observer) }
+            try {
+                repeat(24) { step ->
+                    main {
+                        body.value += "\n\nOwned update $step"
+                        composer.value = composer.value.copy(details = "Owned telemetry $step")
+                        window.invalidate()
+                    }
+                    test.waitForIdleSync(); SystemClock.sleep(40)
+                    assertNotNull("Updates retain the open menu", find(text = "Owned model 2"))
+                }
+                assertTrue("The open menu is drawn during updates", draws.get() >= 24)
+                assertEquals("Chat updates must preserve the popup identity and pixel bounds", 0, moved.get())
+                screenshot("dropdown-during-chat-updates.png")
+                assertTrue(actionNode(requireNotNull(find(text = "Owned model 2")), AccessibilityNodeInfo.ACTION_CLICK)
+                    .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("The menu still selects the original model") { selected.get() == "owned-2" }
+            } finally {
+                main { if (window.viewTreeObserver.isAlive) window.viewTreeObserver.removeOnDrawListener(observer) }
+            }
+        }
+    }
+
+    @Test fun permissionMenuSurvivesSettingsInsertedBeforeItsAnchor() {
+        val existing = SessionSettingInfo("owned-existing", "Owned existing setting", "selected", listOf(
+            SettingChoiceInfo("selected", "Owned selected option"),
+            SettingChoiceInfo("alternative", "Owned alternative option"),
+        ))
+        val inserted = existing.copy(id = "owned-inserted", name = "Owned inserted setting",
+            options = listOf(SettingChoiceInfo("selected", "Owned inserted option")))
+        val settings = androidx.compose.runtime.mutableStateOf(listOf(existing))
+        val selected = java.util.concurrent.atomic.AtomicReference("")
+        overlay({ SessionPermissionControls(settings.value, true) { id, value -> selected.set("$id:$value") } }) {
+            waitFor("The existing setting is visible") { find(text = "Owned selected option") != null }
+            assertTrue(actionNode(requireNotNull(find(text = "Owned selected option")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("The permission menu opens") { find(text = "Owned alternative option") != null }
+            main { settings.value = listOf(inserted, existing) }
+            test.waitForIdleSync(); SystemClock.sleep(200)
+            assertNotNull("Refreshing the catalogue must retain the open setting menu", find(text = "Owned alternative option"))
+            assertTrue(actionNode(requireNotNull(find(text = "Owned alternative option")), AccessibilityNodeInfo.ACTION_CLICK)
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor("Selection stays attached to the original setting") { selected.get() == "owned-existing:alternative" }
+        }
+    }
+
+    @Test fun scrollingMarkdownReusesNativeTextViews() {
+        lateinit var list: LazyListState
+        lateinit var scope: CoroutineScope
+        lateinit var nativeRoot: View
+        val views = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<MarkdownTextView, Boolean>())
+        fun collect(view: View) {
+            if (view is MarkdownTextView && view.text.startsWith("Owned recycled row")) views.add(view)
+            if (view is android.view.ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
+        }
+        overlay({
+            nativeRoot = androidx.compose.ui.platform.LocalView.current
+            list = rememberLazyListState()
+            scope = rememberCoroutineScope()
+            LazyColumn(Modifier.fillMaxWidth().height(240.dp), state = list) {
+                items(48, key = { "recycled-$it" }, contentType = { "markdown" }) { index ->
+                    MarkdownMessage("Owned recycled row $index", Modifier.fillMaxWidth().height(56.dp))
+                }
+            }
+        }) {
+            for (index in listOf(0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 0)) {
+                main { scope.launch { list.scrollToItem(index) } }
+                waitFor("The requested local history is positioned") { list.firstVisibleItemIndex == index }
+                test.waitForIdleSync(); SystemClock.sleep(40)
+                main { collect(nativeRoot) }
+            }
+            assertTrue("All visible messages were rendered", views.size >= 4)
+            File(test.targetContext.getExternalFilesDir(null), "markdown-reuse-validation.json").writeText("""{"uniqueViews":${views.size},"scrollPositions":11,"records":48}""")
+            assertTrue("Scrolling must reuse a bounded pool of native Markdown views; allocated=${views.size}", views.size <= 16)
         }
     }
 

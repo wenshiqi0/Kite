@@ -373,6 +373,33 @@ class NativePresentationTest {
         view.bind("**未闭合", false)
         assertEquals("A final literal marker still follows CommonMark", "**未闭合", view.text.toString())
     }
+    @Test fun recycledMarkdownClearsSelectionAndRebindsAttachmentActions() = onMain {
+        val view = MarkdownTextView(instrumentation.targetContext)
+        val file = AttachmentInfo("ab".repeat(16), "owned.md", "text/markdown", 1uL, false)
+        val source = "Owned [document](kite-attachment:0)"
+        var oldClicks = 0
+        var nextClicks = 0
+        view.bind(source, files = listOf(file), onFileClick = { oldClicks++ })
+        val rendered = view.text
+        android.text.Selection.setSelection(rendered as android.text.Spannable, 0, 5)
+        view.scrollTo(9, 13)
+        view.openAttachment(0)
+        assertEquals(1, oldClicks)
+        view.resetForReuse()
+        assertSame("Reuse retains the rendered text until the next binding", rendered, view.text)
+        assertEquals(-1, android.text.Selection.getSelectionStart(view.text))
+        assertEquals(-1, android.text.Selection.getSelectionEnd(view.text))
+        assertEquals(0, view.scrollX)
+        assertEquals(0, view.scrollY)
+        view.openAttachment(0)
+        assertEquals("A pooled view cannot invoke its previous row's attachment", 1, oldClicks)
+        val next = file.copy(name = "next.md")
+        view.bind(source, files = listOf(next), onFileClick = { assertEquals(next, it); nextClicks++ })
+        assertSame("Identical Markdown still retains its spans", rendered, view.text)
+        view.openAttachment(0)
+        assertEquals(1, nextClicks)
+        assertEquals(1, oldClicks)
+    }
     @Test fun zoomed_one_finger_drag_pans_the_viewport_without_a_second_finger()=onMain{
         val parent=VideoSurface(instrumentation.targetContext,{fail("No renderer expected")},{})
         layout(parent,1080,764);parent.takeover=true;parent.trackpad=false;parent.zoom=3f

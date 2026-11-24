@@ -70,6 +70,7 @@ class ChatStabilityPresentationTest {
         lateinit var list: LazyListState
         lateinit var scope: kotlinx.coroutines.CoroutineScope
         val height=mutableStateOf(420.dp)
+        val extraRows=mutableStateOf(0)
         val following=mutableStateOf(true)
         var bottom=0f
         var observer: ViewTreeObserver.OnDrawListener?=null
@@ -87,6 +88,7 @@ class ChatStabilityPresentationTest {
                             LazyColumn(Modifier.fillMaxSize(),state=list,contentPadding=PaddingValues(vertical=10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                                 items(40,key={"owned-history-$it"}){Text("Owned viewport history $it\nRetain the reading anchor.")}
                                 item(key="owned-reply"){MarkdownMessage("Owned stable tail\n\nViewport resize validation.")}
+                                items(extraRows.value,key={"owned-footer-$it"}){Spacer(Modifier.height(28.dp))}
                                 item(key="conversation-tail"){Spacer(Modifier.height(8.dp))}
                             }
                         }
@@ -115,6 +117,23 @@ class ChatStabilityPresentationTest {
                 assertTrue(gaps.size>=5)
                 assertEquals("Viewport changes retain the native reply in every draw",0,missing)
                 assertTrue("Every resized frame must already be at the tail: $gaps",gaps.all{kotlin.math.abs(it-expected)<=1})
+                observer?.let{root.viewTreeObserver.removeOnDrawListener(it)};observer=null
+            }
+            val tailGaps=mutableListOf<Int>()
+            main {
+                observer=ViewTreeObserver.OnDrawListener {
+                    val layout=list.layoutInfo
+                    val last=layout.visibleItemsInfo.lastOrNull()
+                    tailGaps+=if(last?.key=="conversation-tail")last.offset+last.size+layout.afterContentPadding-layout.viewportEndOffset else Int.MAX_VALUE
+                }.also{root.viewTreeObserver.addOnDrawListener(it)}
+            }
+            for((next,added) in listOf(300 to 12,460 to 0,280 to 14,400 to 0,420 to 0)) {
+                main {height.value=next.dp;extraRows.value=added}
+                SystemClock.sleep(120);main{root.invalidate()};test.waitForIdleSync()
+            }
+            main {
+                File(test.targetContext.getExternalFilesDir(null),"chat-resize-append-draws.json").writeText("""{"tailGaps":$tailGaps}""")
+                assertTrue("Concurrent resize and appended rows must retain the tail on every draw: $tailGaps",tailGaps.size>=5 && tailGaps.all{kotlin.math.abs(it)<=1})
                 observer?.let{root.viewTreeObserver.removeOnDrawListener(it)};observer=null
                 following.value=false;scope.launch{list.scrollToItem(5,11)}
             }

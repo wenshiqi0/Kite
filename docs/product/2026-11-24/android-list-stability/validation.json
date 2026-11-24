@@ -1,0 +1,99 @@
+{
+  "date": "2026-11-24",
+  "environment": {
+    "androidApi": 36,
+    "abi": "x86_64",
+    "emulator": "37.3.10",
+    "fixtures": "synthetic; no host connection or model turn"
+  },
+  "baseCommit": "0864b959",
+  "baseline": {
+    "commit": "83b0658a",
+    "permissionMenuRetained": false,
+    "uniqueMarkdownViews": 46
+  },
+  "fixed": {
+    "permissionMenuRetained": true,
+    "markdownReuse": {
+      "uniqueViews": 10,
+      "scrollPositions": 11,
+      "records": 48
+    },
+    "viewport": {
+      "expectedGap": 52,
+      "drawnGaps": [
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52
+      ]
+    },
+    "resizeAndAppend": {
+      "tailGaps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "jvm": {
+    "tests": 91,
+    "failures": 0,
+    "errors": 0
+  },
+  "native": {
+    "tests": 24,
+    "failures": 0,
+    "seconds": 28.481,
+    "passed": [
+      "tablesSettleOnScreenWithoutResizeOrTouch",
+      "expandedMouseDrawsAndMovesItsOwnHotspotOverTheVideoPlane",
+      "inlineFileLabelsKeepLiteralMarkdownPunctuation",
+      "inlineFilesShareNativeLinesAndKeepListSpansAndClickTargets",
+      "onlyExplicitExternalLinkSchemesOpen",
+      "responsePhaseChangesKeepTheSameSelectableMarkdown",
+      "recycledMarkdownClearsSelectionAndRebindsAttachmentActions",
+      "streamingStrongTextDoesNotExposeItsLeadingMarkerOrAlterCode",
+      "choiceLabelsRenderEmphasisAndPreserveLiteralCode",
+      "firstSplitMeasuresVideoInTheSameLayoutPass",
+      "remote_ime_holds_composition_and_flushes_committed_text_before_enter",
+      "markdownCreatesRichSpansAndRemeasuresStreamingText",
+      "inlineCodeBackgroundsStayCompactAcrossWrappedListsAndLargeFonts",
+      "cjkSentenceStrongClosesBeforeAnAdjacentLatinWord",
+      "zoomed_one_finger_drag_pans_the_viewport_without_a_second_finger",
+      "permissionMenuSurvivesSettingsInsertedBeforeItsAnchor",
+      "toolMediaUsesFullWidthAndImagesFormCompactAlbums",
+      "openModelMenuKeepsItsWindowAndBoundsWhileChatUpdates",
+      "mixedItemBlocksRenderInOrderWithoutHidingTextOrTools",
+      "streamingRepliesRetainTheirViewAndFollowOnlyWhileReadingTheTail",
+      "sidebarInterleavesHostsAndKeepsDelegatedTasksWithTheirParent",
+      "scrollingMarkdownReusesNativeTextViews",
+      "documentReferencesStayInsideProseAndOpenTheOriginalText",
+      "viewportResizesResolveTheTailBeforeDrawingAndKeepHistoryAnchored"
+    ]
+  },
+  "physicalHandsetValidated": false
+}
