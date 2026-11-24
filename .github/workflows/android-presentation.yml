@@ -8,6 +8,7 @@ on:
       - 'android/app/src/main/java/io/github/wenshiqi0/kite/ui/Item*.kt'
       - 'android/app/src/main/java/io/github/wenshiqi0/kite/ui/Markdown*.kt'
       - 'android/app/src/main/java/io/github/wenshiqi0/kite/ui/Attachment*.kt'
+      - 'android/app/src/main/java/io/github/wenshiqi0/kite/ui/SessionDrawer.kt'
       - 'android/app/src/androidTest/java/io/github/wenshiqi0/kite/NativePresentationTest.kt'
       - 'android/app/src/androidTest/java/io/github/wenshiqi0/kite/WorkspaceRefinementPresentationTest.kt'
 
@@ -66,7 +67,7 @@ jobs:
             cargo install cargo-ndk --version 4.1.2 --locked
           fi
           ./android/gradlew -p android -Pkite.rustAbis=x86_64 :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --console=plain
-      - name: Verify native text layout and document preview taps
+      - name: Verify native presentation and workspace navigation
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/presentation" "$RUNNER_TEMP/kite-avd"
@@ -89,7 +90,15 @@ jobs:
           adb -P 5038 -s emulator-5584 shell wm dismiss-keyguard
           adb -P 5038 -s emulator-5584 install -r -t android/app/build/outputs/apk/debug/app-debug.apk
           adb -P 5038 -s emulator-5584 install -r -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          adb -P 5038 -s emulator-5584 shell am instrument -w -r -e class 'io.github.wenshiqi0.kite.NativePresentationTest,io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#documentReferencesStayInsideProseAndOpenTheOriginalText,io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#mixedItemBlocksRenderInOrderWithoutHidingTextOrTools,io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#toolMediaUsesFullWidthAndImagesFormCompactAlbums' io.github.wenshiqi0.kite.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/presentation/results.txt"
+          tests=(
+            io.github.wenshiqi0.kite.NativePresentationTest
+            'io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#documentReferencesStayInsideProseAndOpenTheOriginalText'
+            'io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#mixedItemBlocksRenderInOrderWithoutHidingTextOrTools'
+            'io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#toolMediaUsesFullWidthAndImagesFormCompactAlbums'
+            'io.github.wenshiqi0.kite.WorkspaceRefinementPresentationTest#sidebarInterleavesHostsAndKeepsDelegatedTasksWithTheirParent'
+          )
+          test_classes=$(IFS=,; printf '%s' "${tests[*]}")
+          adb -P 5038 -s emulator-5584 shell am instrument -w -r -e class "$test_classes" io.github.wenshiqi0.kite.test/androidx.test.runner.AndroidJUnitRunner | tee "$RUNNER_TEMP/presentation/results.txt"
           adb -P 5038 -s emulator-5584 pull /sdcard/Android/data/io.github.wenshiqi0.kite/files/. "$RUNNER_TEMP/presentation/"
           python3 - <<'PY'
           import os, pathlib, re
