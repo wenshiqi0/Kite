@@ -42,6 +42,7 @@ internal sealed class MainWindow : Window
     private Button send = null!, connect = null!, operate = null!, pair = null!;
     private string HostId => state.Text("selected_host");
     private string AgentId => state.Text("selected_agent");
+    private Host? ResourceHost => (hosts.SelectedItem as ListBoxItem)?.Tag as Host;
     private NativeClient Core => client ?? throw new InvalidOperationException("客户端尚未就绪。");
     private readonly string dataDirectory;
     private readonly bool restoreConnections;
@@ -70,23 +71,17 @@ internal sealed class MainWindow : Window
         var root = new Grid(); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(255) }); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var sidebar = new DockPanel { Background = Ui.Panel, Margin = new Thickness(0, 0, 1, 0) };
         var brand = new StackPanel { Margin = new Thickness(18, 18, 12, 8) };
-        brand.Children.Add(Ui.Label("Kite", 30)); brand.Children.Add(Ui.Label("远程工作区", 12, Ui.Muted));
-        brand.Children.Add(Ui.Row(Ui.Button("＋ 主机", () => { new HostEditor(this, Core, null).ShowDialog(); return Task.CompletedTask; }), Ui.Button("设备公钥", ShowKey)));
-        brand.Children.Add(Ui.Label("主机", 12, Ui.Muted));
-        hosts.MaxHeight = 215; brand.Children.Add(hosts);
-        brand.Children.Add(Ui.Row(Ui.Button("设置", EditHost), Ui.Button("移除", RemoveHost)));
-        brand.Children.Add(Ui.Label("会话", 12, Ui.Muted));
+        brand.Children.Add(Ui.Label("会话", 22));
         brand.Children.Add(Ui.Row(Ui.Button("＋ 新建", CreateSession), Ui.Button("管理", SessionMenu)));
+        brand.Children.Add(Ui.Label("搜索会话", 11, Ui.Muted)); brand.Children.Add(sessionSearch);
         brand.Children.Add(archived); brand.Children.Add(sort);
-        brand.Children.Add(Ui.Label("跨主机搜索会话", 11, Ui.Muted)); brand.Children.Add(sessionSearch);
-        sessionSearch.TextChanged += (_, _) => { sessionSignature = ""; RenderSessions(); };
+        sessionSearch.TextChanged += (_, _) => RenderSessions(searchChanged: true);
         DockPanel.SetDock(brand, Dock.Top); sidebar.Children.Add(brand);
-        var footer = Ui.Label("Windows 客户端 · Alpha", 11, Ui.Muted); footer.Margin = new Thickness(18, 12, 0, 12); DockPanel.SetDock(footer, Dock.Bottom); sidebar.Children.Add(footer);
+        var resources = BuildHostMenu(); DockPanel.SetDock(resources, Dock.Bottom); sidebar.Children.Add(resources);
         sessions.Margin = new Thickness(10, 0, 8, 0); sidebar.Children.Add(sessions); root.Children.Add(sidebar);
-        hosts.SelectionChanged += async (_, _) => { if (!rendering && hosts.SelectedItem is ListBoxItem item && item.Tag is Host host) { LoseInput(); await Safe(new { op = "select_host", host_id = host.id }); } };
         sessions.SelectionChanged += async (_, _) => { if (!rendering && sessions.SelectedItem is ListBoxItem item && item.Tag is SessionTarget target) await Safe(new { op = "open_session", host_id = target.Host, session_id = target.Id }); };
-        archived.Checked += (_, _) => { sessionSignature = ""; RenderSessions(); }; archived.Unchecked += (_, _) => { sessionSignature = ""; RenderSessions(); };
-        sort.SelectionChanged += async (_, _) => { if (!rendering && HostId.Length > 0) await Safe(new { op = "set_session_sort", host_id = HostId, order = new[] { "Newest", "Oldest", "RecentActivity", "Title" }[sort.SelectedIndex] }); };
+        archived.Checked += (_, _) => RenderSessions(); archived.Unchecked += (_, _) => RenderSessions();
+        sort.SelectionChanged += async (_, _) => { if (!rendering && sort.SelectedIndex >= 0) await Safe(new { op = "set_workspace_sort", order = new[] { "Newest", "Oldest", "RecentActivity", "Title" }[sort.SelectedIndex] }); };
 
         var workspace = new DockPanel { Margin = new Thickness(22, 16, 22, 16) }; Grid.SetColumn(workspace, 1); root.Children.Add(workspace);
         var header = new StackPanel(); header.Children.Add(title); header.Children.Add(status);
@@ -114,6 +109,30 @@ internal sealed class MainWindow : Window
         var splitter = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Ui.Panel, ResizeDirection = GridResizeDirection.Rows }; Grid.SetRow(splitter, 1); body.Children.Add(splitter);
         BuildDesktop(); desktopPanel.Child = desktopRoot; desktopPanel.Height = 270; Grid.SetRow(desktopPanel, 2); body.Children.Add(desktopPanel);
         workspace.Children.Add(body); return root;
+    }
+    private Expander BuildHostMenu()
+    {
+        var panel = new StackPanel();
+        hosts.MaxHeight = 160;
+        panel.Children.Add(hosts);
+        panel.Children.Add(Ui.Row(Ui.Button("连接 / 打开", async () =>
+        {
+            if (ResourceHost is not { } host) return;
+            if (host.id != HostId) LoseInput();
+            await Core.Call(new { op = "connect", host_id = host.id });
+        }), Ui.Button("断开", async () =>
+        {
+            if (ResourceHost is not { } host) return;
+            if (host.id == HostId) LoseInput();
+            await Core.Call(new { op = "disconnect_host", host_id = host.id });
+        })));
+        panel.Children.Add(Ui.Row(Ui.Button("设置", EditHost), Ui.Button("移除", RemoveHost)));
+        panel.Children.Add(Ui.Row(Ui.Button("＋ 主机", () =>
+        {
+            new HostEditor(this, Core, null).ShowDialog();
+            return Task.CompletedTask;
+        }), Ui.Button("设备公钥", ShowKey)));
+        return new Expander { Header = "主机", Foreground = Ui.Muted, Margin = new Thickness(10, 8, 10, 12), Content = panel };
     }
     private void BuildDesktop()
     {
@@ -190,67 +209,108 @@ internal sealed class MainWindow : Window
     }
     private void RenderHosts()
     {
-        string signature = state.Field("hosts").GetRawText() + state.Text("selected_host") + string.Join(";", state.Array("host_connections").Select(h => h.Text("host_id") + h.Text("connection")));
-        if (signature == hostSignature) return; hostSignature = signature; hosts.Items.Clear();
+        string signature = state.Field("hosts").GetRawText() + string.Join(";", state.Array("host_connections").Select(h => h.Text("host_id") + h.Text("connection")));
+        if (signature == hostSignature) return;
+        hostSignature = signature;
+        string selected = ResourceHost?.id ?? HostId;
+        hosts.Items.Clear();
         foreach (var h in state.Array("hosts"))
         {
             var host = Host.From(h); var connection = state.Array("host_connections").FirstOrDefault(c => c.Text("host_id") == host.id).Text("connection");
             var item = new ListBoxItem { Content = new TextBlock { Text = (connection == "Connected" ? "● " : "○ ") + host.Title, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 8, 2, 8) }, Tag = host, ToolTip = host.Title };
-            hosts.Items.Add(item); if (host.id == HostId) hosts.SelectedItem = item;
+            hosts.Items.Add(item);
+            if (host.id == selected) hosts.SelectedItem = item;
         }
+        if (hosts.SelectedIndex < 0 && hosts.Items.Count > 0) hosts.SelectedIndex = 0;
     }
-    private void RenderSessions()
+    private void RenderSessions(bool searchChanged = false)
     {
-        if (state.ValueKind != JsonValueKind.Object) return;
+        var order = state.Field("workspace_session_order");
+        if (order.ValueKind != JsonValueKind.Array) return;
         string query = sessionSearch.Text.Trim();
-        var inventory = query.Length == 0 ? state.Field("sessions") : state.Field("host_connections");
-        if (inventory.ValueKind == JsonValueKind.Undefined) return;
-        string signature = inventory.GetRawText() + HostId + state.Text("selected_session") + archived.IsChecked;
-        if (signature == sessionSignature) return; sessionSignature = signature;
-        bool before = rendering; rendering = true;
-        sessions.Items.Clear();
-        var rows = query.Length == 0
-            ? state.Array("sessions").Select(session => (Host: HostId, Session: session))
-            : state.Array("host_connections").SelectMany(workspace => workspace.Array("sessions")
-                .Select(session => (Host: workspace.Text("host_id"), Session: session)))
-                .Where(row => new[] { row.Session.Text("title"), row.Session.Text("preview"), row.Session.Text("provider"),
-                    state.Array("hosts").FirstOrDefault(h => h.Text("id") == row.Host).Text("host") }
-                    .Any(value => value.Contains(query, StringComparison.CurrentCultureIgnoreCase)));
-        foreach (var (host, session) in rows.Where(row => archived.IsChecked == true || !row.Session.Flag("archived")))
+        string selectedId = state.Text("selected_session");
+        string ordering = state.Text("workspace_session_sort");
+        var workspaces = state.Array("host_connections").ToArray();
+        string signature = order.GetRawText() + state.Field("hosts").GetRawText() + HostId + selectedId + ordering + archived.IsChecked + query
+            + string.Concat(workspaces.Select(h => h.Text("connection") + h.Field("sessions").GetRawText()));
+        if (signature == sessionSignature) return;
+        var hostNames = state.Array("hosts").ToDictionary(host => host.Text("id"), host => host.Text("host"));
+        var connections = workspaces.ToDictionary(workspace => workspace.Text("host_id"), workspace => workspace.Text("connection"));
+        var rows = workspaces.SelectMany(workspace => workspace.Array("sessions")
+            .Select(session => (Key: new SessionTarget(workspace.Text("host_id"), session.Text("id")), Session: session)))
+            .ToDictionary(row => row.Key, row => row.Session);
+        var previousGroups = sessions.Items.OfType<ListBoxItem>()
+            .Where(item => item.Tag is SessionTarget && item.Content is StackPanel)
+            .ToDictionary(item => (SessionTarget)item.Tag, item => ((StackPanel)item.Content).Children.OfType<Expander>().FirstOrDefault()?.IsExpanded);
+        bool before = rendering;
+        rendering = true;
+        try
         {
-            string provider = ProviderLabel(session.Text("provider")), id = session.Text("id");
-            bool isArchived = session.Flag("archived");
-            var body = new StackPanel { Margin = new Thickness(2, 7, 2, 7) };
-            body.Children.Add(new TextBlock { Text = (isArchived ? "归档 · " : "") + (session.Text("title").Length > 0 ? session.Text("title") : provider) + "\n" + provider + " · " + session.Text("status"), TextTrimming = TextTrimming.CharacterEllipsis });
-            var related = session.Array("subagents").ToArray();
-            if (related.Length > 0)
+            sessions.Items.Clear();
+            foreach (var key in order.Array())
             {
-                var group = new Expander { Header = $"关联任务 · {related.Length}", Foreground = Ui.Muted };
-                var children = new StackPanel();
-                foreach (var child in related)
-                {
-                    string caption = string.Join(" · ", new[] { child.Text("name"), child.Text("machine"),
-                        child.Text("provider") is { Length: > 0 } childProvider ? ProviderLabel(childProvider) : "",
-                        AssociatedStatus(child.Text("status")) }.Where(field => field.Length > 0));
-                    children.Children.Add(Ui.Button(caption, () => InspectAssociatedTask(host, id, child)));
-                }
-                group.Content = children; body.Children.Add(group);
+                var target = new SessionTarget(key.Text("host_id"), key.Text("session_id"));
+                if (!rows.TryGetValue(target, out var session) || !hostNames.TryGetValue(target.Host, out var hostName)) continue;
+                bool selected = target.Host == HostId && target.Id == selectedId;
+                if (session.Flag("archived") && archived.IsChecked != true) continue;
+                if (session.Flag("delegated_child") && query.Length == 0 && !selected) continue;
+                if (!MatchesSession(session, hostName, query)) continue;
+                bool expanded = !searchChanged && previousGroups.GetValueOrDefault(target) is { } previous
+                    ? previous : query.Length > 0;
+                var item = BuildSessionRow(target, session, hostName, connections[target.Host] == "Connected", expanded);
+                sessions.Items.Add(item);
+                if (selected) sessions.SelectedItem = item;
             }
-            var item = new ListBoxItem { Content = body, Tag = new SessionTarget(host, id),
-                Opacity = session.Flag("delegated_child") && query.Length == 0 ? 0.7 : 1.0 };
-            item.ContextMenu = new ContextMenu();
-            var archive = new MenuItem { Header = isArchived ? "取消归档" : "归档" }; archive.Click += async (_, _) => await Safe(new { op = "archive_session", host_id = host, session_id = id, archived = !isArchived }); item.ContextMenu.Items.Add(archive);
-            var resume = new MenuItem { Header = "继续此会话" }; resume.Click += async (_, _) => await Safe(new { op = "resume_session", host_id = host, session_id = id }); item.ContextMenu.Items.Add(resume);
-            var delete = new MenuItem { Header = "删除会话…" }; delete.Click += async (_, _) => { if (MessageBox.Show(this, "删除会话将终止此会话正在执行的任务。继续？", "删除会话", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Safe(new { op = "delete_session", host_id = host, session_id = id }); }; item.ContextMenu.Items.Add(delete);
-            sessions.Items.Add(item); if (host == HostId && id == state.Text("selected_session")) sessions.SelectedItem = item;
+            if (sessions.Items.IsEmpty)
+                sessions.Items.Add(new ListBoxItem { Content = Ui.Label(query.Length == 0 ? "尚无会话" : "没有匹配的会话", 12, Ui.Muted), IsEnabled = false });
+            sort.SelectedIndex = ordering switch { "Oldest" => 1, "RecentActivity" => 2, "Title" => 3, _ => 0 };
+            sessionSignature = signature;
         }
-        sort.SelectedIndex = state.Text("session_sort") switch { "Oldest" => 1, "RecentActivity" => 2, "Title" => 3, _ => 0 }; rendering = before;
+        finally { rendering = before; }
+    }
+    private static bool MatchesSession(JsonElement session, string host, string query)
+    {
+        if (query.Length == 0) return true;
+        bool Matches(string value) => value.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+        return new[] { host, session.Text("title"), session.Text("preview"), session.Text("provider") }.Any(Matches)
+            || session.Array("subagents").Any(task =>
+                new[] { task.Text("name"), task.Text("task"), task.Text("machine"), task.Text("provider") }.Any(Matches));
+    }
+    private ListBoxItem BuildSessionRow(SessionTarget target, JsonElement session, string hostName, bool connected, bool expanded)
+    {
+        string provider = ProviderLabel(session.Text("provider")), host = target.Host, id = target.Id;
+        bool isArchived = session.Flag("archived");
+        var body = new StackPanel { Margin = new Thickness(2, 7, 2, 7) };
+        string name = session.Text("title") is { Length: > 0 } title ? title : provider;
+        body.Children.Add(new TextBlock { Text = (isArchived ? "归档 · " : "") + name, TextTrimming = TextTrimming.CharacterEllipsis });
+        string status = connected ? AssociatedStatus(session.Text("status")) : "离线";
+        body.Children.Add(new TextBlock { Text = $"{provider} · {hostName} · {status}", FontSize = 11, Foreground = Ui.Muted, TextTrimming = TextTrimming.CharacterEllipsis });
+        var related = session.Array("subagents").ToArray();
+        if (related.Length > 0)
+        {
+            var group = new Expander { Header = $"关联任务 · {related.Length}", Foreground = Ui.Muted, IsExpanded = expanded };
+            var children = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+            foreach (var child in related)
+            {
+                string caption = string.Join(" · ", new[] { child.Text("name"), child.Text("machine"),
+                    child.Text("provider") is { Length: > 0 } childProvider ? ProviderLabel(childProvider) : "",
+                    AssociatedStatus(child.Text("status")) }.Where(field => field.Length > 0));
+                children.Children.Add(Ui.Button(caption, () => InspectAssociatedTask(host, id, child)));
+            }
+            group.Content = children; body.Children.Add(group);
+        }
+        var item = new ListBoxItem { Content = body, Tag = target, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        item.ContextMenu = new ContextMenu();
+        var archive = new MenuItem { Header = isArchived ? "取消归档" : "归档" }; archive.Click += async (_, _) => await Safe(new { op = "archive_session", host_id = host, session_id = id, archived = !isArchived }); item.ContextMenu.Items.Add(archive);
+        var resume = new MenuItem { Header = "继续此会话" }; resume.Click += async (_, _) => await Safe(new { op = "resume_session", host_id = host, session_id = id }); item.ContextMenu.Items.Add(resume);
+        var delete = new MenuItem { Header = "删除会话…" }; delete.Click += async (_, _) => { if (MessageBox.Show(this, "删除会话将终止此会话正在执行的任务。继续？", "删除会话", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Safe(new { op = "delete_session", host_id = host, session_id = id }); }; item.ContextMenu.Items.Add(delete);
+        return item;
     }
     private static string AssociatedStatus(string status) => status switch
     {
-        "working" => "运行中", "blocked" => "待审批", "question" => "待回答",
+        "working" => "运行中", "starting" => "启动中", "blocked" => "待审批", "question" => "待回答",
         "done" => "已完成", "failed" => "失败", "offline" => "离线",
-        "released" => "已释放", "idle" => "空闲", _ => "状态未知",
+        "released" => "已释放", "stopped" => "已停止", "idle" => "空闲", "saved" => "已保存", _ => "状态未知",
     };
     private async Task InspectAssociatedTask(string host, string parent, JsonElement task)
     {
@@ -360,24 +420,43 @@ internal sealed class MainWindow : Window
         string key = state.Field("device_key").Text("public_key_openssh"); panel.Children.Add(new TextBox { Text = key, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MinHeight = 110 }); panel.Children.Add(Ui.Button("复制公钥", () => { Clipboard.SetText(key); return Task.CompletedTask; }));
         new Window { Title = "Kite · 设备身份", Owner = this, Content = panel, Width = 620, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner }.ShowDialog(); return Task.CompletedTask;
     }
-    private Task EditHost() { var host = state.Array("hosts").FirstOrDefault(h => h.Text("id") == HostId); if (host.ValueKind == JsonValueKind.Object) new HostEditor(this, Core, Host.From(host)).ShowDialog(); return Task.CompletedTask; }
-    private async Task RemoveHost() { string host = HostId; if (host.Length > 0 && MessageBox.Show(this, "移除此主机及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "remove_host", host_id = host }); }
+    private Task EditHost() { if (ResourceHost is { } host) new HostEditor(this, Core, host).ShowDialog(); return Task.CompletedTask; }
+    private async Task RemoveHost() { if (ResourceHost is { } host && MessageBox.Show(this, $"移除 {host.Title} 及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "remove_host", host_id = host.id }); }
     private Task SessionMenu() { if (sessions.SelectedItem is ListBoxItem item && item.ContextMenu is { } menu) { menu.PlacementTarget = item; menu.IsOpen = true; } return Task.CompletedTask; }
     private static string ProviderLabel(string id) => id == "antigravity" ? "Antigravity" : id;
     private Task CreateSession()
     {
-        string host = HostId; if (host.Length == 0) return Task.CompletedTask;
-        var panel = new StackPanel { Margin = new Thickness(24) }; var name = Ui.Field(panel, "会话名称"); var cwd = Ui.Field(panel, "远程工作目录（绝对路径）");
-        var providers = new ComboBox
-        {
-            ItemsSource = state.Array("providers").Select(p => p.Text("id")).Select(id => new Selection(id, ProviderLabel(id))).ToList(),
-            DisplayMemberPath = "Label",
-            SelectedValuePath = "Id",
-            SelectedIndex = 0,
-        };
+        var connected = state.Array("host_connections").Where(h => h.Text("connection") == "Connected")
+            .ToDictionary(h => h.Text("host_id"));
+        var availableHosts = state.Array("hosts").Select(Host.From).Where(h => connected.ContainsKey(h.id))
+            .Select(h => new Selection(h.id, h.Title)).ToArray();
+        if (availableHosts.Length == 0) throw new InvalidOperationException("请先连接执行主机。");
+        var panel = new StackPanel { Margin = new Thickness(24) };
+        var machine = new ComboBox { ItemsSource = availableHosts, DisplayMemberPath = "Label", SelectedValuePath = "Id" };
+        var providers = new ComboBox { DisplayMemberPath = "Label", SelectedValuePath = "Id" };
+        panel.Children.Add(Ui.Label("执行主机", 12, Ui.Muted)); panel.Children.Add(machine);
         panel.Children.Add(Ui.Label("Harness", 12, Ui.Muted)); panel.Children.Add(providers);
+        var name = Ui.Field(panel, "会话名称");
+        var cwd = Ui.Field(panel, "远程工作目录（绝对路径）");
+        machine.SelectionChanged += (_, _) =>
+        {
+            cwd.Clear();
+            providers.ItemsSource = machine.SelectedValue is string host
+                ? connected[host].Array("providers").Select(p => p.Text("id")).Select(id => new Selection(id, ProviderLabel(id))).ToArray()
+                : Array.Empty<Selection>();
+            providers.SelectedIndex = providers.HasItems ? 0 : -1;
+        };
+        machine.SelectedValue = connected.ContainsKey(HostId) ? HostId : availableHosts[0].Id;
         var window = new Window { Title = "新建会话", Owner = this, Width = 460, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        panel.Children.Add(Ui.Button("创建", async () => { if (providers.SelectedValue is not string provider || !cwd.Text.StartsWith('/')) throw new InvalidOperationException("请选择 Harness 并填写远程绝对路径。"); await Core.Call(new { op = "create_session", host_id = host, provider, cwd = cwd.Text, title = name.Text }); window.Close(); })); window.ShowDialog(); return Task.CompletedTask;
+        panel.Children.Add(Ui.Button("创建", async () =>
+        {
+            if (machine.SelectedValue is not string host || providers.SelectedValue is not string provider || !cwd.Text.StartsWith('/'))
+                throw new InvalidOperationException("请选择执行主机和 Harness，并填写远程绝对路径。");
+            await Core.Call(new { op = "create_session", host_id = host, provider, cwd = cwd.Text, title = name.Text });
+            window.Close();
+        }));
+        window.ShowDialog();
+        return Task.CompletedTask;
     }
     private async Task Upload()
     {

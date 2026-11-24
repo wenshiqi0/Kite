@@ -237,7 +237,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
             videoReference.value?.remoteKeyboardActive==true&&imeVisible -> videoReference.value?.closeRemoteKeyboard()
             terminal -> terminal = false
             diagnostics -> diagnostics = false
-            vm.settingsVisible -> { vm.hostEditorVisible=false;vm.settingsVisible=false }
+            vm.settingsVisible && vm.hostEditorVisible -> vm.hostEditorVisible = false
+            vm.settingsVisible -> vm.settingsVisible = false
             vm.layout == DesktopLayout.Fullscreen -> vm.returnToChat(landscape)
             vm.showDesktop -> enterPip()
         }
@@ -245,7 +246,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
-            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, settings = { vm.newHost(); scope.launch { drawer.close() } },
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, manageHosts = { vm.openHostManager(); scope.launch { drawer.close() } },
                 inspectSubagent = { host, parent, child -> inspectedTask = AssociatedTaskTarget(host, parent, child); scope.launch { drawer.close() } })
         }
     }) {
@@ -575,7 +576,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                 if(vm.layout==DesktopLayout.Fullscreen&&takeover&&!hideChrome&&!docked&&!drawerActive)VirtualMouse(vm,videoReference.value,desktopWidth,availableHeight,safeTop,safeBottom,bridgeActive){mouseBounds=it}
 
             }
-            if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = KiteColors.Surface) { HostEditorScreen(vm) { vm.hostEditorVisible=false;vm.settingsVisible=false } }
+            if (vm.settingsVisible && !hideChrome) Surface(Modifier.fillMaxSize(), color = KiteColors.Surface) {
+                HostSetupScreen(vm) { vm.settingsVisible = false }
+            }
         }
     }
     if (!hideChrome && !vm.settingsVisible) state?.pendingHostKey?.let { p -> AlertDialog(onDismissRequest = vm::disconnect,

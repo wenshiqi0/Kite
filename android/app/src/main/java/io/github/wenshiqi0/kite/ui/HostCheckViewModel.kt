@@ -227,6 +227,10 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
     }
+    fun openHostManager() {
+        hostEditorVisible = false
+        settingsVisible = true
+    }
     fun openMachineSettings(hostId: String? = engine.state.value?.selectedHost) {
         engine.state.value?.hosts?.find { it.id == hostId }?.let { form=it.toForm() }
         clearLocalError();hostEditorVisible=true;settingsVisible=true
@@ -347,10 +351,8 @@ class HostCheckViewModel(application: Application) : AndroidViewModel(applicatio
         engine.command {
             try {
                 val result = engine.core.releaseArchivedSessions(host)
-                if (engine.state.value?.selectedHost == host) {
-                    archiveReleaseStatus = getApplication<Application>().getString(
-                        R.string.archived_release_result, result.reclaimed.toInt(), result.retained.toInt(), result.failed.toInt())
-                }
+                archiveReleaseStatus = getApplication<Application>().getString(
+                    R.string.archived_release_result, result.reclaimed.toInt(), result.retained.toInt(), result.failed.toInt())
             } finally { releasingArchived = false }
         }
     }

@@ -102,6 +102,7 @@ impl ClientCore {
             snapshot.selected_host = state.selected.clone();
             snapshot.revision = state.revision;
             snapshot.notification_revision = state.notification_revision;
+            snapshot.workspace_session_sort = state.base.session_sort;
             snapshot.host_connections = state
                 .workspaces
                 .iter()
@@ -124,6 +125,8 @@ impl ClientCore {
             snapshot.hosts = store.data().hosts.clone();
         }
         super::subagent_history::associate(&mut snapshot.host_connections, &snapshot.hosts);
+        snapshot.workspace_session_order =
+            sessions::workspace_order(&snapshot.host_connections, snapshot.workspace_session_sort);
         if let Some(workspace) = snapshot
             .host_connections
             .iter()
@@ -864,7 +867,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn grouped_workspaces_keep_offline_sessions_and_open_the_exact_machine_session() {
+    async fn sidebar_orders_offline_sessions_across_hosts_and_opens_the_exact_target() {
+        use kite_agent::sessions::{
+            Catalog, DelegationPolicy, Record, SessionDelegation, SessionParent,
+        };
+
         let fixture = Fixture::new(false).await;
         let directory = tempfile::tempdir().unwrap();
         let client = ClientCore::new(fixture.core.secrets.clone(), fixture.core.observer.clone());
@@ -888,34 +895,64 @@ mod tests {
             })
             .await
             .unwrap();
-        for machine in ["host", "mini"] {
-            let records = vec![kite_agent::sessions::Record::draft(
+        for (machine, created_ms) in [("host", 10), ("mini", 20)] {
+            let mut records = vec![Record::draft(
                 "same-session".into(),
                 "codex".into(),
                 format!("{machine} build"),
                 None,
-                1,
+                created_ms,
             )];
+            if machine == "host" {
+                let mut task = Record::draft(
+                    "disk-check".into(),
+                    "antigravity".into(),
+                    "Disk check".into(),
+                    None,
+                    30,
+                );
+                task.delegation = Some(SessionDelegation {
+                    parent: Some(SessionParent {
+                        machine: "mini".into(),
+                        session_id: "same-session".into(),
+                        provider: Some("codex".into()),
+                    }),
+                    label: None,
+                    role: None,
+                    policy: DelegationPolicy::Strict,
+                    worktree_isolated: None,
+                    write_lock: None,
+                });
+                records.push(task);
+            }
             let core = client.runtime(machine).unwrap();
             core.install_catalog(
                 machine,
-                &kite_agent::sessions::Catalog {
+                &Catalog {
                     revision: 1,
-                    now_ms: 1,
+                    now_ms: 30,
                     sessions: records,
                 },
             )
             .unwrap();
             core.restore_session_cache();
         }
-        assert_eq!(client.snapshot().host_connections.len(), 2);
+        let snapshot = client.snapshot();
+        assert_eq!(snapshot.host_connections.len(), 2);
         assert!(
-            client
-                .snapshot()
+            snapshot
                 .host_connections
                 .iter()
-                .all(|workspace| workspace.sessions.len() == 1
-                    && workspace.connection == ConnectionPhase::Disconnected)
+                .all(|workspace| workspace.connection == ConnectionPhase::Disconnected)
+        );
+        let oldest_first = [
+            ConversationKey::new("host", "same-session"),
+            ConversationKey::new("mini", "same-session"),
+            ConversationKey::new("host", "disk-check"),
+        ];
+        assert_eq!(
+            snapshot.workspace_session_order,
+            oldest_first.iter().rev().cloned().collect::<Vec<_>>()
         );
         client
             .open_workspace_session("mini".into(), "same-session".into())
@@ -923,6 +960,20 @@ mod tests {
             .unwrap();
         assert_eq!(client.snapshot().selected_host.as_deref(), Some("mini"));
         assert_eq!(client.snapshot().sessions[0].title, "mini build");
+        let selected = client.snapshot();
+        let task = selected.sessions[0].associated_tasks[0]
+            .session
+            .as_ref()
+            .unwrap();
+        assert_eq!((&*task.host_id, &*task.session_id), ("host", "disk-check"));
+        assert!(!task.connected);
+        assert!(selected.host_connections.iter().any(|workspace| {
+            workspace.host_id == task.host_id
+                && workspace
+                    .sessions
+                    .iter()
+                    .any(|session| session.id == task.session_id && session.delegated_child)
+        }));
         assert!(
             client
                 .open_workspace_session("host".into(), "missing-session".into())
@@ -934,6 +985,7 @@ mod tests {
             .set_workspace_sort(SessionSort::Oldest)
             .await
             .unwrap();
+        assert_eq!(client.snapshot().workspace_session_order, oldest_first);
         client
             .save_host(Host {
                 id: "new-machine".into(),
@@ -963,6 +1015,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reopened.snapshot().host_connections.len(), 3);
+        assert_eq!(
+            reopened.snapshot().workspace_session_sort,
+            SessionSort::Oldest
+        );
+        assert_eq!(reopened.snapshot().workspace_session_order, oldest_first);
         assert_eq!(reopened.snapshot().selected_host.as_deref(), Some("mini"));
         assert_eq!(
             reopened.snapshot().selected_session.as_deref(),

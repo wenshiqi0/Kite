@@ -197,6 +197,9 @@ pub struct Snapshot {
     pub key: Option<DeviceKey>,
     pub hosts: Vec<Host>,
     pub host_connections: Vec<HostConnection>,
+    /// Order of the combined inventory. Session details remain in `host_connections`.
+    pub workspace_session_order: Vec<ConversationKey>,
+    pub workspace_session_sort: SessionSort,
     pub session_sort: SessionSort,
     pub selected_host: Option<String>,
     machine: Option<String>,
@@ -240,6 +243,8 @@ impl Default for Snapshot {
             key: None,
             hosts: Vec::new(),
             host_connections: Vec::new(),
+            workspace_session_order: Vec::new(),
+            workspace_session_sort: SessionSort::default(),
             session_sort: SessionSort::default(),
             selected_host: None,
             machine: None,

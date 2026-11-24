@@ -11,8 +11,21 @@ struct WorkspaceView: View {
         let task: SubagentInfo
         var id: String { "\(host)/\(parent)/\(task.id)" }
     }
+    private struct SidebarSession: Identifiable {
+        let host: HostRecord
+        let session: SessionInfo
+        let connection: ConnectionStatus
+        var id: WorkspaceSessionKey { WorkspaceSessionKey(hostId: host.id, sessionId: session.id) }
+
+        func matches(_ query: String) -> Bool {
+            if query.isEmpty { return true }
+            return [host.host, session.title, session.preview, session.provider].contains { $0.localizedCaseInsensitiveContains(query) }
+                || session.subagents.contains { task in
+                    [task.name, task.task, task.machine ?? "", task.provider ?? ""].contains { $0.localizedCaseInsensitiveContains(query) }
+                }
+        }
+    }
     @State private var taskSelection: TaskSelection?
-    @State private var collapsedMachines: Set<String> = []
     @State private var desktopOnly = false
     @State private var visibility: NavigationSplitViewVisibility = .all
     @Environment(\.scenePhase) private var phase
@@ -72,7 +85,9 @@ struct WorkspaceView: View {
         }
     }
     private var sidebar: some View {
-        VStack(spacing: 0) {
+        let query = sessionSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rows = sidebarSessions(matching: query)
+        return VStack(spacing: 0) {
             HStack {
                 Text(tr("sessions")).font(.title3.weight(.semibold))
                 Spacer()
@@ -93,82 +108,100 @@ struct WorkspaceView: View {
                     Text(tr("archived_sessions")).tag(true)
                 }.pickerStyle(.segmented).labelsHidden()
                 Menu {
-                    Button(tr("sort_newest")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .newest) } }
-                    Button(tr("sort_oldest")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .oldest) } }
-                    Button(tr("sort_activity")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .recentActivity) } }
-                    Button(tr("sort_title")) { model.command(scoped: false) { try await $0.setWorkspaceSort(order: .title) } }
+                    sortOption("sort_newest", order: .newest)
+                    sortOption("sort_oldest", order: .oldest)
+                    sortOption("sort_activity", order: .recentActivity)
+                    sortOption("sort_title", order: .title)
                 } label: { Image(systemName: "line.3.horizontal.decrease") }
                     .menuStyle(.borderlessButton).fixedSize().help(tr("session_sort"))
             }.padding(.horizontal, 12).padding(.vertical, 8)
             List {
-                ForEach(model.snapshot?.hosts ?? [], id: \.id) { host in
-                    let workspace = model.snapshot?.hostConnections.first { $0.hostId == host.id }
-                    let connection = workspace?.connection ?? .disconnected
-                    let sessions = (workspace?.sessions ?? []).filter {
-                        ($0.delegatedChild == false || model.showArchived || !sessionSearch.isEmpty ||
-                         (model.snapshot?.selectedHost == host.id && model.snapshot?.selectedSession == $0.id)) &&
-                        $0.archived == model.showArchived && (sessionSearch.isEmpty || host.host.localizedCaseInsensitiveContains(sessionSearch) || $0.title.localizedCaseInsensitiveContains(sessionSearch) || $0.preview.localizedCaseInsensitiveContains(sessionSearch) || $0.provider.localizedCaseInsensitiveContains(sessionSearch) || $0.subagents.contains { $0.name.localizedCaseInsensitiveContains(sessionSearch) || $0.task.localizedCaseInsensitiveContains(sessionSearch) })
-                    }
-                    let expanded = !collapsedMachines.contains(host.id) || !sessionSearch.isEmpty
-                    if sessionSearch.isEmpty || !sessions.isEmpty {
-                        Section {
-                            if expanded {
-                                ForEach(sessions, id: \.id) { session in
-                                    let selected = model.snapshot?.selectedHost == host.id && model.snapshot?.selectedSession == session.id
-                                    Button { model.open(session, hostId: host.id) } label: {
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Image(systemName: selected ? "bubble.left.fill" : "bubble.left").foregroundStyle(selected ? .cyan : .secondary)
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                Text(session.title.isEmpty ? tr("untitled_session") : session.title).font(.callout).lineLimit(1)
-                                                Text(session.preview.isEmpty ? providerLabel(session.provider) : session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                            }
-                                        }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
-                                    .listRowBackground(selected ? Color.cyan.opacity(0.12) : Color.clear)
-                                    .contextMenu {
-                                        Button(tr(session.archived ? "restore_session" : "archive_session")) {
-                                            model.command(scoped: false) { try await $0.archiveSession(hostId: host.id, sessionId: session.id, archived: !session.archived) }
-                                        }.disabled(connection != .connected)
-                                    }
-                                    SubagentTree(agents: session.subagents, failed: session.subagentsError, connected: connection == .connected) {
-                                        taskSelection = TaskSelection(host: host.id, parent: session.id, task: $0)
-                                    }
-                                        .id("\(host.id)/\(session.id)").padding(.leading, 16)
-                                }
-                                if sessions.isEmpty { Text(tr("no_sessions")).font(.caption).foregroundStyle(.secondary) }
-                            }
-                        } header: {
-                            HStack(spacing: 6) {
-                                Button {
-                                    if expanded { collapsedMachines.insert(host.id) } else { collapsedMachines.remove(host.id) }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "chevron.right").font(.caption2).rotationEffect(.degrees(expanded ? 90 : 0))
-                                        Circle().fill(connection == .connected ? Color.green : Color.secondary).frame(width: 5, height: 5)
-                                        Text(host.host).lineLimit(1)
-                                    }
-                                }.buttonStyle(.plain)
-                                Spacer(minLength: 0)
-                                Text(String(sessions.count)).font(.caption2)
-                                Menu {
-                                    Button(tr("machine_settings")) { editor = HostDraft(host) }
-                                    if connection == .connected {
-                                        Button(tr("disconnect")) { model.command(scoped: false) { try await $0.disconnectHost(hostId: host.id) } }
-                                    } else { Button(tr("connect")) { model.connect(host.id) } }
-                                } label: { Image(systemName: "ellipsis") }
-                                    .menuStyle(.borderlessButton).fixedSize().help(tr("machine_settings"))
-                            }.font(.caption)
-                        }.id(host.id)
-                    }
+                ForEach(rows) { row in
+                    sessionRow(row, searching: !query.isEmpty)
+                }
+                if rows.isEmpty {
+                    Text(tr(query.isEmpty ? "no_sessions" : "no_session_matches")).font(.caption).foregroundStyle(.secondary)
                 }
             }.listStyle(.sidebar)
             Divider()
             HStack {
-                Button { editor = HostDraft() } label: { Label(tr("add_host"), systemImage: "plus") }.buttonStyle(.plain)
+                hostMenu
                 Spacer()
                 Button { openWindow(id: "local-host") } label: { Image(systemName: "server.rack") }.buttonStyle(.plain).help(tr("local_host"))
             }.font(.caption).padding(14)
         }
+    }
+    private func sidebarSessions(matching query: String) -> [SidebarSession] {
+        guard let snapshot = model.snapshot else { return [] }
+        let hosts = Dictionary(uniqueKeysWithValues: snapshot.hosts.map { ($0.id, $0) })
+        let connections = Dictionary(uniqueKeysWithValues: snapshot.hostConnections.map { ($0.hostId, $0.connection) })
+        let sessions = Dictionary(uniqueKeysWithValues: snapshot.hostConnections.map { workspace in
+            (workspace.hostId, Dictionary(uniqueKeysWithValues: workspace.sessions.map { ($0.id, $0) }))
+        })
+        return snapshot.workspaceSessionOrder.compactMap { key in
+            guard let host = hosts[key.hostId], let session = sessions[key.hostId]?[key.sessionId],
+                  session.archived == model.showArchived else { return nil }
+            let selected = snapshot.selectedHost == key.hostId && snapshot.selectedSession == key.sessionId
+            if session.delegatedChild && !model.showArchived && query.isEmpty && !selected { return nil }
+            let row = SidebarSession(host: host, session: session, connection: connections[key.hostId] ?? .disconnected)
+            return row.matches(query) ? row : nil
+        }
+    }
+    private func sessionRow(_ row: SidebarSession, searching: Bool) -> some View {
+        let session = row.session
+        let selected = model.snapshot?.selectedHost == row.host.id && model.snapshot?.selectedSession == session.id
+        let connected = row.connection == .connected
+        let metadata = [providerLabel(session.provider), row.host.host, connected ? "" : connectionLabel(for: row.connection)]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 3) {
+            Button { model.open(session, hostId: row.host.id) } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(session.title.isEmpty ? tr("untitled_session") : session.title)
+                        .font(.callout.weight(selected ? .semibold : .regular)).lineLimit(1)
+                    Text(metadata).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if !session.preview.isEmpty {
+                        Text(session.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            .contextMenu {
+                Button(tr(session.archived ? "restore_session" : "archive_session")) {
+                    model.command(scoped: false) { try await $0.archiveSession(hostId: row.host.id, sessionId: session.id, archived: !session.archived) }
+                }.disabled(!connected)
+            }
+            SubagentTree(agents: session.subagents, failed: session.subagentsError, connected: connected, searching: searching) {
+                taskSelection = TaskSelection(host: row.host.id, parent: session.id, task: $0)
+            }.padding(.leading, 12)
+        }.listRowBackground(selected ? Color.cyan.opacity(0.12) : Color.clear)
+    }
+    private func sortOption(_ key: String, order: SessionSortOrder) -> some View {
+        Button { model.command(scoped: false) { try await $0.setWorkspaceSort(order: order) } } label: {
+            if model.snapshot?.workspaceSessionSort == order {
+                Label(tr(key), systemImage: "checkmark")
+            } else {
+                Text(tr(key))
+            }
+        }
+    }
+    private var hostMenu: some View {
+        Menu {
+            Button(tr("add_host")) { editor = HostDraft() }
+            ForEach(model.snapshot?.hosts ?? [], id: \.id) { host in
+                let status = model.snapshot?.hostConnections.first { $0.hostId == host.id }?.connection ?? .disconnected
+                Menu {
+                    Button(tr("machine_settings")) { editor = HostDraft(host) }
+                    if status == .connected {
+                        Button(tr("disconnect")) { model.command(scoped: false) { try await $0.disconnectHost(hostId: host.id) } }
+                    } else {
+                        Button(tr("connect")) { model.connect(host.id) }
+                    }
+                } label: {
+                    Text("\(host.host) · \(connectionLabel(for: status))")
+                }
+            }
+        } label: {
+            Label(tr("hosts"), systemImage: "desktopcomputer")
+        }.menuStyle(.borderlessButton).fixedSize()
     }
     private var connectionLabel: String {
         connectionLabel(for: model.snapshot?.connection ?? .disconnected)

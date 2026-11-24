@@ -4,6 +4,7 @@ struct SubagentTree: View {
     let agents: [SubagentInfo]
     let failed: Bool
     let connected: Bool
+    var searching = false
     var inspect: ((SubagentInfo) -> Void)? = nil
     @State private var expanded = false
 
@@ -20,7 +21,7 @@ struct SubagentTree: View {
                 }
             } label: {
                 Text(String(format: tr("subagents_count"), agents.count)).font(.caption).foregroundStyle(.secondary)
-            }
+            }.onChange(of: searching, initial: true) { _, value in expanded = value }
         }
     }
 
