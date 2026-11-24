@@ -11,6 +11,7 @@ import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import {
+  array,
   check,
   type Json,
   json,
@@ -326,6 +327,19 @@ export class Owner {
         ? this.native.rateLimits()
         : Promise.reject(new Error("unsupported harness operation"));
     }
+    if (method === "skills/list") {
+      if (!this.native?.skills) return Promise.reject(new Error("unsupported harness operation"));
+      try {
+        const cwds = array(p.cwds).map(string);
+        check(
+          cwds.length > 0 && cwds.length <= 16 && cwds.every((cwd) => cwd.startsWith("/")),
+          "invalid skill working directories",
+        );
+        return this.native.skills(cwds);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
     return this.serialize(() =>
       ["initialize", "turn/start"].includes(method)
         ? locked(join(this.path, "owner.lock"), () => this.requestLocked(method, p))
@@ -388,7 +402,7 @@ export class Owner {
     check(row, "model unavailable");
     const efforts = row.supportedReasoningEfforts.map((e) => e.reasoningEffort);
     check(efforts.includes(effort) || (!efforts.length && !effort), "reasoning effort unavailable");
-    const blocks = nativeInput(p.input, row),
+    const blocks = nativeInput(p.input, row, Boolean(this.adapter.skills)),
       prompt = textContent(blocks),
       settings = permissionValues(p.sessionSettings, this.adapter.settings ?? []);
     if (this.turn) {

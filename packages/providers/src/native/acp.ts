@@ -9,13 +9,56 @@ import {
   type NativeOptions,
   type ObjectValue,
   object,
+  optionalString,
   type RpcMessage,
   string,
 } from "@kite/protocol";
 import { RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
-import { optionalObject } from "@kite/runtime/socket";
 import { appendContent } from "../media";
 import { permissionSettings, permissionValues } from "../permissions";
+
+function toolTitle(value: Json | undefined): string {
+  const raw = optionalString(value).trim();
+  if (!raw) return "tool";
+  const first =
+    raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "tool";
+  const chars = [...first];
+  return chars.length > 160 ? `${chars.slice(0, 159).join("")}…` : first;
+}
+
+function diffBlock(row: ObjectValue): ObjectValue | undefined {
+  const path = optionalString(row.path).trim();
+  const hasOld = typeof row.oldText === "string";
+  const hasNew = typeof row.newText === "string";
+  if (!path && !hasOld && !hasNew) return undefined;
+  const lines: string[] = [];
+  if (path) lines.push(`--- ${path}`);
+  if (hasOld && row.oldText) {
+    for (const line of String(row.oldText).split("\n")) lines.push(`- ${line}`);
+  }
+  if (hasNew && row.newText) {
+    for (const line of String(row.newText).split("\n")) lines.push(`+ ${line}`);
+  }
+  const text = lines.join("\n");
+  return text ? { type: "text", text } : undefined;
+}
+
+function toolContentBlocks(value: Json | undefined): ObjectValue[] {
+  const blocks: ObjectValue[] = [];
+  for (const entry of array(value ?? [])) {
+    const row = object(entry);
+    if (row.type === "content" && row.content) {
+      blocks.push(object(row.content));
+    } else if (row.type === "diff") {
+      const formatted = diffBlock(row);
+      if (formatted) blocks.push(formatted);
+    }
+  }
+  return blocks;
+}
 
 /** The stdio, turn and interaction mechanics shared by the ACP providers. */
 export abstract class AcpAdapter implements NativeAdapter {
@@ -26,6 +69,7 @@ export abstract class AcpAdapter implements NativeAdapter {
   protected session = "";
   protected config: ObjectValue[] = [];
   protected readonly splitMessagesAtTools: boolean = false;
+  protected supportsSessionClose = false;
   private cancelled = false;
   private prompting = false;
   private content: ObjectValue[] = [];
@@ -47,8 +91,18 @@ export abstract class AcpAdapter implements NativeAdapter {
       (message) => this.request(message),
     );
   }
+  protected async closeSessionGracefully(): Promise<void> {
+    if (!this.supportsSessionClose || !this.session || !this.alive()) return;
+    const sessionId = this.session;
+    try {
+      await this.rpc.call("session/close", { sessionId }, 1500);
+    } catch {
+      /* best-effort shutdown; process close follows */
+    }
+  }
   protected async restart(command: string[]): Promise<void> {
     check(!this.prompting, "ACP session is busy");
+    await this.closeSessionGracefully();
     const previous = this.rpc;
     previous.close();
     await new Promise<void>((resolve, reject) => {
@@ -79,6 +133,9 @@ export abstract class AcpAdapter implements NativeAdapter {
       hello.protocolVersion === 1 && object(hello.agentInfo).name === agentName,
       `${agentName} capability unavailable`,
     );
+    const caps = hello.agentCapabilities ? object(hello.agentCapabilities) : {};
+    const sessions = caps.sessionCapabilities ? object(caps.sessionCapabilities) : {};
+    this.supportsSessionClose = Boolean(sessions.close);
     return hello;
   }
   get settings() {
@@ -91,6 +148,7 @@ export abstract class AcpAdapter implements NativeAdapter {
   protected readConfig(value: Json | undefined): void {
     this.config = array(value).map(object);
   }
+  protected onUpdate(_update: ObjectValue, _sessionId: string): void {}
   protected async select(configId: string, value: string): Promise<void> {
     if (this.config.find((row) => row.id === configId)?.currentValue === value) return;
     const reply = object(
@@ -148,12 +206,20 @@ export abstract class AcpAdapter implements NativeAdapter {
   private update(value: RpcMessage): void {
     if (value.method !== "session/update") return;
     const params = object(value.params);
-    if (!this.session || params.sessionId !== this.session) return;
+    const sessionId = optionalString(params.sessionId);
     const update = object(params.update);
+    if (!this.session) {
+      if (sessionId && update.sessionUpdate === "available_commands_update") {
+        this.onUpdate(update, sessionId);
+      }
+      return;
+    }
+    if (sessionId !== this.session) return;
     if (update.sessionUpdate === "config_option_update") {
       this.readConfig(update.configOptions);
       return;
     }
+    this.onUpdate(update, sessionId);
     if (!this.prompting) return;
     if (update.sessionUpdate === "agent_message_chunk" && update.content) {
       const content = object(update.content);
@@ -180,7 +246,7 @@ export abstract class AcpAdapter implements NativeAdapter {
           type: "tool/call",
           data: {
             callId: id,
-            name: update.title ?? "tool",
+            name: toolTitle(update.title),
             arguments: JSON.stringify(update.rawInput ?? {}),
           },
         });
@@ -188,10 +254,9 @@ export abstract class AcpAdapter implements NativeAdapter {
       const tool = { ...previous, ...update };
       this.tools.set(id, tool);
       if (tool.status !== "completed" && tool.status !== "failed") return;
-      const output = array(tool.content ?? [])
-        .map(object)
-        .filter((row) => row.type === "content")
-        .map((row) => object(row.content));
+      const output = toolContentBlocks(tool.content);
+      // ACP allows any JSON value in rawOutput. Only objects can carry an exit code.
+      const rawOutput = tool.rawOutput;
       this.options.event({
         type: "tool/result",
         data: {
@@ -199,7 +264,10 @@ export abstract class AcpAdapter implements NativeAdapter {
             toolCallId: id,
             content: output,
             isError: tool.status === "failed",
-            exitCode: optionalObject(tool.rawOutput).exitCode,
+            exitCode:
+              rawOutput && typeof rawOutput === "object" && !Array.isArray(rawOutput)
+                ? rawOutput.exitCode
+                : undefined,
           },
         },
       });
@@ -256,6 +324,13 @@ export abstract class AcpAdapter implements NativeAdapter {
   }
   close(): void {
     this.permissions.clear();
+    if (this.supportsSessionClose && this.session && this.alive()) {
+      try {
+        this.rpc.write({ method: "session/close", params: { sessionId: this.session } });
+      } catch {
+        /* best-effort shutdown */
+      }
+    }
     this.rpc.close();
   }
 }

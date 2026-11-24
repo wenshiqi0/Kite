@@ -240,7 +240,8 @@ export function models(value: unknown): Model[] {
 }
 export type NativeBlock =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: string; data: string };
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "skill"; name: string; path: string };
 export interface RpcMessage {
   jsonrpc?: string;
   id?: string | number | null;
@@ -257,6 +258,7 @@ export interface NativeAdapter {
   configure?(values: Record<string, string>): Promise<void>;
   account?(): Promise<ObjectValue>;
   rateLimits?(): Promise<ObjectValue>;
+  skills?(cwds: string[]): Promise<ObjectValue>;
   alive(): boolean;
   prepare(): void;
   run(blocks: NativeBlock[], model: string, effort: string): Promise<string | undefined>;

@@ -215,7 +215,7 @@ export async function providers(): Promise<Json[]> {
           managed_chat: p !== "claude",
           models: p !== "claude",
           attachments: p !== "claude",
-          skills: p === "codex",
+          skills: p === "codex" || p === "antigravity",
           usage: p === "codex" || p === "antigravity",
           pause: process.platform === "linux" && (p === "codex" || p === "claude"),
           terminal: p === "codex" || p === "claude",
