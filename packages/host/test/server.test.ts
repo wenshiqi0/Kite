@@ -1527,6 +1527,7 @@ test("Antigravity exposes skills, tier, diff tool output, effort labels and sess
       threadId: thread,
       model: "gemini-flash",
       effort: "high",
+      sessionSettings: { tool_permission: "default" },
       input: [{ type: "text", text: "continue" }],
     });
     await waitStatus(path, "done");
