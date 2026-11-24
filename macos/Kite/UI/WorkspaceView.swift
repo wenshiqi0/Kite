@@ -4,6 +4,7 @@ struct WorkspaceView: View {
     @Bindable var model: ClientModel
     @State private var editor: HostDraft?
     @State private var creatingSession = false
+    @State private var showingWorkspaceUsage = false
     @State private var sessionSearch = ""
     private struct TaskSelection: Identifiable {
         let host: String
@@ -75,6 +76,7 @@ struct WorkspaceView: View {
         .tint(Color(red: 0.25, green: 0.78, blue: 0.77))
         .sheet(item: $editor) { draft in HostEditor(model: model, draft: draft) }
         .sheet(isPresented: $creatingSession) { SessionEditor(model: model) }
+        .sheet(isPresented: $showingWorkspaceUsage) { WorkspaceAccountUsageSheet(model: model) }
         .sheet(isPresented: Binding(get: { model.snapshot?.pendingHostKey != nil }, set: { _ in })) {
             if let pending = model.snapshot?.pendingHostKey { TrustSheet(model: model, pending: pending) }
         }
@@ -126,6 +128,8 @@ struct WorkspaceView: View {
             Divider()
             HStack {
                 hostMenu
+                Button(tr("usage_overview_open")) { showingWorkspaceUsage = true }
+                    .buttonStyle(.plain).help(tr("usage_overview"))
                 Spacer()
                 Button { openWindow(id: "local-host") } label: { Image(systemName: "server.rack") }.buttonStyle(.plain).help(tr("local_host"))
             }.font(.caption).padding(14)

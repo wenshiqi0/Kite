@@ -36,6 +36,10 @@ final class ClientModel {
     var destination: Destination { Destination(host: snapshot?.selectedHost, agent: snapshot?.selectedAgent, conversation: snapshot?.conversationContext ?? "") }
     var connected: Bool { snapshot?.connection == .connected }
     func recommendSessionHost() -> String? { core?.recommendSessionHost() }
+    func workspaceAccountUsage() async throws -> [HostAccountUsageInfo] {
+        guard let core else { return [] }
+        return try await core.workspaceAccountUsage()
+    }
     var recovering: Bool { snapshot?.connection == .reconnecting }
     var canSend: Bool {
         guard connected, let state = snapshot, let id = state.selectedAgent,

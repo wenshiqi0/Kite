@@ -123,6 +123,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     }
     var modelSettings by remember { mutableStateOf(false) }
     var usageDialog by remember { mutableStateOf(false) }
+    var workspaceUsage by remember { mutableStateOf(false) }
     var noticeCenter by remember { mutableStateOf(false) }
     val videoReference=remember { mutableStateOf<VideoSurface?>(null) }
     var videoArea by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
@@ -224,7 +225,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     LaunchedEffect(imeVisible){if(imeVisible)vm.hideTouchpad()}
     LaunchedEffect(bridgeActive){if(!bridgeActive){videoReference.value?.closeRemoteKeyboard();vm.releaseMouseButtons()}}
     ClipboardBridge(vm,blocked=hideChrome || vm.settingsVisible || drawerActive)
-    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; arrows = false; newSession = false; gestureHelp = false; usageDialog = false } }
+    LaunchedEffect(hideChrome) { drawer.close(); if (hideChrome) { tools = false; terminal = false; diagnostics = false; arrows = false; newSession = false; gestureHelp = false; usageDialog = false; workspaceUsage = false } }
     LaunchedEffect(landscape, vm.inPip) {
         if (vm.inPip) return@LaunchedEffect
         if (landscape && vm.layout == DesktopLayout.Split) { autoFullscreen = true; vm.changeLayout(DesktopLayout.Fullscreen, rotate = false) }
@@ -247,6 +248,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
             SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { showNewSession(); scope.launch { drawer.close() } }, manageHosts = { vm.openHostManager(); scope.launch { drawer.close() } },
+                openUsage = { workspaceUsage = true; scope.launch { drawer.close() } },
                 inspectSubagent = { host, parent, child -> inspectedTask = AssociatedTaskTarget(host, parent, child); scope.launch { drawer.close() } })
         }
     }) {
@@ -624,6 +626,9 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
         if(providerInfo?.usage == true) AccountUsageAccess(state?.composer?.usage, state?.composer?.model){modelSettings=false;usageDialog=true;vm.refreshUsage()}
     }},confirmButton={TextButton(onClick={modelSettings=false}){Text(stringResource(R.string.dismiss))}})
     if(usageDialog&&providerInfo?.usage==true&&!hideChrome)AccountUsageDialog(state?.composer?.usage,currentSession?.provider?:state?.agents?.find{it.id==state.selectedAgent}?.agent,state?.connection==ConnectionStatus.CONNECTED&&state.composer.ready,vm::refreshUsage){usageDialog=false}
+    if (workspaceUsage && !hideChrome) {
+        WorkspaceUsageDialog(load = { vm.engine.core.workspaceAccountUsage() }, close = { workspaceUsage = false })
+    }
     if ((terminal || diagnostics) && !hideChrome) AlertDialog(onDismissRequest = { terminal = false; diagnostics = false }, title = { Text(stringResource(if (terminal) R.string.terminal_output else R.string.connection_diagnostics)) }, text = {
         Column {
         if (terminal && state?.selectedAgent != null) {

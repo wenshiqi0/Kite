@@ -32,6 +32,8 @@ use tokio::{
     sync::{Mutex as AsyncMutex, Notify, watch},
     task::JoinHandle,
 };
+mod account_usage;
+pub use account_usage::{HostAccountUsage, HostAccountUsageStatus};
 mod client;
 pub mod clipboard;
 mod conversation;

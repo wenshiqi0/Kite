@@ -450,6 +450,17 @@ private struct AccountUsagePopover: View {
                     model.command { try await $0.refreshAccountUsage() }
                 }.buttonStyle(.bordered).controlSize(.small).disabled(!connected || usage.loading)
             }
+            ScrollView { AccountUsageDetails(usage: usage, provider: provider) }
+                .frame(maxHeight: 360)
+        }.padding(14)
+    }
+}
+
+private struct AccountUsageDetails: View {
+    let usage: AccountUsageInfo
+    let provider: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if usage.status == .failed || usage.stale {
                 Text(tr(usage.updatedMs == nil ? "usage_failed" : "usage_stale"))
                     .font(.caption).foregroundStyle(.orange)
@@ -457,52 +468,122 @@ private struct AccountUsagePopover: View {
             if usage.status == .unavailable {
                 Text(tr(unavailableKey)).font(.caption).foregroundStyle(.secondary)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(usage.buckets.enumerated()), id: \.offset) { _, bucket in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(bucket.name?.isEmpty == false ? bucket.name! : (bucket.id.isEmpty ? (provider == "antigravity" ? "Antigravity" : "Codex") : bucket.id))
-                                .font(.subheadline.weight(.medium))
-                            ForEach(Array([bucket.primary, bucket.secondary].compactMap { $0 }.enumerated()), id: \.offset) { _, window in
-                                let remaining = min(window.remainingPercent, 100)
-                                let used = 100 - remaining
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(String(format: tr(usage.stale ? "usage_window_previous" : "usage_window_detail"), usageWindowLabel(window.durationMins), remaining, used))
-                                        .font(.caption)
-                                    ProgressView(value: Double(remaining), total: 100)
-                                        .tint(usage.stale ? .secondary : .accentColor)
-                                    if let resetsAt = window.resetsAt, resetsAt > 0 {
-                                        let date = Date(timeIntervalSince1970: TimeInterval(resetsAt))
-                                        Text(String(format: tr("usage_resets"), date.formatted(date: .abbreviated, time: .shortened)))
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                    }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(usage.buckets.enumerated()), id: \.offset) { _, bucket in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(bucket.name?.isEmpty == false ? bucket.name! : (bucket.id.isEmpty ? (provider == "antigravity" ? "Antigravity" : "Codex") : bucket.id))
+                            .font(.subheadline.weight(.medium))
+                        ForEach(Array([bucket.primary, bucket.secondary].compactMap { $0 }.enumerated()), id: \.offset) { _, window in
+                            let remaining = min(window.remainingPercent, 100)
+                            let used = 100 - remaining
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(String(format: tr(usage.stale ? "usage_window_previous" : "usage_window_detail"), usageWindowLabel(window.durationMins), remaining, used))
+                                    .font(.caption)
+                                ProgressView(value: Double(remaining), total: 100)
+                                    .tint(usage.stale ? .secondary : .accentColor)
+                                if let resetsAt = window.resetsAt, resetsAt > 0 {
+                                    let date = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+                                    Text(String(format: tr("usage_resets"), date.formatted(date: .abbreviated, time: .shortened)))
+                                        .font(.caption2).foregroundStyle(.secondary)
                                 }
                             }
-                            if bucket.limitReached {
-                                Text(tr("usage_limit_reached")).font(.caption).foregroundStyle(.orange)
-                            }
-                            if bucket.spendControlReached {
-                                Text(tr("usage_spend_limit")).font(.caption).foregroundStyle(.orange)
-                            }
                         }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                        if bucket.limitReached {
+                            Text(tr("usage_limit_reached")).font(.caption).foregroundStyle(.orange)
+                        }
+                        if bucket.spendControlReached {
+                            Text(tr("usage_spend_limit")).font(.caption).foregroundStyle(.orange)
+                        }
                     }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
                 }
-            }.frame(maxHeight: 360)
+            }
+            if let credits = usage.resetCredits {
+                Text(String(format: tr("usage_reset_cards"), credits.availableCount))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let updatedMs = usage.updatedMs {
                 let date = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000)
                 Text(String(format: tr("usage_updated"), date.formatted(date: .omitted, time: .shortened)))
                     .font(.caption2).foregroundStyle(.secondary)
             }
-        }.padding(14)
+        }
     }
     private var unavailableKey: String {
         switch usage.unavailable {
         case .noAccount: return "usage_no_account"
         case .unsupportedAuth: return "usage_auth_unavailable"
         default: return "usage_not_provided"
+        }
+    }
+}
+
+struct WorkspaceAccountUsageSheet: View {
+    let model: ClientModel
+    @State private var hosts: [HostAccountUsageInfo]?
+    @State private var loading = false
+    @State private var failed = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(tr("usage_overview")).font(.headline)
+                Spacer()
+                if loading { ProgressView().controlSize(.small).accessibilityLabel(tr("usage_loading")) }
+                Button(tr("usage_refresh")) { Task { await refresh() } }.disabled(loading)
+                Button(tr("usage_close")) { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            if failed { Text(tr("usage_failed")).foregroundStyle(.orange) }
+            if hosts?.isEmpty == true { Text(tr("usage_no_hosts")).foregroundStyle(.secondary) }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    ForEach(hosts ?? [], id: \.hostId) { host in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(host.host).font(.headline)
+                            switch host.status {
+                            case .offline:
+                                Text(tr("usage_host_offline")).foregroundStyle(.secondary)
+                            case .unavailable:
+                                Text(tr("usage_host_unavailable")).foregroundStyle(.secondary)
+                            case .ready:
+                                if host.providers.isEmpty {
+                                    Text(tr("usage_host_no_providers")).foregroundStyle(.secondary)
+                                }
+                                ForEach(host.providers, id: \.provider) { profile in
+                                    HStack {
+                                        Text(profile.provider == "codex" ? "Codex" : providerLabel(profile.provider))
+                                            .fontWeight(.medium)
+                                        if let plan = profile.usage.plan, !plan.isEmpty {
+                                            Text(plan.capitalized).foregroundStyle(.secondary)
+                                        }
+                                    }.font(.subheadline)
+                                    AccountUsageDetails(usage: profile.usage, provider: profile.provider)
+                                }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .padding(20).frame(width: 540, height: 480)
+        .task { await refresh() }
+    }
+
+    private func refresh() async {
+        guard !loading else { return }
+        loading = true
+        failed = false
+        defer { loading = false }
+        do {
+            hosts = try await model.workspaceAccountUsage()
+        } catch is CancellationError {
+            return
+        } catch {
+            hosts = nil
+            failed = true
         }
     }
 }

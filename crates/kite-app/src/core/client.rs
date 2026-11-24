@@ -550,6 +550,54 @@ impl ClientCore {
     pub async fn refresh_account_usage(&self) -> Result<(), AppError> {
         self.selected()?.refresh_account_usage().await
     }
+    pub async fn workspace_account_usage(&self) -> Result<Vec<HostAccountUsage>, AppError> {
+        use HostAccountUsageStatus::{Offline, Ready, Unavailable};
+
+        let snapshot = self.snapshot();
+        let online: BTreeSet<_> = snapshot
+            .host_connections
+            .iter()
+            .filter(|host| host.connection == ConnectionPhase::Connected)
+            .map(|host| host.host_id.as_str())
+            .collect();
+        let mut rows = Vec::with_capacity(snapshot.hosts.len());
+        let mut targets = Vec::new();
+        {
+            let runtimes = lock(&self.runtimes);
+            for host in snapshot.hosts {
+                let connected = online.contains(host.id.as_str());
+                if connected && let Some(runtime) = runtimes.get(&host.id) {
+                    targets.push((rows.len(), runtime.clone()));
+                }
+                rows.push(HostAccountUsage {
+                    host_id: host.id,
+                    host: host.host,
+                    status: if connected { Unavailable } else { Offline },
+                    providers: Vec::new(),
+                });
+            }
+        }
+        dispatch(async move {
+            for batch in targets.chunks(4) {
+                let mut jobs = tokio::task::JoinSet::new();
+                for (index, runtime) in batch {
+                    let (index, runtime) = (*index, runtime.clone());
+                    jobs.spawn(async move {
+                        let result = runtime.read_host_account_usage().await;
+                        (index, result)
+                    });
+                }
+                while let Some(result) = jobs.join_next().await {
+                    if let Ok((index, Ok(providers))) = result {
+                        rows[index].status = Ready;
+                        rows[index].providers = providers;
+                    }
+                }
+            }
+            Ok(rows)
+        })
+        .await
+    }
     pub async fn set_chat_model(
         &self,
         host: String,
@@ -1189,6 +1237,15 @@ mod tests {
                 .count(),
             2
         );
+        let selected = client.snapshot().selected_host;
+        let quotas = client.workspace_account_usage().await.unwrap();
+        assert_eq!(quotas.len(), 2);
+        assert!(quotas.iter().all(|row| {
+            row.status == HostAccountUsageStatus::Ready
+                && row.providers[0].usage.plan.as_deref() == Some("fixture-plan")
+        }));
+        assert_eq!(client.snapshot().selected_host, selected);
+        assert!(client.snapshot().selected_session.is_none());
 
         // A slow third handshake must neither restart on selection nor block established hosts.
         let pending_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))

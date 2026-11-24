@@ -411,6 +411,7 @@ mod tests {
             lifecycle_scan: Mutex::new(()),
             lifecycle_wake: tokio::sync::Notify::new(),
             resources: Resources::open(root, 10 * GIB).unwrap(),
+            account_usage: Default::default(),
             permits: Arc::new(Semaphore::new(4)),
             notifications: None,
             push: None,

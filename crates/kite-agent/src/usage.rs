@@ -1,5 +1,5 @@
 //! Account-scoped, read-only Codex quota facts. No credentials or account identifiers.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -16,7 +16,8 @@ pub fn now_ms() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     #[default]
     NotLoaded,
@@ -24,7 +25,8 @@ pub enum Status {
     Unavailable,
     Failed,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Unavailable {
     #[default]
     None,
@@ -32,20 +34,20 @@ pub enum Unavailable {
     UnsupportedAuth,
     NoData,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Window {
     pub remaining_percent: u32,
     pub duration_mins: Option<u64>,
     pub resets_at: Option<i64>,
 }
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Credits {
     pub has_credits: bool,
     pub unlimited: bool,
     pub balance: Option<String>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bucket {
     pub id: String,
     pub name: Option<String>,
@@ -56,7 +58,7 @@ pub struct Bucket {
     pub spend_control_reached: bool,
 }
 /// Account-level earned resets. Opaque credit IDs never enter snapshots.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResetCredits {
     pub available_count: u64,
     pub earliest_expires_at: Option<i64>,
@@ -115,7 +117,7 @@ impl WireResetCredits {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountUsage {
     pub status: Status,
     pub unavailable: Unavailable,
@@ -126,6 +128,39 @@ pub struct AccountUsage {
     pub ordinary_usage_allowed: Option<bool>,
     pub reset_credits: Option<ResetCredits>,
     pub updated_ms: Option<i64>,
+}
+
+impl AccountUsage {
+    pub fn snapshot(&self, time_ms: i64, freshness: Duration) -> Self {
+        let mut value = self.clone();
+        let max_age = freshness.as_millis().min(i64::MAX as u128) as i64;
+        value.stale |= value
+            .updated_ms
+            .is_some_and(|at| time_ms.saturating_sub(at) > max_age)
+            || value
+                .buckets
+                .iter()
+                .flat_map(|b| [&b.primary, &b.secondary])
+                .flatten()
+                .any(|w| w.resets_at.is_some_and(|at| at <= time_ms / 1000))
+            || value.reset_credits.as_ref().is_some_and(|c| {
+                time_ms.saturating_sub(c.observed_ms) > max_age
+                    || c.earliest_expires_at.is_some_and(|at| at <= time_ms / 1000)
+            });
+        value
+    }
+
+    pub fn mark_failed(&mut self) {
+        self.loading = false;
+        self.status = Status::Failed;
+        self.stale = self.updated_ms.is_some();
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderAccountUsage {
+    pub provider: String,
+    pub usage: AccountUsage,
 }
 
 #[derive(Deserialize)]
@@ -283,21 +318,7 @@ pub struct Tracker {
 }
 impl Tracker {
     pub fn snapshot(&self, time_ms: i64) -> AccountUsage {
-        let mut value = self.value.clone();
-        value.stale |= value
-            .updated_ms
-            .is_some_and(|at| time_ms.saturating_sub(at) > 90_000)
-            || value
-                .buckets
-                .iter()
-                .flat_map(|b| [&b.primary, &b.secondary])
-                .flatten()
-                .any(|w| w.resets_at.is_some_and(|at| at <= time_ms / 1000))
-            || value.reset_credits.as_ref().is_some_and(|c| {
-                time_ms.saturating_sub(c.observed_ms) > 90_000
-                    || c.earliest_expires_at.is_some_and(|at| at <= time_ms / 1000)
-            });
-        value
+        self.value.snapshot(time_ms, Duration::from_secs(90))
     }
     pub fn begin(&mut self, force: bool, now: Instant) -> Option<Refresh> {
         if self.value.loading
@@ -339,10 +360,7 @@ impl Tracker {
                 }
             }
             Err(_) if request.revision != self.revision => {}
-            Err(_) => {
-                self.value.status = Status::Failed;
-                self.value.stale = self.value.updated_ms.is_some();
-            }
+            Err(_) => self.value.mark_failed(),
         }
     }
     pub fn ingest(&mut self, event: &Value, time_ms: i64) {

@@ -48,6 +48,14 @@
 "Ultrafast" = "极速";
 "refresh" = "刷新";
 "usage_title" = "套餐余量";
+"usage_overview_open" = "额度";
+"usage_overview" = "额度总览";
+"usage_close" = "关闭";
+"usage_reset_cards" = "可用重置卡 %llu 张";
+"usage_no_hosts" = "暂无主机";
+"usage_host_offline" = "主机未连接";
+"usage_host_unavailable" = "主机额度暂不可用";
+"usage_host_no_providers" = "暂无支持的额度来源";
 "usage_open" = "查看余量";
 "usage_loading" = "查询额度中…";
 "usage_stale_summary" = "余量待更新";

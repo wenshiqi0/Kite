@@ -77,7 +77,15 @@ internal sealed class MainWindow : Window
         brand.Children.Add(archived); brand.Children.Add(sort);
         sessionSearch.TextChanged += (_, _) => RenderSessions(searchChanged: true);
         DockPanel.SetDock(brand, Dock.Top); sidebar.Children.Add(brand);
-        var resources = BuildHostMenu(); DockPanel.SetDock(resources, Dock.Bottom); sidebar.Children.Add(resources);
+        var footer = new Grid();
+        footer.Children.Add(BuildHostMenu());
+        var quota = Ui.Button("额度", WorkspaceAccountUsage);
+        quota.HorizontalAlignment = HorizontalAlignment.Left;
+        quota.VerticalAlignment = VerticalAlignment.Top;
+        quota.Margin = new Thickness(82, 5, 0, 0);
+        quota.ToolTip = "额度总览";
+        footer.Children.Add(quota);
+        DockPanel.SetDock(footer, Dock.Bottom); sidebar.Children.Add(footer);
         sessions.Margin = new Thickness(10, 0, 8, 0); sidebar.Children.Add(sessions); root.Children.Add(sidebar);
         sessions.SelectionChanged += async (_, _) => { if (!rendering && sessions.SelectedItem is ListBoxItem item && item.Tag is SessionTarget target) await Safe(new { op = "open_session", host_id = target.Host, session_id = target.Id }); };
         archived.Checked += (_, _) => RenderSessions(); archived.Unchecked += (_, _) => RenderSessions();
@@ -468,6 +476,76 @@ internal sealed class MainWindow : Window
         var dialog = new SaveFileDialog { FileName = Path.GetFileName(name), Title = "保存附件" }; if (dialog.ShowDialog(this) != true) return;
         string path = dialog.FileName; var value = await Core.Call(new { op = "attachment", context = origin, id }); await File.WriteAllBytesAsync(path, Convert.FromBase64String(value.Text()));
     }
+    private Task WorkspaceAccountUsage()
+    {
+        var body = new DockPanel { Margin = new Thickness(18) };
+        var entries = new StackPanel();
+        var progress = Ui.Label("", 12, Ui.Muted);
+        var window = new Window { Title = "额度总览", Owner = this, Width = 550, Height = 570, Content = body,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        bool loading = false;
+        async Task Load()
+        {
+            if (loading) return;
+            loading = true;
+            progress.Text = "正在读取主机额度…";
+            try
+            {
+                var hosts = await Core.Call(new { op = "workspace_account_usage" });
+                entries.Children.Clear();
+                progress.Text = hosts.Array().Any() ? "" : "暂无主机";
+                foreach (var host in hosts.Array())
+                {
+                    entries.Children.Add(Ui.Label(host.Text("host"), 18));
+                    var providers = host.Array("providers").ToArray();
+                    if (host.Text("status") == "Offline")
+                        entries.Children.Add(Ui.Label("主机未连接", 12, Ui.Muted));
+                    else if (host.Text("status") == "Unavailable")
+                        entries.Children.Add(Ui.Label("主机额度暂不可用", 12, Ui.Muted));
+                    else if (providers.Length == 0)
+                        entries.Children.Add(Ui.Label("暂无支持的额度来源", 12, Ui.Muted));
+                    foreach (var profile in providers)
+                    {
+                        string provider = profile.Text("provider");
+                        var usage = profile.Field("usage");
+                        var label = provider == "codex" ? "Codex" : ProviderLabel(provider);
+                        string plan = usage.Text("plan");
+                        entries.Children.Add(Ui.Label(plan.Length > 0 ? label + " · " + plan : label));
+                        if (usage.Text("status") == "Failed" || usage.Flag("stale"))
+                            entries.Children.Add(Ui.Label(usage.Number("updated_ms") > 0 ? "下方为上次查询的额度。" : "额度读取失败", 12, Ui.Muted));
+                        else if (usage.Text("status") == "Unavailable")
+                            entries.Children.Add(Ui.Label(usage.Text("unavailable") switch
+                            {
+                                "NoAccount" => "主机账户未登录",
+                                "UnsupportedAuth" => "当前登录方式不提供额度",
+                                _ => "供应商未提供额度数据",
+                            }, 12, Ui.Muted));
+                        AddUsageBuckets(entries, usage);
+                        var resets = usage.Field("reset_credits");
+                        if (resets.ValueKind == JsonValueKind.Object)
+                            entries.Children.Add(Ui.Label($"可用重置卡 {resets.Number("available_count")} 张", 12, Ui.Muted));
+                        long updated = usage.Number("updated_ms");
+                        if (updated > 0 && updated <= 253402300799999)
+                            entries.Children.Add(Ui.Label("查询时间 · " + DateTimeOffset.FromUnixTimeMilliseconds(updated).ToLocalTime().ToString("g"), 11, Ui.Muted));
+                    }
+                    entries.Children.Add(new Separator());
+                }
+            }
+            catch
+            {
+                entries.Children.Clear();
+                progress.Text = "额度读取失败";
+            }
+            finally { loading = false; }
+        }
+        var actions = Ui.Row(Ui.Button("刷新", Load), Ui.Button("关闭", () => { window.Close(); return Task.CompletedTask; }));
+        DockPanel.SetDock(actions, Dock.Top); body.Children.Add(actions);
+        DockPanel.SetDock(progress, Dock.Top); body.Children.Add(progress);
+        body.Children.Add(new ScrollViewer { Content = entries });
+        window.Loaded += async (_, _) => await Load();
+        window.ShowDialog();
+        return Task.CompletedTask;
+    }
     private Task ComposerSettings()
     {
         string host = HostId, agent = AgentId; var panel = new StackPanel { Margin = new Thickness(24) }; var window = new Window { Title = "模型与会话设置", Owner = this, Width = 500, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
@@ -478,6 +556,11 @@ internal sealed class MainWindow : Window
             select.SelectionChanged += async (_, _) => { if (select.SelectedValue is string value) await Safe(new { op = "set_chat_setting", host_id = host, agent_id = agent, setting = id, value }); }; panel.Children.Add(select);
         }
         var usage = state.Field("composer").Field("usage"); panel.Children.Add(Ui.Label("套餐额度 · " + usage.Text("status"), 16));
+        AddUsageBuckets(panel, usage);
+        panel.Children.Add(Ui.Button("刷新额度", async () => { await Core.Call(new { op = "refresh_account_usage" }); await Refresh(true); })); window.ShowDialog(); return Task.CompletedTask;
+    }
+    private static void AddUsageBuckets(Panel panel, JsonElement usage)
+    {
         foreach (var bucket in usage.Array("buckets"))
         {
             string title = bucket.Text("name"); if (string.IsNullOrEmpty(title)) title = bucket.Text("id");
@@ -490,13 +573,13 @@ internal sealed class MainWindow : Window
                 string percent = windowInfo.Field("remaining_percent").ValueKind == JsonValueKind.Number
                     ? $"剩余 {windowInfo.Field("remaining_percent").GetInt32()}% · 已用 {Math.Clamp(100 - windowInfo.Field("remaining_percent").GetInt32(), 0, 100)}%"
                     : "未知";
-                string reset = windowInfo.Field("resets_at").ValueKind == JsonValueKind.Number && windowInfo.Field("resets_at").GetInt64() > 0
-                    ? " · " + DateTimeOffset.FromUnixTimeSeconds(windowInfo.Field("resets_at").GetInt64()).ToLocalTime().ToString("g") + " 重置"
+                long resetAt = windowInfo.Number("resets_at");
+                string reset = resetAt > 0 && resetAt <= 253402300799
+                    ? " · " + DateTimeOffset.FromUnixTimeSeconds(resetAt).ToLocalTime().ToString("g") + " 重置"
                     : "";
                 panel.Children.Add(Ui.Label($"{duration} · {percent}{reset}", 12, Ui.Muted));
             }
         }
-        panel.Children.Add(Ui.Button("刷新额度", async () => { await Core.Call(new { op = "refresh_account_usage" }); await Refresh(true); })); window.ShowDialog(); return Task.CompletedTask;
     }
     private static string FormatWindowDuration(JsonElement value)
     {

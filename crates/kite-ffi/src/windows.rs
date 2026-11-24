@@ -317,6 +317,7 @@ enum Command {
         id: String,
     },
     RefreshAccountUsage {},
+    WorkspaceAccountUsage {},
     ReloadComposer {},
     RetryHistory {},
     StartDesktop {
@@ -499,6 +500,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
             return value(STANDARD.encode(core.chat_attachment(context, id).await?));
         }
         RefreshAccountUsage {} => core.refresh_account_usage().await?,
+        WorkspaceAccountUsage {} => return value(core.workspace_account_usage().await?),
         ReloadComposer {} => core.reload_composer().await?,
         RetryHistory {} => core.retry_history().await?,
         StartDesktop {

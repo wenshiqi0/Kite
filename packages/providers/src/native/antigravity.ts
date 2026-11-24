@@ -168,6 +168,15 @@ function decodeUsageResponse(stdout: string, stderr: string, code: number): Obje
   };
 }
 
+export async function readAntigravityUsage(command: string[], cwd: string): Promise<ObjectValue> {
+  const { stdout, stderr, code } = await run(usageCommand(command), {
+    cwd,
+    timeout: USAGE_TIMEOUT_MS,
+    allowFailure: true,
+  });
+  return decodeUsageResponse(stdout.toString(), stderr.toString(), code);
+}
+
 function selection(row: ObjectValue): SessionSetting {
   check(row.type === "select", "invalid Antigravity configuration");
   const choices = array(row.options).map(object);
@@ -355,17 +364,11 @@ export class Antigravity extends AcpAdapter {
   }
   async rateLimits(): Promise<ObjectValue> {
     if (!this.usageRequest) {
-      this.usageRequest = run(usageCommand(this.options.command), {
-        cwd: this.options.cwd,
-        timeout: USAGE_TIMEOUT_MS,
-        allowFailure: true,
-      })
-        .then(({ stdout, stderr, code }) =>
-          decodeUsageResponse(stdout.toString(), stderr.toString(), code),
-        )
-        .finally(() => {
+      this.usageRequest = readAntigravityUsage(this.options.command, this.options.cwd).finally(
+        () => {
           this.usageRequest = undefined;
-        });
+        },
+      );
     }
     return this.usageRequest;
   }
