@@ -13,7 +13,7 @@ import {
   string,
   UUID,
 } from "@kite/protocol";
-import { run } from "@kite/runtime";
+import { run, sleep } from "@kite/runtime";
 import { optionalObject } from "@kite/runtime/socket";
 import { permissionValues } from "../permissions";
 import { AcpAdapter } from "./acp";
@@ -21,6 +21,84 @@ import { AcpAdapter } from "./acp";
 const SESSION_LIST_TIMEOUT_MS = 12_000;
 const USAGE_TIMEOUT_MS = 20_000;
 const SKIP_PERMISSIONS = "--dangerously-skip-permissions";
+const COMMAND_WAIT_MS = 400;
+const MAX_COMMANDS = 512;
+
+interface AntigravitySkill {
+  name: string;
+  description: string;
+  path: string;
+  enabled: true;
+}
+
+function validCommandName(name: string): boolean {
+  if (!name || name.length > 256) return false;
+  for (const ch of name) {
+    const code = ch.charCodeAt(0);
+    if (code <= 32 || code === 127) return false;
+  }
+  return true;
+}
+
+function parseCommands(value: Json | undefined): AntigravitySkill[] {
+  const seen = new Set<string>();
+  const skills: AntigravitySkill[] = [];
+  for (const entry of array(value ?? [])) {
+    if (skills.length >= MAX_COMMANDS) break;
+    const row = object(entry);
+    const name = optionalString(row.name).trim();
+    if (!validCommandName(name) || seen.has(name)) continue;
+    seen.add(name);
+    skills.push({
+      name,
+      description: optionalString(row.description).trim(),
+      path: `/${name}`,
+      enabled: true,
+    });
+  }
+  return skills;
+}
+
+function extractEffortLabel(name: string): string | undefined {
+  const match = /\(([^()]+)\)\s*$/.exec(name.trim());
+  return match?.[1]?.trim() || undefined;
+}
+
+function promptWithSkills(blocks: NativeBlock[]): NativeBlock[] {
+  const skills = blocks.filter(
+    (block): block is Extract<NativeBlock, { type: "skill" }> => block.type === "skill",
+  );
+  if (!skills.length) return blocks;
+  const mentions = skills.map((skill) => `$${skill.name}`).join(" ");
+  const slashMentions = skills.map((skill) => `/${skill.name}`).join(" ");
+  let rewritten = false;
+  const output: NativeBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === "skill") continue;
+    if (!rewritten && block.type === "text") {
+      rewritten = true;
+      if (block.text === mentions) {
+        output.push({ type: "text", text: slashMentions });
+        continue;
+      }
+      if (block.text.startsWith(`${mentions}\n\n`)) {
+        output.push({
+          type: "text",
+          text: `${slashMentions}\n\n${block.text.slice(mentions.length + 2)}`,
+        });
+        continue;
+      }
+      output.push({
+        type: "text",
+        text: block.text.trim() ? `${slashMentions}\n\n${block.text}` : slashMentions,
+      });
+      continue;
+    }
+    output.push(block);
+  }
+  if (!rewritten) output.unshift({ type: "text", text: slashMentions });
+  return output;
+}
 
 function permissionCommand(command: string[], turbo: boolean): string[] {
   return [
@@ -201,20 +279,29 @@ function modelCatalog(
   const ids = models.options.map((row) => row.value).sort((a, b) => b.length - a.length);
   const variants = array(optionalObject(advertised).availableModels ?? []).map(object);
   check(variants.length <= 2048, "Antigravity model catalog exceeds limit");
-  const efforts = new Map<string, Set<string>>();
+  const efforts = new Map<string, Map<string, string>>();
   for (const row of variants) {
     const variant = string(row.modelId);
     const model = ids.find((id) => variant === id || variant.startsWith(`${id}-`));
     if (!model || model === variant) continue;
-    const levels = efforts.get(model) ?? new Set<string>();
-    levels.add(variant.slice(model.length + 1));
+    const effort = variant.slice(model.length + 1);
+    const levels = efforts.get(model) ?? new Map<string, string>();
+    if (!levels.has(effort)) {
+      levels.set(effort, extractEffortLabel(optionalString(row.name)) ?? effort);
+    }
     efforts.set(model, levels);
   }
+  const preferredDefault = (options: { value: string; name: string }[]): string => {
+    for (const candidate of [thinking?.currentValue, "medium", "high"]) {
+      if (candidate && options.some((option) => option.value === candidate)) return candidate;
+    }
+    return options[0]?.value ?? "";
+  };
   return models.options.map((row) => {
     const isDefault = row.value === models.currentValue;
     const options = isDefault
       ? (thinking?.options ?? [])
-      : [...(efforts.get(row.value) ?? [])].map((value) => ({ value, name: value }));
+      : [...(efforts.get(row.value) ?? [])].map(([value, name]) => ({ value, name }));
     return {
       model: row.value,
       displayName: row.name,
@@ -228,7 +315,7 @@ function modelCatalog(
       })),
       defaultReasoningEffort: isDefault
         ? (thinking?.currentValue ?? "")
-        : (options[0]?.value ?? ""),
+        : preferredDefault(options),
     };
   });
 }
@@ -237,6 +324,9 @@ export class Antigravity extends AcpAdapter {
   protected override readonly splitMessagesAtTools = true;
   private hasHistory = false;
   private turbo: boolean;
+  private plan: string | undefined;
+  private supportsLoad = false;
+  private commandsBySession = new Map<string, AntigravitySkill[]>();
   private usageRequest: Promise<ObjectValue> | undefined;
 
   constructor(options: NativeOptions) {
@@ -257,10 +347,13 @@ export class Antigravity extends AcpAdapter {
 
   async initialize(): Promise<this> {
     try {
+      this.session = "";
+      this.commandsBySession.clear();
       const hello = await this.handshake("Antigravity ACP Server");
       const caps = object(hello.agentCapabilities),
         sessions = object(caps.sessionCapabilities);
       check(sessions.list && sessions.resume, "Antigravity ACP session capabilities unavailable");
+      this.supportsLoad = caps.loadSession === true || Boolean(sessions.load);
       if (this.options.inspect) {
         // initialize succeeds when signed out. Listing checks the CLI's auth without starting a turn.
         await this.list();
@@ -270,11 +363,19 @@ export class Antigravity extends AcpAdapter {
       const sessionId = saved && string(saved.sessionId);
       if (sessionId !== undefined) check(UUID.test(sessionId), "invalid Antigravity session ID");
       const listed = sessionId ? await this.listed(sessionId) : false;
-      // agy can resume an unknown ID as an empty session. Avoid silently dropping prior context.
-      check(saved?.hasHistory !== true || listed, "saved Antigravity session is missing");
+      const useLoad = Boolean(
+        sessionId && saved?.hasHistory === true && !listed && this.supportsLoad,
+      );
+      // agy without session/load can resume an unknown ID as an empty session.
+      // When session/load is available, use it to verify and recover sessions evicted from session/list.
+      check(
+        saved?.hasHistory !== true || listed || useLoad,
+        "saved Antigravity session is missing",
+      );
+      const method = useLoad ? "session/load" : sessionId ? "session/resume" : "session/new";
       const result = object(
         await this.rpc.call(
-          sessionId ? "session/resume" : "session/new",
+          method,
           {
             cwd: this.options.cwd,
             mcpServers: [],
@@ -283,11 +384,16 @@ export class Antigravity extends AcpAdapter {
           15000,
         ),
       );
-      const id = string(result.sessionId);
+      const id =
+        useLoad && result.sessionId === undefined ? string(sessionId) : string(result.sessionId);
       check(UUID.test(id) && (!sessionId || id === sessionId), "Antigravity session ID mismatch");
       this.readConfig(result.configOptions);
       const model = this.setting("model");
       check(model, "Antigravity model catalog unavailable");
+      this.plan =
+        optionalString(
+          optionalObject(optionalObject(optionalObject(result._meta).antigravity).tier).name,
+        ).trim() || undefined;
       this.models = modelCatalog(
         result.models,
         model,
@@ -295,11 +401,17 @@ export class Antigravity extends AcpAdapter {
         optionalObject(caps.promptCapabilities).image === true,
       );
       this.session = id;
-      this.persist(listed);
+      this.persist(listed || useLoad);
       return this;
     } catch (error) {
       this.close();
       throw error;
+    }
+  }
+
+  protected override onUpdate(update: ObjectValue, sessionId: string): void {
+    if (update.sessionUpdate === "available_commands_update") {
+      this.commandsBySession.set(sessionId, parseCommands(update.availableCommands));
     }
   }
 
@@ -317,7 +429,7 @@ export class Antigravity extends AcpAdapter {
   private async listed(sessionId: string): Promise<boolean> {
     const deadline = performance.now() + SESSION_LIST_TIMEOUT_MS;
     let cursor = "";
-    for (let page = 0; page < 4; page++) {
+    for (let page = 0; page < 20; page++) {
       const remaining = deadline - performance.now();
       if (remaining <= 0) return false;
       const result = await this.list(cursor, remaining);
@@ -360,7 +472,10 @@ export class Antigravity extends AcpAdapter {
     ];
   }
   async account(): Promise<ObjectValue> {
-    return { account: { type: "antigravity" }, requiresOpenaiAuth: false };
+    return {
+      account: { type: "antigravity", ...(this.plan ? { planType: this.plan } : {}) },
+      requiresOpenaiAuth: false,
+    };
   }
   async rateLimits(): Promise<ObjectValue> {
     if (!this.usageRequest) {
@@ -371,6 +486,26 @@ export class Antigravity extends AcpAdapter {
       );
     }
     return this.usageRequest;
+  }
+  async skills(cwds: string[]): Promise<ObjectValue> {
+    if (this.session && !this.commandsBySession.has(this.session)) {
+      const deadline = performance.now() + COMMAND_WAIT_MS;
+      while (
+        this.session &&
+        !this.commandsBySession.has(this.session) &&
+        performance.now() < deadline
+      ) {
+        await sleep(25);
+      }
+    }
+    const items = (this.session ? this.commandsBySession.get(this.session) : undefined) ?? [];
+    return {
+      data: cwds.map((cwd) => ({
+        cwd,
+        skills: items.map((item) => ({ ...item })),
+        errors: [],
+      })),
+    };
   }
   override async configure(values: Record<string, string>): Promise<void> {
     const selected = permissionValues(values, this.settings);
@@ -413,7 +548,7 @@ export class Antigravity extends AcpAdapter {
     }
     this.checkCancellation();
     try {
-      await this.prompt(blocks);
+      await this.prompt(promptWithSkills(blocks));
     } finally {
       // Only release an archived owner after ACP can find its native context.
       this.persist(await this.listed(this.session).catch(() => false));

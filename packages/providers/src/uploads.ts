@@ -161,19 +161,44 @@ export function readGeneratedImage(id: string): Buffer {
   check(sha256(data) === id, "generated image changed");
   return data;
 }
-export function nativeInput(value: unknown, model: Model): NativeBlock[] {
+export function nativeInput(value: unknown, model: Model, allowSkills = false): NativeBlock[] {
   const blocks = array(value);
-  check(blocks.length > 0 && blocks.length <= 6, "invalid harness input");
+  check(blocks.length > 0 && blocks.length <= 22, "invalid harness input");
   let total = 0;
+  let contentBlocks = 0;
   const result: NativeBlock[] = blocks.map((value) => {
     const b = object(value);
     if (b.type === "text") {
+      contentBlocks++;
+      check(contentBlocks <= 6, "invalid harness input");
       const text = string(b.text);
       const size = Buffer.byteLength(text);
       check(size <= 1024 * 1024, "harness text exceeds limit");
       total += size;
       return { type: "text", text };
     }
+    if (b.type === "skill") {
+      check(allowSkills, "input modality unavailable");
+      const name = string(b.name);
+      const path = string(b.path);
+      const hasControl = (text: string, rejectSpace: boolean) =>
+        [...text].some((ch) => {
+          const code = ch.charCodeAt(0);
+          return code === 127 || (rejectSpace ? code <= 32 : code < 32);
+        });
+      check(
+        name.length > 0 &&
+          name.length <= 256 &&
+          !hasControl(name, true) &&
+          path.startsWith("/") &&
+          path.length <= 1024 &&
+          !hasControl(path, false),
+        "invalid skill input",
+      );
+      return { type: "skill", name, path };
+    }
+    contentBlocks++;
+    check(contentBlocks <= 6, "invalid harness input");
     check(
       b.type === "localImage" && model.inputModalities.includes("image"),
       "input modality unavailable",
@@ -195,7 +220,9 @@ export function nativeInput(value: unknown, model: Model): NativeBlock[] {
     return { type: "image", mimeType: type, data: encoded };
   });
   check(
-    total <= 36 * 1024 * 1024 && result.some((b) => b.type === "text" && b.text.trim()),
+    total <= 36 * 1024 * 1024 &&
+      (result.some((b) => b.type === "text" && b.text.trim()) ||
+        result.some((b) => b.type === "skill")),
     "invalid harness prompt",
   );
   return result;

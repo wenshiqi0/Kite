@@ -1101,6 +1101,7 @@ test("Antigravity discovery uses native authentication and one owner restores th
     expect(transcript).toMatch(
       /Checking[\s\S]*"type":"function_call"[\s\S]*Denied once[\s\S]*Continued/,
     );
+    expect(transcript).toContain('"exitCode":1');
     expect(transcript).not.toContain("PRIVATE_FIXTURE_THOUGHT");
     const turn = object(object(await prompt("cancel")).turn);
     for (let i = 0; i < 100; i++) {
@@ -1388,6 +1389,165 @@ test("Antigravity exposes read-only quota buckets and unavailable auth states", 
   expect(await runCase("api_key")).toMatchObject({ unavailable: "unsupportedAuth" });
   expect(await runCase("signed_out")).toMatchObject({ unavailable: "noAccount" });
   await expect(runCase("fail")).rejects.toThrow();
+}, 15000);
+
+test("Antigravity exposes skills, tier, diff tool output, effort labels and session/load recovery beyond session/list", async () => {
+  const home = fresh(),
+    id = "d".repeat(32);
+  const configured = {
+    KITE_ENABLE_ANTIGRAVITY: "1",
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_FIXTURE_AGY_ENABLE_LOAD: "1",
+    KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+      process.execPath,
+      resolve("packages/host/test/fixtures/antigravity.ts"),
+    ]),
+  };
+  const scan = await command(home, ["harness-scan"], undefined, configured);
+  expect(scan.code, scan.stderr.toString()).toBe(0);
+  expect(
+    array(object(parse(scan.stdout.toString())).providers).find(
+      (entry) => object(entry).id === "antigravity",
+    ),
+  ).toMatchObject({ id: "antigravity", skills: true, usage: true });
+  expect(
+    (
+      await command(
+        home,
+        ["catalog-write"],
+        JSON.stringify({ revision: 0, sessions: [row(id, "antigravity")] }),
+      )
+    ).code,
+  ).toBe(0);
+  const open = (extra: Record<string, string> = {}) =>
+    command(home, ["session-open", "--id", id, "--herdr", "unused"], undefined, {
+      ...configured,
+      ...extra,
+    });
+  const opened = await open();
+  expect(opened.code, opened.stderr.toString()).toBe(0);
+  const thread = string(
+    object(object(object(parse(opened.stdout.toString())).agent).agent_session).value,
+  );
+  const path = join(home, "harnesses", thread);
+  const currentPid = () =>
+    Number(object(parse(readFileSync(join(path, "state.json"), "utf8"))).pid);
+  let pid = currentPid();
+  const client = (extra: Record<string, string> = {}) =>
+    new RpcProcess(
+      [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+      home,
+      () => {},
+      () => {},
+      env(home, { ...configured, ...extra }),
+    );
+  let rpc = client();
+  try {
+    await rpc.call("initialize", {});
+    const account = object(await rpc.call("account/read", { refreshToken: false }));
+    expect(account).toMatchObject({
+      account: { type: "antigravity", planType: "Google AI Ultra" },
+      requiresOpenaiAuth: false,
+    });
+    const models = array(object(await rpc.call("model/list", {})).data).map(object);
+    expect(models.find((model) => model.model === "claude-opus-5-5")).toMatchObject({
+      defaultReasoningEffort: "low",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "low", description: "Low" },
+        { reasoningEffort: "medium", description: "Medium" },
+        { reasoningEffort: "high", description: "High" },
+      ],
+    });
+    expect(models.find((model) => model.model === "gemini-flash")).toMatchObject({
+      defaultReasoningEffort: "medium",
+    });
+    const skills = object(await rpc.call("skills/list", { cwds: [home], forceReload: true }));
+    expect(skills).toEqual({
+      data: [
+        {
+          cwd: home,
+          skills: [
+            {
+              name: "compact",
+              description: "Compact the conversation",
+              path: "/compact",
+              enabled: true,
+            },
+            {
+              name: "kite",
+              description: "Operate a Kite host",
+              path: "/kite",
+              enabled: true,
+            },
+          ],
+          errors: [],
+        },
+      ],
+    });
+
+    await rpc.call("turn/start", {
+      threadId: thread,
+      model: "claude-opus-5-5",
+      effort: "medium",
+      input: [
+        { type: "text", text: "$kite\n\ncheck host" },
+        { type: "skill", name: "kite", path: "/kite" },
+      ],
+    });
+    await waitStatus(path, "done");
+    const prompts = readFileSync(join(home, "agy-fixture-prompts"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => array(parse(line)));
+    expect(prompts[0]).toEqual([{ type: "text", text: "/kite\n\ncheck host" }]);
+    expect(readFileSync(join(path, "history.jsonl"), "utf8")).toContain("$kite\\n\\ncheck host");
+
+    await rpc.call("turn/start", {
+      threadId: thread,
+      model: "gemini-flash",
+      effort: "high",
+      input: [{ type: "text", text: "diff" }],
+    });
+    await waitStatus(path, "done");
+    const history = readFileSync(join(path, "history.jsonl"), "utf8");
+    expect(history).toContain('"name":"Edit README.md"');
+    expect(history).not.toContain("second line should not bloat tool name");
+    expect(history).toContain("--- README.md\\n- before\\n+ after");
+
+    // Cold-start recovery when the older session is omitted from session/list uses session/load.
+    rpc.close();
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 100 && startTicks(pid); i++) await sleep(20);
+    const recovered = await open({ KITE_FIXTURE_AGY_OMIT_FROM_LIST: "1" });
+    expect(recovered.code, recovered.stderr.toString()).toBe(0);
+    pid = currentPid();
+    rpc = client({ KITE_FIXTURE_AGY_OMIT_FROM_LIST: "1" });
+    await rpc.call("initialize", {});
+    await rpc.call("turn/start", {
+      threadId: thread,
+      model: "gemini-flash",
+      effort: "high",
+      input: [{ type: "text", text: "continue" }],
+    });
+    await waitStatus(path, "done");
+    const afterLoad = readFileSync(join(path, "history.jsonl"), "utf8");
+    expect(afterLoad).toContain("Restored true gemini-flash high default");
+    expect(afterLoad).not.toContain("REPLAYED_HISTORY_SHOULD_NOT_EMIT");
+    const methods = readFileSync(join(home, "agy-fixture-methods"), "utf8");
+    expect(methods).toContain("session/load");
+    expect(methods).toContain("session/close");
+
+    // A genuinely missing native session still fails cold-start even when session/load is enabled.
+    rpc.close();
+    process.kill(pid, "SIGTERM");
+    for (let i = 0; i < 100 && startTicks(pid); i++) await sleep(20);
+    rmSync(join(home, "agy-fixture-session"));
+    const missing = await open({ KITE_FIXTURE_AGY_OMIT_FROM_LIST: "1" });
+    expect(missing.code).not.toBe(0);
+  } finally {
+    rpc.close();
+    if (startTicks(pid)) process.kill(pid, "SIGTERM");
+  }
 }, 15000);
 async function waitStatus(path: string, status: string): Promise<void> {
   for (let i = 0; i < 300; i++) {

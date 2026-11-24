@@ -5,6 +5,7 @@ import { home, lines } from "@kite/runtime";
 
 const nativeFile = join(home(), "agy-fixture-session");
 const trace = join(home(), "agy-fixture-methods");
+const promptTrace = join(home(), "agy-fixture-prompts");
 if (process.argv.includes("-p") && process.argv.includes("/usage")) {
   const mode = process.env.KITE_FIXTURE_AGY_USAGE_MODE || "ready";
   if (mode === "api_key") {
@@ -110,12 +111,16 @@ let sid = "",
 let pending: Json | undefined;
 function configOptions() {
   return [
-    choice("model", "Model", model, ["gemini-pro", "gemini-flash"]),
+    choice("model", "Model", model, ["gemini-pro", "gemini-flash", "claude-opus-5-5"]),
     choice(
       "thought_level",
       "Thinking Level",
       effort,
-      model === "gemini-pro" ? ["low", "high"] : ["medium", "high"],
+      model === "gemini-pro"
+        ? ["low", "high"]
+        : model === "claude-opus-5-5"
+          ? ["low", "medium", "high"]
+          : ["medium", "high"],
     ),
     choice("mode", "Mode", mode, ["default", "accept-edits", "plan"]),
   ];
@@ -126,6 +131,7 @@ function reply(id: Json | undefined, result: Json) {
 function update(value: Json) {
   send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: sid, update: value } });
 }
+const enableLoad = process.env.KITE_FIXTURE_AGY_ENABLE_LOAD === "1";
 
 for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
   const value = object(parse(line)),
@@ -135,10 +141,15 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
     case "initialize":
       reply(value.id, {
         protocolVersion: 1,
-        agentInfo: { name: "Antigravity ACP Server", version: "1.5.14" },
+        agentInfo: { name: "Antigravity ACP Server", version: "1.5.16" },
         agentCapabilities: {
+          ...(enableLoad ? { loadSession: true } : {}),
           promptCapabilities: { image: true },
-          sessionCapabilities: { list: {}, resume: {} },
+          sessionCapabilities: {
+            list: {},
+            resume: {},
+            ...(enableLoad ? { load: {}, close: {} } : {}),
+          },
         },
       });
       break;
@@ -153,8 +164,48 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
         });
       else
         reply(value.id, {
-          sessions: existsSync(nativeFile) ? [{ sessionId: readFileSync(nativeFile, "utf8") }] : [],
+          sessions:
+            existsSync(nativeFile) && process.env.KITE_FIXTURE_AGY_OMIT_FROM_LIST !== "1"
+              ? [{ sessionId: readFileSync(nativeFile, "utf8") }]
+              : [],
         });
+      break;
+    case "session/load":
+      if (!existsSync(nativeFile) || readFileSync(nativeFile, "utf8") !== string(p.sessionId)) {
+        send({
+          jsonrpc: "2.0",
+          id: value.id,
+          error: { code: -32002, message: `Session not found: ${string(p.sessionId)}` },
+        });
+        break;
+      }
+      sid = string(p.sessionId);
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "REPLAYED_HISTORY_SHOULD_NOT_EMIT" },
+      });
+      reply(value.id, {
+        configOptions: configOptions(),
+        models: {
+          availableModels: [
+            { modelId: "gemini-pro-high", name: "gemini-pro-high" },
+            { modelId: "gemini-pro-low", name: "gemini-pro-low" },
+            { modelId: "gemini-flash-medium", name: "gemini-flash-medium" },
+            { modelId: "gemini-flash-high", name: "gemini-flash-high" },
+            { modelId: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)" },
+            { modelId: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)" },
+            { modelId: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)" },
+          ],
+        },
+        _meta: { antigravity: { tier: { name: "Google AI Ultra", id: "g1-ultra-tier" } } },
+      });
+      update({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "compact", description: "Compact the conversation" },
+          { name: "kite", description: "Operate a Kite host" },
+        ],
+      });
       break;
     case "session/resume":
     case "session/new":
@@ -164,13 +215,27 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
         configOptions: configOptions(),
         models: {
           availableModels: [
-            "gemini-pro-high",
-            "gemini-pro-low",
-            "gemini-flash-medium",
-            "gemini-flash-high",
-          ].map((modelId) => ({ modelId, name: modelId })),
+            { modelId: "gemini-pro-high", name: "gemini-pro-high" },
+            { modelId: "gemini-pro-low", name: "gemini-pro-low" },
+            { modelId: "gemini-flash-medium", name: "gemini-flash-medium" },
+            { modelId: "gemini-flash-high", name: "gemini-flash-high" },
+            { modelId: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)" },
+            { modelId: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)" },
+            { modelId: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)" },
+          ],
         },
+        _meta: { antigravity: { tier: { name: "Google AI Ultra", id: "g1-ultra-tier" } } },
       });
+      update({
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "compact", description: "Compact the conversation" },
+          { name: "kite", description: "Operate a Kite host" },
+        ],
+      });
+      break;
+    case "session/close":
+      reply(value.id, {});
       break;
     case "session/set_config_option":
       check(p.sessionId === sid, "fixture session mismatch");
@@ -183,12 +248,35 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
       break;
     case "session/prompt": {
       check(p.sessionId === sid, "fixture session mismatch");
-      const prompt = object(array(p.prompt)[0]);
+      const promptBlocks = array(p.prompt);
+      appendFileSync(promptTrace, `${JSON.stringify(promptBlocks)}\n`);
+      const prompt = object(promptBlocks[0]);
       update({
         sessionUpdate: "agent_thought_chunk",
         content: { type: "text", text: "PRIVATE_FIXTURE_THOUGHT" },
       });
-      if (prompt.text === "approve") {
+      if (prompt.text === "diff") {
+        const tool = {
+          toolCallId: "fixture-diff-tool",
+          title: "Edit README.md\nsecond line should not bloat tool name",
+          kind: "edit",
+          rawInput: { Path: "README.md" },
+        };
+        update({ sessionUpdate: "tool_call", status: "in_progress", ...tool });
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: tool.toolCallId,
+          status: "completed",
+          content: [{ type: "diff", path: "README.md", oldText: "before", newText: "after" }],
+          rawOutput: "Edited README.md",
+        });
+        update({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Diff applied" },
+        });
+        writeFileSync(nativeFile, sid, { mode: 0o600 });
+        reply(value.id, { stopReason: "end_turn" });
+      } else if (prompt.text === "approve") {
         const tool = {
           toolCallId: "fixture-tool",
           title: "Print fixture output",
@@ -206,6 +294,7 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
             toolCallId: tool.toolCallId,
             status: "completed",
             content: [{ type: "content", content: { type: "text", text: "Turbo tool ran" } }],
+            rawOutput: "Turbo tool ran",
           });
           writeFileSync(nativeFile, sid, { mode: 0o600 });
           reply(value.id, { stopReason: "end_turn" });
@@ -253,6 +342,7 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
         toolCallId: "fixture-tool",
         status: "failed",
         content: [{ type: "content", content: { type: "text", text: "Denied once" } }],
+        rawOutput: { exitCode: 1 },
       });
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Con" } });
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "tinued" } });
