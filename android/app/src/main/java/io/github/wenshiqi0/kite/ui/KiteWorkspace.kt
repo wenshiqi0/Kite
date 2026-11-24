@@ -112,11 +112,11 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     val providerInfo = availableProviders.find { it.id == agent?.agent }
     var project by remember { mutableStateOf("") }
     var sessionName by remember { mutableStateOf("") }
-    LaunchedEffect(newSession) {
-        if(newSession) {
-            newSessionHost=state?.selectedHost?.takeIf { id -> state.hostConnections.any { it.hostId==id&&it.connection==ConnectionStatus.CONNECTED } }
-                ?:state?.hostConnections?.firstOrNull { it.connection==ConnectionStatus.CONNECTED }?.hostId.orEmpty()
-        }
+    fun showNewSession() {
+        val recommended = vm.engine.core.recommendSessionHost().orEmpty()
+        if (newSessionHost != recommended) project = ""
+        newSessionHost = recommended
+        newSession = true
     }
     LaunchedEffect(newSessionHost,newSessionProviders) {
         if(newSessionProviders.none { it.id==provider })provider=newSessionProviders.firstOrNull { it.id=="codex" }?.id?:newSessionProviders.firstOrNull()?.id.orEmpty()
@@ -246,7 +246,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
     BackHandler(enabled = drawerActive) { scope.launch { drawer.close() } }
     ModalNavigationDrawer(drawerState = drawer, scrimColor = if (hideChrome) Color.Transparent else DrawerDefaults.scrimColor, gesturesEnabled = drawerActive, drawerContent = {
         ModalDrawerSheet(drawerState = drawer, modifier = Modifier.width(310.dp), drawerContainerColor = KiteColors.Surface) {
-            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { newSession = true; scope.launch { drawer.close() } }, manageHosts = { vm.openHostManager(); scope.launch { drawer.close() } },
+            SessionDrawer(vm, state, close = { scope.launch { drawer.close() } }, open = { host, id -> vm.openSession(id, host); scope.launch { drawer.close() } }, create = { showNewSession(); scope.launch { drawer.close() } }, manageHosts = { vm.openHostManager(); scope.launch { drawer.close() } },
                 inspectSubagent = { host, parent, child -> inspectedTask = AssociatedTaskTarget(host, parent, child); scope.launch { drawer.close() } })
         }
     }) {
@@ -293,7 +293,8 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     Box {
                         IconButton(onClick = { tools = true }, modifier = Modifier.semantics { contentDescription = moreDescription }) { ProductIcon(Mark.More) }
                         DropdownMenu(expanded = tools, onDismissRequest = { tools = false }) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; newSession = true }, enabled = state?.connection == ConnectionStatus.CONNECTED && canStartResourceAgent(state?.hostResources) && !vm.creatingAgent && !vm.sessionBusy)
+                            DropdownMenuItem(text = { Text(stringResource(R.string.new_session)) }, onClick = { tools = false; showNewSession() },
+                                enabled = state?.hostConnections?.any { it.connection == ConnectionStatus.CONNECTED } == true && !vm.creatingAgent && !vm.sessionBusy)
                             DropdownMenuItem(text = { Text(stringResource(R.string.open_desktop)) }, leadingIcon = { ProductIcon(Mark.Monitor) }, onClick = { tools = false; vm.openDesktop() }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             DropdownMenuItem(text = { Text(stringResource(R.string.mode_split)) }, leadingIcon = { ProductIcon(Mark.Split) }, onClick = { tools = false; vm.changeLayout(DesktopLayout.Split) }, enabled = state?.connection == ConnectionStatus.CONNECTED)
                             if(vm.showDesktop||state?.desktop?.status in listOf(DesktopStatus.STARTING,DesktopStatus.STREAMING,DesktopStatus.PAIRING))DropdownMenuItem(text={Text(stringResource(R.string.desktop_disconnect))},leadingIcon={ProductIcon(Mark.Close)},onClick={tools=false;videoReference.value?.closeRemoteKeyboard();softwareKeyboard?.hide();focusManager.clearFocus();vm.closeDesktop();updatePip()})
@@ -368,7 +369,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                             Text(stringResource(if (state?.connection == ConnectionStatus.CONNECTED) R.string.no_active_sessions else R.string.workspace_welcome), color = Muted, modifier = Modifier.padding(16.dp))
                             if (state?.connection == ConnectionStatus.CONNECTED) {
                                 val preparing = state.connectionStep == ConnectionStep.AGENT && state.failure == null
-                                Button(onClick = { newSession = true }, enabled = !preparing && !vm.creatingAgent && !vm.sessionBusy) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.new_session)) }
+                                Button(onClick = { showNewSession() }, enabled = !preparing && !vm.creatingAgent && !vm.sessionBusy) { Text(stringResource(if (preparing) R.string.connection_agent else R.string.new_session)) }
                                 TextButton(onClick = vm::openDesktop) { Text(stringResource(R.string.open_desktop)) }
                             } else Button(onClick = { vm.openMachineSettings() }) { Text(stringResource(R.string.open_host_settings)) }
                         }
@@ -601,7 +602,7 @@ fun KiteWorkspace(vm: HostCheckViewModel, enterPip: () -> Unit, updatePip: () ->
                     }
                 }
             }
-            if(newSessionProviders.isEmpty())Text(stringResource(R.string.session_machine_offline),fontSize=12.sp,color=Muted)
+            if(newSessionHost.isNotEmpty() && newSessionProviders.isEmpty())Text(stringResource(R.string.session_machine_offline),fontSize=12.sp,color=Muted)
             HarnessChoices(newSessionProviders, provider) { provider = it }
             if (newSessionProviders.isNotEmpty()) Text(stringResource(if (newSessionProviders.none { it.id == provider }) R.string.harness_unavailable else if (provider == "claude") R.string.claude_draft_hint else if (provider == "codex") R.string.codex_session_hint else R.string.harness_session_hint), fontSize = 12.sp, color = Muted)
             OutlinedTextField(sessionName, { sessionName = it }, label = { Text(stringResource(R.string.session_name)) }, singleLine = true)

@@ -6,6 +6,8 @@ export const ACP_READ_LIMIT = 256 * 1024;
 export const ACP_READ_DEFAULT = 64 * 1024;
 export const ACP_MAX_CHILDREN_PER_PARENT = 16;
 export const ACP_MAX_WAIT_SESSIONS = 16;
+export const ACP_MAX_PLACEMENT_PEERS = 16;
+export const ACP_PLACEMENT_METHOD = "_kite/host/placement";
 export const ACP_CONTROL_METHODS = ["submit", "status", "read", "wait_any", "release"].map(
   (method) => `_kite/session/${method}`,
 );

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { array, type ObjectValue, object, optionalString, parse } from "@kite/protocol";
-import { ACP_MESSAGE_LIMIT } from "@kite/protocol/acp";
+import { ACP_MESSAGE_LIMIT, ACP_PLACEMENT_METHOD } from "@kite/protocol/acp";
 import { lines } from "@kite/runtime";
 import { serveAcp } from "@kite/runtime/acp";
 import { acpTask, acpToken } from "../src/acp";
@@ -14,7 +14,7 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.stop(true);
   for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-function fixture(hold = false) {
+function fixture(hold = false, placement?: { score: number | null; refuseSpawn?: boolean }) {
   const root = mkdtempSync(join(tmpdir(), "kite-acp-client-"));
   directories.push(root);
   const tokenFile = join(root, "token"),
@@ -38,6 +38,18 @@ function fixture(hold = false) {
             }
             const p = object(message.params ?? {});
             if (message.method === "session/new") created.push(p);
+            if (message.method === ACP_PLACEMENT_METHOD && message.id !== undefined) {
+              send({ id: message.id, result: { score: placement?.score ?? null } });
+              return;
+            }
+            if (
+              message.method === "session/new" &&
+              placement?.refuseSpawn &&
+              message.id !== undefined
+            ) {
+              send({ id: message.id, error: { code: -32000, message: "workspace is occupied" } });
+              return;
+            }
             if (message.method === "session/prompt") {
               send({
                 method: "session/update",
@@ -71,7 +83,15 @@ function fixture(hold = false) {
                 id: message.id,
                 result:
                   message.method === "initialize"
-                    ? { protocolVersion: 1, _meta: { kite: { controlPlaneVersion: 2 } } }
+                    ? {
+                        protocolVersion: 1,
+                        _meta: {
+                          kite: {
+                            controlPlaneVersion: 2,
+                            controlMethods: placement ? [ACP_PLACEMENT_METHOD] : [],
+                          },
+                        },
+                      }
                     : message.method === "session/prompt"
                       ? { stopReason: "end_turn" }
                       : { sessionId: optionalString(p.sessionId) || "remote-session" },
@@ -131,6 +151,7 @@ function callerFixture(root: string) {
           id: managed.sessionId,
           title: "Owned managed fixture",
           provider: managed.provider,
+          delegation: { parent: codex, policy: "strict" },
           reference: {
             source: "kite:harness",
             agent: managed.provider,
@@ -215,6 +236,78 @@ test("ACP spawn binds the verified caller and requires explicit standalone inten
     await spawn({}, "--parent-machine", "external-host", "--parent-session", "external-context"),
   ).toMatchObject({ code: 0 });
   expect(latest().parent).toEqual({ machine: "external-host", sessionId: "external-context" });
+});
+
+test("ACP defaults to the least loaded eligible peer for a nested child and honors an explicit peer", async () => {
+  const busy = fixture(false, { score: 990 }),
+    idle = fixture(false, { score: 350 }),
+    unmeasured = fixture(false, { score: null }),
+    older = fixture();
+  const caller = callerFixture(busy.root);
+  writeFileSync(
+    busy.peers,
+    JSON.stringify({
+      peers: { busy: busy.peer, idle: idle.peer, unmeasured: unmeasured.peer, older: older.peer },
+    }),
+  );
+  async function spawn(...target: string[]) {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        resolve("packages/host/src/cli.ts"),
+        "acp",
+        "spawn",
+        "--peers",
+        busy.peers,
+        "--cwd",
+        busy.root,
+        "--provider",
+        "codex",
+        ...target,
+      ],
+      {
+        env: { ...caller.env, KITE_SESSION_ID: caller.managed.sessionId },
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+    return object(parse(stdout));
+  }
+  expect((await spawn()).peer).toBe("idle");
+  expect(busy.created).toHaveLength(0);
+  expect(unmeasured.created).toHaveLength(0);
+  expect(older.created).toHaveLength(0);
+  const delegated = object(object(idle.created[0]?._meta).kite);
+  expect(object(delegated.delegation).parent).toEqual(caller.managed);
+  expect((await spawn("--peer", "busy")).peer).toBe("busy");
+  expect(busy.created).toHaveLength(1);
+  expect(idle.created).toHaveLength(1);
+  expect(busy.calls.filter((call) => call === ACP_PLACEMENT_METHOD)).toHaveLength(1);
+});
+
+test("a failed spawn on the recommended peer is never retried on another peer", async () => {
+  const preferred = fixture(false, { score: 1, refuseSpawn: true }),
+    alternate = fixture(false, { score: 2 });
+  writeFileSync(
+    preferred.peers,
+    JSON.stringify({ peers: { preferred: preferred.peer, alternate: alternate.peer } }),
+  );
+  const invocation =
+    await Bun.$`${process.execPath} packages/host/src/cli.ts acp spawn --peers ${preferred.peers} --cwd ${preferred.root} --provider codex --standalone`
+      .quiet()
+      .nothrow();
+  expect(invocation.exitCode).not.toBe(0);
+  expect(invocation.stderr.toString()).toContain("ACP spawn on preferred: workspace is occupied");
+  expect(preferred.created).toHaveLength(1);
+  expect(alternate.created).toHaveLength(0);
 });
 test("task client returns remote progress and defaults to rejecting unapproved commands", async () => {
   const f = fixture();
@@ -356,8 +449,15 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
             if (message.method === "initialize")
               send({
                 id: requestId,
-                result: { protocolVersion: 1, _meta: { kite: { controlPlaneVersion: 2 } } },
+                result: {
+                  protocolVersion: 1,
+                  _meta: {
+                    kite: { controlPlaneVersion: 2, controlMethods: [ACP_PLACEMENT_METHOD] },
+                  },
+                },
               });
+            if (message.method === ACP_PLACEMENT_METHOD)
+              send({ id: requestId, result: { score: winner ? 20 : 100 } });
             if (message.method === "_kite/session/status" || message.method === "session/cancel")
               send({ id: requestId, result: { sessionId: id, state: "working" } });
             if (message.method === "session/new") {
@@ -445,9 +545,10 @@ test("MCP keeps status and cancel available during multi-peer waits and closes l
     expect(tools.find((tool) => tool.name === "kite_remote_task")?.description).toContain(
       "Deprecated. Reserved for existing automation.",
     );
-    call(10, "kite_session_spawn", { peer: "a", cwd: dir, provider: "codex" });
+    call(10, "kite_session_spawn", { cwd: dir, provider: "codex" });
     await until(() => responses.has(10));
     expect(object(responses.get(10)).isError).toBe(false);
+    expect(object(responses.get(10)).structuredContent).toMatchObject({ peer: "b", sessionId: id });
     expect(created[0]).toMatchObject({
       _meta: { kite: { delegation: { parent: caller.managed } } },
     });

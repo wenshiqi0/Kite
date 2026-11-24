@@ -211,6 +211,7 @@ pub struct Snapshot {
     pub capability: Option<String>,
     pub host_key_fingerprint: Option<String>,
     pub host_resources: Option<crate::resources::HostResources>,
+    resources_observed_at: Option<Instant>,
     pub agents: Vec<Agent>,
     pub providers: Vec<providers::Provider>,
     pub sessions: Vec<ConversationSession>,
@@ -256,6 +257,7 @@ impl Default for Snapshot {
             capability: None,
             host_key_fingerprint: None,
             host_resources: None,
+            resources_observed_at: None,
             agents: Vec::new(),
             providers: Vec::new(),
             sessions: Vec::new(),
@@ -709,6 +711,7 @@ impl AppCore {
             s.selected_host = Some(host.id.clone());
             s.failure = None;
             s.host_resources = None;
+            s.resources_observed_at = None;
             s.pending_key = None;
         });
         core.disconnect_inner(false).await?;
@@ -1735,6 +1738,7 @@ impl AppCore {
             s.capability = None;
             s.host_key_fingerprint = None;
             s.host_resources = None;
+            s.resources_observed_at = None;
             s.agents.clear();
             s.providers.clear();
             // Only a saved conversation outlives the panes of this connection.

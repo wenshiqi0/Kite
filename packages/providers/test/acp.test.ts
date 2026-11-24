@@ -10,6 +10,7 @@ import {
   type SessionRecord,
   string,
 } from "@kite/protocol";
+import { ACP_PLACEMENT_METHOD } from "@kite/protocol/acp";
 import { type AcpBackend, type AcpRepository, KiteAcp, kiteAcpConnector } from "../src/acp";
 
 const directories: string[] = [];
@@ -35,7 +36,7 @@ const antigravitySettings = [
     options: [{ value: "default" }, { value: "turbo" }],
   },
 ];
-function fixture() {
+function fixture(placement?: () => Promise<number | null>) {
   const root = directory(),
     records: SessionRecord[] = [
       { id: "a".repeat(32), provider: "ply", cwd: root, title: "mini" },
@@ -78,6 +79,7 @@ function fixture() {
       stateDirectory: root,
       defaultProvider: "ply",
       repository,
+      ...(placement ? { placement } : {}),
       async backend(record, event, request): Promise<AcpBackend> {
         const owner = {
           event,
@@ -144,6 +146,27 @@ function fixture() {
       });
   return { root, records, outputs, owners, agent, initialize, resume, created: () => created };
 }
+
+test("resource placement checks cwd and provider without starting an owner", async () => {
+  let samples = 0;
+  const f = fixture(async () => ++samples);
+  const outside = directory();
+  symlinkSync(outside, join(f.root, "escape"));
+  await f.initialize();
+  const capabilities = object(object(object(f.outputs[0]?.result)._meta).kite);
+  expect(array(capabilities.controlMethods)).toContain(ACP_PLACEMENT_METHOD);
+  const probe = (cwd: string, provider: string) =>
+    f.agent.receive({ id: 2, method: ACP_PLACEMENT_METHOD, params: { cwd, provider } });
+  await probe(f.root, "codex");
+  expect(f.outputs.at(-1)?.result).toEqual({ score: 1 });
+  await probe(f.root, "claude");
+  expect(f.outputs.at(-1)?.error).toBeDefined();
+  await probe(join(f.root, "escape"), "codex");
+  expect(f.outputs.at(-1)?.error).toBeDefined();
+  expect(samples).toBe(1);
+  expect(f.created()).toBe(0);
+  expect(f.owners.size).toBe(0);
+});
 test("ACP session listing is read-only and rejects workspace and symlink escapes", async () => {
   const f = fixture(),
     outside = directory();

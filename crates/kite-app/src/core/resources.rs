@@ -20,6 +20,13 @@ impl AppCore {
             if state.selected_host.as_deref() == Some(host)
                 && state.connection == ConnectionPhase::Connected
             {
+                if !profile.available {
+                    state.resources_observed_at = None;
+                } else if state.host_resources.as_ref().map(|old| old.sampled_at_ms)
+                    != Some(profile.sampled_at_ms)
+                {
+                    state.resources_observed_at = Some(Instant::now());
+                }
                 state.host_resources = Some(profile);
             }
         });

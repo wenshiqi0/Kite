@@ -1,6 +1,9 @@
 //! Host sampling, persistent startup reservations and the configurable agent budget.
 use super::*;
-use crate::resources::{GIB, HostResources, RawResources, ResourceTracker, STARTUP_RESERVATION};
+use crate::resources::{
+    GIB, HostResources, PLACEMENT_SAMPLE_MAX_AGE, RawResources, ResourceTracker,
+    STARTUP_RESERVATION,
+};
 use std::{fs::OpenOptions, io::Write, os::unix::fs::MetadataExt};
 use tokio::task::JoinHandle;
 
@@ -218,6 +221,15 @@ impl Resources {
         state.profile.clone()
     }
 
+    pub async fn placement(&self) -> Option<u32> {
+        let state = self.state.lock().await;
+        let age_ms = now_ms().checked_sub(state.profile.sampled_at_ms)?;
+        if Duration::from_millis(age_ms) > PLACEMENT_SAMPLE_MAX_AGE {
+            return None;
+        }
+        state.profile.placement_score()
+    }
+
     pub async fn admit(&self, node: &Node, pane: &str, pid: u32) -> Result<Value> {
         if cfg!(target_os = "macos") {
             return Err(Error::Config(
@@ -409,6 +421,37 @@ mod tests {
             upgrade: None,
             observation_gate: RwLock::new(()),
         }
+    }
+
+    #[tokio::test]
+    async fn placement_control_reads_only_fresh_admissible_samples() {
+        use crate::resources::MemoryPressure;
+
+        let root = tempfile::tempdir().unwrap();
+        let node = fixture(root.path());
+        node.resources.state.lock().await.profile = HostResources {
+            available: true,
+            sampled_at_ms: now_ms(),
+            cpu_percent: Some(10.0),
+            cpu_cores: 4,
+            memory_total_bytes: 20 * GIB,
+            memory_available_bytes: 10 * GIB,
+            agent_memory_used_bytes: 4 * GIB,
+            agent_memory_limit_bytes: 10 * GIB,
+            agent_process_count: 2,
+            limit_enforced: true,
+            memory_pressure: MemoryPressure::Normal,
+            can_start_agents: true,
+            ..HostResources::default()
+        };
+        let request = NodeRequest::new("resource-placement");
+        assert_eq!(node.control(&request).await.unwrap(), json!({"score": 602}));
+        node.resources.state.lock().await.profile.sampled_at_ms = now_ms().saturating_sub(16_000);
+        assert_eq!(
+            node.control(&request).await.unwrap(),
+            json!({"score": null})
+        );
+        assert!(node.resources.state.lock().await.reservations.is_empty());
     }
 
     #[tokio::test]

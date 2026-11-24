@@ -297,8 +297,12 @@ pub fn run(mut args: Vec<String>) -> Result<i32> {
                 Ok(0)
             }
             "resources" => {
-                if args.len()!=1 { return Err(Error::Config("resources accepts no arguments")); }
-                println!("{}",rpc(&socket,NodeRequest::new("resources")).await?);
+                let method = match &args[1..] {
+                    [] => "resources",
+                    [flag] if flag == "--placement" => "resource-placement",
+                    _ => return Err(Error::Config("resources accepts only --placement")),
+                };
+                println!("{}",rpc(&socket,NodeRequest::new(method)).await?);
                 Ok(0)
             }
             "resource-limit" => {
@@ -766,6 +770,7 @@ impl Node {
             }
             "sessions-release-archived" => Ok(serde_json::to_value(lifecycle::scan(self).await?)?),
             "resources" => Ok(serde_json::to_value(self.resources.profile(self).await)?),
+            "resource-placement" => Ok(json!({"score": self.resources.placement().await})),
             "resource-limit" => Ok(serde_json::to_value(
                 self.resources
                     .set_limit(

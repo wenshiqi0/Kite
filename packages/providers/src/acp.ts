@@ -2,6 +2,7 @@
 import { join } from "node:path";
 import {
   array,
+  boundedString,
   CHAT_PROVIDERS,
   type ChatProvider,
   check,
@@ -17,7 +18,12 @@ import {
   type SessionSelection,
   string,
 } from "@kite/protocol";
-import { ACP_CONTROL_METHODS, ACP_MAX_CHILDREN_PER_PARENT, acpSessionId } from "@kite/protocol/acp";
+import {
+  ACP_CONTROL_METHODS,
+  ACP_MAX_CHILDREN_PER_PARENT,
+  ACP_PLACEMENT_METHOD,
+  acpSessionId,
+} from "@kite/protocol/acp";
 import { locked } from "@kite/runtime";
 import type { AcpConnection } from "@kite/runtime/acp";
 import { optionalObject } from "@kite/runtime/socket";
@@ -53,6 +59,7 @@ export interface KiteAcpOptions {
   newSessionProviders?: readonly ChatProvider[];
   repository?: AcpRepository;
   stateDirectory?: string;
+  placement?(): Promise<number | null>;
   humanAvailable?(): Promise<boolean>;
   inspect?(record: SessionRecord): Promise<OwnerStatus>;
   interrupt?(record: SessionRecord, turnId: string): Promise<void>;
@@ -151,6 +158,12 @@ export class KiteAcp implements AcpConnection {
   }
   private cwd(path: string): string {
     return this.control.paths.cwd(path);
+  }
+  private supportsNewSession(provider: unknown): boolean {
+    return (
+      isChatProvider(provider) &&
+      (this.options.newSessionProviders ?? CHAT_PROVIDERS).includes(provider)
+    );
   }
   private publish(sessionId: string, update: Json): void {
     if (!this.closed) this.send({ method: "session/update", params: { sessionId, update } });
@@ -361,7 +374,9 @@ export class KiteAcp implements AcpConnection {
             machine: this.options.machine,
             transport: "websocket-v1",
             controlPlaneVersion: 2,
-            controlMethods: ACP_CONTROL_METHODS,
+            controlMethods: this.options.placement
+              ? [...ACP_CONTROL_METHODS, ACP_PLACEMENT_METHOD]
+              : ACP_CONTROL_METHODS,
             newSessionProviders: [...(this.options.newSessionProviders ?? CHAT_PROVIDERS)],
             resumedSessionProviders: [...CHAT_PROVIDERS],
           },
@@ -370,6 +385,15 @@ export class KiteAcp implements AcpConnection {
     }
     check(this.initialized, "initialize the ACP connection first");
     if (method === "initialized") return {};
+    if (method === ACP_PLACEMENT_METHOD) {
+      check(this.options.placement, "peer resource placement is unavailable");
+      check(
+        this.supportsNewSession(params.provider),
+        "network provider is not available on this host",
+      );
+      this.cwd(boundedString(params.cwd, 4096));
+      return { score: await this.options.placement() };
+    }
     if (method === "_kite/session/submit")
       return this.control.submit(params, this.disconnect.signal);
     if (method === "_kite/session/status")
@@ -419,8 +443,7 @@ export class KiteAcp implements AcpConnection {
         );
         if (method === "session/new")
           check(
-            isChatProvider(provider) &&
-              (this.options.newSessionProviders ?? CHAT_PROVIDERS).includes(provider),
+            this.supportsNewSession(provider),
             "network provider is not available on this host",
           );
         if (

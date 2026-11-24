@@ -169,6 +169,7 @@
 "no_sessions" = "尚无会话";
 "no_session_matches" = "没有匹配的会话";
 "session_machine" = "执行主机";
+"choose_execution_host" = "选择执行主机";
 "active_sessions" = "活动";
 "associated_task_close" = "关闭";
 "associated_take_over" = "打开并接管";

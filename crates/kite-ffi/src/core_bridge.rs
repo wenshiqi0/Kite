@@ -1592,6 +1592,9 @@ impl KiteCore {
     pub fn snapshot(&self) -> Result<CoreSnapshot, KiteError> {
         Ok(self.inner.snapshot().into())
     }
+    pub fn recommend_session_host(&self) -> Option<String> {
+        self.inner.recommend_session_host()
+    }
     pub async fn register_push(
         &self,
         device_id: String,

@@ -424,8 +424,9 @@ internal sealed class MainWindow : Window
     private async Task RemoveHost() { if (ResourceHost is { } host && MessageBox.Show(this, $"移除 {host.Title} 及本机保存的信任、配对记录？", "移除主机", MessageBoxButton.YesNo) == MessageBoxResult.Yes) await Core.Call(new { op = "remove_host", host_id = host.id }); }
     private Task SessionMenu() { if (sessions.SelectedItem is ListBoxItem item && item.ContextMenu is { } menu) { menu.PlacementTarget = item; menu.IsOpen = true; } return Task.CompletedTask; }
     private static string ProviderLabel(string id) => id == "antigravity" ? "Antigravity" : id;
-    private Task CreateSession()
+    private async Task CreateSession()
     {
+        string recommended = (await Core.Call(new { op = "recommend_session_host" })).Text();
         var connected = state.Array("host_connections").Where(h => h.Text("connection") == "Connected")
             .ToDictionary(h => h.Text("host_id"));
         var availableHosts = state.Array("hosts").Select(Host.From).Where(h => connected.ContainsKey(h.id))
@@ -446,7 +447,7 @@ internal sealed class MainWindow : Window
                 : Array.Empty<Selection>();
             providers.SelectedIndex = providers.HasItems ? 0 : -1;
         };
-        machine.SelectedValue = connected.ContainsKey(HostId) ? HostId : availableHosts[0].Id;
+        machine.SelectedValue = recommended;
         var window = new Window { Title = "新建会话", Owner = this, Width = 460, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         panel.Children.Add(Ui.Button("创建", async () =>
         {
@@ -456,7 +457,6 @@ internal sealed class MainWindow : Window
             window.Close();
         }));
         window.ShowDialog();
-        return Task.CompletedTask;
     }
     private async Task Upload()
     {

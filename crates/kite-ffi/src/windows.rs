@@ -175,6 +175,7 @@ enum Command {
     Snapshot {
         after_revision: Option<u64>,
     },
+    RecommendSessionHost {},
     Conversation {
         context: String,
         revision: u64,
@@ -370,6 +371,7 @@ async fn run(core: Arc<KiteCore>, command: Command) -> Result<Value, KiteError> 
                 value(snapshot)
             };
         }
+        RecommendSessionHost {} => return value(core.recommend_session_host()),
         Conversation { context, revision } => {
             return value(core.conversation_since(context, revision));
         }
