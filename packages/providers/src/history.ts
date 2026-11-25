@@ -232,7 +232,7 @@ export async function questionRecords(file: string): Promise<Buffer> {
         try {
           const saved = object(readJson(cache));
           if (
-            saved.version === 4 &&
+            saved.version === 5 &&
             saved.device === info.dev &&
             saved.inode === info.ino &&
             typeof saved.offset === "number" &&
@@ -276,7 +276,9 @@ export async function questionRecords(file: string): Promise<Buffer> {
             keep = true;
           } else if (
             p.type === "function_call" &&
-            p.name === "request_user_input_async" &&
+            (p.name === "request_user_input_async" ||
+              p.name === "ask_question" ||
+              p.name === "Run ask_question") &&
             p.call_id
           ) {
             calls.add(p.call_id);
@@ -318,7 +320,7 @@ export async function questionRecords(file: string): Promise<Buffer> {
       }
       const result = Buffer.from(compact.map((r) => `${JSON.stringify(r)}\n`).join(""));
       check(result.length <= 1024 * 1024, "question history index exceeds transport capacity");
-      atomic(cache, { version: 4, device: info.dev, inode: info.ino, offset, rows: compact });
+      atomic(cache, { version: 5, device: info.dev, inode: info.ino, offset, rows: compact });
       return result;
     } finally {
       closeSync(fd);

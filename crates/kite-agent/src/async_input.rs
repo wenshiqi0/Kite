@@ -36,7 +36,10 @@ pub fn replies(text: &str) -> Option<Vec<Reply>> {
         || values.iter().any(|r| {
             let id = serde_json::from_str::<Value>(&r.question_item_id).unwrap_or(Value::Null);
             id.as_array().is_none_or(|a| a.len() != 3)
-                || id[0] != "request_user_input_async"
+                || !matches!(
+                    id[0].as_str(),
+                    Some("request_user_input_async" | "ask_question")
+                )
                 || id[1].as_str().is_none_or(str::is_empty)
                 || id[2].as_u64().is_none()
                 || r.question.len() > 16384
@@ -52,20 +55,37 @@ pub fn from_item(thread: &str, turn: &str, item: &Value) -> Option<Pending> {
     if item["type"] != "agentMessage" || item["delivery"] != "async" {
         return None;
     }
-    from_questions(thread, turn, item["id"].as_str()?, &item["questions"])
+    let kind = if item["providerTool"] == "ask_question" {
+        "ask_question"
+    } else {
+        "request_user_input_async"
+    };
+    from_questions(kind, thread, turn, item["id"].as_str()?, &item["questions"])
 }
 
-fn from_questions(thread: &str, turn: &str, call: &str, value: &Value) -> Option<Pending> {
+fn from_questions(
+    kind: &str,
+    thread: &str,
+    turn: &str,
+    call: &str,
+    value: &Value,
+) -> Option<Pending> {
     let fields = value.as_array()?;
     if call.is_empty() || call.len() > 256 || fields.is_empty() || fields.len() > 12 {
         return None;
     }
     let mut questions = Vec::new();
     for (index, field) in fields.iter().enumerate() {
-        let title = field["title"].as_str()?;
+        let title = field["title"]
+            .as_str()
+            .or_else(|| field["question"].as_str())?;
         if title.trim().is_empty() || title.len() > 16384 {
             return None;
         }
+        let is_multi_select = field["isMultiSelect"]
+            .as_bool()
+            .or_else(|| field["is_multi_select"].as_bool())
+            .unwrap_or(false);
         let options = match field.get("options").filter(|v| !v.is_null()) {
             Some(value) => {
                 let values = value.as_array()?;
@@ -88,12 +108,13 @@ fn from_questions(thread: &str, turn: &str, call: &str, value: &Value) -> Option
             None => None,
         };
         questions.push(Question {
-            id: json!(["request_user_input_async", call, index]).to_string(),
+            id: json!([kind, call, index]).to_string(),
             header: format!("Q{}", index + 1),
             question: title.into(),
             options,
             is_other: true,
             is_secret: false,
+            is_multi_select,
         });
     }
     Some(Pending {
@@ -110,6 +131,7 @@ fn from_questions(thread: &str, turn: &str, call: &str, value: &Value) -> Option
 pub fn history(thread: &str, bytes: &[u8]) -> History {
     let mut pending = Vec::<(String, Pending)>::new();
     let mut accepted = Vec::new();
+    let mut ask_question_calls = Vec::new();
     let mut answered = Vec::new();
     for line in bytes.split(|b| *b == b'\n') {
         let Ok(v) = serde_json::from_slice::<Value>(line) else {
@@ -131,7 +153,13 @@ pub fn history(thread: &str, bytes: &[u8]) -> History {
                 let turn = p["internal_chat_message_metadata_passthrough"]["turn_id"]
                     .as_str()
                     .unwrap_or_default();
-                if let Some(question) = from_questions(thread, turn, call, &args["questions"]) {
+                if let Some(question) = from_questions(
+                    "request_user_input_async",
+                    thread,
+                    turn,
+                    call,
+                    &args["questions"],
+                ) {
                     if let Some(existing) = pending.iter_mut().find(|(id, _)| id == call) {
                         existing.1 = question;
                     } else {
@@ -139,13 +167,47 @@ pub fn history(thread: &str, bytes: &[u8]) -> History {
                     }
                 }
             }
+            Some("function_call")
+                if matches!(
+                    p["name"].as_str(),
+                    Some("ask_question" | "Run ask_question")
+                ) =>
+            {
+                let Some(call) = p["call_id"].as_str() else {
+                    continue;
+                };
+                let args = p["arguments"]
+                    .as_str()
+                    .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                    .unwrap_or(Value::Null);
+                let turn = call.split(':').next().unwrap_or_default();
+                if let Some(question) =
+                    from_questions("ask_question", thread, turn, call, &args["questions"])
+                {
+                    if let Some(existing) = pending.iter_mut().find(|(id, _)| id == call) {
+                        existing.1 = question;
+                    } else {
+                        pending.push((call.into(), question));
+                    }
+                    accepted.push(call.to_owned());
+                    ask_question_calls.push(call.to_owned());
+                }
+            }
             Some("function_call_output") => {
+                let Some(call) = p["call_id"].as_str() else {
+                    continue;
+                };
+                if ask_question_calls.iter().any(|id| id == call) {
+                    if let Some(pos) = pending.iter().position(|(id, _)| id == call) {
+                        let (_, resolved) = pending.remove(pos);
+                        answered.extend(resolved.prompt.questions.into_iter().map(|q| q.id));
+                    }
+                    continue;
+                }
                 let output = p["output"]
                     .as_str()
                     .and_then(|s| serde_json::from_str::<Value>(s).ok());
-                if output.is_some_and(|v| v["accepted"] == true)
-                    && let Some(call) = p["call_id"].as_str()
-                {
+                if output.is_some_and(|v| v["accepted"] == true) {
                     accepted.push(call.to_owned());
                 }
             }
@@ -366,5 +428,85 @@ mod tests {
         assert_eq!(h.pending.len(), 1);
         assert_eq!(h.pending[0].prompt.questions.len(), 1);
         assert_eq!(h.pending[0].prompt.questions[0].header, "Q2");
+    }
+
+    #[test]
+    fn antigravity_ask_question_recovers_multi_select_without_output_and_clears_on_reply() {
+        let ask = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "Run ask_question",
+                "call_id": "turn-1:call-ask",
+                "arguments": json!({
+                    "questions": [
+                        {
+                            "question": "Pick deployment targets",
+                            "options": ["STG", "PRD", "Lane"],
+                            "is_multi_select": true
+                        },
+                        {
+                            "question": "Confirm currency",
+                            "options": ["CNY", "USD"],
+                            "is_multi_select": false
+                        }
+                    ]
+                }).to_string()
+            }
+        });
+        let h = history("thread", &bytes(std::slice::from_ref(&ask)));
+        assert_eq!(h.pending.len(), 1);
+        let prompt = &h.pending[0].prompt;
+        assert!(!prompt.blocking);
+        assert_eq!(prompt.questions.len(), 2);
+        assert!(prompt.questions[0].is_multi_select);
+        assert!(!prompt.questions[1].is_multi_select);
+        assert_eq!(
+            prompt.questions[0].id,
+            json!(["ask_question", "turn-1:call-ask", 0]).to_string()
+        );
+
+        let mut state = RuntimeState::default();
+        state.reconcile_async(&h);
+        let live_prompt = state.question().unwrap();
+        let reply = state
+            .async_reply(
+                &live_prompt.id,
+                &[
+                    Answer {
+                        question_id: live_prompt.questions[0].id.clone(),
+                        value: "STG\nLane".into(),
+                    },
+                    Answer {
+                        question_id: live_prompt.questions[1].id.clone(),
+                        value: "CNY".into(),
+                    },
+                ],
+            )
+            .unwrap()
+            .unwrap();
+        let parsed = replies(&reply).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].answer, "STG\nLane");
+        assert_eq!(parsed[1].answer, "CNY");
+
+        let answered_rows = vec![
+            ask.clone(),
+            json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"text":reply}]}}),
+        ];
+        assert!(history("thread", &bytes(&answered_rows)).pending.is_empty());
+
+        let live_item = json!({
+            "id": "turn-1:call-ask",
+            "type": "agentMessage",
+            "delivery": "async",
+            "providerTool": "ask_question",
+            "questions": [
+                {"title": "Pick deployment targets", "options": ["STG", "PRD"], "isMultiSelect": true}
+            ]
+        });
+        let from_live = from_item("thread", "turn-1", &live_item).unwrap();
+        assert!(from_live.prompt.questions[0].is_multi_select);
+        assert_eq!(from_live.prompt.id, prompt.id);
     }
 }

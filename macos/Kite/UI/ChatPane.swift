@@ -339,10 +339,23 @@ struct QuestionCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(field.header).font(.caption).foregroundStyle(.secondary)
                     Text(field.text).textSelection(.enabled)
+                    let optionLabels = Set(field.options.map(\.label))
+                    let parts = (answers[field.id] ?? "").split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+                    let selectedOptions = field.multiSelect ? parts.filter { optionLabels.contains($0) } : (optionLabels.contains(answers[field.id] ?? "") ? [answers[field.id] ?? ""] : [])
+                    let customParts = field.multiSelect ? parts.filter { !optionLabels.contains($0) } : ((answers[field.id] ?? "").isEmpty || optionLabels.contains(answers[field.id] ?? "") ? [] : [answers[field.id] ?? ""])
                     ForEach(field.options, id: \.label) { option in
-                        Button { answers[field.id] = option.label } label: {
+                        let isSelected = field.multiSelect ? selectedOptions.contains(option.label) : answers[field.id] == option.label
+                        Button {
+                            if field.multiSelect {
+                                var next = selectedOptions
+                                if let idx = next.firstIndex(of: option.label) { next.remove(at: idx) } else { next.append(option.label) }
+                                answers[field.id] = (next + customParts).joined(separator: "\n")
+                            } else {
+                                answers[field.id] = option.label
+                            }
+                        } label: {
                             HStack(alignment: .top) {
-                                Image(systemName: answers[field.id] == option.label ? "largecircle.fill.circle" : "circle")
+                                Image(systemName: field.multiSelect ? (isSelected ? "checkmark.square.fill" : "square") : (isSelected ? "largecircle.fill.circle" : "circle"))
                                 VStack(alignment: .leading) {
                                     Text(option.label); if !option.description.isEmpty { Text(option.description).font(.caption).foregroundStyle(.secondary) }
                                 }
@@ -350,7 +363,16 @@ struct QuestionCard: View {
                         }.buttonStyle(.plain)
                     }
                     if field.options.isEmpty || field.allowOther {
-                        let value = Binding(get: { answers[field.id] ?? "" }, set: { answers[field.id] = $0 })
+                        let value = Binding(
+                            get: { field.multiSelect ? customParts.joined(separator: "\n") : (optionLabels.contains(answers[field.id] ?? "") ? "" : (answers[field.id] ?? "")) },
+                            set: { input in
+                                if field.multiSelect {
+                                    answers[field.id] = (input.isEmpty ? selectedOptions : selectedOptions + [input]).joined(separator: "\n")
+                                } else {
+                                    answers[field.id] = input
+                                }
+                            }
+                        )
                         if field.secret { SecureField(tr("answer"), text: value) }
                         else { TextField(tr("answer"), text: value) }
                     }

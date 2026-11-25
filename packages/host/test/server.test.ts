@@ -843,7 +843,7 @@ for (const provider of ["dsh", "ply"] as const)
         await waitStatus(path, "cancelled");
         expect(
           object(await reconnect.call("thread/turns/list", { threadId: thread, limit: 1 })).data,
-        ).toEqual([]);
+        ).toEqual([{ id: first.id, status: "interrupted", items: [] }]);
         // A new normal turn succeeds after cancellation and carries native image bytes.
         const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]),
           uploadId = "e".repeat(32);
@@ -1826,3 +1826,118 @@ test("isolated network ACP resumes one native turn, journals human approval and 
     health.stop(true);
   }
 }, 20_000);
+
+test("Antigravity ask_question projects live async questions, controls, and unwraps form replies", async () => {
+  const home = fresh(),
+    id = "c".repeat(32);
+  const configured = {
+    KITE_ENABLE_ANTIGRAVITY: "1",
+    KITE_FIXTURE_AGY_SIGNED_IN: "1",
+    KITE_ANTIGRAVITY_COMMAND: JSON.stringify([
+      process.execPath,
+      resolve("packages/host/test/fixtures/antigravity.ts"),
+    ]),
+  };
+  expect(
+    (
+      await command(
+        home,
+        ["catalog-write"],
+        JSON.stringify({ revision: 0, sessions: [row(id, "antigravity")] }),
+        configured,
+      )
+    ).code,
+  ).toBe(0);
+  const opened = await command(
+    home,
+    ["session-open", "--id", id, "--herdr", "unused"],
+    undefined,
+    configured,
+  );
+  expect(opened.code).toBe(0);
+  const ref = object(object(object(parse(opened.stdout.toString())).agent).agent_session);
+  const thread = string(ref.value);
+  const path = join(home, "harnesses", thread);
+  const pid = Number(object(parse(readFileSync(join(path, "state.json"), "utf8"))).pid);
+  const asyncEvents: Record<string, unknown>[] = [];
+  const rpc = new RpcProcess(
+    [process.execPath, cli, "proxy", "--pane", `kite-harness-${thread}`],
+    home,
+    (message) => {
+      if (message.method === "item/completed") {
+        const item = object(object(message.params).item);
+        if (item.delivery === "async") asyncEvents.push(item);
+      }
+    },
+    () => {},
+    env(home, configured),
+  );
+  try {
+    await rpc.call("initialize", {});
+    await rpc.call("turn/start", {
+      threadId: thread,
+      model: "gemini-pro",
+      effort: "high",
+      input: [{ type: "text", text: "ask" }],
+    });
+    await waitStatus(path, "done");
+    expect(asyncEvents).toHaveLength(1);
+    expect(asyncEvents[0]).toMatchObject({
+      type: "agentMessage",
+      delivery: "async",
+      providerTool: "ask_question",
+      questions: [
+        { title: "Pick deployment targets", options: ["STG", "PRD"], isMultiSelect: true },
+        { title: "Confirm currency", options: ["CNY", "USD"] },
+      ],
+    });
+    const turns = array(
+      object(await rpc.call("thread/turns/list", { threadId: thread, limit: 1 })).data,
+    );
+    expect(turns).toMatchObject([{ status: "completed" }]);
+    const callId = string(asyncEvents[0]?.id);
+    const facts = await command(
+      home,
+      ["notification-facts", "--herdr", "unused"],
+      undefined,
+      configured,
+    );
+    expect(facts.code).toBe(0);
+    const fact = array(object(parse(facts.stdout.toString())).facts)
+      .map(object)
+      .find((entry) => entry.session_id === id);
+    expect(string(fact?.controls)).toContain("Run ask_question");
+
+    const envelope = `<send_user_message_question_reply>\n${JSON.stringify([
+      {
+        questionItemId: JSON.stringify(["ask_question", callId, 0]),
+        question: "Pick deployment targets",
+        answer: "STG\nPRD",
+      },
+      {
+        questionItemId: JSON.stringify(["ask_question", callId, 1]),
+        question: "Confirm currency",
+        answer: "CNY",
+      },
+    ])}\n</send_user_message_question_reply>`;
+    await rpc.call("turn/start", {
+      threadId: thread,
+      input: [{ type: "text", text: envelope }],
+    });
+    await waitStatus(path, "done");
+    const prompts = readFileSync(join(home, "agy-fixture-prompts"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => array(parse(line)));
+    const lastPromptText = string(object(prompts.at(-1)?.[0]).text);
+    expect(lastPromptText).not.toContain("<send_user_message_question_reply>");
+    expect(lastPromptText).toContain("1. Pick deployment targets\nSTG\nPRD");
+    expect(lastPromptText).toContain("2. Confirm currency\nCNY");
+    expect(readFileSync(join(path, "history.jsonl"), "utf8")).toContain(
+      "<send_user_message_question_reply>",
+    );
+  } finally {
+    rpc.close();
+    if (startTicks(pid)) process.kill(pid, "SIGTERM");
+  }
+}, 15_000);

@@ -40,6 +40,43 @@ import { approvalFields, permissionValues } from "./permissions";
 import { nativeInput } from "./uploads";
 
 type Queued = [NativeBlock[], string, string, Record<string, string>];
+function askQuestionFields(
+  name: Json | undefined,
+  rawArgs: Json | undefined,
+): ObjectValue[] | undefined {
+  if (name !== "ask_question" && name !== "Run ask_question") return undefined;
+  let parsed: ObjectValue;
+  try {
+    parsed = object(typeof rawArgs === "string" ? parse(rawArgs) : rawArgs);
+  } catch {
+    return undefined;
+  }
+  const rows = Array.isArray(parsed.questions) ? parsed.questions : undefined;
+  if (!rows || rows.length === 0 || rows.length > 12) return undefined;
+  const fields: ObjectValue[] = [];
+  for (const entry of rows) {
+    const row = optionalObject(entry);
+    const title = optionalString(row.question || row.title).trim();
+    if (!title || title.length > 16384) return undefined;
+    let options: string[] | undefined;
+    if (Array.isArray(row.options)) {
+      if (row.options.length > 32) return undefined;
+      options = [];
+      for (const option of row.options) {
+        if (typeof option !== "string" || !option.trim() || option.length > 2048) return undefined;
+        options.push(option);
+      }
+    }
+    fields.push({
+      title,
+      ...(options ? { options } : {}),
+      ...(row.is_multi_select === true || row.isMultiSelect === true
+        ? { isMultiSelect: true }
+        : {}),
+    });
+  }
+  return fields;
+}
 const textContent = (blocks: Json | NativeBlock[] | undefined): string =>
   typeof blocks === "string"
     ? blocks
@@ -60,6 +97,7 @@ export class Owner {
   private selection: [string, string, Record<string, string>] | undefined;
   private turn: string | undefined;
   private lastTurn: string | undefined;
+  private lastStatus: "completed" | "failed" | "interrupted" | undefined;
   private revision = 0;
   private cancelled = false;
   private appends = 0;
@@ -71,6 +109,21 @@ export class Owner {
     const saved = join(path, "native.json");
     this.saved = existsSync(saved) ? readJson(saved, RPC_LIMIT) : undefined;
     this.migration = this.saved === undefined ? migrationContext(path) : undefined;
+    const stateFile = join(path, "state.json");
+    if (existsSync(stateFile)) {
+      try {
+        const previous = object(readJson(stateFile));
+        const id = optionalString(previous.turn_id);
+        const status = optionalString(previous.status);
+        if (id && (status === "done" || status === "failed" || status === "cancelled")) {
+          this.lastTurn = id;
+          this.lastStatus =
+            status === "done" ? "completed" : status === "cancelled" ? "interrupted" : "failed";
+        }
+      } catch {
+        /* ignore unreadable previous state on cold start */
+      }
+    }
   }
   private serialize<T>(fn: () => Promise<T> | T): Promise<T> {
     const next = this.tail.then(fn);
@@ -225,6 +278,19 @@ export class Owner {
         turnId: this.turn,
         item: { id, type: "commandExecution", name: data.name ?? "Remote tool", command },
       });
+      const questions = askQuestionFields(data.name, data.arguments);
+      if (questions) {
+        this.notify("item/completed", {
+          turnId: this.turn,
+          item: {
+            id,
+            type: "agentMessage",
+            delivery: "async",
+            providerTool: "ask_question",
+            questions,
+          },
+        });
+      }
     } else if (value.type === "tool/result") {
       const m = optionalObject(data.message),
         id = `${this.turn}:${m.toolCallId ?? m.callId ?? ""}`;
@@ -256,6 +322,9 @@ export class Owner {
       status === "interrupted" ? "task_aborted" : "task_complete",
       status === "failed",
     );
+    this.lastTurn = turn;
+    this.lastStatus =
+      status === "failed" ? "failed" : status === "interrupted" ? "interrupted" : "completed";
     this.turn = undefined;
     for (const id of this.pending.keys()) this.notify("serverRequest/resolved", { requestId: id });
     this.pending.clear();
@@ -383,7 +452,11 @@ export class Owner {
     }
     if (method === "thread/turns/list") {
       return {
-        data: this.turn ? [{ id: this.turn, status: "inProgress", items: [] }] : [],
+        data: this.turn
+          ? [{ id: this.turn, status: "inProgress", items: [] }]
+          : this.lastTurn && this.lastStatus
+            ? [{ id: this.lastTurn, status: this.lastStatus, items: [] }]
+            : [],
         nextCursor: null,
       };
     }
@@ -395,16 +468,33 @@ export class Owner {
       this.adapter.cancel();
       return {};
     }
-    check(method === "turn/start", "unsupported harness operation");
-    const model = string(p.model),
-      effort = optionalString(p.effort),
+    if (method === "turn/steer") {
+      check(this.turn && p.expectedTurnId === this.turn, "turn expired");
+    } else {
+      check(method === "turn/start", "unsupported harness operation");
+    }
+    const model =
+        p.model === undefined || p.model === null || p.model === ""
+          ? this.selection?.[0] || this.adapter.currentModel
+          : string(p.model),
+      effort =
+        p.effort === undefined || p.effort === null
+          ? p.model === undefined || p.model === null || p.model === ""
+            ? this.selection?.[1] || this.adapter.currentEffort
+            : ""
+          : optionalString(p.effort),
       row = this.adapter.models.find((r) => r.model === model);
     check(row, "model unavailable");
     const efforts = row.supportedReasoningEfforts.map((e) => e.reasoningEffort);
     check(efforts.includes(effort) || (!efforts.length && !effort), "reasoning effort unavailable");
     const blocks = nativeInput(p.input, row, Boolean(this.adapter.skills)),
       prompt = textContent(blocks),
-      settings = permissionValues(p.sessionSettings, this.adapter.settings ?? []);
+      settings =
+        p.sessionSettings === undefined &&
+        (p.model === undefined || p.model === null || p.model === "") &&
+        this.selection
+          ? this.selection[2]
+          : permissionValues(p.sessionSettings, this.adapter.settings ?? []);
     if (this.turn) {
       check(p._kiteRequireIdle !== true, "remote session already has an active turn");
       check(!this.cancelled && this.appends < 16, "pending input limit reached");

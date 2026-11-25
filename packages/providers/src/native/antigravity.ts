@@ -70,6 +70,38 @@ function extractEffortLabel(name: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
+function unwrapQuestionReply(text: string): string {
+  const trimmed = text.trim();
+  const open = "<send_user_message_question_reply>";
+  const close = "</send_user_message_question_reply>";
+  if (!trimmed.startsWith(open) || !trimmed.endsWith(close)) return text;
+  try {
+    const body = trimmed.slice(open.length, -close.length).trim();
+    const replies = array(parse(body)).map(object);
+    if (!replies.length) return text;
+    if (replies.length === 1) {
+      const only = replies[0];
+      const answer = optionalString(only?.answer).trim();
+      return answer || text;
+    }
+    return replies
+      .map((entry, index) => {
+        const question = optionalString(entry.question).trim();
+        const answer = optionalString(entry.answer).trim();
+        return question ? `${index + 1}. ${question}\n${answer}` : `${index + 1}. ${answer}`;
+      })
+      .join("\n\n");
+  } catch {
+    return text;
+  }
+}
+
+function promptForAntigravity(blocks: NativeBlock[]): NativeBlock[] {
+  return promptWithSkills(blocks).map((block) =>
+    block.type === "text" ? { ...block, text: unwrapQuestionReply(block.text) } : block,
+  );
+}
+
 function promptWithSkills(blocks: NativeBlock[]): NativeBlock[] {
   const skills = blocks.filter(
     (block): block is Extract<NativeBlock, { type: "skill" }> => block.type === "skill",
@@ -558,7 +590,7 @@ export class Antigravity extends AcpAdapter {
     }
     this.checkCancellation();
     try {
-      await this.prompt(promptWithSkills(blocks));
+      await this.prompt(promptForAntigravity(blocks));
     } finally {
       // Only release an archived owner after ACP can find its native context.
       this.persist(await this.listed(this.session).catch(() => false));
