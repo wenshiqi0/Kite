@@ -1115,6 +1115,8 @@ pub struct QuestionFieldInfo {
     pub allow_other: bool,
     pub secret: bool,
     pub options: Vec<QuestionOptionInfo>,
+    #[uniffi(default = false)]
+    pub multi_select: bool,
 }
 #[derive(Clone, Debug, uniffi::Record)]
 #[cfg_attr(
@@ -1149,6 +1151,7 @@ impl From<kite_app::QuestionPrompt> for QuestionInfo {
                             description: o.description,
                         })
                         .collect(),
+                    multi_select: f.is_multi_select,
                 })
                 .collect(),
         }

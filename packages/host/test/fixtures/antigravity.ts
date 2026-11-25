@@ -323,6 +323,34 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
             },
           });
         }
+      } else if (prompt.text === "ask") {
+        update({
+          sessionUpdate: "tool_call",
+          status: "in_progress",
+          toolCallId: "fixture-ask-question",
+          title: "Run ask_question",
+          kind: "other",
+          rawInput: {
+            questions: [
+              {
+                question: "Pick deployment targets",
+                options: ["STG", "PRD"],
+                is_multi_select: true,
+              },
+              {
+                question: "Confirm currency",
+                options: ["CNY", "USD"],
+                is_multi_select: false,
+              },
+            ],
+          },
+        });
+        update({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Pick deployment targets\n- [1] STG\n- [2] PRD" },
+        });
+        writeFileSync(nativeFile, sid, { mode: 0o600 });
+        reply(value.id, { stopReason: "end_turn" });
       } else if (prompt.text === "cancel") pending = value.id;
       else {
         update({

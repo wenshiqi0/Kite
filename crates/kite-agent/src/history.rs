@@ -303,7 +303,7 @@ fn response(
         source_pending: false,
         problem: String::new(),
         items: parse_history(&reference.agent, bytes),
-        async_input: if reference.agent == "codex" {
+        async_input: if reference.agent != "claude" {
             crate::async_input::history(&reference.value, controls)
         } else {
             Default::default()

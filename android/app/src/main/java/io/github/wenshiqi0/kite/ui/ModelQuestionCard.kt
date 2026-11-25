@@ -58,19 +58,38 @@ fun ModelQuestionCard(vm: HostCheckViewModel, question: QuestionInfo, enabled: B
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (question.fields.size > 1) Text(field.header, color = KiteColors.Muted, fontSize = 12.sp)
                         MarkdownMessage(field.text, size = 14f)
+                        val optionLabels = field.options.map { it.label }.toSet()
+                        val selectedParts = values[field.id].orEmpty().split("\n").filter { it.isNotEmpty() }
+                        val selectedOptions = if (field.multiSelect) selectedParts.filter { it in optionLabels } else listOfNotNull(values[field.id]?.takeIf { it in optionLabels })
+                        val customParts = if (field.multiSelect) selectedParts.filter { it !in optionLabels } else listOfNotNull(values[field.id]?.takeIf { it.isNotEmpty() && it !in optionLabels })
                         field.options.forEach { option ->
-                            val selected = values[field.id] == option.label
-                            Surface(color = if (selected) KiteColors.AccentSurface else KiteColors.Surface, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, KiteColors.Accent) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = interactive && !vm.answeringQuestion) { vm.setQuestionValue(question.id, field.id, option.label) }) {
+                            val selected = if (field.multiSelect) option.label in selectedOptions else values[field.id] == option.label
+                            Surface(color = if (selected) KiteColors.AccentSurface else KiteColors.Surface, shape = RoundedCornerShape(10.dp), border = if (selected) BorderStroke(1.dp, KiteColors.Accent) else null, modifier = Modifier.fillMaxWidth().clickable(enabled = interactive && !vm.answeringQuestion) {
+                                if (field.multiSelect) {
+                                    val nextOptions = if (selected) selectedOptions - option.label else selectedOptions + option.label
+                                    vm.setQuestionValue(question.id, field.id, (nextOptions + customParts).joinToString("\n"))
+                                } else {
+                                    vm.setQuestionValue(question.id, field.id, option.label)
+                                }
+                            }) {
                                 Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(selected = selected, onClick = null, modifier = Modifier.size(26.dp))
+                                    if (field.multiSelect) Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.size(26.dp))
+                                    else RadioButton(selected = selected, onClick = null, modifier = Modifier.size(26.dp))
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) { MarkdownLabel(option.label); if (option.description.isNotBlank()) MarkdownLabel(option.description, size = 11f, color = KiteColors.Muted) }
                                 }
                             }
                         }
                         if (field.options.isEmpty() || field.allowOther) {
                             val answerDescription = stringResource(R.string.question_field_description, field.header)
-                            val typed = values[field.id].orEmpty().takeUnless { value -> field.options.any { it.label == value } }.orEmpty()
-                            OutlinedTextField(value = typed, onValueChange = { vm.setQuestionValue(question.id, field.id, it) }, label = { Text(stringResource(if (field.options.isEmpty()) R.string.question_answer else R.string.question_custom_answer)) }, enabled = interactive && !vm.answeringQuestion, visualTransformation = if (field.secret) PasswordVisualTransformation() else VisualTransformation.None, keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Text), singleLine = field.secret, maxLines = if (field.secret) 1 else 4, modifier = Modifier.fillMaxWidth().semantics { contentDescription = answerDescription }, shape = RoundedCornerShape(11.dp))
+                            val typed = if (field.multiSelect) customParts.joinToString("\n") else values[field.id].orEmpty().takeUnless { value -> value in optionLabels }.orEmpty()
+                            OutlinedTextField(value = typed, onValueChange = { input ->
+                                if (field.multiSelect) {
+                                    val next = if (input.isEmpty()) selectedOptions else selectedOptions + input
+                                    vm.setQuestionValue(question.id, field.id, next.joinToString("\n"))
+                                } else {
+                                    vm.setQuestionValue(question.id, field.id, input)
+                                }
+                            }, label = { Text(stringResource(if (field.options.isEmpty()) R.string.question_answer else R.string.question_custom_answer)) }, enabled = interactive && !vm.answeringQuestion, visualTransformation = if (field.secret) PasswordVisualTransformation() else VisualTransformation.None, keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Text), singleLine = field.secret, maxLines = if (field.secret) 1 else 4, modifier = Modifier.fillMaxWidth().semantics { contentDescription = answerDescription }, shape = RoundedCornerShape(11.dp))
                         }
                     }
                 }

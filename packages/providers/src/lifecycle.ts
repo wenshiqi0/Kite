@@ -491,15 +491,22 @@ export async function notificationFacts(binary: string, includeArchived = false)
       known = true;
     if (reference?.source === "kite:harness" && isManagedProvider(reference.agent)) {
       try {
-        const state = object(readJson(join(harnessDirectory(reference.value), "state.json")));
-        if (state.turn_id && ["done", "failed", "cancelled"].includes(String(state.status)))
-          controls = JSON.stringify({
+        const dir = harnessDirectory(reference.value);
+        const historyPath = join(dir, "history.jsonl");
+        if (existsSync(historyPath)) controls = (await questionRecords(historyPath)).toString();
+        const state = object(readJson(join(dir, "state.json")));
+        if (state.turn_id && ["done", "failed", "cancelled"].includes(String(state.status))) {
+          const terminal = JSON.stringify({
             type: "event_msg",
             payload: {
               type: state.status === "done" ? "task_complete" : "task_aborted",
               turn_id: state.turn_id,
             },
           });
+          if (!controls.includes(`"turn_id":${JSON.stringify(state.turn_id)}`)) {
+            controls = controls ? `${controls.trimEnd()}\n${terminal}\n` : terminal;
+          }
+        }
       } catch {
         known = false;
       }

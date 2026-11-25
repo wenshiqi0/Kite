@@ -162,6 +162,23 @@ describe("append-safe complete history projection", () => {
     const result = projection(await historyProjection(file));
     expect(result.control).toContain("owned-question");
     expect(result.control).not.toContain("ordinary");
+
+    const askFile = join(home, "ask-question.jsonl");
+    writeFileSync(
+      askFile,
+      `${JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "Run ask_question",
+          call_id: "turn-1:call-ask",
+          arguments: JSON.stringify({
+            questions: [{ question: "Choose modes", options: ["A", "B"], is_multi_select: true }],
+          }),
+        },
+      })}\n`,
+    );
+    expect((await questionRecords(askFile)).toString()).toContain("Run ask_question");
   });
   test("strips inline images using bounded chunks, including escaped quotes", () => {
     const file = join(home, "images.jsonl");

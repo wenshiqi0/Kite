@@ -29,6 +29,8 @@ pub struct Question {
     pub is_other: bool,
     #[serde(default)]
     pub is_secret: bool,
+    #[serde(default, alias = "is_multi_select")]
+    pub is_multi_select: bool,
     pub options: Option<Vec<OptionItem>>,
 }
 #[derive(Clone, Debug)]
@@ -457,7 +459,22 @@ impl RuntimeState {
             }
             if !question.is_other
                 && question.options.as_ref().is_some_and(|options| {
-                    !options.is_empty() && !options.iter().any(|o| o.label == answer)
+                    if options.is_empty() {
+                        return false;
+                    }
+                    if question.is_multi_select {
+                        let selected: Vec<_> = answer
+                            .split('\n')
+                            .map(str::trim)
+                            .filter(|part| !part.is_empty())
+                            .collect();
+                        selected.is_empty()
+                            || selected
+                                .iter()
+                                .any(|part| !options.iter().any(|o| o.label == *part))
+                    } else {
+                        !options.iter().any(|o| o.label == answer)
+                    }
                 })
             {
                 return Err(Error::Invalid("answer must be an offered option"));
@@ -562,6 +579,7 @@ mod tests {
                     question: "Full first question?".into(),
                     is_other: true,
                     is_secret: false,
+                    is_multi_select: false,
                     options: None,
                 },
                 Question {
@@ -570,6 +588,7 @@ mod tests {
                     question: "Enter secret".into(),
                     is_other: true,
                     is_secret: true,
+                    is_multi_select: false,
                     options: None,
                 },
             ],

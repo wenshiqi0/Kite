@@ -50,6 +50,7 @@
 | [0033](0033-cross-provider-async-session-control.md) | 跨供应商长会话异步控制面与协作治理 | 草案 | 配套开发规范见 [cross-provider-collaboration.md](../docs/development/cross-provider-collaboration.md) |
 | [0034](0034-resource-aware-session-placement.md) | 会话优先的客户端与资源感知选机 | 已采纳 | 用户可改选执行主机，ACP 派发使用同一评分 |
 | [0035](0035-provider-system-prompt-and-mcp.md) | 受管模型服务的全局系统提示词与会话级 Kite MCP 注入 | 已实现 | 全 provider 统一追加系统提示词并挂 `kite`/`kite_acp` MCP |
+| [0036](0036-unified-async-questions.md) | 跨 Provider 统一异步提问表单与多选支持 | 已实现 | 接入 Antigravity `ask_question` 与多端多选表单 |
 
 ---
 
