@@ -2,6 +2,7 @@ import {
   array,
   check,
   type Json,
+  json,
   type Model,
   type NativeBlock,
   type NativeOptions,
@@ -15,6 +16,11 @@ import {
 } from "@kite/protocol";
 import { run, sleep } from "@kite/runtime";
 import { optionalObject } from "@kite/runtime/socket";
+import {
+  antigravitySessionMeta,
+  antigravitySystemPromptAppendSupported,
+  kiteMcpServers,
+} from "../kite-context";
 import { permissionValues } from "../permissions";
 import { AcpAdapter } from "./acp";
 
@@ -326,6 +332,7 @@ export class Antigravity extends AcpAdapter {
   private turbo: boolean;
   private plan: string | undefined;
   private supportsLoad = false;
+  private supportsSystemPromptAppend = false;
   private commandsBySession = new Map<string, AntigravitySkill[]>();
   private usageRequest: Promise<ObjectValue> | undefined;
 
@@ -354,6 +361,7 @@ export class Antigravity extends AcpAdapter {
         sessions = object(caps.sessionCapabilities);
       check(sessions.list && sessions.resume, "Antigravity ACP session capabilities unavailable");
       this.supportsLoad = caps.loadSession === true || Boolean(sessions.load);
+      this.supportsSystemPromptAppend = antigravitySystemPromptAppendSupported(caps);
       if (this.options.inspect) {
         // initialize succeeds when signed out. Listing checks the CLI's auth without starting a turn.
         await this.list();
@@ -373,14 +381,16 @@ export class Antigravity extends AcpAdapter {
         "saved Antigravity session is missing",
       );
       const method = useLoad ? "session/load" : sessionId ? "session/resume" : "session/new";
+      const meta = antigravitySessionMeta(this.supportsSystemPromptAppend);
       const result = object(
         await this.rpc.call(
           method,
-          {
+          json({
             cwd: this.options.cwd,
-            mcpServers: [],
+            mcpServers: kiteMcpServers(),
             ...(sessionId ? { sessionId } : {}),
-          },
+            ...(meta ? { _meta: meta } : {}),
+          }),
           15000,
         ),
       );

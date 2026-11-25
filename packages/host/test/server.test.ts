@@ -1126,6 +1126,27 @@ test("Antigravity discovery uses native authentication and one owner restores th
     const methods = readFileSync(trace, "utf8").trim().split("\n");
     expect(methods.filter((method) => method === "session/new")).toHaveLength(1);
     expect(methods.filter((method) => method === "session/resume")).toHaveLength(2);
+    const sessionCalls = readFileSync(join(home, "agy-fixture-sessions"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => object(parse(line)));
+    expect(sessionCalls.length).toBeGreaterThanOrEqual(3);
+    for (const call of sessionCalls) {
+      const params = object(call.params);
+      expect(object(object(object(params._meta).antigravity).systemPrompt).append).toContain(
+        "Kite-managed session",
+      );
+      const servers = array(params.mcpServers).map(object);
+      if (servers.length > 0) {
+        expect(servers.map((server) => server.name)).toEqual(["kite", "kite_acp"]);
+        for (const server of servers) {
+          expect(array(server.env).map(object)).toContainEqual({
+            name: "KITE_SESSION_ID",
+            value: id,
+          });
+        }
+      }
+    }
   } finally {
     rpc.close();
     if (startTicks(pid)) process.kill(pid, "SIGTERM");
