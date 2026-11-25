@@ -1,11 +1,21 @@
-import { array, check, type NativeBlock, object, optionalString, string } from "@kite/protocol";
-import { nativeModelId } from "@kite/runtime/socket";
+import {
+  array,
+  check,
+  json,
+  type NativeBlock,
+  object,
+  optionalString,
+  string,
+} from "@kite/protocol";
+import { nativeModelId, optionalObject } from "@kite/runtime/socket";
+import { acpSystemPromptMeta, kiteMcpServers } from "../kite-context";
 import { AcpAdapter } from "./acp";
 
 export class Ply extends AcpAdapter {
   async initialize(): Promise<this> {
     try {
       const hello = await this.handshake("ply");
+      const caps = optionalObject(hello.agentCapabilities);
       const metadata = object(object(hello._meta).ply);
       this.models = array(metadata.models).map((value) => {
         const row = object(value);
@@ -33,12 +43,17 @@ export class Ply extends AcpAdapter {
           !saved || typeof saved === "string",
           "Ply session predates ACP; start a new ACP session",
         );
+        const meta = acpSystemPromptMeta(caps);
         const value = object(
-          await this.rpc.call(saved ? "session/load" : "session/new", {
-            ...(saved ? { sessionId: saved } : {}),
-            cwd: this.options.cwd,
-            mcpServers: [],
-          }),
+          await this.rpc.call(
+            saved ? "session/load" : "session/new",
+            json({
+              ...(saved ? { sessionId: saved } : {}),
+              cwd: this.options.cwd,
+              mcpServers: kiteMcpServers(),
+              ...(meta ? { _meta: meta } : {}),
+            }),
+          ),
         );
         this.session = saved ? string(saved) : string(value.sessionId);
         this.readConfig(value.configOptions ?? []);

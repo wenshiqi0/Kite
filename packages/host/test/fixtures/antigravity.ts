@@ -6,6 +6,7 @@ import { home, lines } from "@kite/runtime";
 const nativeFile = join(home(), "agy-fixture-session");
 const trace = join(home(), "agy-fixture-methods");
 const promptTrace = join(home(), "agy-fixture-prompts");
+const sessionTrace = join(home(), "agy-fixture-sessions");
 if (process.argv.includes("-p") && process.argv.includes("/usage")) {
   const mode = process.env.KITE_FIXTURE_AGY_USAGE_MODE || "ready";
   if (mode === "api_key") {
@@ -150,6 +151,12 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
             resume: {},
             ...(enableLoad ? { load: {}, close: {} } : {}),
           },
+          _meta: {
+            antigravity: {
+              tier: true,
+              systemPrompt: { append: true },
+            },
+          },
         },
       });
       break;
@@ -171,6 +178,7 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
         });
       break;
     case "session/load":
+      appendFileSync(sessionTrace, `${JSON.stringify({ method: value.method, params: p })}\n`);
       if (!existsSync(nativeFile) || readFileSync(nativeFile, "utf8") !== string(p.sessionId)) {
         send({
           jsonrpc: "2.0",
@@ -209,6 +217,7 @@ for await (const line of lines(Bun.stdin.stream(), 40 * 1024 * 1024)) {
       break;
     case "session/resume":
     case "session/new":
+      appendFileSync(sessionTrace, `${JSON.stringify({ method: value.method, params: p })}\n`);
       sid = value.method === "session/resume" ? string(p.sessionId) : crypto.randomUUID();
       reply(value.id, {
         sessionId: sid,

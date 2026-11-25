@@ -20,6 +20,7 @@ import {
 import { atomic, entry, readJson, sleep } from "@kite/runtime";
 import { RpcError, RpcProcess, TurnCancelled } from "@kite/runtime/rpc";
 import { optionalObject, socketRequest } from "@kite/runtime/socket";
+import { acpSystemPromptMeta, kiteMcpServers } from "../kite-context";
 import { appendContent } from "../media";
 import { permissionSettings, permissionValues } from "../permissions";
 export class Dsh implements NativeAdapter {
@@ -31,6 +32,7 @@ export class Dsh implements NativeAdapter {
   private session = "";
   private config: ObjectValue[] = [];
   private image = false;
+  private systemPromptMeta: ObjectValue | undefined;
   private cancelled = false;
   private content = new Map<string, ObjectValue[]>();
   private message = "";
@@ -59,7 +61,12 @@ export class Dsh implements NativeAdapter {
         const value = object(
           await this.transport.call(
             saved ? "session/resume" : "session/new",
-            json({ ...(saved ? { sessionId: saved } : {}), cwd: this.options.cwd, mcpServers: [] }),
+            json({
+              ...(saved ? { sessionId: saved } : {}),
+              cwd: this.options.cwd,
+              mcpServers: kiteMcpServers(),
+              ...(this.systemPromptMeta ? { _meta: this.systemPromptMeta } : {}),
+            }),
           ),
         );
         this.session = saved ? string(saved) : string(value.sessionId);
@@ -117,8 +124,9 @@ export class Dsh implements NativeAdapter {
       ),
     );
     check(object(hello.agentInfo).name === "deepseek-harness-acp", "DSH ACP identity mismatch");
-    this.image =
-      optionalObject(optionalObject(hello.agentCapabilities).promptCapabilities).image === true;
+    const caps = optionalObject(hello.agentCapabilities);
+    this.image = optionalObject(caps.promptCapabilities).image === true;
+    this.systemPromptMeta = acpSystemPromptMeta(caps);
     this.models = models(object(readJson(output)).models);
   }
   private async select(model: string, effort: string): Promise<void> {
@@ -133,11 +141,15 @@ export class Dsh implements NativeAdapter {
       const pair = array(parse(model));
       await this.start(string(pair[0]), string(pair[1]));
       const value = object(
-        await this.transport.call("session/resume", {
-          sessionId: saved,
-          cwd: this.options.cwd,
-          mcpServers: [],
-        }),
+        await this.transport.call(
+          "session/resume",
+          json({
+            sessionId: saved,
+            cwd: this.options.cwd,
+            mcpServers: kiteMcpServers(),
+            ...(this.systemPromptMeta ? { _meta: this.systemPromptMeta } : {}),
+          }),
+        ),
       );
       this.config = array(value.configOptions ?? []).map(object);
       this.currentModel =

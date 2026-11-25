@@ -56,6 +56,7 @@
 
 - 主机探测并发布经过验证的可用 provider 目录，Rust 将其转换为能力快照驱动客户端选项；未验证可用的 provider 不在新建入口展示。
 - 原生模型列表、思考强度、视觉/附件模态与权限配置必须从各自真实后端查询，并贯通同一客户端控件（harness 采用下拉选择器）；不得把适配器缺口伪装成 provider 原生不支持。
+- **受管会话系统提示词与 Kite MCP 注入（[RFC 0035](../../rfcs/0035-provider-system-prompt-and-mcp.md)）**：Kite 在启动或恢复受管模型会话时，通过各 provider 原生非破坏通道统一追加全局 Kite 系统提示词（子任务派发走 `kite acp` v2 / `kite_session_*`、宿主机与桌面走 Kite、澄清优先使用结构化提问工具）并注入会话级 `kite` / `kite_acp` MCP 服务（显式透传 `KITE_SESSION_ID`）；只读探针不预加载 MCP，不得覆写用户全局配置或污染可见聊天历史。
 - 当前已注册 provider 分为两类（见 [packages/protocol/src/index.ts](../../packages/protocol/src/index.ts)）：
   - **结构化聊天 provider（`CHAT_PROVIDERS`）**：`codex`、`dsh`、`ply`、`antigravity`
   - **终端型 provider**：`claude`（属于 `PROVIDERS`，未连接时明确显示待连接状态）

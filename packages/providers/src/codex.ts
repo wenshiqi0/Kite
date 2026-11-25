@@ -45,6 +45,7 @@ import { bridgeSocket, listening, requirePrivateSocket } from "@kite/runtime/soc
 import { catalogRead, catalogRoot, patchSession, sessionLock, stateDir } from "./catalog";
 import { codexHistoryFiles, codexThread, setCodexArchived } from "./codex-storage";
 import { harnessDirectory, harnessInfo, openHarness } from "./harness";
+import { codexConfigOverrides, KITE_SYSTEM_PROMPT } from "./kite-context";
 import { attachSubagents, codexSubagents } from "./subagents";
 import { websocketProxy } from "./websocket";
 export interface Registry extends OwnerIdentity {
@@ -229,6 +230,7 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
       "codex",
       "-c",
       "check_for_update_on_startup=false",
+      ...codexConfigOverrides(),
       "app-server",
       "--listen",
       `unix://${socket}`,
@@ -244,12 +246,7 @@ export async function ensure(pane: string, binary: string): Promise<Registry> {
             "--herdr",
             binary,
             "--",
-            "codex",
-            "-c",
-            "check_for_update_on_startup=false",
-            "app-server",
-            "--listen",
-            `unix://${socket}`,
+            ...launch,
           );
     let child: Bun.Subprocess;
     try {
@@ -318,8 +315,14 @@ async function createMacThread(pane: string, cwd: string, title: string): Promis
     rpc.write({ method: "initialized" });
     const thread = string(
       object(
-        object(await rpc.call("thread/start", { cwd, historyMode: "legacy", serviceName: "kite" }))
-          .thread,
+        object(
+          await rpc.call("thread/start", {
+            cwd,
+            historyMode: "legacy",
+            serviceName: "kite",
+            developerInstructions: KITE_SYSTEM_PROMPT,
+          }),
+        ).thread,
       ).id,
     );
     check(UUID.test(thread), "invalid new Codex thread identity");
