@@ -71,7 +71,7 @@ export abstract class AcpAdapter implements NativeAdapter {
   protected readonly splitMessagesAtTools: boolean = false;
   protected supportsSessionClose = false;
   private cancelled = false;
-  private prompting = false;
+  private promptId: number | undefined;
   private content: ObjectValue[] = [];
   private message = "";
   private tools = new Map<string, ObjectValue>();
@@ -79,7 +79,7 @@ export abstract class AcpAdapter implements NativeAdapter {
 
   constructor(
     protected options: NativeOptions,
-    private promptTimeout = 3600000,
+    private readonly promptTimeout: number | null,
   ) {
     this.rpc = this.connect(options.command);
   }
@@ -101,7 +101,7 @@ export abstract class AcpAdapter implements NativeAdapter {
     }
   }
   protected async restart(command: string[]): Promise<void> {
-    check(!this.prompting, "ACP session is busy");
+    check(this.promptId === undefined, "ACP session is busy");
     await this.closeSessionGracefully();
     const previous = this.rpc;
     previous.close();
@@ -161,7 +161,7 @@ export abstract class AcpAdapter implements NativeAdapter {
     this.readConfig(reply.configOptions);
   }
   alive(): boolean {
-    return this.rpc.child.exitCode === null && this.rpc.child.signalCode === null;
+    return this.rpc.alive();
   }
   prepare(): void {
     this.cancelled = false;
@@ -180,14 +180,14 @@ export abstract class AcpAdapter implements NativeAdapter {
     this.checkCancellation();
     this.startMessage();
     this.tools.clear();
-    this.prompting = true;
     try {
       const reply = object(
         await this.rpc.call(
           "session/prompt",
           json({ sessionId: this.session, prompt: blocks }),
           this.promptTimeout,
-          () => {
+          (id) => {
+            this.promptId = id;
             if (this.cancelled) this.cancel();
           },
           () => this.cancel(),
@@ -199,7 +199,7 @@ export abstract class AcpAdapter implements NativeAdapter {
         "ACP agent did not complete its turn",
       );
     } finally {
-      this.prompting = false;
+      this.promptId = undefined;
       this.permissions.clear();
     }
   }
@@ -220,7 +220,7 @@ export abstract class AcpAdapter implements NativeAdapter {
       return;
     }
     this.onUpdate(update, sessionId);
-    if (!this.prompting) return;
+    if (this.promptId === undefined) return;
     if (update.sessionUpdate === "agent_message_chunk" && update.content) {
       const content = object(update.content);
       this.content = appendContent(this.content, content);
@@ -287,7 +287,7 @@ export abstract class AcpAdapter implements NativeAdapter {
     const params = object(value.params),
       id = value.id;
     check(typeof id === "string" || typeof id === "number", "invalid permission identity");
-    if (!this.prompting || params.sessionId !== this.session || this.cancelled) {
+    if (this.promptId === undefined || params.sessionId !== this.session || this.cancelled) {
       this.rpc.write({ id, result: { outcome: { outcome: "cancelled" } } });
       return;
     }
@@ -316,11 +316,15 @@ export abstract class AcpAdapter implements NativeAdapter {
   }
   cancel(): void {
     this.cancelled = true;
+    if (this.promptId === undefined) return;
+    if (this.promptTimeout === null) this.rpc.cancel(this.promptId, () => this.sendCancellation());
+    else this.sendCancellation();
+  }
+  private sendCancellation(): void {
     for (const id of this.permissions)
       this.rpc.write({ id, result: { outcome: { outcome: "cancelled" } } });
     this.permissions.clear();
-    if (this.prompting)
-      this.rpc.write({ method: "session/cancel", params: { sessionId: this.session } });
+    this.rpc.write({ method: "session/cancel", params: { sessionId: this.session } });
   }
   close(): void {
     this.permissions.clear();

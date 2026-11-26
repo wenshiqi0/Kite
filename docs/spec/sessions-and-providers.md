@@ -1,6 +1,6 @@
 # 会话图谱、Provider 接入与交互规范
 
-> 所属规范：[SPEC.md](../../SPEC.md) · 状态：生效 · 更新：2026-11-23
+> 所属规范：[SPEC.md](../../SPEC.md) · 状态：生效 · 更新：2026-11-26
 > 相关提案：[RFC 0006](../../rfcs/0006-rich-composer.md)、[RFC 0007](../../rfcs/0007-sessions-and-interactions.md)、[RFC 0008](../../rfcs/0008-native-markdown-and-video-layout.md)、[RFC 0009](../../rfcs/0009-async-questions-in-chat.md)、[RFC 0013](../../rfcs/0013-complete-transcript-and-dark-workspace.md)、[RFC 0020](../../rfcs/0020-session-owner-lifecycle.md)、[RFC 0021](../../rfcs/0021-dsh-provider.md)、[RFC 0023](../../rfcs/0023-harness-capability-parity.md)、[RFC 0025](../../rfcs/0025-ply-acp.md)、[RFC 0026](../../rfcs/0026-session-permissions.md)、[RFC 0027](../../rfcs/0027-conversation-items-and-threads.md)、[RFC 0032](../../rfcs/0032-antigravity-acp.md)
 
 ## 1. 会话图谱与核心模型（RFC 0027）
@@ -46,6 +46,12 @@
   - 释放保留原会话引用与 provider 原始历史，后续继续会话按原 provider thread/session ID 恢复唯一 owner。
 - **显式删除会话**：活动和归档列表均可直接删除，命令绑定目标主机与会话 ID。删除授权立即终止该会话任务；主机在目录与 owner 锁内核验身份、排除被其他活跃会话共享的 owner，释放受管进程及其本地子进程并确认退出后，才移除 Kite 目录记录。私有删除标记防止过期写入或发现结果复活记录，且不保存对话正文；provider 原始历史保持原位。
 
+### 3.1 轮次执行与超时
+
+- 初始化、配置和提交确认使用有界请求超时。Codex `turn/start` 返回启动确认，`turn/completed` 报告原生执行结果。观察超时只结束本次观察。
+- 覆盖整轮的原生 RPC 由适配器显式选择执行时限策略。采用固定运行上限时，记录该 provider 的产品依据。
+- Owner 根据原生结果、原生连接断开或显式取消收尾。收到显式中断后，等待对应的原生回复或关闭原生连接，再接受下一轮。
+
 ---
 
 ## 4. Provider 目录与具体实现约束
@@ -68,7 +74,7 @@
 | **Codex** | 持久 `app-server v2`，同一 pane 的 TUI 与客户端共享同一 owner 和 thread ID | 1. **速度档位**：模型目录公布 `serviceTiers` 加速档位时同时提供标准速度；按主机和会话持久化，随下一条消息提交，切换模型若不支持则回退标准速度。<br>2. **显式 Skill**：按 `cwd` 经 `skills/list` 查询，Rust 持有每条消息选择；Android 加号菜单选入可移除标签，发送成功清除、失败保留，不改全局 skill 配置。<br>3. **套餐额度**：独立于聊天只读查询，客户端销毁即取消；不保存账户凭据，不凭缺失字段猜测余额，不以重置时间推断发送权限。<br>4. **原生历史 DB**：无 JSONL 时通过主机能力 `historyNativeApi` 只读原生历史数据库，在私有目录维护投影；推理条目不进入正文。<br>5. **关联任务**：以平层“关联任务”列表展示真实后代（不画多级树）；通过只读 `thread/list` 获取元数据与事实，Rust 统一裁定状态；点击只读查看并复用主聊天条目渲染组件，不创建独立终端或改变原会话引用。 |
 | **DSH** | 显式环境变量启用，经鉴权模型健康探测与原生协议连接（[RFC 0021](../../rfcs/0021-dsh-provider.md)） | 模型列表与健康探测结果取交集校验；内部规范化到统一聊天事件，不向 DSH 发送 Codex 私有 RPC。 |
 | **Ply** | 独立 ACP v1 插件 `ply acp`（[RFC 0025](../../rfcs/0025-ply-acp.md)） | 不保留旧 MCP 协议回退；恢复仅保存原生 `sessionId`，私有快照留存 Ply；支持模型、思考强度、工具事件、权限与取消。 |
-| **Antigravity** | 显式启用 `agy acp`（[RFC 0032](../../rfcs/0032-antigravity-acp.md)） | 以已鉴权的 `session/list` 为发现依据；持久保存原生 ID 冷启动恢复，归档释放前确认原生上下文可查询。<br>权限面板提供独立 `tool_permission`（`default` / `turbo` 对应 `--dangerously-skip-permissions`），随下一条消息生效；切换时等旧进程退出并以同一原生 `sessionId` 恢复，不批准已挂起审批，不改全局配置。 |
+| **Antigravity** | 显式启用 `agy acp`（[RFC 0032](../../rfcs/0032-antigravity-acp.md)） | 以已鉴权的 `session/list` 为发现依据；持久保存原生 ID 冷启动恢复，归档释放前确认原生上下文可查询。<br>`session/prompt` 持续等待原生结果。显式中断发送 `session/cancel`，若 5 秒内没有该轮响应，则关闭原生连接并向进程组发送终止信号。继续会话沿用原生 `sessionId`。<br>权限面板提供独立 `tool_permission`（`default` / `turbo` 对应 `--dangerously-skip-permissions`），随下一条消息生效；切换时等旧进程退出并以同一原生 `sessionId` 恢复，不批准已挂起审批，不改全局配置。 |
 | **Claude** | Herdr 终端型集成与 `--resume` 路径 | 历史读取为有界尾部，不宣称具备与 Codex 同等的结构化历史/模型设置能力；未连接时明确展示待连接状态。 |
 
 ---
