@@ -3,6 +3,7 @@ import {
   check,
   json,
   type NativeBlock,
+  type NativeOptions,
   object,
   optionalString,
   string,
@@ -12,6 +13,9 @@ import { acpSystemPromptMeta, kiteMcpServers } from "../kite-context";
 import { AcpAdapter } from "./acp";
 
 export class Ply extends AcpAdapter {
+  constructor(options: NativeOptions, promptTimeout = 3_600_000) {
+    super(options, promptTimeout);
+  }
   async initialize(): Promise<this> {
     try {
       const hello = await this.handshake("ply");

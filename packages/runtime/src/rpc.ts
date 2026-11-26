@@ -27,7 +27,8 @@ export class RpcProcess {
     {
       resolve: (value: Json) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer: ReturnType<typeof setTimeout> | undefined;
+      cancellation?: Error;
     }
   >();
   private closed = false;
@@ -49,6 +50,9 @@ export class RpcProcess {
     void this.read().catch(() => this.close());
     void this.child.exited.then(() => this.close());
   }
+  alive(): boolean {
+    return !this.closed && this.child.exitCode === null && this.child.signalCode === null;
+  }
   write(value: RpcMessage): void {
     check(!this.closed, "native runtime is closed");
     const data = `${JSON.stringify({ jsonrpc: "2.0", ...value })}\n`;
@@ -59,44 +63,48 @@ export class RpcProcess {
   call(
     method: string,
     params: Json,
-    timeout = 40_000,
+    timeout: number | null = 40_000,
     onId?: (id: number) => void,
     cancelOnTimeout?: () => void,
   ): Promise<Json> {
-    if (this.closed || this.child.exitCode !== null || this.child.signalCode !== null)
-      return Promise.reject(new Error("native runtime is closed"));
+    if (!this.alive()) return Promise.reject(new Error("native runtime is closed"));
     const id = ++this.counter;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const error = new RpcTimeoutError();
-        const pending = this.pending.get(id);
-        if (!pending) return;
-        if (!cancelOnTimeout) {
-          this.pending.delete(id);
-          reject(error);
-          return;
-        }
-        // Keep the request registered until native cancellation completes. A late
-        // success still belongs to the expired request, never the next turn.
-        pending.resolve = () => reject(error);
-        pending.reject = () => reject(error);
-        pending.timer = setTimeout(() => this.close(), 5000);
-        try {
-          cancelOnTimeout();
-        } catch {
-          this.close();
-        }
-      }, timeout);
+      const timer =
+        timeout === null
+          ? undefined
+          : setTimeout(() => this.expire(id, new RpcTimeoutError(), cancelOnTimeout), timeout);
       this.pending.set(id, { resolve, reject, timer });
       try {
         this.write({ id, method, params });
         onId?.(id);
       } catch (error) {
-        clearTimeout(timer);
+        clearTimeout(this.pending.get(id)?.timer);
         this.pending.delete(id);
         reject(error);
       }
     });
+  }
+  cancel(id: number, sendCancel: () => void): void {
+    this.expire(id, new TurnCancelled(), sendCancel);
+  }
+  private expire(id: number, error: Error, sendCancel?: () => void): void {
+    const pending = this.pending.get(id);
+    if (!pending || pending.cancellation) return;
+    clearTimeout(pending.timer);
+    if (!sendCancel) {
+      this.pending.delete(id);
+      pending.reject(error);
+      return;
+    }
+    // The pending request owns the provider until its cancellation reply or disconnect.
+    pending.cancellation = error;
+    pending.timer = setTimeout(() => this.close(), 5000);
+    try {
+      sendCancel();
+    } catch {
+      this.close();
+    }
   }
   private async read(): Promise<void> {
     for await (const line of lines(this.child.stdout, RPC_LIMIT)) {
@@ -107,7 +115,8 @@ export class RpcProcess {
         if (!p) continue;
         this.pending.delete(value.id);
         clearTimeout(p.timer);
-        if (value.error) p.reject(new RpcError(Number(object(value.error).code)));
+        if (p.cancellation) p.reject(p.cancellation);
+        else if (value.error) p.reject(new RpcError(Number(object(value.error).code)));
         else p.resolve(value.result ?? {});
       } else if (typeof value.method === "string") {
         const message = rpcMessage(value);
@@ -121,7 +130,7 @@ export class RpcProcess {
     this.closed = true;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(new Error("native runtime disconnected"));
+      p.reject(p.cancellation ?? new Error("native runtime disconnected"));
     }
     this.pending.clear();
     this.child.stdin.end();

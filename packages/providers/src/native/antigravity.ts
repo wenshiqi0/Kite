@@ -380,7 +380,7 @@ export class Antigravity extends AcpAdapter {
       : policy === undefined
         ? true
         : policy === "turbo";
-    super({ ...options, command: permissionCommand(options.command, turbo) });
+    super({ ...options, command: permissionCommand(options.command, turbo) }, null);
     this.turbo = turbo;
   }
 
