@@ -29,6 +29,9 @@ const USAGE_TIMEOUT_MS = 20_000;
 const SKIP_PERMISSIONS = "--dangerously-skip-permissions";
 const COMMAND_WAIT_MS = 400;
 const MAX_COMMANDS = 512;
+const THINKING_LEVEL_ORDER = new Map(
+  ["low", "medium", "high", "xhigh", "max"].map((level, index) => [level, index]),
+);
 
 interface AntigravitySkill {
   name: string;
@@ -347,10 +350,14 @@ function modelCatalog(
       hidden: false,
       isDefault,
       inputModalities: image ? ["text", "image"] : ["text"],
-      supportedReasoningEfforts: options.map(({ value, name }) => ({
-        reasoningEffort: value,
-        description: name,
-      })),
+      // The variant catalog can list the default level first. The picker follows thinking depth.
+      supportedReasoningEfforts: [...options]
+        .sort(
+          (a, b) =>
+            (THINKING_LEVEL_ORDER.get(a.value) ?? THINKING_LEVEL_ORDER.size) -
+            (THINKING_LEVEL_ORDER.get(b.value) ?? THINKING_LEVEL_ORDER.size),
+        )
+        .map(({ value, name }) => ({ reasoningEffort: value, description: name })),
       defaultReasoningEffort: isDefault
         ? (thinking?.currentValue ?? "")
         : preferredDefault(options),
